@@ -288,6 +288,11 @@ export const clearSelectedDisasterEventCache = () => {
 };
 
 export const registerHousehold = async (payload, options = {}) => {
+  const isReAdmission =
+    payload?.registration_operation === "CREATE_NEW_HOUSEHOLD_OCCURRENCE";
+  const actionKey = isReAdmission
+    ? "HOUSEHOLD_RE_ADMISSION"
+    : "HOUSEHOLD_REGISTER";
   const guardKey = buildLocalRegistrationGuardKey(payload);
 
   if (guardKey && inFlightHouseholdRegistrationKeys.has(guardKey)) {
@@ -303,21 +308,34 @@ export const registerHousehold = async (payload, options = {}) => {
   }
 
   try {
-    await assertNoLocalDuplicateHouseholdRegistration({
-      payload,
-      cachedHouseholds: options.cachedHouseholds,
-      excludeClientSyncId: options.excludeClientSyncId,
-    });
+    if (!isReAdmission) {
+      await assertNoLocalDuplicateHouseholdRegistration({
+        payload,
+        cachedHouseholds: options.cachedHouseholds,
+        excludeClientSyncId: options.excludeClientSyncId,
+      });
+    }
 
     return await performSyncableMutation({
       moduleName: "barangay-households",
-      actionKey: "HOUSEHOLD_REGISTER",
+      actionKey,
       entityType: "HOUSEHOLD",
       entityLocalId: payload?.family_head?.first_name
-        ? `${payload.family_head.first_name}-${payload.family_head.last_name}-${payload.disaster_event_id}-${payload.barangay_id}`
+        ? `${payload.family_head.first_name}-${payload.family_head.last_name}-${payload.disaster_event_id}-${payload.barangay_id}${
+            isReAdmission
+              ? `-${payload.re_admission_source_household_id || "source"}`
+              : ""
+          }`
         : null,
       payload,
-      requiredFields: ["disaster_event_id", "barangay_id", "family_head"],
+      requiredFields: [
+        "disaster_event_id",
+        "barangay_id",
+        "family_head",
+        ...(isReAdmission
+          ? ["registration_operation", "re_admission_source_household_id"]
+          : []),
+      ],
       request: async () => {
         const response = await fetch(`${API_BASE_URL}/api/v1/households/register`, {
           method: "POST",
@@ -337,6 +355,13 @@ export const registerHousehold = async (payload, options = {}) => {
               id: entityLocalId,
               updated_at: clientTimestamp,
             },
+            ...(isReAdmission
+              ? {
+                  registration_operation: "CREATE_NEW_HOUSEHOLD_OCCURRENCE",
+                  source_household_id:
+                    payload.re_admission_source_household_id || null,
+                }
+              : {}),
           },
           clientSyncId,
           entityLocalId,

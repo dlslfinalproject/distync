@@ -126,6 +126,11 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const [isLoadingRestoreHouseholdDetails, setIsLoadingRestoreHouseholdDetails] =
     useState(false);
   const [isRestoringHousehold, setIsRestoringHousehold] = useState(false);
+  const [reAdmissionHouseholdId, setReAdmissionHouseholdId] = useState("");
+  const [reAdmissionHouseholdDetails, setReAdmissionHouseholdDetails] =
+    useState(null);
+  const [isLoadingReAdmissionHouseholdDetails, setIsLoadingReAdmissionHouseholdDetails] =
+    useState(false);
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
     message: "",
@@ -240,6 +245,31 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       );
       setAttendanceActionMessage("");
       setActiveCrossEventModalTitles([]);
+      reloadMasterlist();
+    },
+  });
+
+  const reAdmissionForm = useHouseholdRegistrationForm({
+    isOpen: Boolean(reAdmissionHouseholdId),
+    mode: "reAdmission",
+    initialHouseholdDetails: reAdmissionHouseholdDetails,
+    defaultBarangayId: selectedBarangayId || "",
+    defaultBarangayName: selectedBarangayId ? selectedBarangayLabel || "" : "",
+    defaultDisasterEventId:
+      reAdmissionHouseholdDetails?.household?.disaster_event_id ||
+      selectedDisasterEventId ||
+      "",
+    lockBarangaySelection: false,
+    hideBarangaySelection: false,
+    restrictNonResidentToEvacCenter: true,
+    scopeNonResidentEvacuationCentersToBarangay: true,
+    registeredBy: authenticatedUser?.id || null,
+    onSuccess: (response) => {
+      setRegistrationSuccessMessage(
+        response?.message || "Household re-admitted successfully",
+      );
+      setAttendanceActionMessage("");
+      setActiveCrossEventModalTitles(getActiveCrossEventTitles(response));
       reloadMasterlist();
     },
   });
@@ -753,6 +783,30 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   };
 
   const handleOpenRestoreHousehold = async (householdId) => {
+    const selectedRow = displayedRows.find(
+      (row) => row.household_id === householdId,
+    );
+
+    if (!selectedRow?.is_non_admitted_resident) {
+      setReAdmissionHouseholdId("");
+      setReAdmissionHouseholdDetails(null);
+      setIsLoadingReAdmissionHouseholdDetails(true);
+
+      try {
+        const details = await fetchHouseholdDetails(householdId);
+        setReAdmissionHouseholdDetails(details);
+        setReAdmissionHouseholdId(householdId);
+      } catch (error) {
+        setAttendanceActionMessage(
+          error.message || "Failed to load household details for re-admission.",
+        );
+      } finally {
+        setIsLoadingReAdmissionHouseholdDetails(false);
+      }
+
+      return;
+    }
+
     setPendingRestoreHouseholdId(householdId);
     setPendingRestoreHouseholdDetails(null);
     setIsLoadingRestoreHouseholdDetails(true);
@@ -765,6 +819,16 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     } finally {
       setIsLoadingRestoreHouseholdDetails(false);
     }
+  };
+
+  const handleCloseReAdmission = () => {
+    if (reAdmissionForm.isSubmitting || isLoadingReAdmissionHouseholdDetails) {
+      return;
+    }
+
+    setReAdmissionHouseholdId("");
+    setReAdmissionHouseholdDetails(null);
+    setIsLoadingReAdmissionHouseholdDetails(false);
   };
 
   const handleRecordStatusChange = (nextRecordStatus) => {
@@ -918,6 +982,9 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     pendingRestoreHouseholdDetails,
     isLoadingRestoreHouseholdDetails,
     isRestoringHousehold,
+    reAdmissionHouseholdId,
+    reAdmissionHouseholdDetails,
+    isLoadingReAdmissionHouseholdDetails,
     exportFeedback,
     selectedSectorIds,
     selectedSortOrder: selectedSortOrderByTab,
@@ -935,6 +1002,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     selectableBarangays,
     registrationForm,
     editHouseholdForm,
+    reAdmissionForm,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
     setSearchTerm,
@@ -969,6 +1037,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     handleOpenRestoreHousehold,
     handleCancelRestoreHousehold,
     handleConfirmRestoreHousehold,
+    handleCloseReAdmission,
     handleExport,
     toggleSectorFilter,
     clearSectorFilters,

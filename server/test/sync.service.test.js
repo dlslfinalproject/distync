@@ -192,6 +192,63 @@ const buildValidHouseholdRegisterSyncPayload = (overrides = {}) => ({
   ...overrides,
 });
 
+test("HOUSEHOLD_RE_ADMISSION sync creates a new occurrence instead of updating the archived source", async () => {
+  let registrationArguments = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async (...args) => {
+          registrationArguments = args;
+          return {
+            household: {
+              id: "99999999-9999-4999-8999-999999999999",
+            },
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "re-admission-create-1",
+            action_key: "HOUSEHOLD_RE_ADMISSION",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-re-admission-1",
+            entity_server_id: null,
+            client_timestamp: "2026-08-25T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload({
+              registration_operation: "CREATE_NEW_HOUSEHOLD_OCCURRENCE",
+              re_admission_source_household_id:
+                "88888888-8888-4888-8888-888888888888",
+            }),
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(registrationArguments[0].registration_operation, "CREATE_NEW_HOUSEHOLD_OCCURRENCE");
+      assert.equal(
+        registrationArguments[0].re_admission_source_household_id,
+        "88888888-8888-4888-8888-888888888888",
+      );
+      assert.equal(registrationArguments[1].operation, "RE_ADMISSION");
+      assert.equal(
+        registrationArguments[1].sourceHouseholdId,
+        "88888888-8888-4888-8888-888888888888",
+      );
+    },
+  );
+});
+
 test("BRG-SC-03 TEST A rejects foreign Barangay HOUSEHOLD_UPDATE before conflict evidence is stored", async () => {
   const foreignHousehold = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -454,6 +511,86 @@ test("BRG-SC-03 TEST D rejects foreign Barangay HOUSEHOLD_UPDATE without mutatio
       assert.equal(result.data, null);
       assert.equal(conflictCalls, 0);
       assert.equal(updateCalled, false);
+    },
+  );
+});
+
+test("HOUSEHOLD_UPDATE sync preserves archived-occurrence rejection without conflict application", async () => {
+  let conflictCalls = 0;
+  let updateCalled = false;
+  let failedTransactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Archived household rejection must not become conflict evidence");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failedTransactionPayload = payload;
+          }
+
+          return { id, ...payload };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "archived-household-sync",
+          disaster_event_id: "event-1",
+          disaster_event_status: "ACTIVE",
+          barangay_id: baseAuth.defaultBarangayId,
+          current_stay_type: "EVAC_CENTER",
+          is_active: false,
+          updated_at: "2026-08-08T01:00:00.000Z",
+        }),
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          const error = new Error("Archived households cannot be edited");
+          error.statusCode = 400;
+          error.code = "HISTORICAL_HOUSEHOLD_IMMUTABLE";
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "archived-household-sync-update",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "archived-household-sync",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              disaster_event_id: "event-1",
+              barangay_id: baseAuth.defaultBarangayId,
+              contact_number: "09999999999",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(result.error_code, "HISTORICAL_HOUSEHOLD_IMMUTABLE");
+      assert.equal(result.message, "Archived households cannot be edited");
+      assert.equal(updateCalled, true);
+      assert.equal(conflictCalls, 0);
+      assert.equal(failedTransactionPayload.sync_status, "FAILED");
+      assert.equal(
+        failedTransactionPayload.error_message,
+        "Archived households cannot be edited",
+      );
     },
   );
 });

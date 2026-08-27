@@ -18,6 +18,7 @@ const VALID_UUIDS = {
   evacuationCenterId: "33333333-3333-4333-8333-333333333333",
   registeredBy: "44444444-4444-4444-8444-444444444444",
   householdId: "55555555-5555-4555-8555-555555555555",
+  sourceHouseholdId: "77777777-7777-4777-8777-777777777777",
   evacuationLogId: "66666666-6666-4666-8666-666666666666",
 };
 
@@ -135,6 +136,33 @@ test("create validation accepts a valid privacy acknowledgment payload", async (
   assert.equal(
     result.req.validatedBody.privacy_acknowledgment.consent_status,
     "ACKNOWLEDGED",
+  );
+});
+
+test("re-admission create validation requires and preserves the archived source reference", () => {
+  const payload = buildValidPayload();
+  payload.registration_operation = "CREATE_NEW_HOUSEHOLD_OCCURRENCE";
+  payload.re_admission_source_household_id = VALID_UUIDS.sourceHouseholdId;
+
+  const normalized = validateAndNormalizeHouseholdRegistrationPayload(payload);
+
+  assert.equal(
+    normalized.registration_operation,
+    "CREATE_NEW_HOUSEHOLD_OCCURRENCE",
+  );
+  assert.equal(
+    normalized.re_admission_source_household_id,
+    VALID_UUIDS.sourceHouseholdId,
+  );
+});
+
+test("re-admission create validation rejects a missing archived source reference", () => {
+  const payload = buildValidPayload();
+  payload.registration_operation = "CREATE_NEW_HOUSEHOLD_OCCURRENCE";
+
+  assert.throws(
+    () => validateAndNormalizeHouseholdRegistrationPayload(payload),
+    /re_admission_source_household_id is required/i,
   );
 });
 

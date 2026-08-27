@@ -52,6 +52,8 @@ const MAX_CORRECTION_REMARKS_LENGTH = 1000;
 const MAX_PRIVACY_NOTICE_VERSION_LENGTH = 100;
 const MAX_PRIVACY_ACKNOWLEDGED_NAME_LENGTH = 200;
 const MAX_PRIVACY_RELATIONSHIP_LENGTH = 100;
+const NEW_HOUSEHOLD_OCCURRENCE_OPERATION =
+  "CREATE_NEW_HOUSEHOLD_OCCURRENCE";
 
 const createValidationError = (message) => {
   const error = new Error(message);
@@ -101,7 +103,54 @@ const validateAndNormalizeHouseholdRegistrationPayload = (
       family_head_photo_url,
       photo_verification_notes,
       privacy_acknowledgment,
+      registration_operation,
+      re_admission_source_household_id,
     } = payload || {};
+
+    const normalizedRegistrationOperation =
+      typeof registration_operation === "string" && registration_operation.trim()
+        ? registration_operation.trim().toUpperCase()
+        : null;
+
+    if (
+      normalizedRegistrationOperation &&
+      normalizedRegistrationOperation !== NEW_HOUSEHOLD_OCCURRENCE_OPERATION
+    ) {
+      throw createValidationError(
+        `registration_operation must be ${NEW_HOUSEHOLD_OCCURRENCE_OPERATION}`,
+      );
+    }
+
+    if (
+      re_admission_source_household_id !== undefined &&
+      re_admission_source_household_id !== null &&
+      re_admission_source_household_id !== "" &&
+      !isValidUuid(re_admission_source_household_id)
+    ) {
+      throw createValidationError(
+        "re_admission_source_household_id must be a valid UUID when provided",
+      );
+    }
+
+    if (
+      normalizedRegistrationOperation === NEW_HOUSEHOLD_OCCURRENCE_OPERATION &&
+      !isValidUuid(re_admission_source_household_id)
+    ) {
+      throw createValidationError(
+        "re_admission_source_household_id is required for re-admission registration",
+      );
+    }
+
+    if (
+      normalizedRegistrationOperation !== NEW_HOUSEHOLD_OCCURRENCE_OPERATION &&
+      re_admission_source_household_id !== undefined &&
+      re_admission_source_household_id !== null &&
+      re_admission_source_household_id !== ""
+    ) {
+      throw createValidationError(
+        "re_admission_source_household_id requires a re-admission registration operation",
+      );
+    }
 
     if (!isValidUuid(disaster_event_id)) {
       throw createValidationError(
@@ -637,6 +686,12 @@ const validateAndNormalizeHouseholdRegistrationPayload = (
             : null
           : undefined,
       privacy_acknowledgment: normalizedPrivacyAcknowledgment,
+      registration_operation: normalizedRegistrationOperation,
+      re_admission_source_household_id:
+        typeof re_admission_source_household_id === "string" &&
+        re_admission_source_household_id.trim()
+          ? re_admission_source_household_id.trim()
+          : null,
       members: members.map((member) => ({
         id:
           typeof member.id === "string" && member.id.trim()

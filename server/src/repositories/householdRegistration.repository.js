@@ -673,13 +673,14 @@ const updateHouseholdRegistrationTimestamp = async (
       SET registered_at = LEAST(registered_at, $2::timestamptz),
           updated_at = NOW()
       WHERE id = $1
+        AND is_active = TRUE
       RETURNING *
     ),
     updated_logs AS (
       UPDATE evacuation_logs
       SET time_in = LEAST(time_in, $2::timestamptz),
           updated_at = NOW()
-      WHERE household_id = $1
+      WHERE household_id IN (SELECT id FROM updated_household)
         AND time_in IS NOT NULL
       RETURNING id
     )
@@ -703,6 +704,7 @@ const updateHousehold = async (householdId, householdData, dbClient) => {
       household_size = $7,
       updated_at = NOW()
     WHERE id = $1
+      AND is_active = TRUE
     RETURNING
       id,
       disaster_event_id,
@@ -955,6 +957,7 @@ const deactivateEvacuee = async (evacueeId, dbClient) => {
       SET is_active = FALSE,
           updated_at = NOW()
       WHERE id = $1
+        AND is_active = TRUE
       RETURNING id
     `,
     [evacueeId],
@@ -1114,6 +1117,48 @@ const getActiveEvacuationLogsByHouseholdId = async (householdId, dbClient = pool
 
   const result = await dbClient.query(query, [householdId]);
   return result.rows;
+};
+
+const getActiveHouseholdSuccessorById = async (
+  householdId,
+  dbClient = pool,
+) => {
+  const query = `
+    SELECT
+      successor.id,
+      successor.disaster_event_id,
+      successor.barangay_id,
+      successor.registered_at,
+      successor.updated_at,
+      successor.family_head_evacuee_id
+    FROM households source
+    INNER JOIN households successor
+      ON successor.disaster_event_id = source.disaster_event_id
+      AND successor.barangay_id = source.barangay_id
+      AND successor.id <> source.id
+      AND successor.is_active = TRUE
+      AND successor.registered_at > source.registered_at
+      AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(successor.family_head_first_name, '')), '\\s+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(COALESCE(source.family_head_first_name, '')), '\\s+', ' ', 'g'))
+      AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(successor.family_head_last_name, '')), '\\s+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(COALESCE(source.family_head_last_name, '')), '\\s+', ' ', 'g'))
+      AND successor.sex = source.sex
+    WHERE source.id = $1
+      AND source.is_active = FALSE
+      AND EXISTS (
+        SELECT 1
+        FROM evacuation_logs active_log
+        WHERE active_log.household_id = successor.id
+          AND active_log.disaster_event_id = successor.disaster_event_id
+          AND active_log.status = 'PRESENT'
+          AND active_log.time_out IS NULL
+      )
+    ORDER BY successor.registered_at DESC, successor.id DESC
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [householdId]);
+  return result.rows[0] || null;
 };
 
 const markHouseholdDeparture = async (
@@ -1750,79 +1795,6 @@ const deactivateEvacueesByHouseholdIds = async (
   return result.rows;
 };
 
-const restoreHousehold = async (householdId, dbClient = pool) => {
-  const query = `
-    UPDATE households
-    SET
-      is_active = TRUE,
-      updated_at = NOW()
-    WHERE id = $1
-    RETURNING
-      id,
-      disaster_event_id,
-      barangay_id,
-      evacuation_center_id,
-      residency_status,
-      family_head_first_name,
-      family_head_middle_name,
-      family_head_last_name,
-      family_head_suffix,
-      sex,
-      birth_date,
-      contact_number,
-      current_stay_type,
-      current_address_details,
-      household_size,
-      is_active,
-      registered_by,
-      family_head_photo_url,
-      photo_captured_at,
-      photo_captured_by,
-      photo_verification_notes,
-      registered_at,
-      updated_at,
-      family_head_evacuee_id
-  `;
-
-  const result = await dbClient.query(query, [householdId]);
-  return result.rows[0] || null;
-};
-
-const reactivateEvacueesByHouseholdId = async (householdId, dbClient = pool) => {
-  const query = `
-    UPDATE evacuees
-    SET
-      is_active = TRUE,
-      updated_at = NOW()
-    WHERE household_id = $1
-      AND is_active = FALSE
-    RETURNING
-      id,
-      household_id,
-      first_name,
-      middle_name,
-      last_name,
-      suffix,
-      sex,
-      birth_date,
-      age,
-      age_value,
-      age_unit,
-      civil_status,
-      relationship_to_head,
-      is_family_head,
-      is_pregnant,
-      is_lactating,
-      has_disability,
-      is_active,
-      created_at,
-      updated_at
-  `;
-
-  const result = await dbClient.query(query, [householdId]);
-  return result.rows;
-};
-
 module.exports = {
   getDisasterEventById,
   getBarangayById,
@@ -1853,6 +1825,7 @@ module.exports = {
   insertStub,
   insertEvacuationLog,
   getActiveEvacuationLogsByHouseholdId,
+  getActiveHouseholdSuccessorById,
   markHouseholdDeparture,
   updateHouseholdDepartureTimestamp,
   markDisasterEventHouseholdDepartures,
@@ -1871,6 +1844,4 @@ module.exports = {
   archiveHouseholdsByIds,
   deactivateEvacueesByHouseholdId,
   deactivateEvacueesByHouseholdIds,
-  restoreHousehold,
-  reactivateEvacueesByHouseholdId,
 };

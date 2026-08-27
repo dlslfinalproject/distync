@@ -65,6 +65,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     pendingRestoreHouseholdDetails,
     isLoadingRestoreHouseholdDetails,
     isRestoringHousehold,
+    reAdmissionHouseholdId,
     exportFeedback,
     selectedSectorIds,
     selectedSortOrder,
@@ -79,6 +80,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     selectableBarangays,
     registrationForm,
     editHouseholdForm,
+    reAdmissionForm,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
     setSearchTerm,
@@ -111,6 +113,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     handleOpenRestoreHousehold,
     handleCancelRestoreHousehold,
     handleConfirmRestoreHousehold,
+    handleCloseReAdmission,
     handleExport,
     toggleSectorFilter,
     clearSectorFilters,
@@ -379,6 +382,12 @@ const ConsolidatedEvacueeMasterlist = () => {
         isOpen={Boolean(editingHouseholdId)}
         onClose={handleCloseEditHousehold}
         form={editHouseholdForm}
+      />
+
+      <RegisterFamilyModal
+        isOpen={Boolean(reAdmissionHouseholdId)}
+        onClose={handleCloseReAdmission}
+        form={reAdmissionForm}
       />
 
       <HouseholdDetailModal

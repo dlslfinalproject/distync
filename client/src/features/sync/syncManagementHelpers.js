@@ -43,6 +43,7 @@ const RECORD_TYPE_LABELS = {
 
 const ACTION_LABELS = {
   HOUSEHOLD_REGISTER: "Register Family",
+  HOUSEHOLD_RE_ADMISSION: "Re-admit Household",
   HOUSEHOLD_UPDATE: "Edit Household",
   HOUSEHOLD_DEPART: "Record Departure",
   STUB_CLAIM: "Confirm Relief Claim",
@@ -63,6 +64,7 @@ const ACTION_LABELS = {
 
 const OPERATION_LABELS = {
   HOUSEHOLD_REGISTER: "Create",
+  HOUSEHOLD_RE_ADMISSION: "Create",
   HOUSEHOLD_UPDATE: "Update",
   HOUSEHOLD_DEPART: "Time Out",
   STUB_CLAIM: "Claim",
@@ -75,6 +77,7 @@ const OPERATION_LABELS = {
 
 const ACTION_SUBJECT_FALLBACKS = {
   HOUSEHOLD_REGISTER: "Household registration",
+  HOUSEHOLD_RE_ADMISSION: "New household occurrence",
   HOUSEHOLD_UPDATE: "Household update",
   HOUSEHOLD_DEPART: "Evacuee departure record",
   STUB_CLAIM: "Relief distribution claim",

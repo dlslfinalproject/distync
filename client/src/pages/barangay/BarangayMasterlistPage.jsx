@@ -99,6 +99,11 @@ const BarangayMasterlistPage = () => {
   const [isLoadingRestoreHouseholdDetails, setIsLoadingRestoreHouseholdDetails] =
     useState(false);
   const [isRestoringHousehold, setIsRestoringHousehold] = useState(false);
+  const [reAdmissionHouseholdId, setReAdmissionHouseholdId] = useState("");
+  const [reAdmissionHouseholdDetails, setReAdmissionHouseholdDetails] =
+    useState(null);
+  const [isLoadingReAdmissionHouseholdDetails, setIsLoadingReAdmissionHouseholdDetails] =
+    useState(false);
   const [selectedHouseholds, setSelectedHouseholds] = useState([]);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
@@ -211,6 +216,31 @@ const BarangayMasterlistPage = () => {
       );
       setAttendanceActionMessage("");
       setActiveCrossEventModalTitles([]);
+      reloadMasterlist();
+    },
+  });
+
+  const reAdmissionForm = useHouseholdRegistrationForm({
+    isOpen: Boolean(reAdmissionHouseholdId),
+    mode: "reAdmission",
+    initialHouseholdDetails: reAdmissionHouseholdDetails,
+    defaultBarangayId: assignedBarangay?.id || "",
+    defaultBarangayName: assignedBarangay?.name || "",
+    defaultDisasterEventId:
+      reAdmissionHouseholdDetails?.household?.disaster_event_id ||
+      selectedEvent?.id ||
+      "",
+    lockBarangaySelection: true,
+    hideBarangaySelection: true,
+    restrictNonResidentToEvacCenter: true,
+    scopeNonResidentEvacuationCentersToBarangay: true,
+    registeredBy: authenticatedUser?.id || null,
+    onSuccess: (response) => {
+      setRegistrationSuccessMessage(
+        response?.message || "Household re-admitted successfully",
+      );
+      setAttendanceActionMessage("");
+      setActiveCrossEventModalTitles(getActiveCrossEventTitles(response));
       reloadMasterlist();
     },
   });
@@ -704,6 +734,30 @@ const BarangayMasterlistPage = () => {
   };
 
   const handleOpenRestoreHousehold = async (householdId) => {
+    const selectedRow = filteredRows.find(
+      (row) => row.household_id === householdId,
+    );
+
+    if (!selectedRow?.is_non_admitted_resident) {
+      setReAdmissionHouseholdId("");
+      setReAdmissionHouseholdDetails(null);
+      setIsLoadingReAdmissionHouseholdDetails(true);
+
+      try {
+        const details = await fetchHouseholdDetails(householdId);
+        setReAdmissionHouseholdDetails(details);
+        setReAdmissionHouseholdId(householdId);
+      } catch (error) {
+        setAttendanceActionMessage(
+          error.message || "Failed to load household details for re-admission.",
+        );
+      } finally {
+        setIsLoadingReAdmissionHouseholdDetails(false);
+      }
+
+      return;
+    }
+
     setPendingRestoreHouseholdId(householdId);
     setPendingRestoreHouseholdDetails(null);
     setIsLoadingRestoreHouseholdDetails(true);
@@ -716,6 +770,16 @@ const BarangayMasterlistPage = () => {
     } finally {
       setIsLoadingRestoreHouseholdDetails(false);
     }
+  };
+
+  const handleCloseReAdmission = () => {
+    if (reAdmissionForm.isSubmitting || isLoadingReAdmissionHouseholdDetails) {
+      return;
+    }
+
+    setReAdmissionHouseholdId("");
+    setReAdmissionHouseholdDetails(null);
+    setIsLoadingReAdmissionHouseholdDetails(false);
   };
 
   const handleCancelRestoreHousehold = () => {
@@ -984,6 +1048,12 @@ const BarangayMasterlistPage = () => {
         isOpen={Boolean(editingHouseholdId)}
         onClose={handleCloseEditHousehold}
         form={editHouseholdForm}
+      />
+
+      <RegisterFamilyModal
+        isOpen={Boolean(reAdmissionHouseholdId)}
+        onClose={handleCloseReAdmission}
+        form={reAdmissionForm}
       />
 
       <MasterlistDepartureConfirmModal

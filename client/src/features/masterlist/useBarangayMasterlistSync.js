@@ -48,7 +48,9 @@ export const useBarangayMasterlistSync = ({
       .filter((entry) => {
         return (
           entry.moduleName === "barangay-households" &&
-          entry.actionKey === "HOUSEHOLD_REGISTER" &&
+          ["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION"].includes(
+            entry.actionKey,
+          ) &&
           entry.payload?.disaster_event_id === selectedEvent?.id &&
           entry.payload?.barangay_id === assignedBarangay?.id &&
           !syncedRows.some(

@@ -213,6 +213,8 @@ export const useHouseholdRegistrationForm = ({
   onSuccess,
 }) => {
   const isEditMode = mode === "edit";
+  const isReAdmissionMode = mode === "reAdmission";
+  const isPrefilledHouseholdMode = isEditMode || isReAdmissionMode;
   const isExistingHousehold = Boolean(initialHouseholdDetails?.household?.id);
   const isFamilyHeadProtected = isEditMode && isExistingHousehold;
   const [household, setHousehold] = useState(initialHousehold);
@@ -259,10 +261,12 @@ export const useHouseholdRegistrationForm = ({
   const isOffline =
     typeof navigator !== "undefined" ? !navigator.onLine : false;
   const latestPrivacyConsent = initialHouseholdDetails?.privacy_consent || null;
-  const requiresPrivacyAcknowledgment = requiresHouseholdPrivacyPrompt({
-    isEditMode,
-    privacyConsent: latestPrivacyConsent,
-  });
+  const requiresPrivacyAcknowledgment =
+    isReAdmissionMode ||
+    requiresHouseholdPrivacyPrompt({
+      isEditMode,
+      privacyConsent: latestPrivacyConsent,
+    });
   const selectedDisasterEvent = activeDisasterEvents.find(
     (eventItem) => eventItem.id === selectedDisasterEventId,
   );
@@ -272,7 +276,7 @@ export const useHouseholdRegistrationForm = ({
         .filter(Boolean)
     : [];
   const shouldRestrictBarangaysToSelectedEvent =
-    !isEditMode &&
+    !isPrefilledHouseholdMode &&
     !hideBarangaySelection &&
     linkedBarangayIds.length > 0;
   const selectableBarangays = shouldRestrictBarangaysToSelectedEvent
@@ -294,7 +298,7 @@ export const useHouseholdRegistrationForm = ({
   }, [selectedDisasterEvent]);
 
   useEffect(() => {
-    if (isEditMode && initialHouseholdDetails) {
+    if (isPrefilledHouseholdMode && initialHouseholdDetails) {
       return;
     }
 
@@ -307,14 +311,14 @@ export const useHouseholdRegistrationForm = ({
   }, [
     defaultBarangayId,
     initialHouseholdDetails,
-    isEditMode,
+    isPrefilledHouseholdMode,
     lockBarangaySelection,
     residencyStatus,
   ]);
 
   useEffect(() => {
     if (
-      isEditMode ||
+      isPrefilledHouseholdMode ||
       !isOpen ||
       hideBarangaySelection ||
       lockBarangaySelection ||
@@ -336,7 +340,7 @@ export const useHouseholdRegistrationForm = ({
     }
   }, [
     hideBarangaySelection,
-    isEditMode,
+    isPrefilledHouseholdMode,
     isOpen,
     lockBarangaySelection,
     selectableBarangays,
@@ -389,7 +393,7 @@ export const useHouseholdRegistrationForm = ({
         }
 
         if (
-          !isEditMode &&
+          !isPrefilledHouseholdMode &&
           residencyStatus === RESIDENCY_STATUS.resident &&
           !defaultBarangayId &&
           !lockBarangaySelection &&
@@ -487,7 +491,7 @@ export const useHouseholdRegistrationForm = ({
         }
 
         if (
-          !isEditMode &&
+          !isPrefilledHouseholdMode &&
           residencyStatus === RESIDENCY_STATUS.resident &&
           !defaultBarangayId &&
           !lockBarangaySelection &&
@@ -533,14 +537,14 @@ export const useHouseholdRegistrationForm = ({
     defaultDisasterEventId,
     hideBarangaySelection,
     initialHouseholdDetails,
-    isEditMode,
+    isPrefilledHouseholdMode,
     isOpen,
     lockBarangaySelection,
     residencyStatus,
   ]);
 
   useEffect(() => {
-    if (!isOpen || !isEditMode || !initialHouseholdDetails) {
+    if (!isOpen || !isPrefilledHouseholdMode || !initialHouseholdDetails) {
       return;
     }
 
@@ -591,7 +595,7 @@ export const useHouseholdRegistrationForm = ({
     });
     setMembers(
       additionalMembers.map((member) => ({
-        id: member.id,
+        id: isEditMode ? member.id : null,
         first_name: member.first_name || "",
         middle_name: member.middle_name || "",
         last_name: member.last_name || "",
@@ -631,13 +635,16 @@ export const useHouseholdRegistrationForm = ({
     defaultDisasterEventId,
     initialHouseholdDetails,
     isEditMode,
+    isPrefilledHouseholdMode,
     isOpen,
   ]);
 
   const duplicateSuggestionLookupState = useMemo(
     () =>
       buildPossibleMatchLookupState({
-        householdId: initialHouseholdDetails?.household?.id || null,
+        householdId: isEditMode
+          ? initialHouseholdDetails?.household?.id || null
+          : null,
         disasterEventId: selectedDisasterEventId,
         barangayId: selectedBarangayId,
         registeredBy,
@@ -650,6 +657,7 @@ export const useHouseholdRegistrationForm = ({
       familyHead,
       household.contact_number,
       initialHouseholdDetails?.household?.id,
+      isEditMode,
       members,
       registeredBy,
       selectedBarangayId,
@@ -814,7 +822,7 @@ export const useHouseholdRegistrationForm = ({
                 String(center.id ?? "") ===
                 String(preservedEvacuationCenterId ?? ""),
             ) ||
-              isEditMode)
+              isPrefilledHouseholdMode)
               ? preservedEvacuationCenterId
               : "",
         }));
@@ -827,7 +835,7 @@ export const useHouseholdRegistrationForm = ({
           );
 
           if (
-            !isEditMode ||
+            !isPrefilledHouseholdMode ||
             !preservedEvacuationCenterId ||
             existingSelectedCenter
           ) {
@@ -856,7 +864,7 @@ export const useHouseholdRegistrationForm = ({
     isOpen,
     household.evacuation_center_id,
     initialHouseholdDetails,
-    isEditMode,
+    isPrefilledHouseholdMode,
     residencyStatus,
     savedEditEvacuationCenterId,
     scopeNonResidentEvacuationCentersToBarangay,
@@ -1178,7 +1186,7 @@ export const useHouseholdRegistrationForm = ({
     household.evacuation_center_id ?? "",
   );
   const inferredSingleEvacuationCenterId =
-    isEditMode &&
+    isPrefilledHouseholdMode &&
     household.current_stay_type === "EVAC_CENTER" &&
     !normalizedSelectedEvacuationCenterId &&
     evacuationCenters.length === 1
@@ -1191,7 +1199,7 @@ export const useHouseholdRegistrationForm = ({
       String(center.id ?? "") === effectiveEvacuationCenterId,
   );
   const displayedEvacuationCenters =
-    isEditMode &&
+    isPrefilledHouseholdMode &&
     effectiveEvacuationCenterId &&
     !hasSelectedEvacuationCenterInOptions
       ? [
@@ -1457,7 +1465,16 @@ export const useHouseholdRegistrationForm = ({
 
   const buildPayload = (privacyAcknowledgment = null) => {
     const payload = {
-      household_id: initialHouseholdDetails?.household?.id || null,
+      household_id: isEditMode
+        ? initialHouseholdDetails?.household?.id || null
+        : null,
+      ...(isReAdmissionMode
+        ? {
+            registration_operation: "CREATE_NEW_HOUSEHOLD_OCCURRENCE",
+            re_admission_source_household_id:
+              initialHouseholdDetails?.household?.id || null,
+          }
+        : {}),
       disaster_event_id: selectedDisasterEventId,
       barangay_id: selectedBarangayId,
       residency_status: residencyStatus,
@@ -1483,7 +1500,7 @@ export const useHouseholdRegistrationForm = ({
       family_head_photo_url: familyHeadPhotoUrl || null,
       photo_verification_notes: trimValue(photoVerificationNotes) || null,
       members: members.map((member) => ({
-        id: member.id || null,
+        id: isEditMode ? member.id || null : null,
         first_name: trimValue(member.first_name),
         middle_name: trimValue(member.middle_name) || null,
         last_name: trimValue(member.last_name),
@@ -1609,6 +1626,8 @@ export const useHouseholdRegistrationForm = ({
     isUsingCachedReferenceData,
     isOffline,
     isEditMode,
+    isPrefilledHouseholdMode,
+    isReAdmissionMode,
     isExistingHousehold,
     isFamilyHeadProtected,
     latestPrivacyConsent,

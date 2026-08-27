@@ -37,6 +37,8 @@ const DUPLICATE_SUGGESTION_VISIBILITY = {
 const RESTORE_MODES = {
   RETURN_TO_EVAC_CENTER: "RETURN_TO_EVAC_CENTER",
 };
+const NEW_HOUSEHOLD_OCCURRENCE_OPERATION =
+  "CREATE_NEW_HOUSEHOLD_OCCURRENCE";
 const NON_ADMITTED_RESIDENT_STAY_TYPES = new Set([
   "RELATIVES",
   "OTHER_SAFE_PLACE",
@@ -1031,6 +1033,74 @@ const resolveSingleActiveEvacuationCenterId = async (barangayId) => {
   return evacuationCenters.length === 1 ? evacuationCenters[0].id : null;
 };
 
+const assertReAdmissionSourceHousehold = async ({
+  sourceHouseholdId,
+  registrationData,
+  dbClient,
+}) => {
+  const sourceHousehold =
+    await householdRegistrationRepository.getHouseholdSummaryByIdForUpdate(
+      sourceHouseholdId,
+      dbClient,
+    );
+
+  if (!sourceHousehold) {
+    const error = new Error("The archived household selected for re-admission was not found.");
+    error.statusCode = 404;
+    error.code = "RE_ADMISSION_SOURCE_NOT_FOUND";
+    throw error;
+  }
+
+  if (
+    sourceHousehold.disaster_event_id !== registrationData.disaster_event_id ||
+    sourceHousehold.barangay_id !== registrationData.barangay_id
+  ) {
+    const error = new Error(
+      "The archived household must belong to the selected disaster event and barangay.",
+    );
+    error.statusCode = 400;
+    error.code = "RE_ADMISSION_SOURCE_CONTEXT_MISMATCH";
+    throw error;
+  }
+
+  if (sourceHousehold.is_active !== false) {
+    const error = new Error(
+      "Only an archived household occurrence can be re-admitted.",
+    );
+    error.statusCode = 400;
+    error.code = "RE_ADMISSION_SOURCE_NOT_ARCHIVED";
+    throw error;
+  }
+
+  const activeEvacuationLogs =
+    await householdRegistrationRepository.getActiveEvacuationLogsByHouseholdId(
+      sourceHouseholdId,
+      dbClient,
+    );
+
+  if (activeEvacuationLogs.length > 0) {
+    const error = new Error("This household is already admitted.");
+    error.statusCode = 400;
+    error.code = "HOUSEHOLD_ALREADY_ADMITTED";
+    throw error;
+  }
+
+  const activeSuccessor =
+    await householdRegistrationRepository.getActiveHouseholdSuccessorById(
+      sourceHouseholdId,
+      dbClient,
+    );
+
+  if (activeSuccessor) {
+    const error = new Error("This household is already admitted.");
+    error.statusCode = 400;
+    error.code = "HOUSEHOLD_ALREADY_ADMITTED";
+    throw error;
+  }
+
+  return sourceHousehold;
+};
+
 const buildReturnRegistrationRequest = async ({
   householdDetails,
   existingHousehold,
@@ -1395,6 +1465,7 @@ const updateHouseholdDetails = async ({
   ) {
     const error = new Error("Archived households cannot be edited");
     error.statusCode = 400;
+    error.code = "HISTORICAL_HOUSEHOLD_IMMUTABLE";
     throw error;
   }
 
@@ -1551,7 +1622,7 @@ const updateHouseholdDetails = async ({
       await client.query("BEGIN");
     }
 
-    await householdRegistrationRepository.updateHousehold(
+    const updatedHousehold = await householdRegistrationRepository.updateHousehold(
       householdId,
       {
         ...requestDataWithDerivedAgeGroups,
@@ -1560,6 +1631,13 @@ const updateHouseholdDetails = async ({
       },
       client,
     );
+
+    if (!updatedHousehold) {
+      const error = new Error("Archived households cannot be edited");
+      error.statusCode = 400;
+      error.code = "HISTORICAL_HOUSEHOLD_IMMUTABLE";
+      throw error;
+    }
 
     for (const existingMember of existingNonHeadMembers) {
       if (incomingExistingMemberIds.has(existingMember.id)) {
@@ -1801,24 +1879,60 @@ const handleDuplicateRegistrationMatch = async ({
       match.registered_at,
     )
   ) {
-    await householdRegistrationRepository.updateHouseholdRegistrationTimestamp(
-      match.household_id,
-      registrationData.synced_client_timestamp,
-      dbClient,
-    );
+    const updatedHousehold =
+      await householdRegistrationRepository.updateHouseholdRegistrationTimestamp(
+        match.household_id,
+        registrationData.synced_client_timestamp,
+        dbClient,
+      );
+
+    if (!updatedHousehold) {
+      const error = new Error("Archived households cannot be modified");
+      error.statusCode = 400;
+      error.code = "HISTORICAL_HOUSEHOLD_IMMUTABLE";
+      throw error;
+    }
+
     return match.household_id;
   }
 
   throw buildDuplicateRegistrationError(match);
 };
 
-const registerHousehold = async (requestData) => {
+const registerHousehold = async (
+  requestData,
+  { dbClient = null, operation = null, sourceHouseholdId = null } = {},
+) => {
+  const effectiveDbClient = dbClient || requestData.dbClient || null;
+  const requestedRegistrationOperation = String(
+    requestData.registration_operation || "",
+  )
+    .trim()
+    .toUpperCase();
+  const effectiveSourceHouseholdId =
+    sourceHouseholdId || requestData.re_admission_source_household_id || null;
+  const isReAdmissionRequest =
+    operation === "RE_ADMISSION" ||
+    requestedRegistrationOperation === NEW_HOUSEHOLD_OCCURRENCE_OPERATION;
+  if (isReAdmissionRequest && !effectiveSourceHouseholdId) {
+    const error = new Error(
+      "An archived household source is required for re-admission registration.",
+    );
+    error.statusCode = 400;
+    error.code = "RE_ADMISSION_SOURCE_REQUIRED";
+    throw error;
+  }
+  const registrationContextRequest = effectiveDbClient
+    ? { ...requestData, dbClient: effectiveDbClient }
+    : requestData;
+  const isReAdmissionClone =
+    isReAdmissionRequest && Boolean(effectiveSourceHouseholdId);
   const {
     userScope,
     isNonResident,
     isBarangayScopedRegistration,
     registrationData,
-  } = await prepareRegistrationContext(requestData);
+  } = await prepareRegistrationContext(registrationContextRequest);
 
   if (requestData.household_size !== requestData.members.length + 1) {
     const error = new Error(
@@ -1836,11 +1950,14 @@ const registerHousehold = async (requestData) => {
 
   const normalizedFamilyHead = buildPersonRecord({
     ...requestData.family_head,
+    ...(isReAdmissionClone ? { id: null } : {}),
     relationship_to_head: "HEAD",
   });
 
   const normalizedMembers = requestData.members.map((member) =>
-    buildPersonRecord(member),
+    buildPersonRecord(
+      isReAdmissionClone ? { ...member, id: null } : member,
+    ),
   );
 
   validateUniqueHouseholdPeople({
@@ -1878,12 +1995,14 @@ const registerHousehold = async (requestData) => {
     });
   const shouldAutoArchiveWithoutAttendance =
     isNonAdmittedResidentRecord(requestDataWithDerivedAgeGroups);
-  const precheckDuplicateMatch = await getStrongestDuplicateRegistrationMatch({
-    disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
-    familyHead: requestDataWithDerivedAgeGroups.family_head,
-    members: requestDataWithDerivedAgeGroups.members,
-    contactNumber: requestDataWithDerivedAgeGroups.contact_number || null,
-  });
+  const precheckDuplicateMatch = isReAdmissionClone
+    ? null
+    : await getStrongestDuplicateRegistrationMatch({
+        disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
+        familyHead: requestDataWithDerivedAgeGroups.family_head,
+        members: requestDataWithDerivedAgeGroups.members,
+        contactNumber: requestDataWithDerivedAgeGroups.contact_number || null,
+      });
 
   if (
     precheckDuplicateMatch &&
@@ -1960,7 +2079,7 @@ const registerHousehold = async (requestData) => {
     throw error;
   }
 
-  const externalClient = requestData.dbClient || null;
+  const externalClient = effectiveDbClient;
   const client = externalClient || await pool.connect();
 
   try {
@@ -1984,14 +2103,23 @@ const registerHousehold = async (requestData) => {
       throw buildDisasterEventNotActiveError();
     }
 
-    const authoritativeDuplicateMatch =
-      await getStrongestDuplicateRegistrationMatch({
-        disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
-        familyHead: requestDataWithDerivedAgeGroups.family_head,
-        members: requestDataWithDerivedAgeGroups.members,
-        contactNumber: requestDataWithDerivedAgeGroups.contact_number || null,
+    if (isReAdmissionClone) {
+      await assertReAdmissionSourceHousehold({
+        sourceHouseholdId: effectiveSourceHouseholdId,
+        registrationData: requestDataWithDerivedAgeGroups,
         dbClient: client,
       });
+    }
+
+    const authoritativeDuplicateMatch = isReAdmissionClone
+      ? null
+      : await getStrongestDuplicateRegistrationMatch({
+          disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
+          familyHead: requestDataWithDerivedAgeGroups.family_head,
+          members: requestDataWithDerivedAgeGroups.members,
+          contactNumber: requestDataWithDerivedAgeGroups.contact_number || null,
+          dbClient: client,
+        });
 
     const existingHouseholdId = await handleDuplicateRegistrationMatch({
       match: authoritativeDuplicateMatch,
@@ -2196,6 +2324,11 @@ const registerHousehold = async (requestData) => {
         familyHead: requestDataWithDerivedAgeGroups.family_head,
         contactNumber: requestDataWithDerivedAgeGroups.contact_number || null,
       });
+    if (isReAdmissionClone) {
+      registrationResponse.registration_operation =
+        NEW_HOUSEHOLD_OCCURRENCE_OPERATION;
+      registrationResponse.source_household_id = effectiveSourceHouseholdId;
+    }
     const familyHeadName = [
       registrationResponse.household?.family_head_first_name,
       registrationResponse.household?.family_head_last_name,
@@ -2226,6 +2359,26 @@ const registerHousehold = async (requestData) => {
         oldValues: {},
         newValues: summarizePrivacyConsent(savedPrivacyAcknowledgment),
       });
+
+      if (isReAdmissionClone) {
+        await logAuditSafely({
+          actor: buildPrivacyAuditActor({
+            recordedBy: requestDataWithDerivedAgeGroups.registered_by,
+            roleCode: userScope?.role_code || null,
+            deviceId: savedPrivacyAcknowledgment.device_id,
+          }),
+          action: "HOUSEHOLD_RE_ADMITTED",
+          entityType: "HOUSEHOLD",
+          entityId: createdHousehold.id,
+          oldValues: {
+            source_household_id: effectiveSourceHouseholdId,
+          },
+          newValues: {
+            household_id: createdHousehold.id,
+            registration_operation: NEW_HOUSEHOLD_OCCURRENCE_OPERATION,
+          },
+        });
+      }
     }
 
     return registrationResponse;
@@ -2636,160 +2789,270 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
     error.statusCode = 400;
     throw error;
   }
-
-  const archivedHouseholdDetails = await buildRegistrationResponse(householdId);
-  const activeEvacuationLogs =
-    await householdRegistrationRepository.getActiveEvacuationLogsByHouseholdId(
-      householdId,
-    );
-
-  if (activeEvacuationLogs.length > 0) {
-    const error = new Error("This household is already admitted.");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (!isCurrentHouseholdPrivacyConsent(archivedHouseholdDetails.privacy_consent)) {
-    const error = new Error(
-      "A valid Data Privacy Notice acknowledgment is required before this household can be re-admitted.",
-    );
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const shouldConvertNonAdmittedResident =
-    isNonAdmittedResidentRecord(existingHousehold);
-  const restoreEvacuationCenterId = shouldConvertNonAdmittedResident
-    ? await resolveSingleActiveEvacuationCenterId(existingHousehold.barangay_id)
-    : existingHousehold.evacuation_center_id;
-
-  if (restoreEvacuationCenterId) {
-    const evacuationCenter =
-      await householdRegistrationRepository.getEvacuationCenterById(
-        restoreEvacuationCenterId,
-      );
-
-    if (!evacuationCenter || !evacuationCenter.is_active) {
-      const error = new Error("evacuation_center_id is invalid");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    if (evacuationCenter.barangay_id !== existingHousehold.barangay_id) {
-      const error = new Error(
-        "Selected evacuation center must belong to the chosen barangay",
-      );
-      error.statusCode = 400;
-      throw error;
-    }
-  }
-
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    if (!existingHousehold.is_active) {
-      await householdRegistrationRepository.restoreHousehold(householdId, client);
-      await householdRegistrationRepository.reactivateEvacueesByHouseholdId(
+    const lockedHousehold =
+      await householdRegistrationRepository.getHouseholdSummaryByIdForUpdate(
         householdId,
         client,
       );
+
+    if (!lockedHousehold) {
+      const error = new Error("Household not found");
+      error.statusCode = 404;
+      throw error;
     }
 
-    await householdRegistrationRepository.updateHousehold(
+    if (
+      requester?.roleCode === BARANGAY_ROLE_CODE &&
+      lockedHousehold.barangay_id !== requester.defaultBarangayId
+    ) {
+      const error = new Error("You do not have access to restore this household");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    const shouldConvertNonAdmittedResident =
+      isNonAdmittedResidentRecord(lockedHousehold);
+
+    if (lockedHousehold.is_active && !shouldConvertNonAdmittedResident) {
+      const error = new Error("This household is already admitted.");
+      error.statusCode = 400;
+      error.code = "HOUSEHOLD_ALREADY_ADMITTED";
+      throw error;
+    }
+
+    const activeEvacuationLogs =
+      await householdRegistrationRepository.getActiveEvacuationLogsByHouseholdId(
+        householdId,
+        client,
+      );
+
+    if (activeEvacuationLogs.length > 0) {
+      const error = new Error("This household is already admitted.");
+      error.statusCode = 400;
+      error.code = "HOUSEHOLD_ALREADY_ADMITTED";
+      throw error;
+    }
+
+    const activeSuccessor =
+      await householdRegistrationRepository.getActiveHouseholdSuccessorById(
+        householdId,
+        client,
+      );
+
+    if (activeSuccessor) {
+      const error = new Error("This household is already admitted.");
+      error.statusCode = 400;
+      error.code = "HOUSEHOLD_ALREADY_ADMITTED";
+      throw error;
+    }
+
+    const archivedHouseholdDetails = await buildRegistrationResponse(
       householdId,
-      {
-        evacuation_center_id: restoreEvacuationCenterId,
-        residency_status: existingHousehold.residency_status,
-        contact_number: existingHousehold.contact_number || null,
-        current_stay_type: shouldConvertNonAdmittedResident
-          ? "EVAC_CENTER"
-          : existingHousehold.current_stay_type,
-        current_address_details: existingHousehold.current_address_details || null,
-        household_size:
-          archivedHouseholdDetails.members_count || existingHousehold.household_size,
-      },
       client,
     );
 
-    const evacuees =
-      await householdRegistrationRepository.getEvacueesByHouseholdId(
-        householdId,
-        {
-          includeInactive: true,
-          dbClient: client,
-        },
-      );
-
-    if (evacuees.length === 0) {
+    if (!isCurrentHouseholdPrivacyConsent(archivedHouseholdDetails.privacy_consent)) {
       const error = new Error(
-        "This household has no family members to re-admit.",
+        "A valid Data Privacy Notice acknowledgment is required before this household can be re-admitted.",
       );
       error.statusCode = 400;
       throw error;
     }
 
-    const createdLogs = [];
+    if (shouldConvertNonAdmittedResident) {
+      const restoreEvacuationCenterId =
+        await resolveSingleActiveEvacuationCenterId(lockedHousehold.barangay_id);
 
-    for (const evacuee of evacuees) {
-      const createdLog = await householdRegistrationRepository.insertEvacuationLog(
-        {
-          disaster_event_id: existingHousehold.disaster_event_id,
-          household_id: householdId,
-          evacuee_id: evacuee.id,
-          evacuation_center_id: restoreEvacuationCenterId,
-          status: "PRESENT",
-          recorded_by: requester?.userId || existingHousehold.registered_by || null,
-          remarks: "Automatic arrival recorded during household re-admission",
+      if (restoreEvacuationCenterId) {
+        const evacuationCenter =
+          await householdRegistrationRepository.getEvacuationCenterById(
+            restoreEvacuationCenterId,
+          );
+
+        if (!evacuationCenter || !evacuationCenter.is_active) {
+          const error = new Error("evacuation_center_id is invalid");
+          error.statusCode = 400;
+          throw error;
+        }
+
+        if (evacuationCenter.barangay_id !== lockedHousehold.barangay_id) {
+          const error = new Error(
+            "Selected evacuation center must belong to the chosen barangay",
+          );
+          error.statusCode = 400;
+          throw error;
+        }
+      }
+
+      const updatedHousehold =
+        await householdRegistrationRepository.updateHousehold(
+          householdId,
+          {
+            evacuation_center_id: restoreEvacuationCenterId,
+            residency_status: lockedHousehold.residency_status,
+            contact_number: lockedHousehold.contact_number || null,
+            current_stay_type: "EVAC_CENTER",
+            current_address_details: lockedHousehold.current_address_details || null,
+            household_size: archivedHouseholdDetails.members_count ||
+              lockedHousehold.household_size,
+          },
+          client,
+        );
+
+      if (!updatedHousehold) {
+        const error = new Error("Archived households cannot be edited");
+        error.statusCode = 400;
+        error.code = "HISTORICAL_HOUSEHOLD_IMMUTABLE";
+        throw error;
+      }
+
+      const evacuees =
+        await householdRegistrationRepository.getEvacueesByHouseholdId(
+          householdId,
+          {
+            includeInactive: true,
+            dbClient: client,
+          },
+        );
+
+      if (evacuees.length === 0) {
+        const error = new Error(
+          "This household has no family members to re-admit.",
+        );
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const createdLogs = [];
+
+      for (const evacuee of evacuees) {
+        const createdLog =
+          await householdRegistrationRepository.insertEvacuationLog(
+            {
+              disaster_event_id: lockedHousehold.disaster_event_id,
+              household_id: householdId,
+              evacuee_id: evacuee.id,
+              evacuation_center_id: restoreEvacuationCenterId,
+              status: "PRESENT",
+              recorded_by:
+                requester?.userId || lockedHousehold.registered_by || null,
+              remarks: "Automatic arrival recorded during household re-admission",
+            },
+            client,
+          );
+
+        createdLogs.push(createdLog);
+      }
+
+      await client.query("COMMIT");
+
+      const returnedHouseholdDetails = await buildRegistrationResponse(householdId);
+      const familyHeadName = [
+        returnedHouseholdDetails.household?.family_head_first_name,
+        returnedHouseholdDetails.household?.family_head_last_name,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const familyHeadArrivalLog =
+        createdLogs.find(
+          (log) => log.evacuee_id === lockedHousehold.family_head_evacuee_id,
+        ) ||
+        createdLogs[0] ||
+        null;
+
+      await logAuditSafely({
+        actor: requester,
+        action: "HOUSEHOLD_RETURN_TO_EVAC_CENTER",
+        entityType: "HOUSEHOLD",
+        entityId: householdId,
+        oldValues: {
+          ...summarizeHousehold(lockedHousehold),
+          restore_mode: restoreMode,
         },
-        client,
+        newValues: {
+          ...summarizeHousehold(returnedHouseholdDetails.household),
+          restore_mode: restoreMode,
+          new_arrival_time: familyHeadArrivalLog?.time_in || null,
+        },
+      });
+
+      await notificationService.emitSafely(() =>
+        notificationService.emitEvacueeAttendanceUpdate({
+          householdId,
+          barangayId: lockedHousehold.barangay_id,
+          familyHeadName,
+          action: "arrival-recorded",
+        }),
       );
 
-      createdLogs.push(createdLog);
+      return {
+        household_id: householdId,
+        source_household_id: householdId,
+        status: "ACTIVE",
+        restore_mode: restoreMode,
+        household: returnedHouseholdDetails.household,
+      };
     }
+
+    const reAdmissionRequest = await buildReturnRegistrationRequest({
+      householdDetails: archivedHouseholdDetails,
+      existingHousehold: lockedHousehold,
+      requester,
+      restoreData,
+    });
+    const returnedHouseholdDetails = await registerHousehold(
+      reAdmissionRequest,
+      {
+        dbClient: client,
+        operation: "RE_ADMISSION",
+        sourceHouseholdId: householdId,
+      },
+    );
 
     await client.query("COMMIT");
 
-    const returnedHouseholdDetails = await buildRegistrationResponse(householdId);
     const familyHeadName = [
       returnedHouseholdDetails.household?.family_head_first_name,
       returnedHouseholdDetails.household?.family_head_last_name,
     ]
       .filter(Boolean)
       .join(" ");
-    const familyHeadArrivalLog =
-      createdLogs.find((log) => log.evacuee_id === existingHousehold.family_head_evacuee_id) ||
-      createdLogs[0] ||
-      null;
+    const familyHeadArrivalLog = returnedHouseholdDetails.latest_attendance || null;
 
     await logAuditSafely({
       actor: requester,
       action: "HOUSEHOLD_RETURN_TO_EVAC_CENTER",
       entityType: "HOUSEHOLD",
-      entityId: householdId,
+      entityId: returnedHouseholdDetails.household?.id || null,
       oldValues: {
-        ...summarizeHousehold(existingHousehold),
+        ...summarizeHousehold(lockedHousehold),
         restore_mode: restoreMode,
+        source_household_id: householdId,
       },
       newValues: {
         ...summarizeHousehold(returnedHouseholdDetails.household),
         restore_mode: restoreMode,
+        source_household_id: householdId,
         new_arrival_time: familyHeadArrivalLog?.time_in || null,
       },
     });
 
     await notificationService.emitSafely(() =>
       notificationService.emitEvacueeAttendanceUpdate({
-        householdId,
-        barangayId: existingHousehold.barangay_id,
+        householdId: returnedHouseholdDetails.household?.id || null,
+        barangayId: lockedHousehold.barangay_id,
         familyHeadName,
         action: "arrival-recorded",
       }),
     );
 
     return {
-      household_id: householdId,
+      household_id: returnedHouseholdDetails.household?.id || null,
       source_household_id: householdId,
       status: "ACTIVE",
       restore_mode: restoreMode,
