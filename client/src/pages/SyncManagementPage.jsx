@@ -1,6 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { FiEye, FiFilter, FiRefreshCw, FiSearch } from "react-icons/fi";
+import { useAuth } from "../context/AuthContext";
+import { ROLE_CODES } from "../utils/roleSession";
 import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
 import { shellStyles } from "../components/layout/BarangayLayout";
 import SyncStatusBadge from "../components/shared/SyncStatusBadge";
@@ -16,6 +18,7 @@ import {
 import { getVisibleSyncQueueEntriesByUpdatedAt } from "../offline/syncQueue";
 import {
   auditSyncRetryRequest,
+  fetchSyncBarangays,
   fetchSyncConflictDetail,
   fetchSyncHistory,
   fetchSyncStatusSummary,
@@ -30,6 +33,7 @@ import {
   getSyncHistoryNotes,
   getSyncQueueNotes,
   getSyncRecordDetails,
+  getSyncRecordBarangayId,
   isSafeRetryableQueueEntry,
   matchesRecordTypeFilter,
   matchesSyncFilter,
@@ -84,6 +88,7 @@ const SYNC_SECTION_TABS = [
   { value: "CONFLICTS", label: "Conflict Review" },
 ];
 
+const BARANGAY_COLUMN_LABEL = "Barangay";
 const EMPTY_MESSAGE = "No matching records found. Try adjusting your search or filters.";
 const EMPTY_QUEUE_MESSAGE = "No offline actions are waiting to sync on this device.";
 const EMPTY_HISTORY_MESSAGE = "No synchronization history is available yet.";
@@ -261,7 +266,12 @@ const sortSyncRecords = (records, order) =>
     return order === "oldest" ? firstTime - secondTime : secondTime - firstTime;
   });
 
-const applySyncFilters = (records, filters, statusAccessor) => {
+const applySyncFilters = (
+  records,
+  filters,
+  statusAccessor,
+  { includeBarangay = false } = {},
+) => {
   const searchText = filters.search.trim().toLowerCase();
 
   return sortSyncRecords(
@@ -272,7 +282,10 @@ const applySyncFilters = (records, filters, statusAccessor) => {
         matchesSyncFilter(status, filters.status) &&
         matchesRecordTypeFilter(record, filters.recordType) &&
         isWithinDateRange(record, filters.dateFrom, filters.dateTo) &&
-        (!searchText || buildSyncSearchText(record).includes(searchText))
+        (!filters.barangayId ||
+          getSyncRecordBarangayId(record) === filters.barangayId) &&
+        (!searchText ||
+          buildSyncSearchText(record, { includeBarangay }).includes(searchText))
       );
     }),
     filters.order,
@@ -280,6 +293,8 @@ const applySyncFilters = (records, filters, statusAccessor) => {
 };
 
 const SyncManagementPage = () => {
+  const { currentRole } = useAuth();
+  const isMswdoPortal = currentRole === ROLE_CODES.MSWDO;
   const [syncHistory, setSyncHistory] = useState({
     transactions: [],
     conflicts: [],
@@ -298,7 +313,11 @@ const SyncManagementPage = () => {
   const [resolutionReason, setResolutionReason] = useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [activeSyncTab, setActiveSyncTab] = useState("QUEUE");
+  const [barangayOptions, setBarangayOptions] = useState([]);
+  const [isLoadingBarangayOptions, setIsLoadingBarangayOptions] = useState(false);
+  const [barangayOptionsError, setBarangayOptionsError] = useState("");
   const [filters, setFilters] = useState({
+    barangayId: "",
     dateFrom: "",
     dateTo: "",
     order: "newest",
@@ -315,6 +334,45 @@ const SyncManagementPage = () => {
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntriesByUpdatedAt(), [], []) ||
     [];
+
+  const barangayNameById = useMemo(
+    () =>
+      new Map(
+        barangayOptions
+          .filter((barangay) => barangay?.id && barangay?.name)
+          .map((barangay) => [barangay.id, String(barangay.name).trim()]),
+      ),
+    [barangayOptions],
+  );
+
+  const addBarangayDisplayName = useCallback(
+    (record) => {
+      if (!isMswdoPortal || record?.barangay_name || record?.barangayName) {
+        return record;
+      }
+
+      const barangayId = getSyncRecordBarangayId(record);
+      const barangayName = barangayNameById.get(barangayId);
+
+      return barangayName ? { ...record, barangay_name: barangayName } : record;
+    },
+    [barangayNameById, isMswdoPortal],
+  );
+
+  const displayQueueEntries = useMemo(
+    () => syncQueueEntries.map(addBarangayDisplayName),
+    [addBarangayDisplayName, syncQueueEntries],
+  );
+
+  const displayTransactions = useMemo(
+    () => syncHistory.transactions.map(addBarangayDisplayName),
+    [addBarangayDisplayName, syncHistory.transactions],
+  );
+
+  const displayConflicts = useMemo(
+    () => syncHistory.conflicts.map(addBarangayDisplayName),
+    [addBarangayDisplayName, syncHistory.conflicts],
+  );
 
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine,
@@ -387,32 +445,44 @@ const SyncManagementPage = () => {
   );
 
   const filteredQueueEntries = useMemo(
-    () => applySyncFilters(syncQueueEntries, filters, (entry) => entry.status),
-    [filters, syncQueueEntries],
+    () =>
+      applySyncFilters(displayQueueEntries, filters, (entry) => entry.status, {
+        includeBarangay: isMswdoPortal,
+      }),
+    [displayQueueEntries, filters, isMswdoPortal],
   );
 
   const filteredTransactions = useMemo(
     () =>
       applySyncFilters(
-        syncHistory.transactions,
+        displayTransactions,
         filters,
         (transaction) => transaction.sync_status,
+        { includeBarangay: isMswdoPortal },
       ),
-    [filters, syncHistory.transactions],
+    [displayTransactions, filters, isMswdoPortal],
   );
 
   const filteredConflicts = useMemo(
     () =>
-      applySyncFilters(syncHistory.conflicts, filters, getConflictFilterStatus),
-    [filters, syncHistory.conflicts],
+      applySyncFilters(displayConflicts, filters, getConflictFilterStatus, {
+        includeBarangay: isMswdoPortal,
+      }),
+    [displayConflicts, filters, isMswdoPortal],
   );
 
-  const loadSyncHistory = async () => {
+  const loadSyncHistory = useCallback(async () => {
     setIsLoadingHistory(true);
     setErrorMessage("");
 
     try {
-      const response = await fetchSyncHistory({ limit: 100 });
+      const historyFilters = { limit: 100 };
+
+      if (isMswdoPortal && filters.barangayId) {
+        historyFilters.barangay_id = filters.barangayId;
+      }
+
+      const response = await fetchSyncHistory(historyFilters);
       const summaryResponse = await fetchSyncStatusSummary();
       setSyncHistory({
         transactions: Array.isArray(response.transactions)
@@ -434,11 +504,48 @@ const SyncManagementPage = () => {
     } finally {
       setIsLoadingHistory(false);
     }
-  };
+  }, [filters.barangayId, isMswdoPortal]);
 
   useEffect(() => {
-    loadSyncHistory();
-  }, []);
+    void loadSyncHistory();
+  }, [loadSyncHistory]);
+
+  useEffect(() => {
+    if (!isMswdoPortal) {
+      setBarangayOptions([]);
+      setBarangayOptionsError("");
+      return undefined;
+    }
+
+    let isMounted = true;
+    setIsLoadingBarangayOptions(true);
+    setBarangayOptionsError("");
+
+    fetchSyncBarangays()
+      .then((rows) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setBarangayOptions(
+          rows.filter((barangay) => barangay?.id && barangay?.name),
+        );
+      })
+      .catch(() => {
+        if (isMounted) {
+          setBarangayOptionsError("Barangay filtering is unavailable right now.");
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoadingBarangayOptions(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isMswdoPortal]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -474,7 +581,7 @@ const SyncManagementPage = () => {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [loadSyncHistory]);
 
   const updateFilter = (key, value) => {
     setFilters((currentFilters) => ({
@@ -686,10 +793,14 @@ const SyncManagementPage = () => {
     { includeBarangay = true, includeOperation = false } = {},
   ) => {
     const details = getSyncRecordDetails(record);
+    const shouldIncludeBarangay = includeBarangay || isMswdoPortal;
 
     return (
       <>
         <td style={tableStyles.td}>{details.recordType}</td>
+        {shouldIncludeBarangay ? (
+          <td style={tableStyles.td}>{details.barangay}</td>
+        ) : null}
         <td style={tableStyles.td}>
           {includeOperation ? details.operation : details.actionLabel}
         </td>
@@ -699,7 +810,6 @@ const SyncManagementPage = () => {
             <div style={detailTextStyles}>{details.secondaryLabel}</div>
           ) : null}
         </td>
-        {includeBarangay ? <td style={tableStyles.td}>{details.barangay}</td> : null}
         <td style={tableStyles.td}>{details.disasterEvent}</td>
       </>
     );
@@ -733,6 +843,30 @@ const SyncManagementPage = () => {
               ))}
             </select>
           </label>
+
+          {isMswdoPortal ? (
+            <label>
+              <span style={fieldStyles.label}>{BARANGAY_COLUMN_LABEL}</span>
+              <select
+                value={filters.barangayId}
+                onChange={(event) => updateFilter("barangayId", event.target.value)}
+                style={fieldStyles.input}
+                disabled={isLoadingBarangayOptions}
+              >
+                <option value="">All Barangays</option>
+                {barangayOptions.map((barangay) => (
+                  <option key={barangay.id} value={barangay.id}>
+                    {barangay.name}
+                  </option>
+                ))}
+              </select>
+              {barangayOptionsError ? (
+                <span style={{ ...detailTextStyles, color: "#a14d58" }} role="status">
+                  {barangayOptionsError}
+                </span>
+              ) : null}
+            </label>
+          ) : null}
 
           <label>
             <span style={fieldStyles.label}>
@@ -911,6 +1045,9 @@ const SyncManagementPage = () => {
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Record Type</th>
+                  {isMswdoPortal ? (
+                    <th style={tableStyles.th}>{BARANGAY_COLUMN_LABEL}</th>
+                  ) : null}
                   <th style={tableStyles.th}>Operation</th>
                   <th style={tableStyles.th}>Affected Record</th>
                   <th style={tableStyles.th}>Disaster Event</th>
@@ -1010,6 +1147,9 @@ const SyncManagementPage = () => {
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Record Type</th>
+                  {isMswdoPortal ? (
+                    <th style={tableStyles.th}>{BARANGAY_COLUMN_LABEL}</th>
+                  ) : null}
                   <th style={tableStyles.th}>Action</th>
                   <th style={tableStyles.th}>Affected Record</th>
                   <th style={tableStyles.th}>Disaster Event</th>
@@ -1079,6 +1219,9 @@ const SyncManagementPage = () => {
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Record Type</th>
+                  {isMswdoPortal ? (
+                    <th style={tableStyles.th}>{BARANGAY_COLUMN_LABEL}</th>
+                  ) : null}
                   <th style={tableStyles.th}>Affected Record</th>
                   <th style={tableStyles.th}>Conflict Reason</th>
                   <th style={tableStyles.th}>Status</th>
@@ -1093,6 +1236,9 @@ const SyncManagementPage = () => {
                   return (
                     <tr key={conflict.id}>
                       <td style={tableStyles.td}>{details.recordType}</td>
+                      {isMswdoPortal ? (
+                        <td style={tableStyles.td}>{details.barangay}</td>
+                      ) : null}
                       <td style={tableStyles.td}>{details.subject}</td>
                       <td style={tableStyles.td}>{getConflictReasonLabel(conflict)}</td>
                       <td style={tableStyles.td}>
@@ -1142,6 +1288,7 @@ const SyncManagementPage = () => {
         resolutionReason={resolutionReason}
         onResolutionReasonChange={setResolutionReason}
         isResolving={isResolvingConflict}
+        includeBarangay={isMswdoPortal}
       />
 
       <FeedbackToast

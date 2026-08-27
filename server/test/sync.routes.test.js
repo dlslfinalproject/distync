@@ -192,3 +192,77 @@ test("SYNC-IDEMP-API-01 exposes the existing mismatch code additively on HTTP 40
     },
   );
 });
+
+test("MSWDO history route forwards the validated Barangay filter without changing the shared contract", async () => {
+  const barangayId = "11111111-1111-4111-8111-111111111111";
+  let capturedArguments = null;
+
+  await withStubbedSyncRoute(
+    {
+      authMiddlewareStub: {
+        ROLE_CODES: {
+          BARANGAY: "BARANGAY",
+          MSWDO: "MSWDO",
+          MAYOR: "MAYOR",
+        },
+        requireRoles: () => (req, _res, next) => {
+          req.auth = { userId: "mswdo-1", roleCode: "MSWDO" };
+          next();
+        },
+      },
+      syncServiceStub: {
+        getSyncHistory: async (args) => {
+          capturedArguments = args;
+          return { transactions: [], conflicts: [] };
+        },
+      },
+      validatorStub: {
+        validateAuditSyncRetryRequest: (_req, _res, next) => next(),
+        validateGetSyncHistory: (req, _res, next) => {
+          req.validatedQuery = {
+            sync_status: null,
+            conflict_status: null,
+            barangay_id: barangayId,
+            limit: 25,
+          };
+          next();
+        },
+        validateGetSyncConflictDetail: (_req, _res, next) => next(),
+        validateResolveSyncConflict: (_req, _res, next) => next(),
+        validateProcessSyncEntries: (_req, _res, next) => next(),
+      },
+    },
+    async (router) => {
+      const app = express();
+      app.use(express.json());
+      app.use("/api/v1/sync", router);
+
+      const server = await new Promise((resolve) => {
+        const instance = app.listen(0, () => resolve(instance));
+      });
+
+      try {
+        const port = server.address().port;
+        const response = await fetch(
+          `http://127.0.0.1:${port}/api/v1/sync/history?barangay_id=${barangayId}`,
+        );
+        const payload = await response.json();
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(payload, { transactions: [], conflicts: [] });
+      } finally {
+        await new Promise((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    },
+  );
+
+  assert.deepEqual(capturedArguments, {
+    auth: { userId: "mswdo-1", roleCode: "MSWDO" },
+    syncStatus: null,
+    conflictStatus: null,
+    barangayId,
+    limit: 25,
+  });
+});

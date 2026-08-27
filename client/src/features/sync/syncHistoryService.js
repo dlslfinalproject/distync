@@ -31,6 +31,17 @@ export const fetchSyncHistory = async (filters = {}) => {
   return handleJsonResponse(response, "Failed to load sync history");
 };
 
+export const fetchSyncBarangays = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/barangays`);
+  const payload = await handleJsonResponse(response, "Failed to load Barangay options");
+
+  return Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.data)
+      ? payload.data
+      : [];
+};
+
 export const fetchSyncConflictDetail = async (conflictId) => {
   const response = await fetch(`${API_BASE_URL}/api/v1/sync/conflicts/${conflictId}`);
   return handleJsonResponse(response, "Failed to load sync conflict detail");

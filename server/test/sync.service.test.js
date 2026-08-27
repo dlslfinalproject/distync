@@ -99,6 +99,227 @@ test("getSyncStatusSummary returns unresolved conflict count and last successful
   );
 });
 
+test("MSWDO Sync Center history uses municipality-scoped repository reads and optional Barangay filtering", async () => {
+  const barangayId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  let transactionRead = false;
+  let conflictRead = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByMunicipality: async (args) => {
+          transactionRead = true;
+          assert.deepEqual(args, {
+            syncStatus: "FAILED",
+            barangayId,
+            limit: 20,
+          });
+          return [{ id: "transaction-1", entity_type: "HOUSEHOLD" }];
+        },
+        getSyncConflictsByMunicipality: async (args) => {
+          conflictRead = true;
+          assert.deepEqual(args, {
+            status: "OPEN",
+            barangayId,
+            limit: 20,
+          });
+          return [];
+        },
+        getSyncTransactionsByUser: async () => {
+          throw new Error("MSWDO history must not use user-scoped transactions");
+        },
+        getSyncConflictsByUser: async () => {
+          throw new Error("MSWDO history must not use user-scoped conflicts");
+        },
+      },
+    },
+    async ({ getSyncHistory }) => {
+      const result = await getSyncHistory({
+        auth: {
+          userId: "mswdo-user-1",
+          roleCode: "MSWDO",
+        },
+        syncStatus: "FAILED",
+        conflictStatus: "OPEN",
+        barangayId,
+        limit: 20,
+      });
+
+      assert.equal(result.transactions[0].id, "transaction-1");
+      assert.deepEqual(result.conflicts, []);
+    },
+  );
+
+  assert.equal(transactionRead, true);
+  assert.equal(conflictRead, true);
+});
+
+test("MSWDO Sync Center health summary uses municipality-wide conflict and sync reads", async () => {
+  let municipalityReads = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        countOpenSyncConflictsByMunicipality: async (args) => {
+          municipalityReads += 1;
+          assert.deepEqual(args, {});
+          return 4;
+        },
+        getLastSuccessfulSyncAtForMunicipality: async (args) => {
+          municipalityReads += 1;
+          assert.deepEqual(args, {});
+          return "2026-08-20T01:02:03.000Z";
+        },
+        countOpenSyncConflictsByUser: async () => {
+          throw new Error("MSWDO status must not use user-scoped conflicts");
+        },
+        getLastSuccessfulSyncAtByUser: async () => {
+          throw new Error("MSWDO status must not use user-scoped sync time");
+        },
+      },
+    },
+    async ({ getSyncStatusSummary }) => {
+      const summary = await getSyncStatusSummary({
+        auth: {
+          userId: "mswdo-user-1",
+          roleCode: "MSWDO",
+        },
+      });
+
+      assert.deepEqual(summary, {
+        conflictCount: 4,
+        lastSuccessfulSyncAt: "2026-08-20T01:02:03.000Z",
+        backendReachable: true,
+      });
+    },
+  );
+
+  assert.equal(municipalityReads, 2);
+});
+
+test("MSWDO can view municipality operational conflict details without gaining resolution actions", async () => {
+  const conflictId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  let requestedId = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictByIdForMunicipality: async ({ id }) => {
+          requestedId = id;
+          return {
+            id: conflictId,
+            user_id: "foreign-user",
+            entity_type: "HOUSEHOLD",
+            status: "OPEN",
+            resolution_strategy: "LATEST_TIMESTAMP",
+            conflict_type: "HOUSEHOLD_UPDATE_CONFLICT",
+            local_payload_json: { payload: {} },
+            server_payload_json: {},
+          };
+        },
+        getSyncConflictById: async () => {
+          throw new Error("MSWDO detail must use municipality-scoped conflict read");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      const detail = await getSyncConflictDetail({
+        auth: {
+          userId: "mswdo-user-1",
+          roleCode: "MSWDO",
+        },
+        conflictId,
+      });
+
+      assert.equal(detail.id, conflictId);
+      assert.deepEqual(detail.availableResolutionActions, []);
+    },
+  );
+
+  assert.equal(requestedId, conflictId);
+});
+
+test("MSWDO cannot view a foreign Mayor manual inventory stock-drift conflict", async () => {
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictByIdForMunicipality: async () => ({
+          id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          user_id: "mayor-user",
+          entity_type: "INVENTORY_TRANSACTION",
+          status: "OPEN",
+          resolution_strategy: "MANUAL_REVIEW",
+          conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+        }),
+        getSyncConflictById: async () => {
+          throw new Error("MSWDO detail must use municipality-scoped conflict read");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      await assert.rejects(
+        getSyncConflictDetail({
+          auth: {
+            userId: "mswdo-user-1",
+            roleCode: "MSWDO",
+          },
+          conflictId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        }),
+        (error) => error.statusCode === 404,
+      );
+    },
+  );
+});
+
+test("Barangay Sync Center history keeps its existing user-scoped read path", async () => {
+  let userRead = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByUser: async ({ userId, syncStatus, limit }) => {
+          userRead = true;
+          assert.deepEqual({ userId, syncStatus, limit }, {
+            userId: "barangay-user-1",
+            syncStatus: "SYNCED",
+            limit: 20,
+          });
+          return [];
+        },
+        getSyncConflictsByUser: async () => [],
+        getSyncTransactionsByMunicipality: async () => {
+          throw new Error("Barangay history must not use municipality-scoped reads");
+        },
+        getSyncConflictsByMunicipality: async () => {
+          throw new Error("Barangay history must not use municipality-scoped reads");
+        },
+      },
+    },
+    async ({ getSyncHistory }) => {
+      await getSyncHistory({
+        auth: {
+          userId: "barangay-user-1",
+          roleCode: "BARANGAY",
+        },
+        syncStatus: "SYNCED",
+        conflictStatus: "RESOLVED",
+        barangayId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        limit: 20,
+      });
+    },
+  );
+
+  assert.equal(userRead, true);
+});
+
 const createBaseSyncRepositoryStub = (overrides = {}) => ({
   claimSyncTransaction: async (payload) => ({
     decision: "CLAIMED_NEW",

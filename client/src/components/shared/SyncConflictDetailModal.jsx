@@ -187,6 +187,7 @@ const SyncConflictDetailModal = ({
   resolutionReason,
   onResolutionReasonChange,
   isResolving = false,
+  includeBarangay = false,
 }) => {
   if (!isOpen || !conflict) {
     return null;
@@ -266,6 +267,9 @@ const SyncConflictDetailModal = ({
           </h4>
           <div style={modalStyles.fieldGrid}>
             {renderMetadataItem("Record Type", details.recordType)}
+            {includeBarangay
+              ? renderMetadataItem("Barangay", details.barangay)
+              : null}
             {renderMetadataItem("Affected Record", details.subject)}
             {renderMetadataItem("Disaster Event", details.disasterEvent)}
           </div>

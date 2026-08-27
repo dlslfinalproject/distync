@@ -94,6 +94,7 @@ router.get(
         auth: req.auth,
         syncStatus: req.validatedQuery.sync_status,
         conflictStatus: req.validatedQuery.conflict_status,
+        barangayId: req.validatedQuery.barangay_id,
         limit: req.validatedQuery.limit,
       });
 
