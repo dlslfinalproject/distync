@@ -90,7 +90,9 @@ export const getPendingLocalStubRows = async ({
 
       return (
         entry.moduleName === "barangay-households" &&
-        entry.actionKey === "HOUSEHOLD_REGISTER" &&
+        ["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION"].includes(
+          entry.actionKey,
+        ) &&
         entry.entityType === "HOUSEHOLD" &&
         retryableStatuses.has(entry.status) &&
         payload.disaster_event_id === disasterEventId &&

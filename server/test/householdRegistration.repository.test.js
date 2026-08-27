@@ -43,6 +43,48 @@ test("EE-FIX-02 household update summaries project authoritative disaster event 
   );
 });
 
+test("historical household update queries only target active occurrences", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+  const updateSource = source.match(
+    /const updateHousehold = async \([\s\S]*?const insertEvacuee = async/,
+  )?.[0];
+
+  assert.ok(updateSource, "updateHousehold source is present");
+  assert.match(updateSource, /WHERE id = \$1[\s\S]*AND is_active = TRUE/);
+});
+
+test("offline registration timestamp reconciliation cannot rewrite archived attendance", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+  const updateSource = source.match(
+    /const updateHouseholdRegistrationTimestamp = async \([\s\S]*?const updateHousehold = async/,
+  )?.[0];
+
+  assert.ok(updateSource, "timestamp reconciliation source is present");
+  assert.match(updateSource, /UPDATE households[\s\S]*WHERE id = \$1[\s\S]*AND is_active = TRUE/);
+  assert.match(
+    updateSource,
+    /UPDATE evacuation_logs[\s\S]*WHERE household_id IN \(SELECT id FROM updated_household\)/,
+  );
+});
+
+test("re-admission successor detection only treats a later active occurrence as already admitted", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+  const match = source.match(
+    /const getActiveHouseholdSuccessorById = async \([\s\S]*?const markHouseholdDeparture/,
+  );
+
+  assert.ok(match, "active successor query is present");
+  const successorSource = match[0];
+
+  assert.match(successorSource, /source\.is_active = FALSE/);
+  assert.match(successorSource, /successor\.is_active = TRUE/);
+  assert.match(successorSource, /successor\.disaster_event_id = source\.disaster_event_id/);
+  assert.match(successorSource, /successor\.barangay_id = source\.barangay_id/);
+  assert.match(successorSource, /successor\.registered_at > source\.registered_at/);
+  assert.match(successorSource, /active_log\.status = 'PRESENT'/);
+  assert.match(successorSource, /active_log\.time_out IS NULL/);
+});
+
 test("active cross-event family-head lookup surfaces active registrations without presence filtering", () => {
   const source = fs.readFileSync(repositoryPath, "utf8");
   const match = source.match(

@@ -85,6 +85,14 @@ router.post(
         await householdRegistrationService.registerHousehold({
           ...req.validatedBody,
           registered_by: req.auth.userId,
+        }, {
+          operation:
+            req.validatedBody.registration_operation ===
+            "CREATE_NEW_HOUSEHOLD_OCCURRENCE"
+              ? "RE_ADMISSION"
+              : null,
+          sourceHouseholdId:
+            req.validatedBody.re_admission_source_household_id || null,
         });
 
       return res.status(201).json({

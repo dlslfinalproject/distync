@@ -268,8 +268,17 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
             <div className="household-registration-modal-topbar" style={modalStyles.topBar}>
               <div>
                 <h2 style={{ ...pageHeaderStyles.title, fontSize: "30px" }}>
-                  {form.isEditMode ? "Edit Household" : "Register Family"}
+                  {form.isReAdmissionMode
+                    ? "Register Family - Re-admission"
+                    : form.isEditMode
+                      ? "Edit Household"
+                      : "Register Family"}
                 </h2>
+                {form.isReAdmissionMode ? (
+                  <p style={{ ...shellStyles.mutedText, margin: "6px 0 0" }}>
+                    Review the previous information before creating a new evacuation record.
+                  </p>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -360,12 +369,16 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
                       {form.isSubmitting
                         ? form.isEditMode
                           ? "Updating..."
-                          : "Saving..."
+                          : form.isReAdmissionMode
+                            ? "Submitting Re-admission..."
+                            : "Saving..."
                         : form.isProcessingPhoto
                           ? "Processing Photo..."
                           : form.isEditMode
                             ? "Save Changes"
-                            : "Register"}
+                            : form.isReAdmissionMode
+                              ? "Submit Re-admission"
+                              : "Register"}
                     </button>
                   </div>
                 </div>

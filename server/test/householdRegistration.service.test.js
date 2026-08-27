@@ -44,6 +44,7 @@ const loadServiceWithMocks = (repositoryOverrides = {}, dbOverrides = {}) => {
     }),
     findPotentialDuplicatePersonMatches: async () => [],
     findActiveCrossEventFamilyHeadMatches: async () => [],
+    getActiveHouseholdSuccessorById: async () => null,
     ...repositoryOverrides,
   };
   if (!mockRepository.getHouseholdSummaryByIdForUpdate) {
@@ -844,6 +845,159 @@ test("H04-05 different household in the same lock scope still registers", async 
       "COMMIT",
       "RELEASE",
     ]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("re-admission registration creates a new occurrence without reusing archived IDs", async () => {
+  const events = [];
+  const archivedSource = {
+    id: "source-household",
+    disaster_event_id: "event-1",
+    barangay_id: "barangay-1",
+    is_active: false,
+  };
+  const createdHousehold = {
+    id: "new-household-occurrence",
+    disaster_event_id: "event-1",
+    barangay_id: "barangay-1",
+    family_head_first_name: "HOSHI",
+    family_head_last_name: "KWON",
+    is_active: true,
+    family_head_evacuee_id: null,
+  };
+  const createdMembers = [];
+  let savedPrivacy = null;
+  let insertedHead = null;
+  let insertedMember = null;
+  const fakeClient = {
+    query: async (query) => {
+      events.push(String(query).trim());
+      return { rows: [] };
+    },
+    release: () => events.push("RELEASE"),
+  };
+  const harness = loadServiceWithMocks(
+    {
+      getEvacuationCenterById: async () => ({
+        id: "center-1",
+        barangay_id: "barangay-1",
+        is_active: true,
+      }),
+      getSectorsByIds: async () => [],
+      getSectorsByCodes: async () => [{ id: "adult-sector", code: "ADULT" }],
+      getAgeGroupSectors: async () => [{ id: "adult-sector", code: "ADULT" }],
+      getHouseholdSummaryByIdForUpdate: async (householdId, dbClient) => {
+        assert.equal(householdId, archivedSource.id);
+        assert.equal(dbClient, fakeClient);
+        events.push("LOCK_SOURCE");
+        return archivedSource;
+      },
+      getActiveEvacuationLogsByHouseholdId: async () => [],
+      insertHousehold: async (payload) => {
+        events.push("INSERT_HOUSEHOLD");
+        assert.equal(payload.household_size, 2);
+        return createdHousehold;
+      },
+      insertHouseholdPrivacyConsent: async (payload) => {
+        savedPrivacy = payload;
+        events.push("INSERT_PRIVACY");
+        return { id: "new-privacy", ...payload, device_id: null };
+      },
+      insertEvacuee: async (householdId, member) => {
+        assert.equal(householdId, createdHousehold.id);
+        assert.equal(member.id, null);
+        const createdMember = {
+          id: member.is_family_head ? "new-head" : "new-member",
+          household_id: householdId,
+          ...member,
+          is_active: true,
+        };
+        if (member.is_family_head) {
+          insertedHead = member;
+        } else {
+          insertedMember = member;
+        }
+        createdMembers.push(createdMember);
+        return createdMember;
+      },
+      insertEvacueeSectors: async () => [],
+      insertEvacuationLog: async (payload) => ({
+        id: `log-${payload.evacuee_id}`,
+        ...payload,
+        time_in: "2026-08-25T01:00:00.000Z",
+      }),
+      updateHouseholdFamilyHeadEvacueeId: async (_householdId, memberId) => {
+        createdHousehold.family_head_evacuee_id = memberId;
+      },
+      insertHouseholdSectors: async () => [],
+      generateStubNumbers: async () => ({
+        stub_no: "STUB-NEW",
+        serial_no: "SER-NEW",
+      }),
+      insertStub: async () => ({
+        id: "new-stub",
+        household_id: createdHousehold.id,
+      }),
+      getHouseholdSummaryById: async (householdId) =>
+        householdId === createdHousehold.id ? createdHousehold : null,
+      getEvacueesByHouseholdId: async () => createdMembers,
+      getEvacueeSectorAssignmentsByHouseholdId: async () => [],
+      getHouseholdSectorAssignmentsByHouseholdId: async () => [],
+      getStubByHouseholdId: async () => ({
+        id: "new-stub",
+        household_id: createdHousehold.id,
+      }),
+      getLatestAttendanceByHouseholdId: async () => null,
+      getLatestDistributionTransactionByStubId: async () => null,
+      getLatestHouseholdPrivacyConsentByHouseholdId: async () => savedPrivacy,
+    },
+    {
+      connect: async () => fakeClient,
+    },
+  );
+
+  try {
+    const request = buildValidRegistrationRequest({
+      current_stay_type: "EVAC_CENTER",
+      evacuation_center_id: "center-1",
+      household_size: 2,
+      registration_operation: "CREATE_NEW_HOUSEHOLD_OCCURRENCE",
+      re_admission_source_household_id: archivedSource.id,
+      family_head: {
+        ...buildValidRegistrationRequest().family_head,
+        id: "archived-head",
+      },
+      members: [
+        {
+          first_name: "MINA",
+          middle_name: "",
+          last_name: "KWON",
+          suffix: "",
+          sex: "FEMALE",
+          age_value: 22,
+          age_unit: "YEARS",
+          relationship_to_head: "SPOUSE",
+          sector_ids: [],
+          id: "archived-member",
+        },
+      ],
+    });
+
+    const result = await harness.service.registerHousehold(request, {
+      operation: "RE_ADMISSION",
+      sourceHouseholdId: archivedSource.id,
+    });
+
+    assert.equal(result.household.id, createdHousehold.id);
+    assert.equal(result.registration_operation, "CREATE_NEW_HOUSEHOLD_OCCURRENCE");
+    assert.equal(result.source_household_id, archivedSource.id);
+    assert.equal(savedPrivacy.household_id, createdHousehold.id);
+    assert.equal(insertedHead.id, null);
+    assert.equal(insertedMember.id, null);
+    assert.equal(events.includes("LOCK_SOURCE"), true);
+    assert.equal(events.includes("UPDATE_SOURCE"), false);
   } finally {
     harness.restore();
   }
@@ -1898,134 +2052,357 @@ test("BRG-SC-06-M01 zero affected departure rows cannot return success", async (
   }
 });
 
-test("restoreHousehold re-admits the same household and creates new evacuation logs", async () => {
+test("restoreHousehold creates an independent occurrence and protects archived snapshots", async () => {
+  const sourceHouseholdId = "household-archived";
+  const sourceHeadId = "head-1";
+  const sourceMemberId = "member-1";
+  const targetHouseholdId = "household-readmitted";
+  const targetHeadId = "readmitted-head-1";
+  const targetMemberId = "readmitted-member-1";
+  const secondHouseholdId = "household-readmitted-2";
+  const secondHeadId = "readmitted-head-2";
+  const secondMemberIds = [
+    "readmitted-member-2-1",
+    "readmitted-member-2-2",
+  ];
+  const sourceStubId = "stub-1";
+  const targetStubId = "stub-readmitted-1";
+  const secondStubId = "stub-readmitted-2";
+  const occurrenceIds = {
+    [targetHouseholdId]: {
+      headId: targetHeadId,
+      memberIds: [targetMemberId],
+    },
+    [secondHouseholdId]: {
+      headId: secondHeadId,
+      memberIds: secondMemberIds,
+    },
+  };
+  const readmissionHouseholdIds = [targetHouseholdId, secondHouseholdId];
+  const readmissionStubIds = [targetStubId, secondStubId];
+  const successorHouseholdIdBySource = {
+    [sourceHouseholdId]: targetHouseholdId,
+  };
   const events = [];
+  const householdRecords = {
+    [sourceHouseholdId]: {
+      id: sourceHouseholdId,
+      disaster_event_id: "event-1",
+      disaster_event_status: "ACTIVE",
+      barangay_id: "barangay-1",
+      evacuation_center_id: "center-1",
+      residency_status: "RESIDENT",
+      family_head_first_name: "JUAN",
+      family_head_middle_name: null,
+      family_head_last_name: "DELA CRUZ",
+      family_head_suffix: null,
+      sex: "MALE",
+      birth_date: null,
+      current_stay_type: "EVAC_CENTER",
+      current_address_details: "Zone 1",
+      contact_number: "09171234567",
+      household_size: 2,
+      is_active: false,
+      registered_by: "user-1",
+      family_head_photo_url: null,
+      photo_captured_at: null,
+      photo_captured_by: null,
+      photo_verification_notes: null,
+      registered_at: "2026-08-09T09:00:00.000Z",
+      updated_at: "2026-08-09T10:00:00.000Z",
+      family_head_evacuee_id: sourceHeadId,
+    },
+  };
+  const membersByHouseholdId = {
+    [sourceHouseholdId]: [
+      {
+        id: sourceHeadId,
+        household_id: sourceHouseholdId,
+        first_name: "JUAN",
+        middle_name: null,
+        last_name: "DELA CRUZ",
+        suffix: null,
+        sex: "MALE",
+        birth_date: null,
+        age: 40,
+        age_value: 40,
+        age_unit: "YEARS",
+        civil_status: null,
+        relationship_to_head: "HEAD",
+        is_family_head: true,
+        is_pregnant: false,
+        is_lactating: false,
+        has_disability: false,
+        is_active: false,
+      },
+      {
+        id: sourceMemberId,
+        household_id: sourceHouseholdId,
+        first_name: "MARIA",
+        middle_name: null,
+        last_name: "DELA CRUZ",
+        suffix: null,
+        sex: "FEMALE",
+        birth_date: null,
+        age: 12,
+        age_value: 12,
+        age_unit: "YEARS",
+        civil_status: null,
+        relationship_to_head: "DAUGHTER",
+        is_family_head: false,
+        is_pregnant: false,
+        is_lactating: false,
+        has_disability: false,
+        is_active: false,
+      },
+    ],
+  };
+  const evacuationLogsByHouseholdId = {
+    [sourceHouseholdId]: [
+      {
+        id: "old-log-head",
+        household_id: sourceHouseholdId,
+        evacuee_id: sourceHeadId,
+        evacuation_center_id: "center-1",
+        status: "LEFT",
+        time_in: "2026-08-09T09:00:00.000Z",
+        time_out: "2026-08-09T10:00:00.000Z",
+      },
+      {
+        id: "old-log-member",
+        household_id: sourceHouseholdId,
+        evacuee_id: sourceMemberId,
+        evacuation_center_id: "center-1",
+        status: "LEFT",
+        time_in: "2026-08-09T09:00:00.000Z",
+        time_out: "2026-08-09T10:00:00.000Z",
+      },
+    ],
+  };
+  const stubsByHouseholdId = {
+    [sourceHouseholdId]: {
+      id: sourceStubId,
+      household_id: sourceHouseholdId,
+      disaster_event_id: "event-1",
+      stub_no: "STUB-OLD",
+      serial_no: "SER-OLD",
+      status: "CLAIMED",
+    },
+  };
+  const distributionByStubId = {
+    [sourceStubId]: {
+      id: "distribution-old",
+      household_id: sourceHouseholdId,
+      stub_id: sourceStubId,
+      distribution_status: "CLAIMED",
+    },
+  };
+  const privacyByHouseholdId = {
+    [sourceHouseholdId]: {
+      id: "privacy-old",
+      household_id: sourceHouseholdId,
+      disaster_event_id: "event-1",
+      consent_status: "ACKNOWLEDGED",
+      notice_version: "v1",
+      acknowledged_at: "2026-08-09T08:00:00.000Z",
+      acknowledged_by_name: "JUAN DELA CRUZ",
+      representative_relationship: null,
+      recorded_by: "user-1",
+    },
+  };
+  let readmissionSequence = 0;
+  let currentCreatedHouseholdId = null;
+  let nextNonHeadMemberIndex = 0;
   const fakeClient = {
     query: async (query) => {
-      events.push(String(query).trim());
+      const command = String(query).trim().split(/\s+/)[0];
+      if (["BEGIN", "COMMIT", "ROLLBACK"].includes(command)) {
+        events.push(command);
+      }
       return { rows: [] };
     },
-    release: () => {
-      events.push("RELEASE");
-    },
+    release: () => events.push("RELEASE"),
   };
-  const householdState = {
-    id: "household-archived",
-    disaster_event_id: "event-1",
-    barangay_id: "barangay-1",
-    evacuation_center_id: "center-1",
-    residency_status: "RESIDENT",
-    family_head_first_name: "HOSHI",
-    family_head_last_name: "KWON",
-    current_stay_type: "EVAC_CENTER",
-    current_address_details: "Purok 1",
-    contact_number: "09170000000",
-    household_size: 2,
-    is_active: false,
-    registered_by: "user-1",
-    family_head_evacuee_id: "head-1",
+  const getHousehold = (householdId) => householdRecords[householdId] || null;
+  const getMembers = (householdId, options = {}) => {
+    const members = membersByHouseholdId[householdId] || [];
+    return members
+      .filter((member) => options.includeInactive || member.is_active)
+      .map((member) => ({ ...member }));
   };
-  const evacuees = [
-    {
-      id: "head-1",
-      household_id: "household-archived",
-      first_name: "HOSHI",
-      last_name: "KWON",
-      age_value: 24,
-      age_unit: "YEARS",
-      sex: "MALE",
-      relationship_to_head: "HEAD",
-      is_family_head: true,
-    },
-    {
-      id: "member-1",
-      household_id: "household-archived",
-      first_name: "WOOZI",
-      last_name: "LEE",
-      age_value: 23,
-      age_unit: "YEARS",
-      sex: "MALE",
-      relationship_to_head: "BROTHER",
-      is_family_head: false,
-    },
-  ];
-  let latestAttendance = {
-    id: "old-log",
-    household_id: "household-archived",
-    evacuee_id: "head-1",
-    status: "LEFT",
-    time_in: "2026-08-09T09:43:50.100Z",
-    time_out: "2026-08-09T09:44:14.448Z",
-    evacuation_center_id: "center-1",
+  const getLatestAttendance = (householdId) => {
+    const logs = evacuationLogsByHouseholdId[householdId] || [];
+    return logs[logs.length - 1] || null;
   };
-  let insertedLogCount = 0;
-
   const harness = loadServiceWithMocks(
     {
-      getHouseholdSummaryById: async () => ({ ...householdState }),
-      getEvacueesByHouseholdId: async () => evacuees,
+      getHouseholdSummaryById: async (householdId) => getHousehold(householdId),
+      getHouseholdSummaryByIdForUpdate: async (householdId, dbClient) => {
+        events.push(`LOCK:${dbClient === fakeClient}`);
+        return getHousehold(householdId);
+      },
+      getEvacueesByHouseholdId: async (householdId, options) =>
+        getMembers(householdId, options),
       getEvacueeSectorAssignmentsByHouseholdId: async () => [],
       getHouseholdSectorAssignmentsByHouseholdId: async () => [],
-      getStubByHouseholdId: async () => ({
-        id: "stub-1",
-        household_id: "household-archived",
-      }),
-      getLatestAttendanceByHouseholdId: async () => latestAttendance,
-      getLatestDistributionTransactionByStubId: async () => null,
-      getLatestHouseholdPrivacyConsentByHouseholdId: async () => ({
-        id: "privacy-1",
-        consent_status: "ACKNOWLEDGED",
-        notice_version: "v1",
-        acknowledged_at: "2026-08-04T03:32:00.000Z",
-      }),
-      getActiveEvacuationLogsByHouseholdId: async () => [],
+      getStubByHouseholdId: async (householdId) =>
+        stubsByHouseholdId[householdId] || null,
+      getLatestAttendanceByHouseholdId: async (householdId) =>
+        getLatestAttendance(householdId),
+      getLatestDistributionTransactionByStubId: async (stubId) =>
+        distributionByStubId[stubId] || null,
+      getLatestHouseholdPrivacyConsentByHouseholdId: async (householdId) =>
+        privacyByHouseholdId[householdId] || null,
       getEvacuationCenterById: async () => ({
         id: "center-1",
         barangay_id: "barangay-1",
         is_active: true,
       }),
-      restoreHousehold: async (_householdId, dbClient) => {
-        events.push(`RESTORE:${dbClient === fakeClient}`);
-        householdState.is_active = true;
-        return { ...householdState };
-      },
-      reactivateEvacueesByHouseholdId: async (_householdId, dbClient) => {
-        events.push(`REACTIVATE:${dbClient === fakeClient}`);
-        return evacuees;
-      },
-      updateHousehold: async (_householdId, payload, dbClient) => {
-        events.push(`UPDATE_HOUSEHOLD:${dbClient === fakeClient}`);
-        householdState.evacuation_center_id = payload.evacuation_center_id;
-        householdState.current_stay_type = payload.current_stay_type;
-        return { ...householdState };
-      },
-      insertEvacuationLog: async (payload, dbClient) => {
-        insertedLogCount += 1;
-        events.push(`INSERT_LOG:${payload.evacuee_id}:${dbClient === fakeClient}`);
-        const createdLog = {
-          id: `log-${insertedLogCount}`,
-          household_id: payload.household_id,
-          evacuee_id: payload.evacuee_id,
+      getActiveEvacuationLogsByHouseholdId: async (householdId) =>
+        (evacuationLogsByHouseholdId[householdId] || []).filter(
+          (log) => log.status === "PRESENT" && !log.time_out,
+        ),
+      getActiveHouseholdSuccessorById: async (householdId) =>
+        householdRecords[successorHouseholdIdBySource[householdId]]?.is_active
+          ? householdRecords[successorHouseholdIdBySource[householdId]]
+          : null,
+      getSectorsByIds: async () => [],
+      getSectorsByCodes: async () => [{ id: "adult-sector", code: "ADULT" }],
+      getAgeGroupSectors: async () => [{ id: "adult-sector", code: "ADULT" }],
+      insertHousehold: async (payload) => {
+        events.push("INSERT_HOUSEHOLD");
+        const householdId = readmissionHouseholdIds[readmissionSequence];
+        const occurrence = occurrenceIds[householdId];
+        currentCreatedHouseholdId = householdId;
+        nextNonHeadMemberIndex = 0;
+        readmissionSequence += 1;
+        const household = {
+          id: householdId,
+          disaster_event_id: payload.disaster_event_id,
+          disaster_event_status: "ACTIVE",
+          barangay_id: payload.barangay_id,
           evacuation_center_id: payload.evacuation_center_id,
-          status: payload.status,
-          time_in: `2026-08-09T11:3${insertedLogCount}:00.000Z`,
+          residency_status: payload.residency_status,
+          family_head_first_name: payload.family_head.first_name,
+          family_head_middle_name: payload.family_head.middle_name,
+          family_head_last_name: payload.family_head.last_name,
+          family_head_suffix: payload.family_head.suffix,
+          sex: payload.family_head.sex,
+          birth_date: null,
+          current_stay_type: payload.current_stay_type,
+          current_address_details: payload.current_address_details,
+          contact_number: payload.contact_number,
+          household_size: payload.household_size,
+          is_active: true,
+          registered_by: payload.registered_by,
+          family_head_photo_url: payload.family_head_photo_url || null,
+          photo_captured_at: null,
+          photo_captured_by: null,
+          photo_verification_notes: payload.photo_verification_notes || null,
+          registered_at:
+            householdId === secondHouseholdId
+              ? "2026-08-09T13:00:00.000Z"
+              : "2026-08-09T11:00:00.000Z",
+          updated_at:
+            householdId === secondHouseholdId
+              ? "2026-08-09T13:00:00.000Z"
+              : "2026-08-09T11:00:00.000Z",
+          family_head_evacuee_id: null,
+        };
+        assert.ok(occurrence, `No occurrence identity configured for ${householdId}`);
+        householdRecords[householdId] = household;
+        return household;
+      },
+      insertHouseholdPrivacyConsent: async (payload) => {
+        const consent = {
+          id: `privacy-${currentCreatedHouseholdId}`,
+          ...payload,
+        };
+        privacyByHouseholdId[currentCreatedHouseholdId] = consent;
+        return consent;
+      },
+      insertEvacuee: async (householdId, member) => {
+        const occurrence = occurrenceIds[householdId];
+        const configuredMemberId = occurrence?.memberIds[nextNonHeadMemberIndex];
+        const id = member.is_family_head
+          ? occurrence?.headId
+          : configuredMemberId || `new-member-${householdId}-${nextNonHeadMemberIndex}`;
+        if (!member.is_family_head) {
+          nextNonHeadMemberIndex += 1;
+        }
+        const createdMember = {
+          household_id: householdId,
+          ...member,
+          id,
+          is_active: true,
+        };
+        membersByHouseholdId[householdId] = [
+          ...(membersByHouseholdId[householdId] || []),
+          createdMember,
+        ];
+        events.push(`INSERT_EVACUEE:${id}`);
+        return createdMember;
+      },
+      insertEvacueeSectors: async () => [],
+      updateHouseholdFamilyHeadEvacueeId: async (householdId, memberId) => {
+        householdRecords[householdId].family_head_evacuee_id = memberId;
+      },
+      insertHouseholdSectors: async () => [],
+      deleteHouseholdSectorsByHouseholdId: async () => {},
+      deleteEvacueeSectorsByEvacueeId: async () => {},
+      deactivateEvacuee: async () => {},
+      updateHousehold: async (householdId, payload) => {
+        const household = householdRecords[householdId];
+        Object.assign(household, {
+          evacuation_center_id: payload.evacuation_center_id,
+          residency_status: payload.residency_status,
+          contact_number: payload.contact_number,
+          current_stay_type: payload.current_stay_type,
+          current_address_details: payload.current_address_details,
+          household_size: payload.household_size,
+        });
+        return household;
+      },
+      updateEvacuee: async (memberId, member) => {
+        const householdId = Object.keys(membersByHouseholdId).find((candidateHouseholdId) =>
+          (membersByHouseholdId[candidateHouseholdId] || []).some(
+            (candidate) => candidate.id === memberId,
+          ),
+        );
+        const existingMember = (membersByHouseholdId[householdId] || []).find(
+          (candidate) => candidate.id === memberId,
+        );
+        Object.assign(existingMember, member);
+        return existingMember;
+      },
+      insertEvacuationLog: async (payload) => {
+        const logs = evacuationLogsByHouseholdId[payload.household_id] || [];
+        const createdLog = {
+          id: `new-log-${logs.length + 1}-${payload.household_id}`,
+          ...payload,
+          time_in: payload.time_in || `2026-08-09T11:${logs.length}0:00.000Z`,
           time_out: null,
         };
-
-        if (payload.evacuee_id === "head-1") {
-          latestAttendance = createdLog;
-        }
-
+        evacuationLogsByHouseholdId[payload.household_id] = [
+          ...logs,
+          createdLog,
+        ];
+        events.push(`INSERT_LOG:${payload.household_id}:${payload.evacuee_id}`);
         return createdLog;
       },
-      insertHousehold: async () => {
-        throw new Error("insertHousehold should not be called during re-admission");
-      },
-      insertEvacuee: async () => {
-        throw new Error("insertEvacuee should not be called during re-admission");
-      },
-      insertHouseholdPrivacyConsent: async () => {
-        throw new Error("insertHouseholdPrivacyConsent should not be called during re-admission");
+      generateStubNumbers: async () => ({
+        stub_no: "STUB-NEW",
+        serial_no: "SER-NEW",
+      }),
+      insertStub: async (payload) => {
+        const stubId = readmissionStubIds[readmissionSequence - 1];
+        const stub = {
+          id: stubId,
+          ...payload,
+        };
+        stubsByHouseholdId[currentCreatedHouseholdId] = stub;
+        events.push("INSERT_STUB");
+        return stub;
       },
     },
     {
@@ -2034,8 +2411,17 @@ test("restoreHousehold re-admits the same household and creates new evacuation l
   );
 
   try {
+    const historicalSnapshot = structuredClone({
+      household: householdRecords[sourceHouseholdId],
+      members: membersByHouseholdId[sourceHouseholdId],
+      logs: evacuationLogsByHouseholdId[sourceHouseholdId],
+      stub: stubsByHouseholdId[sourceHouseholdId],
+      distribution: distributionByStubId[sourceStubId],
+      privacy: privacyByHouseholdId[sourceHouseholdId],
+    });
+
     const result = await harness.service.restoreHousehold({
-      householdId: "household-archived",
+      householdId: sourceHouseholdId,
       requester: {
         userId: "user-1",
         roleCode: "BARANGAY",
@@ -2046,22 +2432,268 @@ test("restoreHousehold re-admits the same household and creates new evacuation l
       },
     });
 
-    assert.equal(result.household_id, "household-archived");
-    assert.equal(result.source_household_id, "household-archived");
+    assert.equal(result.household_id, targetHouseholdId);
+    assert.equal(result.source_household_id, sourceHouseholdId);
     assert.equal(result.status, "ACTIVE");
-    assert.equal(result.household.id, "household-archived");
+    assert.equal(result.household.id, targetHouseholdId);
     assert.equal(result.household.is_active, true);
-    assert.equal(insertedLogCount, 2);
-    assert.deepEqual(events, [
-      "BEGIN",
-      "RESTORE:true",
-      "REACTIVATE:true",
-      "UPDATE_HOUSEHOLD:true",
-      "INSERT_LOG:head-1:true",
-      "INSERT_LOG:member-1:true",
-      "COMMIT",
-      "RELEASE",
-    ]);
+    assert.notEqual(result.household.family_head_evacuee_id, sourceHeadId);
+    assert.notEqual(stubsByHouseholdId[targetHouseholdId].id, sourceStubId);
+    assert.equal(events.includes("RESTORE:true"), false);
+    assert.equal(events.includes("REACTIVATE:true"), false);
+    assert.deepEqual(
+      {
+        household: householdRecords[sourceHouseholdId],
+        members: membersByHouseholdId[sourceHouseholdId],
+        logs: evacuationLogsByHouseholdId[sourceHouseholdId],
+        stub: stubsByHouseholdId[sourceHouseholdId],
+        distribution: distributionByStubId[sourceStubId],
+        privacy: privacyByHouseholdId[sourceHouseholdId],
+      },
+      historicalSnapshot,
+    );
+    assert.deepEqual(
+      membersByHouseholdId[targetHouseholdId].map((member) => member.id),
+      [targetHeadId, targetMemberId],
+    );
+
+    await assert.rejects(
+      harness.service.restoreHousehold({
+        householdId: sourceHouseholdId,
+        requester: {
+          userId: "user-1",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-1",
+        },
+        restoreData: {
+          restore_mode: "RETURN_TO_EVAC_CENTER",
+        },
+      }),
+      (error) => {
+        assert.equal(error.statusCode, 400);
+        assert.equal(error.code, "HOUSEHOLD_ALREADY_ADMITTED");
+        assert.equal(error.message, "This household is already admitted.");
+        return true;
+      },
+    );
+
+    const editedResult = await harness.service.updateHouseholdDetails({
+      householdId: targetHouseholdId,
+      requester: {
+        userId: "user-1",
+        roleCode: "BARANGAY",
+        defaultBarangayId: "barangay-1",
+      },
+      requestData: {
+        disaster_event_id: "event-1",
+        barangay_id: "barangay-1",
+        residency_status: "RESIDENT",
+        evacuation_center_id: "center-1",
+        current_stay_type: "EVAC_CENTER",
+        contact_number: "09999999999",
+        current_address_details: "Zone 2",
+        members: [
+          {
+            id: targetMemberId,
+            first_name: "MARIA UPDATED",
+            middle_name: null,
+            last_name: "DELA CRUZ",
+            suffix: null,
+            sex: "FEMALE",
+            age_value: 12,
+            age_unit: "YEARS",
+            relationship_to_head: "DAUGHTER",
+            sector_ids: [],
+          },
+          {
+            first_name: "PEDRO",
+            middle_name: null,
+            last_name: "DELA CRUZ",
+            suffix: null,
+            sex: "MALE",
+            age_value: 10,
+            age_unit: "YEARS",
+            relationship_to_head: "SON",
+            sector_ids: [],
+          },
+        ],
+        household_sector_ids: [],
+      },
+    });
+
+    assert.equal(editedResult.household.contact_number, "09999999999");
+    assert.equal(editedResult.household.current_address_details, "Zone 2");
+    assert.equal(editedResult.household.household_size, 3);
+    assert.equal(
+      membersByHouseholdId[sourceHouseholdId][1].first_name,
+      "MARIA",
+    );
+    assert.equal(
+      membersByHouseholdId[sourceHouseholdId].length,
+      historicalSnapshot.members.length,
+    );
+
+    const eventBHouseholdId = "household-event-b";
+    const eventBHeadId = "event-b-head-1";
+    const eventBHousehold = {
+      ...structuredClone(householdRecords[targetHouseholdId]),
+      id: eventBHouseholdId,
+      disaster_event_id: "event-2",
+      contact_number: "09080000000",
+      current_address_details: "Event B Zone 1",
+      family_head_evacuee_id: eventBHeadId,
+      registered_at: "2027-08-09T09:00:00.000Z",
+    };
+    householdRecords[eventBHouseholdId] = eventBHousehold;
+    membersByHouseholdId[eventBHouseholdId] = [
+      {
+        ...structuredClone(membersByHouseholdId[targetHouseholdId][0]),
+        id: eventBHeadId,
+        household_id: eventBHouseholdId,
+        is_family_head: true,
+        is_active: true,
+      },
+    ];
+    privacyByHouseholdId[eventBHouseholdId] = {
+      ...structuredClone(privacyByHouseholdId[targetHouseholdId]),
+      id: "privacy-event-b",
+      household_id: eventBHouseholdId,
+      disaster_event_id: "event-2",
+    };
+    const eventASnapshotBeforeEventBEdit = structuredClone({
+      household: householdRecords[sourceHouseholdId],
+      members: membersByHouseholdId[sourceHouseholdId],
+      logs: evacuationLogsByHouseholdId[sourceHouseholdId],
+    });
+    const eventBEditResult = await harness.service.updateHouseholdDetails({
+      householdId: eventBHouseholdId,
+      requester: {
+        userId: "user-1",
+        roleCode: "BARANGAY",
+        defaultBarangayId: "barangay-1",
+      },
+      requestData: {
+        disaster_event_id: "event-2",
+        barangay_id: "barangay-1",
+        residency_status: "RESIDENT",
+        evacuation_center_id: "center-1",
+        current_stay_type: "EVAC_CENTER",
+        contact_number: "09081111111",
+        current_address_details: "Event B Zone 2",
+        members: [],
+        household_sector_ids: [],
+      },
+    });
+
+    assert.equal(eventBEditResult.household.disaster_event_id, "event-2");
+    assert.equal(eventBEditResult.household.contact_number, "09081111111");
+    assert.equal(eventBEditResult.household.current_address_details, "Event B Zone 2");
+    assert.deepEqual(
+      {
+        household: householdRecords[sourceHouseholdId],
+        members: membersByHouseholdId[sourceHouseholdId],
+        logs: evacuationLogsByHouseholdId[sourceHouseholdId],
+      },
+      eventASnapshotBeforeEventBEdit,
+    );
+
+    householdRecords[targetHouseholdId].is_active = false;
+    membersByHouseholdId[targetHouseholdId].forEach((member) => {
+      member.is_active = false;
+    });
+    evacuationLogsByHouseholdId[targetHouseholdId] = (
+      evacuationLogsByHouseholdId[targetHouseholdId] || []
+    ).map((log) => ({
+      ...log,
+      status: "LEFT",
+      time_out: "2026-08-09T14:00:00.000Z",
+    }));
+    successorHouseholdIdBySource[targetHouseholdId] = secondHouseholdId;
+    const firstArchivedSnapshot = structuredClone({
+      household: householdRecords[targetHouseholdId],
+      members: membersByHouseholdId[targetHouseholdId],
+      logs: evacuationLogsByHouseholdId[targetHouseholdId],
+      stub: stubsByHouseholdId[targetHouseholdId],
+      privacy: privacyByHouseholdId[targetHouseholdId],
+    });
+
+    const secondResult = await harness.service.restoreHousehold({
+      householdId: targetHouseholdId,
+      requester: {
+        userId: "user-1",
+        roleCode: "BARANGAY",
+        defaultBarangayId: "barangay-1",
+      },
+      restoreData: {
+        restore_mode: "RETURN_TO_EVAC_CENTER",
+      },
+    });
+
+    assert.equal(secondResult.household_id, secondHouseholdId);
+    assert.equal(secondResult.source_household_id, targetHouseholdId);
+    assert.deepEqual(
+      membersByHouseholdId[secondHouseholdId].map((member) => member.id),
+      [secondHeadId, ...secondMemberIds],
+    );
+    assert.equal(stubsByHouseholdId[secondHouseholdId].id, secondStubId);
+
+    const newestEditedResult = await harness.service.updateHouseholdDetails({
+      householdId: secondHouseholdId,
+      requester: {
+        userId: "user-1",
+        roleCode: "BARANGAY",
+        defaultBarangayId: "barangay-1",
+      },
+      requestData: {
+        disaster_event_id: "event-1",
+        barangay_id: "barangay-1",
+        residency_status: "RESIDENT",
+        evacuation_center_id: "center-1",
+        current_stay_type: "EVAC_CENTER",
+        contact_number: "08888888888",
+        current_address_details: "Zone 3",
+        members: [
+          {
+            id: secondMemberIds[0],
+            first_name: "MARIA SECOND UPDATED",
+            middle_name: null,
+            last_name: "DELA CRUZ",
+            suffix: null,
+            sex: "FEMALE",
+            age_value: 12,
+            age_unit: "YEARS",
+            relationship_to_head: "DAUGHTER",
+            sector_ids: [],
+          },
+        ],
+        household_sector_ids: [],
+      },
+    });
+
+    assert.equal(newestEditedResult.household.contact_number, "08888888888");
+    assert.equal(newestEditedResult.household.current_address_details, "Zone 3");
+    assert.equal(newestEditedResult.household.household_size, 2);
+    assert.deepEqual(
+      {
+        household: householdRecords[targetHouseholdId],
+        members: membersByHouseholdId[targetHouseholdId],
+        logs: evacuationLogsByHouseholdId[targetHouseholdId],
+        stub: stubsByHouseholdId[targetHouseholdId],
+        privacy: privacyByHouseholdId[targetHouseholdId],
+      },
+      firstArchivedSnapshot,
+    );
+    assert.deepEqual(
+      {
+        household: householdRecords[sourceHouseholdId],
+        members: membersByHouseholdId[sourceHouseholdId],
+        logs: evacuationLogsByHouseholdId[sourceHouseholdId],
+        stub: stubsByHouseholdId[sourceHouseholdId],
+        distribution: distributionByStubId[sourceStubId],
+        privacy: privacyByHouseholdId[sourceHouseholdId],
+      },
+      historicalSnapshot,
+    );
   } finally {
     harness.restore();
   }
@@ -2348,6 +2980,50 @@ test("updateHouseholdDetails validates members against persisted family head wit
     assert.equal(updateHouseholdCalls, 1);
     assert.equal(insertHouseholdCalls, 0);
     assert.equal(result.active_cross_event_information, undefined);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("updateHouseholdDetails rejects direct edits to a departed historical occurrence", async () => {
+  let updateCalled = false;
+  const harness = loadServiceWithMocks({
+    getHouseholdSummaryById: async () => ({
+      id: "household-archived-edit",
+      disaster_event_id: "event-1",
+      disaster_event_status: "ACTIVE",
+      barangay_id: "barangay-1",
+      current_stay_type: "EVAC_CENTER",
+      is_active: false,
+    }),
+    updateHousehold: async () => {
+      updateCalled = true;
+      throw new Error("Historical household must not be mutated");
+    },
+  });
+
+  try {
+    await assert.rejects(
+      harness.service.updateHouseholdDetails({
+        householdId: "household-archived-edit",
+        requester: {
+          userId: "user-1",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-1",
+        },
+        requestData: {
+          disaster_event_id: "event-1",
+          barangay_id: "barangay-1",
+        },
+      }),
+      (error) => {
+        assert.equal(error.statusCode, 400);
+        assert.equal(error.code, "HISTORICAL_HOUSEHOLD_IMMUTABLE");
+        assert.equal(error.message, "Archived households cannot be edited");
+        return true;
+      },
+    );
+    assert.equal(updateCalled, false);
   } finally {
     harness.restore();
   }

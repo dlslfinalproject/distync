@@ -151,6 +151,43 @@ const ACTION_HANDLERS = {
       });
     },
   },
+  HOUSEHOLD_RE_ADMISSION: {
+    entityType: "HOUSEHOLD",
+    operationType: "CREATE",
+    roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
+    execute: async ({ payload, auth, clientTimestamp, dbClient }) => {
+      const validatedPayload =
+        validateAndNormalizeHouseholdRegistrationPayload(payload);
+
+      if (
+        validatedPayload.registration_operation !==
+        "CREATE_NEW_HOUSEHOLD_OCCURRENCE"
+      ) {
+        const error = new Error(
+          "Re-admission sync entries must create a new household occurrence.",
+        );
+        error.statusCode = 400;
+        error.code = "INVALID_RE_ADMISSION_OPERATION";
+        throw error;
+      }
+
+      return householdRegistrationService.registerHousehold(
+        {
+          ...validatedPayload,
+          registered_by: auth.userId,
+          synced_client_timestamp: clientTimestamp,
+          enforce_sync_duplicate_guard: true,
+          dbClient,
+        },
+        {
+          operation: "RE_ADMISSION",
+          sourceHouseholdId:
+            validatedPayload.re_admission_source_household_id,
+          dbClient,
+        },
+      );
+    },
+  },
   HOUSEHOLD_UPDATE: {
     entityType: "HOUSEHOLD",
     operationType: "UPDATE",
@@ -1256,6 +1293,7 @@ const processSingleSyncEntry = async (entry, auth) => {
       message: error.message || "Sync failed",
       data: null,
       conflict: null,
+      error_code: error.code || null,
     };
     }
   });

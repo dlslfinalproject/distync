@@ -238,6 +238,84 @@ test("EE-FIX-02 HTTP update returns safe non-ACTIVE event validation failure fro
   );
 });
 
+test("HTTP update rejects direct edits to a historical household occurrence", async () => {
+  let serviceCall = null;
+
+  await withStubbedHouseholdRoute(
+    {
+      authMiddlewareStub: {
+        ROLE_CODES: {
+          BARANGAY: "BARANGAY",
+          MSWDO: "MSWDO",
+          MAYOR: "MAYOR",
+        },
+        requireRoles: () => (req, _res, next) => {
+          req.auth = {
+            userId: "barangay-user-a",
+            roleCode: "BARANGAY",
+            defaultBarangayId: "barangay-a",
+          };
+          next();
+        },
+      },
+      serviceStub: {
+        updateHouseholdDetails: async (requestData) => {
+          serviceCall = requestData;
+          const error = new Error("Archived households cannot be edited");
+          error.statusCode = 400;
+          error.code = "HISTORICAL_HOUSEHOLD_IMMUTABLE";
+          throw error;
+        },
+      },
+      validatorStub: {
+        ...buildValidatorStub(),
+        validateUpdateHouseholdDetails: (req, _res, next) => {
+          req.validatedParams = { householdId: req.params.householdId };
+          req.validatedBody = req.body || {};
+          next();
+        },
+      },
+    },
+    async (router) => {
+      const app = express();
+      app.use(express.json());
+      app.use("/api/v1/households", router);
+
+      const server = await new Promise((resolve) => {
+        const instance = app.listen(0, () => resolve(instance));
+      });
+
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:${server.address().port}/api/v1/households/household-archived`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              disaster_event_id: "event-1",
+              barangay_id: "barangay-a",
+              contact_number: "09999999999",
+            }),
+          },
+        );
+        const payload = await response.json();
+
+        assert.equal(response.status, 400);
+        assert.deepEqual(payload, {
+          code: "HISTORICAL_HOUSEHOLD_IMMUTABLE",
+          message: "Archived households cannot be edited",
+        });
+        assert.equal(serviceCall.householdId, "household-archived");
+        assert.equal(serviceCall.requester.userId, "barangay-user-a");
+      } finally {
+        await new Promise((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    },
+  );
+});
+
 test("BRG-SC-06-H01 TEST E HTTP departure returns 403 for foreign Barangay without mutation result", async () => {
   let serviceCall = null;
 
