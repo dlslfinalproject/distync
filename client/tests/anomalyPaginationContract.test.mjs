@@ -433,6 +433,18 @@ test("Barangay anomaly page removes summary cards, sync banner, and extra row re
   assert.doesNotMatch(source, /FiCheckCircle|FiEdit3/);
 });
 
+test("resolved anomaly rows use the eye details action for both scopes", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+  const actionBlock = source.match(
+    /\{isManualReviewableAnomaly\(row\) && row\.review_status \? \([\s\S]*?\) : isManualReviewableAnomaly\(row\) \? \(/,
+  )?.[0] || "";
+
+  assert.match(actionBlock, /<FiEye size=\{18\} aria-hidden="true" \/>/);
+  assert.match(actionBlock, /aria-label="View anomaly details"/);
+  assert.match(source, /aria-label="Review anomaly"/);
+  assert.doesNotMatch(actionBlock, /isBarangayScope &&/);
+});
+
 test("Barangay sidebar groups sync and anomaly navigation under Monitoring only", async () => {
   const sidebarSource = await fs.readFile(sidebarSourcePath, "utf8");
 

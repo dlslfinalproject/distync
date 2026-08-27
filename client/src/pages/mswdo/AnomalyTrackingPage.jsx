@@ -1871,7 +1871,7 @@ const AnomalyTrackingPage = ({
                             : mswdoAnomalyColumnStyles.action),
                         }}
                       >
-                        {isBarangayScope && isManualReviewableAnomaly(row) && row.review_status ? (
+                        {isManualReviewableAnomaly(row) && row.review_status ? (
                           <button
                             type="button"
                             onClick={(event) => openAnomalyDetails(row, event)}

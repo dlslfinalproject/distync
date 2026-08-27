@@ -27,7 +27,7 @@ test("BRG-ANOM-L02 pending and resolved Barangay anomalies expose different acti
 
   assert.match(
     source,
-    /isBarangayScope && isManualReviewableAnomaly\(row\) && row\.review_status \? \(/,
+    /isManualReviewableAnomaly\(row\) && row\.review_status \? \(/,
   );
   assert.match(source, /aria-label="View anomaly details"/);
   assert.match(source, /<FiEye size=\{18\} aria-hidden="true" \/>/);
