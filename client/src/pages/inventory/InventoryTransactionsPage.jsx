@@ -283,10 +283,7 @@ const buildQueuedInventoryTransaction = (entry, inventoryBatches) => {
     inventory_batch_id: entry.payload?.inventory_batch_id || null,
     transaction_type: entry.payload?.transaction_type || "ADJUSTMENT",
     quantity: entry.payload?.quantity || 0,
-    inventory_transaction_reference_no:
-      entry.payload?.inventoryTransactionReferenceNo ||
-      entry.payload?.inventory_transaction_reference_no ||
-      null,
+    inventory_transaction_reference_no: null,
     reference_type: entry.payload?.reference_type || "SYNC",
     remarks: entry.payload?.remarks || "",
     sync_status: entry.status,

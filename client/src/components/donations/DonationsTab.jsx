@@ -268,7 +268,7 @@ const DonationsTab = ({
                         items={[
                           {
                             key: "view-details",
-                            label: "View Details",
+                            label: "View Donation Details",
                             icon: <FiEye size={18} />,
                             onClick: (row) => onOpenDonationDetail(row.id),
                             disabled: donation.is_local_only,
@@ -276,7 +276,7 @@ const DonationsTab = ({
                           },
                           {
                             key: "edit",
-                            label: "Edit details",
+                            label: "Edit Donation Details",
                             icon: <FiEdit2 size={18} />,
                             onClick: (row) => onOpenDonationModal(row.id),
                             disabled: donation.is_local_only,

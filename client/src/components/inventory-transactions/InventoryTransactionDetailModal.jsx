@@ -92,7 +92,8 @@ const InventoryTransactionDetailModal = ({ isOpen, row, onClose }) => {
   const transactionInformation = [
     [
       "ITR No.",
-      row.inventory_transaction_reference_no || "Not applicable",
+      row.inventory_transaction_reference_no ||
+        (row.is_local_only ? "Pending assignment" : "Not applicable"),
     ],
     ["Quantity Moved", String(row.quantity ?? 0)],
     ["Movement", row.transaction_direction || "--"],
@@ -112,7 +113,7 @@ const InventoryTransactionDetailModal = ({ isOpen, row, onClose }) => {
   return (
     <DetailsModalShell
       isOpen={isOpen}
-      title="View Details"
+      title="Inventory Transaction Details"
       onClose={onClose}
       maxWidth="980px"
       closeMode="icon"

@@ -203,6 +203,7 @@ const summarizeInventoryTransaction = (transaction) =>
     "quantity",
     "reference_type",
     "reference_id",
+    "inventory_transaction_reference_no",
     "performed_by",
     "performed_at",
     "remarks",

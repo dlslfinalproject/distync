@@ -13,7 +13,6 @@ const {
   isValidInventoryTransactionReferenceNo,
   normalizeInventoryTransactionReferenceNo,
 } = require("../utils/inventoryTransactionReference");
-
 const additiveTransactionTypes = new Set(["INFLOW", "RETURN", "ADJUSTMENT"]);
 const subtractiveTransactionTypes = new Set([
   "OUTFLOW",
@@ -399,29 +398,22 @@ const createInventoryTransaction = async (transactionData) => {
       : null;
   const syncTransactionId = transactionData.syncTransactionId || null;
   let committed = false;
-  const normalizedReferenceNo = normalizeInventoryTransactionReferenceNo(
+  const rawReferenceNo =
     transactionData.inventoryTransactionReferenceNo ??
-      transactionData.inventory_transaction_reference_no,
+    transactionData.inventory_transaction_reference_no;
+  const normalizedReferenceNo = normalizeInventoryTransactionReferenceNo(
+    rawReferenceNo,
   );
-  const isTrustedSourceGenerated =
-    transactionData.trustedSourceGenerated === true;
 
-  if (!isTrustedSourceGenerated) {
-    if (!normalizedReferenceNo) {
-      const error = new Error(
-        "Inventory Transaction Reference No. is required for manual inventory transactions.",
-      );
-      error.statusCode = 400;
-      throw error;
-    }
-
-    if (!isValidInventoryTransactionReferenceNo(normalizedReferenceNo)) {
-      const error = new Error(
-        "Inventory Transaction Reference No. must use ITR-YYYY-NNNNNN and cannot end in 000000.",
-      );
-      error.statusCode = 400;
-      throw error;
-    }
+  if (
+    normalizedReferenceNo &&
+    !isValidInventoryTransactionReferenceNo(normalizedReferenceNo)
+  ) {
+    const error = new Error(
+      "Inventory Transaction Reference No. must use ITR-YYYY-NNNNNN and cannot end in 000000.",
+    );
+    error.statusCode = 400;
+    throw error;
   }
 
   if (transactionData.performed_by) {
@@ -535,22 +527,11 @@ const createInventoryTransaction = async (transactionData) => {
         {
           ...transactionData,
           inventory_batch_id: inventoryBatch.id,
+          // New callers omit the value; the database assigns it. Keep valid legacy values for queued work.
           inventory_transaction_reference_no: normalizedReferenceNo,
         },
         client,
       );
-
-    if (!createdTransaction && normalizedReferenceNo) {
-      const existingTransaction =
-        await inventoryTransactionRepository.getInventoryTransactionByReferenceNo(
-          normalizedReferenceNo,
-          client,
-        );
-
-      throw createDuplicateInventoryTransactionReferenceError(
-        existingTransaction,
-      );
-    }
 
     await inventoryTransactionRepository.updateInventoryBatchQuantityAndStatus(
       inventoryBatch.id,

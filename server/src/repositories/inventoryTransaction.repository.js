@@ -336,9 +336,7 @@ const insertInventoryTransaction = async (transactionData, dbClient) => {
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, NOW()
     )
-    ON CONFLICT (inventory_transaction_reference_no)
-    WHERE inventory_transaction_reference_no IS NOT NULL
-    DO NOTHING
+    ON CONFLICT DO NOTHING
     RETURNING
       id,
       disaster_event_id,

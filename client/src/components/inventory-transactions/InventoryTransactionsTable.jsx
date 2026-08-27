@@ -154,7 +154,8 @@ const InventoryTransactionsTable = ({
               </td>
               <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={tableStyles.bodyCell}>{row.batch_no || "--"}</td>
               <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={tableStyles.bodyCell}>
-                {row.inventory_transaction_reference_no || "Not applicable"}
+                {row.inventory_transaction_reference_no ||
+                  (row.is_local_only ? "Pending assignment" : "Not applicable")}
               </td>
               <td className="inventory-tracking-table-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
                 {row.quantity ?? 0}
@@ -189,7 +190,7 @@ const InventoryTransactionsTable = ({
                   type="button"
                   onClick={() => onViewDetails?.(row)}
                   style={tableStyles.actionButton}
-                  title="View Details"
+                  title="View Inventory Transaction Details"
                   aria-label="View Details"
                 >
                   <FiEye size={18} />

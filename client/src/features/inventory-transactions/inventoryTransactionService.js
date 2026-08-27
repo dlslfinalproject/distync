@@ -2,11 +2,6 @@ import {
   buildOfflineQueuedResponse,
   performSyncableMutation,
 } from "../../offline/syncService";
-import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
-import {
-  isValidInventoryTransactionReferenceNo,
-  normalizeInventoryTransactionReferenceNo,
-} from "./inventoryTransactionReference";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -19,39 +14,6 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   }
 
   return responseData;
-};
-
-const activeDuplicateStatuses = new Set(["PENDING", "FAILED"]);
-
-const ensureNoActiveLocalInventoryReferenceDuplicate = async (
-  inventoryTransactionReferenceNo,
-) => {
-  const normalizedReferenceNo = normalizeInventoryTransactionReferenceNo(
-    inventoryTransactionReferenceNo,
-  );
-  const entries = await getVisibleSyncQueueEntries();
-  const duplicateEntry = entries.find((entry) => {
-    if (
-      entry.moduleName !== "mayor-inventory" ||
-      entry.actionKey !== "INVENTORY_TRANSACTION_CREATE" ||
-      !activeDuplicateStatuses.has(entry.status)
-    ) {
-      return false;
-    }
-
-    return (
-      normalizeInventoryTransactionReferenceNo(
-        entry.payload?.inventoryTransactionReferenceNo ||
-          entry.payload?.inventory_transaction_reference_no,
-      ) === normalizedReferenceNo
-    );
-  });
-
-  if (duplicateEntry) {
-    throw new Error(
-      "This Inventory Transaction Reference No. is already pending in this device's offline queue.",
-    );
-  }
 };
 
 const downloadResponseAsFile = async (response, fallbackMessage) => {
@@ -146,31 +108,11 @@ export const exportInventoryTransactions = async (format = "csv", filters = {}) 
 };
 
 export const createInventoryTransaction = async (payload) => {
-  const inventoryTransactionReferenceNo = normalizeInventoryTransactionReferenceNo(
-    payload?.inventoryTransactionReferenceNo ||
-      payload?.inventory_transaction_reference_no,
-  );
-
-  if (!inventoryTransactionReferenceNo) {
-    throw new Error(
-      "Inventory Transaction Reference No. is required before recording this manual stock movement.",
-    );
-  }
-
-  if (!isValidInventoryTransactionReferenceNo(inventoryTransactionReferenceNo)) {
-    throw new Error(
-      "Inventory Transaction Reference No. must use ITR-YYYY-NNNNNN and cannot end in 000000.",
-    );
-  }
-
-  await ensureNoActiveLocalInventoryReferenceDuplicate(
-    inventoryTransactionReferenceNo,
-  );
-
-  const normalizedPayload = {
-    ...payload,
-    inventoryTransactionReferenceNo,
-  };
+  const {
+    inventoryTransactionReferenceNo: _legacyReferenceNo,
+    inventory_transaction_reference_no: _legacySnakeCaseReferenceNo,
+    ...normalizedPayload
+  } = payload || {};
 
   return performSyncableMutation({
     moduleName: "mayor-inventory",
@@ -181,7 +123,6 @@ export const createInventoryTransaction = async (payload) => {
     requiredFields: [
       "transaction_type",
       "quantity",
-      "inventoryTransactionReferenceNo",
     ],
     request: async () => {
       const response = await fetch(`${API_BASE_URL}/api/v1/inventory-transactions`, {
@@ -200,7 +141,7 @@ export const createInventoryTransaction = async (payload) => {
           "Inventory transaction saved offline. Pending sync once connection is restored.",
         data: {
           transaction_id: entityLocalId,
-          inventory_transaction_reference_no: inventoryTransactionReferenceNo,
+          inventory_transaction_reference_no: null,
           performed_at: clientTimestamp,
         },
         clientSyncId,

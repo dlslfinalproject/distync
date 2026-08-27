@@ -58,7 +58,6 @@ const createDefaultForm = () => ({
   inventory_batch_id: "",
   transaction_type: "OUTFLOW",
   quantity: 1,
-  inventoryTransactionReferenceNo: "",
   reference_type: "MANUAL",
   remarks: "",
 });
@@ -103,8 +102,6 @@ const InventoryTransactionFormModal = ({
       inventory_batch_id: formValues.inventory_batch_id,
       transaction_type: formValues.transaction_type,
       quantity: Number.parseInt(formValues.quantity, 10),
-      inventoryTransactionReferenceNo:
-        formValues.inventoryTransactionReferenceNo.trim().toUpperCase(),
       reference_type: "MANUAL",
       reference_id: null,
       performed_by: null,
@@ -220,17 +217,10 @@ const InventoryTransactionFormModal = ({
               <input
                 id="inventory_transaction_reference_no"
                 type="text"
-                value={formValues.inventoryTransactionReferenceNo}
-                onChange={(event) =>
-                  handleChange(
-                    "inventoryTransactionReferenceNo",
-                    event.target.value.toUpperCase(),
-                  )
-                }
-                style={inputStyles}
-                placeholder="ITR-2026-000123"
-                maxLength={15}
-                required
+                value="Assigned automatically on save"
+                readOnly
+                style={{ ...inputStyles, backgroundColor: "#eef5fb", color: "#5f7891" }}
+                aria-readonly="true"
               />
             </div>
 

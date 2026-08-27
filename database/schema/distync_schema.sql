@@ -490,6 +490,12 @@ ON public.inventory_batches
 FOR EACH ROW
 EXECUTE FUNCTION public.increment_inventory_batch_stock_version();
 
+CREATE TABLE public.inventory_transaction_reference_counters (
+  reference_year integer NOT NULL CHECK (reference_year >= 1000 AND reference_year <= 9999),
+  last_sequence integer NOT NULL CHECK (last_sequence >= 0),
+  CONSTRAINT inventory_transaction_reference_counters_pkey PRIMARY KEY (reference_year)
+);
+
 CREATE TABLE public.inventory_transactions (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   disaster_event_id uuid,
@@ -498,7 +504,7 @@ CREATE TABLE public.inventory_transactions (
   quantity integer NOT NULL CHECK (quantity >= 0),
   reference_type character varying NOT NULL DEFAULT 'MANUAL'::character varying CHECK (reference_type::text = ANY (ARRAY['MANUAL'::character varying, 'BARCODE_SCAN'::character varying, 'QR_SCAN'::character varying, 'DISTRIBUTION'::character varying, 'DONATION'::character varying, 'PROOF_OF_RECEIPT'::character varying, 'SYNC'::character varying, 'SYSTEM'::character varying]::text[])),
   reference_id uuid,
-  inventory_transaction_reference_no character varying(15) CHECK (inventory_transaction_reference_no IS NULL OR (inventory_transaction_reference_no::text ~ '^ITR-[0-9]{4}-[0-9]{6}$'::text AND RIGHT(inventory_transaction_reference_no::text, 6) <> '000000'::text)),
+  inventory_transaction_reference_no character varying(15) NOT NULL CHECK (inventory_transaction_reference_no::text ~ '^ITR-[0-9]{4}-[0-9]{6}$'::text AND RIGHT(inventory_transaction_reference_no::text, 6) <> '000000'::text),
   performed_by uuid,
   performed_at timestamp with time zone NOT NULL DEFAULT now(),
   remarks text,
@@ -510,8 +516,78 @@ CREATE TABLE public.inventory_transactions (
 );
 
 CREATE UNIQUE INDEX inventory_transactions_reference_no_unique
-ON public.inventory_transactions (inventory_transaction_reference_no)
-WHERE inventory_transaction_reference_no IS NOT NULL;
+ON public.inventory_transactions (inventory_transaction_reference_no);
+
+CREATE OR REPLACE FUNCTION public.assign_inventory_transaction_reference_no()
+RETURNS trigger AS $$
+DECLARE
+  v_reference_year integer;
+  v_next_sequence integer;
+BEGIN
+  IF NULLIF(BTRIM(NEW.inventory_transaction_reference_no), '') IS NOT NULL THEN
+    NEW.inventory_transaction_reference_no := UPPER(
+      BTRIM(NEW.inventory_transaction_reference_no)
+    );
+
+    IF NEW.inventory_transaction_reference_no ~ '^ITR-[0-9]{4}-[0-9]{6}$'
+       AND RIGHT(NEW.inventory_transaction_reference_no, 6) <> '000000' THEN
+      v_reference_year := substring(
+        NEW.inventory_transaction_reference_no FROM 5 FOR 4
+      )::integer;
+      v_next_sequence := RIGHT(
+        NEW.inventory_transaction_reference_no, 6
+      )::integer;
+
+      INSERT INTO public.inventory_transaction_reference_counters (
+        reference_year,
+        last_sequence
+      )
+      VALUES (v_reference_year, v_next_sequence)
+      ON CONFLICT (reference_year) DO UPDATE
+      SET last_sequence = GREATEST(
+        public.inventory_transaction_reference_counters.last_sequence,
+        EXCLUDED.last_sequence
+      );
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  v_reference_year := EXTRACT(
+    YEAR FROM COALESCE(NEW.performed_at, NOW())
+  )::integer;
+
+  INSERT INTO public.inventory_transaction_reference_counters (
+    reference_year,
+    last_sequence
+  )
+  VALUES (v_reference_year, 1)
+  ON CONFLICT (reference_year) DO UPDATE
+  SET last_sequence =
+    public.inventory_transaction_reference_counters.last_sequence + 1
+  RETURNING last_sequence INTO v_next_sequence;
+
+  IF v_next_sequence > 999999 THEN
+    RAISE EXCEPTION
+      'Inventory transaction reference sequence is exhausted for %',
+      v_reference_year;
+  END IF;
+
+  NEW.inventory_transaction_reference_no := FORMAT(
+    'ITR-%s-%s',
+    v_reference_year,
+    LPAD(v_next_sequence::text, 6, '0')
+  );
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER inventory_transactions_reference_no_before_insert
+BEFORE INSERT
+ON public.inventory_transactions
+FOR EACH ROW
+EXECUTE FUNCTION public.assign_inventory_transaction_reference_no();
 
 CREATE TABLE public.relief_pack_templates (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

@@ -50,8 +50,13 @@ test("inventory transaction reference helper trims, uppercases, and validates ap
   assert.equal(isValidInventoryTransactionReferenceNo("ITR-26-000123"), false);
 });
 
-test("manual inventory transaction validator requires normalized ITR", () => {
-  const req = { body: validPayload };
+test("manual inventory transaction validator allows the server to assign an ITR", () => {
+  const req = {
+    body: {
+      ...validPayload,
+      inventoryTransactionReferenceNo: null,
+    },
+  };
   const res = createResponse();
   let nextCalled = false;
 
@@ -62,12 +67,32 @@ test("manual inventory transaction validator requires normalized ITR", () => {
   assert.equal(nextCalled, true);
   assert.equal(
     req.validatedBody.inventoryTransactionReferenceNo,
-    "ITR-2026-000123",
+    null,
   );
 });
 
-test("manual inventory transaction validator rejects missing or zero-sequence ITR", () => {
-  for (const inventoryTransactionReferenceNo of [null, "ITR-2026-000000"]) {
+test("manual inventory transaction validator still rejects explicitly malformed legacy ITR", () => {
+  const missingReferenceRequest = {
+    body: {
+      ...validPayload,
+      inventoryTransactionReferenceNo: null,
+    },
+  };
+  const missingReferenceResponse = createResponse();
+  let missingReferenceNextCalled = false;
+
+  validateCreateInventoryTransaction(
+    missingReferenceRequest,
+    missingReferenceResponse,
+    () => {
+      missingReferenceNextCalled = true;
+    },
+  );
+
+  assert.equal(missingReferenceNextCalled, true);
+  assert.equal(missingReferenceResponse.statusCode, null);
+
+  for (const inventoryTransactionReferenceNo of ["ITR-2026-000000", "bad"]) {
     const req = {
       body: {
         ...validPayload,
@@ -106,11 +131,11 @@ test("manual inventory transaction validator requires an explicit batch", () => 
   assert.equal(res.payload.message, "inventory_batch_id is required");
 });
 
-test("ITR migration and schema preserve nullable historical rows and enforce format plus uniqueness", () => {
+test("ITR migration backfills historical rows, assigns new values, and enforces uniqueness", () => {
   const migrationSql = fs.readFileSync(
     path.resolve(
       __dirname,
-      "../../database/migrations/2026-08-09_add_inventory_transaction_reference_no.sql",
+      "../../database/migrations/2026-08-27_auto_generate_inventory_transaction_reference_no.sql",
     ),
     "utf8",
   );
@@ -123,17 +148,37 @@ test("ITR migration and schema preserve nullable historical rows and enforce for
     migrationSql,
     /ADD COLUMN IF NOT EXISTS inventory_transaction_reference_no character varying\(15\)/,
   );
-  assert.doesNotMatch(migrationSql, /UPDATE\s+public\.inventory_transactions/i);
+  assert.match(migrationSql, /UPDATE\s+public\.inventory_transactions/i);
+  assert.match(migrationSql, /inventory_transaction_reference_counters/i);
+  assert.match(
+    migrationSql,
+    /CREATE OR REPLACE FUNCTION public\.assign_inventory_transaction_reference_no/i,
+  );
+  assert.match(
+    migrationSql,
+    /CREATE TRIGGER inventory_transactions_reference_no_before_insert/i,
+  );
+  assert.match(
+    migrationSql,
+    /INSERT INTO public\.inventory_transactions[\s\S]*NOT EXISTS/i,
+  );
+  assert.match(
+    migrationSql,
+    /ALTER COLUMN inventory_transaction_reference_no SET NOT NULL/i,
+  );
   assert.match(migrationSql, /\^ITR-\[0-9\]\{4\}-\[0-9\]\{6\}\$/);
   assert.match(migrationSql, /RIGHT\(inventory_transaction_reference_no, 6\) <> '000000'/);
   assert.match(
     migrationSql,
-    /CREATE UNIQUE INDEX IF NOT EXISTS inventory_transactions_reference_no_unique/,
+    /CREATE UNIQUE INDEX inventory_transactions_reference_no_unique/,
   );
-  assert.match(migrationSql, /WHERE inventory_transaction_reference_no IS NOT NULL/);
   assert.match(
     schemaSql,
-    /inventory_transaction_reference_no character varying\(15\) CHECK/,
+    /inventory_transaction_reference_no character varying\(15\) NOT NULL CHECK/,
   );
   assert.match(schemaSql, /CREATE UNIQUE INDEX inventory_transactions_reference_no_unique/);
+  assert.match(
+    schemaSql,
+    /CREATE TRIGGER inventory_transactions_reference_no_before_insert/,
+  );
 });

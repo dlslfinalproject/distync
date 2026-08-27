@@ -911,8 +911,11 @@ const InventoryItemFormModal = ({
         : "Stock Details";
   const identityFieldStyles =
     isRestockMode && !isEditMode ? lockedInputStyles : inputStyles;
+  const hasExistingBarcode = Boolean(
+    normalizeInventoryBarcode(itemData?.barcode),
+  );
   const isBarcodeLocked =
-    isEditMode ||
+    (isEditMode && hasExistingBarcode) ||
     hasScannedBarcode ||
     isExactBarcodeStockFormMatch ||
     (!isAddingBarcodeStockForm &&

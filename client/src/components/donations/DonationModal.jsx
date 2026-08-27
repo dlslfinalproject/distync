@@ -755,7 +755,7 @@ const DonationModal = ({
         >
           <div>
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              {isEditingDonation ? "Edit Donation" : "Receive Donation"}
+              {isEditingDonation ? "Edit Donation Details" : "Receive Donation"}
             </h3>
           </div>
           <button

@@ -747,6 +747,20 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
     throw createDuplicateInventoryBatchError(authoritativeBatch);
   }
 
+  await inventoryTransactionRepository.insertInventoryTransaction(
+    {
+      disaster_event_id: null,
+      inventory_batch_id: createdBatch.id,
+      transaction_type: "INFLOW",
+      quantity: Number(batchData.quantity_received || 0),
+      reference_type: "MANUAL",
+      reference_id: createdBatch.id,
+      performed_by: batchData.created_by || null,
+      remarks: "Stock received during inventory batch creation",
+    },
+    dbClient || undefined,
+  );
+
   const fullBatch = await inventoryBatchRepository.getInventoryBatchById(
     createdBatch.id,
     dbClient || undefined,
@@ -762,11 +776,7 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
 };
 
 const createInventoryBatch = async (batchData) => {
-  const requiresTransaction =
-    !batchData.dbClient &&
-    (Boolean(normalizeInventoryBarcode(batchData.stock_form_barcode)) ||
-      hasStockFormDefinitionInput(batchData) ||
-      batchData.inventory_item_reorder_level !== undefined);
+  const requiresTransaction = !batchData.dbClient;
 
   if (!requiresTransaction) {
     return createInventoryBatchWithoutTransaction(batchData);

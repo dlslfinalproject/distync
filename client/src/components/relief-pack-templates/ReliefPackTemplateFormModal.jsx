@@ -808,7 +808,7 @@ const ReliefPackTemplateFormModal = ({
               {isViewMode
                 ? "View Relief Pack"
                 : isEditMode
-                  ? "Edit Relief Pack"
+                  ? "Edit Relief Pack Template"
                   : "Add Relief Pack"}
             </h3>
           </div>

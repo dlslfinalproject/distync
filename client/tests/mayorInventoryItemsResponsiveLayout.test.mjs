@@ -127,6 +127,15 @@ test("Mayor inventory forms and modals expose mobile-safe hooks while preserving
   assert.doesNotMatch(pageSource, /Existing item found:/);
   assert.match(formSource, /const scannedBarcode =/);
   assert.match(formSource, /const getEffectiveBarcode =/);
+  assert.match(
+    formSource,
+    /const hasExistingBarcode = Boolean\(\s*normalizeInventoryBarcode\(itemData\?\.barcode\),\s*\);/,
+  );
+  assert.match(
+    formSource,
+    /const isBarcodeLocked =\s*\(isEditMode && hasExistingBarcode\)/,
+  );
+  assert.match(formSource, /disabled=\{isBarcodeLocked\}/);
   assert.match(formSource, /barcode: isBlank\(effectiveBarcode\)/);
   assert.match(formSource, /findMatchingStockFormByDefinition/);
   assert.match(formSource, /The scanned barcode will be assigned to this packaging/);
@@ -143,6 +152,17 @@ test("Mayor inventory forms and modals expose mobile-safe hooks while preserving
   assert.match(detailSource, /panelClassName="inventory-item-detail-modal"/);
   assert.match(detailSource, /className="inventory-item-detail-table-scroll"/);
   assert.match(statusSource, /className="inventory-item-status-modal-backdrop"/);
+  assert.match(statusSource, /const parsePositiveWholeQuantity = \(value\) =>/);
+  assert.match(statusSource, /\^\[0-9\]\+\$/);
+  assert.match(statusSource, /parsedQuantity > selectedBatchAvailableStock/);
+  assert.match(statusSource, /quantity: parsePositiveWholeQuantity\(formValues\.quantity\)/);
+  assert.match(statusSource, /<form onSubmit=\{handleSubmit\} noValidate>/);
+  assert.match(statusSource, /id="status_quantity"[\s\S]*?type="text"/);
+  assert.match(statusSource, /inputMode="numeric"/);
+  assert.match(statusSource, /const AUTOMATIC_REFERENCE_LABEL = "Assigned automatically on save"/);
+  assert.match(statusSource, /value=\{AUTOMATIC_REFERENCE_LABEL\}/);
+  assert.match(statusSource, /aria-readonly="true"/);
+  assert.doesNotMatch(statusSource, /formValues\.inventoryTransactionReferenceNo/);
   assert.match(exportSource, /className="inventory-export-grid"/);
   assert.match(expirySource, /className="inventory-batch-expiry-grid"/);
   assert.match(

@@ -2838,7 +2838,7 @@ const ReliefPackTemplatesPage = () => {
                             items={[
                               {
                                 key: "view",
-                                label: "View Relief Pack",
+                                label: "View Relief Pack Template",
                                 icon: <FiEye size={18} />,
                                 onClick: (selectedRow) =>
                                   handleOpenDetailModal(selectedRow, "customization"),
@@ -2847,7 +2847,7 @@ const ReliefPackTemplatesPage = () => {
                                 ? [
                                     {
                                       key: "edit",
-                                      label: "Edit Relief Pack",
+                                      label: "Edit Relief Pack Template",
                                       icon: <FiEdit2 size={18} />,
                                       onClick: (selectedRow) =>
                                         handleOpenEditModal(selectedRow.id),

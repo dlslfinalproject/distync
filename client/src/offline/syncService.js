@@ -9,7 +9,6 @@ import {
   getFailedSyncEntries,
   getRetryableSyncEntries,
   claimSyncEntries,
-  isLegacyInventoryTransactionEntry,
   queueSyncEntry,
   updateSyncEntryStatus,
 } from "./syncQueue.js";
@@ -158,8 +157,6 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
   notifySyncListeners();
 
   const processingOwner = generateLocalId();
-  let legacyInventoryEntries = [];
-  let entriesToSync = [];
   const attemptedIds = [];
   const syncedIds = [];
   const failedIds = [];
@@ -181,42 +178,8 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
       };
     }
 
-    legacyInventoryEntries = claimedEntries.filter(isLegacyInventoryTransactionEntry);
-    entriesToSync = claimedEntries.filter(
-      (entry) => !isLegacyInventoryTransactionEntry(entry),
-    );
+    const entriesToSync = claimedEntries;
     attemptedIds.push(...entriesToSync.map((entry) => entry.id));
-
-    for (const entry of legacyInventoryEntries) {
-      failedIds.push(entry.id);
-      nonRetryableIds.push(entry.id);
-      await updateSyncEntryStatus(entry.id, {
-        status: LOCAL_SYNC_STATUS.FAILED,
-        lastError:
-          "Legacy pre-ITR inventory transaction. Keep this entry for reconciliation, assign a real official ITR to the written transaction, then re-enter it under the new process.",
-        serverMessage:
-          "Legacy pre-ITR inventory transaction requires reconciliation and re-entry with an official ITR.",
-        lastErrorCode: "LEGACY_OFFLINE_ENTRY",
-        processingOwner: null,
-        processingUntil: null,
-      });
-    }
-
-    if (entriesToSync.length === 0) {
-      emitSyncFeedbackEvent({
-        type: "failed",
-        message: SYNC_PRESENTATION_MESSAGES.UNSUPPORTED,
-      });
-      return {
-        outcome: "NON_RETRYABLE",
-        attemptedIds: requestedIds,
-        syncedIds: [],
-        failedIds,
-        nonRetryableIds,
-        conflictIds: [],
-        pendingIds: [],
-      };
-    }
 
     const response = await fetch(SYNC_ENDPOINT, {
       method: "POST",

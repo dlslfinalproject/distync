@@ -277,7 +277,7 @@ const DonationDetailModal = ({
   return (
     <DetailsModalShell
       isOpen={isOpen}
-      title="View Details"
+      title="Donation Details"
       onClose={onClose}
       maxWidth="980px"
       closeMode="icon"

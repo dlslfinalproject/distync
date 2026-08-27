@@ -4,10 +4,6 @@ import {
   getAuthenticatedUser,
   getCurrentRole,
 } from "../utils/roleSession.js";
-import {
-  isValidInventoryTransactionReferenceNo,
-  normalizeInventoryTransactionReferenceNo,
-} from "../features/inventory-transactions/inventoryTransactionReference.js";
 import { isSyncIdempotencyMismatch } from "./syncStatus.js";
 import {
   SYNC_ERROR_CODES,
@@ -45,22 +41,6 @@ const getQueueBarangayId = ({ payload = {}, barangayId = null, user = null } = {
 export const isUnsupportedOfflineActionKey = (actionKey) =>
   unsupportedOfflineActionKeys.has(String(actionKey || "").trim().toUpperCase());
 
-export const isLegacyInventoryTransactionEntry = (entry = {}) => {
-  if (
-    entry.moduleName !== "mayor-inventory" ||
-    entry.actionKey !== "INVENTORY_TRANSACTION_CREATE"
-  ) {
-    return false;
-  }
-
-  const referenceNo = normalizeInventoryTransactionReferenceNo(
-    entry.payload?.inventoryTransactionReferenceNo ||
-      entry.payload?.inventory_transaction_reference_no,
-  );
-
-  return !isValidInventoryTransactionReferenceNo(referenceNo);
-};
-
 export const isMalformedSyncEntry = (entry = {}) => {
   if (!entry || typeof entry !== "object") {
     return true;
@@ -86,7 +66,6 @@ export const isMalformedSyncEntry = (entry = {}) => {
 
 export const isNonRetryableSyncEntry = (entry = {}) =>
   isUnsupportedOfflineActionKey(entry.actionKey) ||
-  isLegacyInventoryTransactionEntry(entry) ||
   isMalformedSyncEntry(entry) ||
   isSyncIdempotencyMismatch(entry);
 

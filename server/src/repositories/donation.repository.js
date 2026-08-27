@@ -750,7 +750,7 @@ const insertInventoryTransaction = async (payload, dbClient) => {
         created_at
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, NOW())
-      RETURNING id
+      RETURNING id, inventory_transaction_reference_no
     `,
     [
       payload.disaster_event_id,

@@ -234,14 +234,8 @@ const validateCreateInventoryTransaction = (req, res, next) => {
         inventoryTransactionReferenceNo ?? inventory_transaction_reference_no,
       );
 
-    if (!normalizedInventoryTransactionReferenceNo) {
-      return res.status(400).json({
-        message:
-          "Inventory Transaction Reference No. is required for manual inventory transactions.",
-      });
-    }
-
     if (
+      normalizedInventoryTransactionReferenceNo &&
       !isValidInventoryTransactionReferenceNo(
         normalizedInventoryTransactionReferenceNo,
       )

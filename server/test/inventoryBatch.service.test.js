@@ -143,6 +143,11 @@ const baseStubs = (repositoryOverrides = {}) => ({
   },
   [inventoryTransactionRepositoryPath]: {
     getInventoryTransactions: async () => [],
+    insertInventoryTransaction: async (transactionData) => ({
+      id: "transaction-created",
+      ...transactionData,
+      inventory_transaction_reference_no: "ITR-2026-000001",
+    }),
   },
   [systemLogRepositoryPath]: {
     getAuditLogsByEntity: async () => [],
@@ -260,19 +265,33 @@ test("stock form definitions stay unique regardless of barcode assignment", () =
 
 test("createInventoryBatch restock path passes created_by through corrected batch repository insert", async () => {
   let insertedBatchPayload = null;
+  let insertedTransactionPayload = null;
+  const stubs = baseStubs({
+    getInventoryBatchByItemIdAndBatchNo: async () => null,
+    insertInventoryBatch: async (batchData) => {
+      insertedBatchPayload = batchData;
+
+      return {
+        id: "batch-created",
+        ...batchData,
+      };
+    },
+  });
+  stubs[inventoryTransactionRepositoryPath] = {
+    ...stubs[inventoryTransactionRepositoryPath],
+    insertInventoryTransaction: async (transactionData) => {
+      insertedTransactionPayload = transactionData;
+
+      return {
+        id: "transaction-created",
+        ...transactionData,
+        inventory_transaction_reference_no: "ITR-2026-000001",
+      };
+    },
+  };
 
   await withStubbedInventoryBatchService(
-    baseStubs({
-      getInventoryBatchByItemIdAndBatchNo: async () => null,
-      insertInventoryBatch: async (batchData) => {
-        insertedBatchPayload = batchData;
-
-        return {
-          id: "batch-created",
-          ...batchData,
-        };
-      },
-    }),
+    stubs,
     async ({ createInventoryBatch }) => {
       const batch = await createInventoryBatch({
         inventory_item_id: "item-1",
@@ -296,6 +315,16 @@ test("createInventoryBatch restock path passes created_by through corrected batc
   assert.equal(insertedBatchPayload.quantity_available, 25);
   assert.equal(insertedBatchPayload.status, "AVAILABLE");
   assert.equal(insertedBatchPayload.created_by, "mayor-user-1");
+  assert.deepEqual(insertedTransactionPayload, {
+    disaster_event_id: null,
+    inventory_batch_id: "batch-created",
+    transaction_type: "INFLOW",
+    quantity: 25,
+    reference_type: "MANUAL",
+    reference_id: "batch-created",
+    performed_by: "mayor-user-1",
+    remarks: "Stock received during inventory batch creation",
+  });
 });
 
 test("createInventoryBatch updates a missing reorder level in the same transaction as restock", async () => {
