@@ -244,7 +244,7 @@ test("Barangay review form requires an intentional outcome and custom note valid
   assert.match(source, /setReviewStatus\(anomaly\?\.review_status \|\| ""\)/);
   assert.match(source, /noValidate/);
   assert.doesNotMatch(source, /\srequired\s*[\r\n>]/);
-  assert.match(source, /Review Outcome \*/);
+  assert.doesNotMatch(source, /Review Outcome \*/);
   assert.match(source, /Please select a review outcome\./);
   assert.match(source, /Note \*/);
   assert.match(source, /Briefly describe what you verified and why you selected this outcome\./);

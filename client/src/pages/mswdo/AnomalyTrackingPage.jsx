@@ -958,9 +958,6 @@ const AnomalyDetailModal = ({
               <legend style={labelStyles}>
                 {hasSavedReview ? "Edit Review" : "Record Review"}
               </legend>
-              <div style={{ ...labelStyles, marginBottom: 0 }}>
-                Review Outcome *
-              </div>
               <p id={reviewOutcomeHelperId} style={modalStyles.helperText}>
                 {isBarangayScope
                   ? "Select the result that best matches your verification."
