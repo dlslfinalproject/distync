@@ -26,8 +26,12 @@ const {
 const {
   isManualInventoryStockDriftReviewable,
 } = require("../../utils/syncConflictReviewPolicy");
+const {
+  isInventoryBatchExpired,
+  isInventoryBatchNearExpiry,
+  isInventoryBatchLowStock,
+} = require("../../utils/inventoryBatchStatus");
 
-const LOW_STOCK_THRESHOLD = 10;
 const CRITICAL_STOCK_THRESHOLD = 5;
 const NEAR_EXPIRY_DAYS = 30;
 const DEDUPE_LOOKBACK_HOURS = 24;
@@ -311,32 +315,7 @@ const buildEvacuationSummaryContent = (summaryPayload = {}) => {
 };
 
 const isExpiredDate = (value) => {
-  if (!value) {
-    return false;
-  }
-
-  const today = new Date();
-  const todayDateOnly = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate(),
-  );
-
-  return new Date(value) < todayDateOnly;
-};
-
-const isNearExpiryDate = (value, thresholdDays = NEAR_EXPIRY_DAYS) => {
-  if (!value) {
-    return false;
-  }
-
-  const startDate = new Date();
-  startDate.setHours(0, 0, 0, 0);
-  const thresholdDate = new Date(startDate);
-  thresholdDate.setDate(thresholdDate.getDate() + thresholdDays);
-  const parsedDate = new Date(value);
-
-  return parsedDate >= startDate && parsedDate <= thresholdDate;
+  return isInventoryBatchExpired(value);
 };
 
 const getWindowBounds = (deliveryMode, now = new Date()) => {
@@ -1138,16 +1117,31 @@ const emitBatchAlerts = async ({
   const lowStockStateKey = `INVENTORY_LOW_STOCK:${batch.id}`;
   const criticalStockStateKey = `INVENTORY_CRITICAL_STOCK:${batch.id}`;
   const expiryStateKey = `INVENTORY_EXPIRY:${batch.id}`;
+  const reorderLevel =
+    batch.inventory_item?.reorder_level ?? batch.reorder_level ?? 0;
+  const isLowStock = isInventoryBatchLowStock({
+    quantityAvailable,
+    totalQuantityAvailable: batch.item_total_stock ?? quantityAvailable,
+    reorderLevel,
+  });
+  const isCriticalStock =
+    isLowStock && quantityAvailable > 0 && quantityAvailable <= CRITICAL_STOCK_THRESHOLD;
   const stockState =
-    quantityAvailable <= CRITICAL_STOCK_THRESHOLD
+    isCriticalStock
       ? "CRITICAL_STOCK"
-      : quantityAvailable <= LOW_STOCK_THRESHOLD
+      : isLowStock
         ? "LOW_STOCK"
         : "NORMAL";
   const expiryState =
-    batch.status === "EXPIRED" || isExpiredDate(batch.expiration_date)
+    quantityAvailable > 0 &&
+    (batch.status === "EXPIRED" || isExpiredDate(batch.expiration_date))
       ? "EXPIRED_STOCK"
-      : batch.expiration_date && isNearExpiryDate(batch.expiration_date)
+      : quantityAvailable > 0 &&
+          batch.expiration_date &&
+          isInventoryBatchNearExpiry(
+            batch.expiration_date,
+            NEAR_EXPIRY_DAYS,
+          )
         ? "NEAR_EXPIRY_STOCK"
         : "NORMAL";
 
@@ -1251,11 +1245,15 @@ const emitInventoryTransactionAlerts = async ({
   const batchNumber = batch.batch_no || "Unknown batch";
 
   if (
-    ["DAMAGED", "MISSING", "SPOILED", "STOLEN"].includes(
+    ["DAMAGED", "MISSING", "SPOILED", "STOLEN", "OTHER"].includes(
       transaction.transaction_type,
     )
   ) {
-    const alertLabel = transaction.transaction_type.toLowerCase();
+    const alertLabel =
+      transaction.transaction_type === "OTHER" &&
+      String(transaction.other_status || "").trim()
+        ? `other (${String(transaction.other_status).trim()})`
+        : transaction.transaction_type.toLowerCase();
     const severity =
       transaction.transaction_type === "MISSING" ||
       transaction.transaction_type === "STOLEN"
@@ -1272,7 +1270,14 @@ const emitInventoryTransactionAlerts = async ({
       reference_type: "INVENTORY_TRANSACTION",
       reference_id: transaction.id,
       source_event_key: `INVENTORY_INCIDENT:${transaction.id}`,
-      metadata: { inventoryTransactionId: transaction.id, batchId: batch.id, itemId: batch.inventory_item_id, quantity: Number(transaction.quantity || 0), transactionType: transaction.transaction_type },
+      metadata: {
+        inventoryTransactionId: transaction.id,
+        batchId: batch.id,
+        itemId: batch.inventory_item_id,
+        quantity: Number(transaction.quantity || 0),
+        transactionType: transaction.transaction_type,
+        otherStatus: transaction.other_status || null,
+      },
     });
   }
 
@@ -2316,7 +2321,6 @@ const markAllNotificationsAsRead = async (userId) => {
 };
 
 module.exports = {
-  LOW_STOCK_THRESHOLD,
   CRITICAL_STOCK_THRESHOLD,
   NEAR_EXPIRY_DAYS,
   DEFAULT_NOTIFICATION_RULES,

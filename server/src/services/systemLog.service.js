@@ -76,6 +76,7 @@ const INVENTORY_WRITE_OFF_TYPES = new Set([
   "MISSING",
   "SPOILED",
   "STOLEN",
+  "OTHER",
 ]);
 
 const AUDIT_DETAIL_FIELD_LABELS = {
@@ -99,6 +100,7 @@ const AUDIT_DETAIL_FIELD_LABELS = {
   received_at: "Received Date",
   storage_location: "Storage Location",
   transaction_type: "Stock Action",
+  other_status: "Other Status",
   performed_at: "Performed At",
   remarks: "Remarks",
   name: "Name",
@@ -151,6 +153,7 @@ const AUDIT_DETAIL_ALLOWED_FIELDS = {
   ],
   INVENTORY_TRANSACTION: [
     "transaction_type",
+    "other_status",
     "quantity",
     "performed_at",
     "remarks",

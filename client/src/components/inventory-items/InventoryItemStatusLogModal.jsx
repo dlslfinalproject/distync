@@ -90,6 +90,7 @@ const transactionTypeOptions = [
   { value: "STOLEN", label: "Stolen" },
   { value: "MISSING", label: "Missing" },
   { value: "EXPIRED", label: "Expired" },
+  { value: "OTHER", label: "Other (Please Specify)" },
 ];
 
 const getTodayDateInputValue = () => {
@@ -198,6 +199,7 @@ const inferTrackingMethodLabel = (item, selectedBatch) => {
 const createDefaultForm = (inventoryBatches = []) => ({
   inventory_batch_id: inventoryBatches[0]?.id || "",
   transaction_type: "DAMAGED",
+  other_status: "",
   quantity: "",
   remarks: "",
   logged_date: getTodayDateInputValue(),
@@ -257,6 +259,7 @@ const InventoryItemStatusLogModal = ({
   const itemTrackingMethod = inferTrackingMethodLabel(item, selectedBatch);
   const loggedByLabel = formatLoggedByName(authenticatedUser);
   const hasAvailableBatch = inventoryBatches.length > 0;
+  const isOtherStatus = formValues.transaction_type === "OTHER";
   const selectedBatchAvailableStock = Number(selectedBatch?.quantity_available || 0);
   const selectedBatchPackaging =
     selectedBatch?.stock_form_packaging ||
@@ -290,9 +293,25 @@ const InventoryItemStatusLogModal = ({
     }));
   };
 
+  const handleTransactionTypeChange = (value) => {
+    setFieldErrors((currentErrors) => {
+      const nextErrors = { ...currentErrors };
+      delete nextErrors.transaction_type;
+      delete nextErrors.other_status;
+      return nextErrors;
+    });
+
+    setFormValues((currentValues) => ({
+      ...currentValues,
+      transaction_type: value,
+      other_status: value === "OTHER" ? currentValues.other_status : "",
+    }));
+  };
+
   const validateForm = () => {
     const nextErrors = {};
     const parsedQuantity = parsePositiveWholeQuantity(formValues.quantity);
+    const trimmedOtherStatus = formValues.other_status.trim();
 
     if (!formValues.inventory_batch_id) {
       nextErrors.inventory_batch_id = "Batch number is required.";
@@ -300,6 +319,10 @@ const InventoryItemStatusLogModal = ({
 
     if (!formValues.transaction_type) {
       nextErrors.transaction_type = "Status type is required.";
+    }
+
+    if (isOtherStatus && !trimmedOtherStatus) {
+      nextErrors.other_status = "Other status is required.";
     }
 
     if (!formValues.quantity.trim()) {
@@ -330,6 +353,7 @@ const InventoryItemStatusLogModal = ({
     onSubmit({
       inventory_batch_id: formValues.inventory_batch_id,
       transaction_type: formValues.transaction_type,
+      other_status: isOtherStatus ? formValues.other_status.trim() : null,
       quantity: parsePositiveWholeQuantity(formValues.quantity),
       reference_type: "MANUAL",
       reference_id: null,
@@ -525,7 +549,7 @@ const InventoryItemStatusLogModal = ({
                     id="status_type"
                     value={formValues.transaction_type}
                     onChange={(event) =>
-                      handleChange("transaction_type", event.target.value)
+                      handleTransactionTypeChange(event.target.value)
                     }
                     style={inputStyles}
                     aria-invalid={Boolean(fieldErrors.transaction_type)}
@@ -572,6 +596,29 @@ const InventoryItemStatusLogModal = ({
                     style={lockedInputStyles}
                   />
                 </div>
+
+                {isOtherStatus ? (
+                  <div style={{ gridColumn: "1 / 2" }}>
+                    <label htmlFor="status_other" style={labelStyles}>
+                      Other Status
+                    </label>
+                    <input
+                      id="status_other"
+                      type="text"
+                      value={formValues.other_status}
+                      onChange={(event) =>
+                        handleChange("other_status", event.target.value)
+                      }
+                      style={inputStyles}
+                      maxLength={80}
+                      placeholder="e.g., Contaminated"
+                      aria-invalid={Boolean(fieldErrors.other_status)}
+                    />
+                    {fieldErrors.other_status ? (
+                      <p style={fieldErrorTextStyles}>{fieldErrors.other_status}</p>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 <div style={{ gridColumn: "1 / -1" }}>
                   <label

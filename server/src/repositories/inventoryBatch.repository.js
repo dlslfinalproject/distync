@@ -21,10 +21,16 @@ const baseSelectQuery = `
     ib.created_by,
     ib.created_at,
     ib.updated_at,
+    CAST(COALESCE((
+      SELECT SUM(COALESCE(item_stock.quantity_available, 0))
+      FROM inventory_batches item_stock
+      WHERE item_stock.inventory_item_id = ib.inventory_item_id
+    ), 0) AS integer) AS item_total_stock,
     ii.item_code,
     ii.item_name,
     ii.category,
     ii.unit_of_measure,
+    ii.reorder_level,
     ii.barcode,
     ii.is_perishable,
     ii.is_active,
@@ -89,12 +95,12 @@ const getInventoryBatches = async (filters) => {
 
   if (filters.is_expiring === true) {
     conditions.push(
-      `ib.expiration_date IS NOT NULL AND ib.expiration_date >= CURRENT_DATE AND ib.expiration_date <= CURRENT_DATE + INTERVAL '30 days'`,
+      `ib.expiration_date IS NOT NULL AND ib.expiration_date > CURRENT_DATE AND ib.expiration_date <= CURRENT_DATE + INTERVAL '30 days'`,
     );
   }
 
   if (filters.is_expired === true) {
-    conditions.push(`ib.expiration_date IS NOT NULL AND ib.expiration_date < CURRENT_DATE`);
+    conditions.push(`ib.expiration_date IS NOT NULL AND ib.expiration_date <= CURRENT_DATE`);
   }
 
   if (filters.search) {
@@ -135,6 +141,12 @@ const getInventoryItemById = async (id, dbClient = pool) => {
       item_name,
       category,
       unit_of_measure,
+      reorder_level,
+      CAST(COALESCE((
+        SELECT SUM(COALESCE(item_stock.quantity_available, 0))
+        FROM inventory_batches item_stock
+        WHERE item_stock.inventory_item_id = inventory_items.id
+      ), 0) AS integer) AS item_total_stock,
       barcode,
       is_perishable,
       is_active

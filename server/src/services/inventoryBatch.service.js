@@ -15,6 +15,12 @@ const {
   isValidInventoryBarcode,
   normalizeInventoryBarcode,
 } = require("../utils/inventoryBarcode");
+const {
+  getInventoryBatchStatus,
+  isInventoryBatchExpired,
+  isInventoryBatchNearExpiry,
+  isInventoryBatchLowStock,
+} = require("../utils/inventoryBatchStatus");
 
 const buildFullName = (firstName, lastName) =>
   [firstName, lastName].filter(Boolean).join(" ").trim();
@@ -31,6 +37,7 @@ const mapInventoryBatch = (batch) => {
     quantity_available: batch.quantity_available,
     stock_version: batch.stock_version,
     inventoryStateBasis: createInventoryStateBasis(batch),
+    item_total_stock: batch.item_total_stock,
     expiration_date: batch.expiration_date,
     received_at: batch.received_at,
     storage_location: batch.storage_location,
@@ -44,6 +51,7 @@ const mapInventoryBatch = (batch) => {
       item_name: batch.item_name,
       category: batch.category,
       unit_of_measure: batch.unit_of_measure,
+      reorder_level: batch.reorder_level,
       barcode: batch.barcode,
       is_perishable: batch.is_perishable,
       is_active: batch.is_active,
@@ -104,54 +112,6 @@ const summarizeInventoryBatch = (batch) =>
     "status",
     "created_by",
   ]);
-
-const getInitialStatus = (expirationDate) => {
-  if (!expirationDate) {
-    return "AVAILABLE";
-  }
-
-  const today = new Date();
-  const todayDateOnly = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate(),
-  );
-  const expiration = new Date(expirationDate);
-
-  if (expiration < todayDateOnly) {
-    return "EXPIRED";
-  }
-
-  return "AVAILABLE";
-};
-
-const getBatchStatusFromQuantityAndExpiry = (quantityAvailable, expirationDate) => {
-  const resolvedQuantity = Number(quantityAvailable || 0);
-
-  if (resolvedQuantity <= 0) {
-    return "DEPLETED";
-  }
-
-  if (expirationDate) {
-    const today = new Date();
-    const todayDateOnly = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate(),
-    );
-    const resolvedExpirationDate = new Date(expirationDate);
-
-    if (resolvedExpirationDate < todayDateOnly) {
-      return "EXPIRED";
-    }
-  }
-
-  if (resolvedQuantity <= 10) {
-    return "LOW_STOCK";
-  }
-
-  return "AVAILABLE";
-};
 
 const normalizeStockFormDefinition = (batchData, inventoryItem) => {
   const packaging = String(
@@ -343,27 +303,34 @@ const mapAuditLogRow = (row) => ({
 const buildBatchAlerts = (batch) => {
   const alerts = [];
   const quantityAvailable = Number(batch?.quantity_available || 0);
+  const reorderLevel = Number(
+    batch?.inventory_item?.reorder_level ?? batch?.reorder_level ?? 0,
+  );
+  const totalQuantityAvailable = Number(
+    batch?.item_total_stock ?? quantityAvailable,
+  );
 
-  if (quantityAvailable <= 10) {
+  if (
+    isInventoryBatchLowStock({
+      quantityAvailable,
+      totalQuantityAvailable,
+      reorderLevel,
+    })
+  ) {
     alerts.push("Low stock threshold reached");
   }
 
-  if (batch?.status === "EXPIRED") {
+  if (
+    quantityAvailable > 0 &&
+    (batch?.status === "EXPIRED" ||
+      isInventoryBatchExpired(batch?.expiration_date))
+  ) {
     alerts.push("Batch is expired");
-  } else if (batch?.expiration_date) {
-    const expirationDate = new Date(batch.expiration_date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    expirationDate.setHours(0, 0, 0, 0);
-
-    if (!Number.isNaN(expirationDate.getTime()) && expirationDate >= today) {
-      const daysUntilExpiry =
-        (expirationDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
-
-      if (daysUntilExpiry <= 30) {
-        alerts.push("Near expiry");
-      }
-    }
+  } else if (
+    quantityAvailable > 0 &&
+    isInventoryBatchNearExpiry(batch?.expiration_date)
+  ) {
+    alerts.push("Near expiry");
   }
 
   return alerts;
@@ -729,11 +696,22 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
     }
   }
 
+  const currentItemStock = Number(inventoryItem.item_total_stock || 0);
+  const nextItemStock =
+    currentItemStock + Number(batchData.quantity_received || 0);
+  const reorderLevel =
+    batchData.inventory_item_reorder_level ?? inventoryItem.reorder_level;
+
   const createdBatch = await inventoryBatchRepository.insertInventoryBatch({
     ...batchData,
     inventory_item_stock_form_id: resolvedStockFormId,
     quantity_available: batchData.quantity_received,
-    status: getInitialStatus(batchData.expiration_date),
+    status: getInventoryBatchStatus({
+      quantityAvailable: batchData.quantity_received,
+      totalQuantityAvailable: nextItemStock,
+      expirationDate: batchData.expiration_date,
+      reorderLevel,
+    }),
   }, dbClient || undefined);
 
   if (!createdBatch) {
@@ -816,10 +794,12 @@ const updateInventoryBatchExpiry = async (id, payload, actor = null) => {
     throw error;
   }
 
-  const nextStatus = getBatchStatusFromQuantityAndExpiry(
-    existingBatch.quantity_available,
-    payload.expiration_date,
-  );
+  const nextStatus = getInventoryBatchStatus({
+    quantityAvailable: existingBatch.quantity_available,
+    totalQuantityAvailable: existingBatch.item_total_stock,
+    expirationDate: payload.expiration_date,
+    reorderLevel: existingBatch.reorder_level,
+  });
 
   const updatedBatch = await inventoryBatchRepository.updateInventoryBatchExpiry(
     id,

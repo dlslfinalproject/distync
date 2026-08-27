@@ -169,7 +169,8 @@ const getAuditLogs = async (
           'MISSING',
           'DAMAGED',
           'SPOILED',
-          'STOLEN'
+          'STOLEN',
+          'OTHER'
         )
       `,
       relief_pack_template_created: `
@@ -465,7 +466,8 @@ const getAuditLogs = async (
                 'MISSING',
                 'DAMAGED',
                 'SPOILED',
-                'STOLEN'
+                'STOLEN',
+                'OTHER'
               )
             )
           )

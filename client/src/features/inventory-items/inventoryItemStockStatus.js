@@ -39,7 +39,7 @@ export const isDateExpired = (dateValue) => {
     return false;
   }
 
-  return targetDate < comparisonDate;
+  return targetDate <= comparisonDate;
 };
 
 export const normalizeQuantity = (value) => {
@@ -64,7 +64,8 @@ export const getEarlierDate = (currentDate, nextDate) => {
 export const createEmptyTrackingStats = () => ({
   totalReceived: 0,
   onHand: 0,
-  distributed: 0,
+  hasBatchRecords: false,
+  hasAvailableBatch: false,
   expired: 0,
   expiredOnHand: 0,
   nearExpiryOnHand: 0,
@@ -72,8 +73,8 @@ export const createEmptyTrackingStats = () => ({
   missing: 0,
   spoiled: 0,
   stolen: 0,
+  other: 0,
   nearestExpirationDate: null,
-  hasExpiringStock: false,
 });
 
 export const buildInventoryTrackingMap = (
@@ -100,9 +101,17 @@ export const buildInventoryTrackingMap = (
   inventoryBatches.forEach((batch) => {
     const itemId = batch.inventory_item?.id || batch.inventory_item_id;
     const tracking = ensureTrackingEntry(itemId);
+    const quantityAvailable = normalizeQuantity(batch.quantity_available);
 
+    tracking.hasBatchRecords = true;
     tracking.totalReceived += normalizeQuantity(batch.quantity_received);
-    tracking.onHand += normalizeQuantity(batch.quantity_available);
+    tracking.onHand += quantityAvailable;
+
+    if (quantityAvailable <= 0) {
+      return;
+    }
+
+    tracking.hasAvailableBatch = true;
 
     if (batch.expiration_date) {
       tracking.nearestExpirationDate = getEarlierDate(
@@ -110,17 +119,10 @@ export const buildInventoryTrackingMap = (
         batch.expiration_date,
       );
 
-      if (isItemExpiring({ expiration_date: batch.expiration_date })) {
-        tracking.hasExpiringStock = true;
-        tracking.nearExpiryOnHand += normalizeQuantity(batch.quantity_available);
-      }
-
       if (isDateExpired(batch.expiration_date)) {
-        tracking.expiredOnHand += normalizeQuantity(batch.quantity_available);
-        tracking.nearExpiryOnHand = Math.max(
-          0,
-          tracking.nearExpiryOnHand - normalizeQuantity(batch.quantity_available),
-        );
+        tracking.expiredOnHand += quantityAvailable;
+      } else if (isItemExpiring({ expiration_date: batch.expiration_date })) {
+        tracking.nearExpiryOnHand += quantityAvailable;
       }
     }
   });
@@ -128,13 +130,6 @@ export const buildInventoryTrackingMap = (
   inventoryTransactions.forEach((transaction) => {
     const itemId = transaction.inventory_item?.id || transaction.inventory_item_id;
     const tracking = ensureTrackingEntry(itemId);
-
-    if (
-      transaction.transaction_type === "OUTFLOW" &&
-      transaction.reference_type === "DISTRIBUTION"
-    ) {
-      tracking.distributed += normalizeQuantity(transaction.quantity);
-    }
 
     if (transaction.transaction_type === "EXPIRED") {
       tracking.expired += normalizeQuantity(transaction.quantity);
@@ -155,75 +150,21 @@ export const buildInventoryTrackingMap = (
     if (transaction.transaction_type === "STOLEN") {
       tracking.stolen += normalizeQuantity(transaction.quantity);
     }
+
+    if (transaction.transaction_type === "OTHER") {
+      tracking.other += normalizeQuantity(transaction.quantity);
+    }
   });
 
   return trackingMap;
 };
 
-export const getTrackedExpirationDate = (item, trackingStats) => {
-  return getEarlierDate(
-    item.expiration_date || null,
-    trackingStats.nearestExpirationDate,
-  );
-};
-
-export const getItemStatus = (item, trackingStats) => {
-  const trackedExpirationDate = getTrackedExpirationDate(item, trackingStats);
-
-  if (!item.is_active) {
-    return "Inactive";
+export const getTrackedExpirationDate = (item, trackingStats = {}) => {
+  if (trackingStats.hasBatchRecords) {
+    return trackingStats.hasAvailableBatch
+      ? trackingStats.nearestExpirationDate
+      : null;
   }
 
-  if (trackingStats.expiredOnHand > 0 || isDateExpired(trackedExpirationDate)) {
-    return "Expired";
-  }
-
-  if (
-    trackingStats.distributed > 0 &&
-    trackingStats.onHand === 0 &&
-    trackingStats.totalReceived > 0
-  ) {
-    return "Distributed";
-  }
-
-  if (trackingStats.hasExpiringStock || isItemExpiring(item)) {
-    return "Expiring";
-  }
-
-  return "Available";
-};
-
-export const getItemStatusStyle = (status) => {
-  if (status === "Low Stock") {
-    return {
-      background: "#ffedd5",
-      color: "#c2410c",
-    };
-  }
-
-  if (status === "Expired") {
-    return {
-      background: "#fee2e2",
-      color: "#b91c1c",
-    };
-  }
-
-  if (status === "Near Expiry") {
-    return {
-      background: "#ede9fe",
-      color: "#6d28d9",
-    };
-  }
-
-  if (status === "Depleted") {
-    return {
-      background: "#e5e7eb",
-      color: "#4b5563",
-    };
-  }
-
-  return {
-    background: "#e0f2fe",
-    color: "#075985",
-  };
+  return item?.expiration_date || null;
 };

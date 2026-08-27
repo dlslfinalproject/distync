@@ -237,6 +237,7 @@ const outflowTransactionTypes = new Set([
   "MISSING",
   "SPOILED",
   "STOLEN",
+  "OTHER",
 ]);
 
 const transactionTypeFilterOptions = [
@@ -250,6 +251,7 @@ const transactionTypeFilterOptions = [
   { value: "Missing", label: "Missing" },
   { value: "Stolen", label: "Stolen" },
   { value: "Expired", label: "Expired" },
+  { value: "Other", label: "Other" },
 ];
 
 const movementFilterOptions = [
@@ -282,6 +284,7 @@ const buildQueuedInventoryTransaction = (entry, inventoryBatches) => {
     inventory_item: linkedBatch?.inventory_item || null,
     inventory_batch_id: entry.payload?.inventory_batch_id || null,
     transaction_type: entry.payload?.transaction_type || "ADJUSTMENT",
+    other_status: entry.payload?.other_status || null,
     quantity: entry.payload?.quantity || 0,
     inventory_transaction_reference_no: null,
     reference_type: entry.payload?.reference_type || "SYNC",
@@ -544,6 +547,7 @@ const matchesSearch = (row, searchValue) => {
   const searchableFields = [
     row.id,
     row.transaction_type,
+    row.other_status,
     row.transaction_direction,
     row.inventory_item?.item_name,
     row.inventory_item?.item_code,
@@ -951,7 +955,14 @@ const InventoryTransactionsPage = () => {
     }, 0);
 
     const totalWriteOff = mergedTransactionRows.reduce((sum, row) => {
-      return ["EXPIRED", "DAMAGED", "MISSING", "SPOILED", "STOLEN"].includes(
+      return [
+        "EXPIRED",
+        "DAMAGED",
+        "MISSING",
+        "SPOILED",
+        "STOLEN",
+        "OTHER",
+      ].includes(
         String(row.transaction_type || "").toUpperCase(),
       )
         ? sum + normalizeQuantity(row.quantity)
@@ -1269,7 +1280,7 @@ const InventoryTransactionsPage = () => {
             <SearchBar
               value={toolbarState.search}
               onChange={(value) => handleToolbarChange("search", value)}
-              placeholder="Search item name, batch number, remarks, or code"
+              placeholder="Search item name, batch number, status, remarks, or code"
             />
           </div>
 

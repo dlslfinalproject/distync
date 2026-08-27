@@ -418,7 +418,7 @@ const DisasterEventFormModal = ({
         >
           <div className="disaster-event-modal-heading">
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              {isEditMode ? "Edit Disaster Event" : "Create Disaster Event"}
+              {isEditMode ? "Edit Disaster Event Details" : "Create Disaster Event"}
             </h3>
           </div>
           <button

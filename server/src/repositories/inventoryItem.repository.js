@@ -94,6 +94,11 @@ const getInventoryItemById = async (id, dbClient = pool) => {
       packaging_count,
       quantity,
       ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
+      CAST(COALESCE((
+        SELECT SUM(COALESCE(item_stock.quantity_available, 0))
+        FROM inventory_batches item_stock
+        WHERE item_stock.inventory_item_id = inventory_items.id
+      ), 0) AS integer) AS item_total_stock,
       expiration_date,
       barcode,
       is_perishable,

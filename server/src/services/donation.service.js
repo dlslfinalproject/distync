@@ -9,6 +9,10 @@ const forecastService = require("./forecast.service");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
 const {
+  getInventoryBatchStatus,
+  isInventoryBatchExpired,
+} = require("../utils/inventoryBatchStatus");
+const {
   logAuditSafely,
   pickDefined,
   normalizeActor,
@@ -210,6 +214,8 @@ const mapDonationItem = (row) => {
       item_name: row.item_name,
       category: row.category,
       unit_of_measure: row.unit_of_measure,
+      reorder_level: row.reorder_level,
+      item_total_stock: row.item_total_stock,
     },
     inventory_batch: row.inventory_batch_id
       ? {
@@ -225,6 +231,7 @@ const mapDonationItem = (row) => {
           stock_form_units_per_packaging: row.stock_form_units_per_packaging,
           stock_form_unit_of_measure: row.stock_form_unit_of_measure,
           stock_form_unit_of_measure_value: row.stock_form_unit_of_measure_value,
+          item_total_stock: row.item_total_stock,
         }
       : null,
     inventory_item_stock_form: row.inventory_item_stock_form_id
@@ -653,30 +660,31 @@ const resolvePublicNeededItems = ({
   return buildNeededItemsPayload("EMPTY", []);
 };
 
-const getBatchStatus = (expirationDate, quantityAvailable) => {
-  if (expirationDate) {
-    const today = new Date();
-    const todayDateOnly = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate(),
-    );
-    const parsedExpiration = new Date(expirationDate);
+const getBatchStatus = (
+  expirationDate,
+  quantityAvailable,
+  reorderLevel,
+  totalQuantityAvailable,
+) =>
+  getInventoryBatchStatus({
+    expirationDate,
+    quantityAvailable,
+    reorderLevel,
+    totalQuantityAvailable,
+  });
 
-    if (parsedExpiration < todayDateOnly) {
-      return "EXPIRED";
-    }
+const getProjectedItemStock = (batchOrItem, quantityDelta = 0) => {
+  if (
+    batchOrItem?.item_total_stock === undefined ||
+    batchOrItem?.item_total_stock === null
+  ) {
+    return undefined;
   }
 
-  if (quantityAvailable === 0) {
-    return "DEPLETED";
-  }
-
-  if (quantityAvailable > 0 && quantityAvailable <= 10) {
-    return "LOW_STOCK";
-  }
-
-  return "AVAILABLE";
+  return Math.max(
+    0,
+    Number(batchOrItem.item_total_stock || 0) + Number(quantityDelta || 0),
+  );
 };
 
 const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
@@ -1020,6 +1028,11 @@ const createOrAttachDonationBatch = async ({
       status: getBatchStatus(
         donationItemPayload.expiration_date,
         donationItemPayload.quantity_received,
+        inventoryItem.reorder_level,
+        getProjectedItemStock(
+          inventoryItem,
+          donationItemPayload.quantity_received,
+        ),
       ),
       created_by: createdBy,
     },
@@ -1113,6 +1126,11 @@ const removeDonationItemWithinTransaction = async ({
 
   const nextAvailable = currentAvailable - quantityReceived;
   const nextReceived = Number(batch.quantity_received) - quantityReceived;
+  const nextItemTotalStock = getProjectedItemStock(batch, -quantityReceived);
+  const inventoryItem = await ensureInventoryItem(
+    donationItem.inventory_item_id,
+    dbClient,
+  );
 
   await donationRepository.updateInventoryBatchStock(
     batch.id,
@@ -1121,13 +1139,13 @@ const removeDonationItemWithinTransaction = async ({
       quantity_available: nextAvailable,
       expiration_date: batch.expiration_date,
       storage_location: batch.storage_location,
-      status: getBatchStatus(batch.expiration_date, nextAvailable),
+      status: getBatchStatus(
+        batch.expiration_date,
+        nextAvailable,
+        inventoryItem.reorder_level,
+        nextItemTotalStock,
+      ),
     },
-    dbClient,
-  );
-
-  const inventoryItem = await ensureInventoryItem(
-    donationItem.inventory_item_id,
     dbClient,
   );
 
@@ -1160,9 +1178,16 @@ const removeDonationItemWithinTransaction = async ({
     previousQuantityAvailable: currentAvailable,
     previousStatus: batch.status,
     nextQuantityAvailable: nextAvailable,
-    nextStatus: getBatchStatus(batch.expiration_date, nextAvailable),
+    nextStatus: getBatchStatus(
+      batch.expiration_date,
+      nextAvailable,
+      inventoryItem.reorder_level,
+      nextItemTotalStock,
+    ),
     expirationDate: batch.expiration_date,
     itemName: inventoryItem.item_name,
+    reorderLevel: inventoryItem.reorder_level,
+    itemTotalStock: nextItemTotalStock,
     quantityRemoved: quantityReceived,
     disasterEventId: donation.disaster_event_id,
   };
@@ -1359,8 +1384,12 @@ const createDonation = async (payload, actor) => {
               ? getBatchStatus(
                   item.inventory_batch?.expiration_date,
                   item.inventory_batch?.quantity_available,
+                  item.inventory_item?.reorder_level,
+                  item.inventory_batch?.item_total_stock,
                 )
               : null,
+            reorder_level: item.inventory_item?.reorder_level,
+            item_total_stock: item.inventory_batch?.item_total_stock,
             expiration_date: item.inventory_batch?.expiration_date,
             item_name: item.inventory_item?.item_name,
           },
@@ -1577,7 +1606,11 @@ const createDonationItem = async (donationId, payload, performedBy) => {
           status: getBatchStatus(
             mappedDonationItem.inventory_batch?.expiration_date,
             mappedDonationItem.inventory_batch?.quantity_available,
+            mappedDonationItem.inventory_item?.reorder_level,
+            mappedDonationItem.inventory_batch?.item_total_stock,
           ),
+          reorder_level: mappedDonationItem.inventory_item?.reorder_level,
+          item_total_stock: mappedDonationItem.inventory_batch?.item_total_stock,
           expiration_date: mappedDonationItem.inventory_batch?.expiration_date,
           item_name: mappedDonationItem.inventory_item?.item_name,
         },
@@ -1680,6 +1713,11 @@ const updateDonationItem = async (id, payload, performedBy) => {
       nextReceived -= quantityToRemove;
     }
 
+    const inventoryItem = await ensureInventoryItem(
+      existingDonationItem.inventory_item_id,
+      client,
+    );
+
     await donationRepository.updateInventoryBatchStock(
       batch.id,
       {
@@ -1690,6 +1728,8 @@ const updateDonationItem = async (id, payload, performedBy) => {
         status: getBatchStatus(
           payload.expiration_date || batch.expiration_date,
           nextAvailable,
+          inventoryItem.reorder_level,
+          getProjectedItemStock(batch, quantityDelta),
         ),
       },
       client,
@@ -1708,11 +1748,6 @@ const updateDonationItem = async (id, payload, performedBy) => {
     let adjustmentTransactionSummary = null;
 
     if (quantityDelta !== 0) {
-      const inventoryItem = await ensureInventoryItem(
-        existingDonationItem.inventory_item_id,
-        client,
-      );
-
       adjustmentTransactionSummary = {
         disaster_event_id: donation.disaster_event_id,
         inventory_batch_id: batch.id,
@@ -1768,6 +1803,8 @@ const updateDonationItem = async (id, payload, performedBy) => {
           payload.expiration_date ||
           batch.expiration_date,
         nextAvailable,
+        inventoryItem.reorder_level,
+        getProjectedItemStock(batch, quantityDelta),
       ),
     });
 
@@ -1823,7 +1860,11 @@ const updateDonationItem = async (id, payload, performedBy) => {
             status: getBatchStatus(
               mappedDonationItem.inventory_batch?.expiration_date,
               mappedDonationItem.inventory_batch?.quantity_available,
+              mappedDonationItem.inventory_item?.reorder_level,
+              mappedDonationItem.inventory_batch?.item_total_stock,
             ),
+            reorder_level: mappedDonationItem.inventory_item?.reorder_level,
+            item_total_stock: mappedDonationItem.inventory_batch?.item_total_stock,
             expiration_date: mappedDonationItem.inventory_batch?.expiration_date,
             item_name: mappedDonationItem.inventory_item?.item_name,
           },
@@ -1915,6 +1956,8 @@ const deleteDonationItem = async (id, performedBy) => {
           quantity_available: removalSummary.nextQuantityAvailable,
           status: removalSummary.nextStatus,
           expiration_date: removalSummary.expirationDate,
+          reorder_level: removalSummary.reorderLevel,
+          item_total_stock: removalSummary.itemTotalStock,
           item_name: removalSummary.itemName,
         },
         previousQuantityAvailable: removalSummary.previousQuantityAvailable,
@@ -2063,16 +2106,6 @@ const reassignLeftoverDonationStock = async (
 
     const sourceQuantityAvailable = Number(sourceBatch.quantity_available || 0);
     const sourceBatchStatus = String(sourceBatch.status || "").toUpperCase();
-    const sourceExpirationDate = sourceBatch.expiration_date
-      ? new Date(sourceBatch.expiration_date)
-      : null;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    if (sourceExpirationDate) {
-      sourceExpirationDate.setHours(0, 0, 0, 0);
-    }
-
     if (!["AVAILABLE", "LOW_STOCK"].includes(sourceBatchStatus)) {
       const error = new Error(
         "Only available donated leftover stock can be reassigned.",
@@ -2081,11 +2114,7 @@ const reassignLeftoverDonationStock = async (
       throw error;
     }
 
-    if (
-      sourceExpirationDate &&
-      !Number.isNaN(sourceExpirationDate.getTime()) &&
-      sourceExpirationDate < today
-    ) {
+    if (isInventoryBatchExpired(sourceBatch.expiration_date)) {
       const error = new Error("Expired donated stock cannot be reassigned.");
       error.statusCode = 409;
       throw error;
@@ -2105,6 +2134,10 @@ const reassignLeftoverDonationStock = async (
     );
     const nextSourceQuantityAvailable =
       sourceQuantityAvailable - quantityToReassign;
+    const nextItemTotalStock = getProjectedItemStock(
+      sourceBatch,
+      0,
+    );
 
     await donationRepository.updateInventoryBatchStock(
       sourceBatch.id,
@@ -2116,6 +2149,8 @@ const reassignLeftoverDonationStock = async (
         status: getBatchStatus(
           sourceBatch.expiration_date,
           nextSourceQuantityAvailable,
+          inventoryItem.reorder_level,
+          getProjectedItemStock(sourceBatch, -quantityToReassign),
         ),
       },
       client,
@@ -2164,7 +2199,12 @@ const reassignLeftoverDonationStock = async (
         quantity_available: quantityToReassign,
         expiration_date: sourceBatch.expiration_date,
         storage_location: sourceBatch.storage_location,
-        status: getBatchStatus(sourceBatch.expiration_date, quantityToReassign),
+        status: getBatchStatus(
+          sourceBatch.expiration_date,
+          quantityToReassign,
+          inventoryItem.reorder_level,
+          nextItemTotalStock,
+        ),
         created_by: performedBy,
       },
       client,

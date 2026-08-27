@@ -8,6 +8,7 @@ const allowedTransactionTypes = [
   "SPOILED",
   "STOLEN",
   "RETURN",
+  "OTHER",
 ];
 
 const allowedReferenceTypes = [
@@ -82,7 +83,7 @@ const validateGetInventoryTransactions = (req, res, next) => {
     ) {
       return res.status(400).json({
         message:
-          "transaction_type must be one of: INFLOW, OUTFLOW, ADJUSTMENT, EXPIRED, MISSING, DAMAGED, SPOILED, STOLEN, RETURN",
+          "transaction_type must be one of: INFLOW, OUTFLOW, ADJUSTMENT, EXPIRED, MISSING, DAMAGED, SPOILED, STOLEN, RETURN, OTHER",
       });
     }
 
@@ -146,6 +147,7 @@ const validateCreateInventoryTransaction = (req, res, next) => {
       inventoryTransactionReferenceNo,
       inventory_transaction_reference_no,
       performed_by,
+      other_status,
       remarks,
     } = req.body;
 
@@ -184,7 +186,7 @@ const validateCreateInventoryTransaction = (req, res, next) => {
     if (!allowedTransactionTypes.includes(transaction_type)) {
       return res.status(400).json({
         message:
-          "transaction_type is required and must be one of: INFLOW, OUTFLOW, ADJUSTMENT, EXPIRED, MISSING, DAMAGED, SPOILED, STOLEN, RETURN",
+          "transaction_type is required and must be one of: INFLOW, OUTFLOW, ADJUSTMENT, EXPIRED, MISSING, DAMAGED, SPOILED, STOLEN, RETURN, OTHER",
       });
     }
 
@@ -229,6 +231,37 @@ const validateCreateInventoryTransaction = (req, res, next) => {
       });
     }
 
+    if (
+      other_status !== undefined &&
+      other_status !== null &&
+      typeof other_status !== "string"
+    ) {
+      return res.status(400).json({
+        message: "other_status must be a string or null",
+      });
+    }
+
+    const normalizedOtherStatus =
+      typeof other_status === "string" ? other_status.trim() : null;
+
+    if (normalizedOtherStatus && normalizedOtherStatus.length > 80) {
+      return res.status(400).json({
+        message: "other_status must not exceed 80 characters",
+      });
+    }
+
+    if (transaction_type === "OTHER" && !normalizedOtherStatus) {
+      return res.status(400).json({
+        message: "other_status is required when transaction_type is OTHER",
+      });
+    }
+
+    if (transaction_type === "OTHER" && !String(remarks || "").trim()) {
+      return res.status(400).json({
+        message: "remarks is required when transaction_type is OTHER",
+      });
+    }
+
     const normalizedInventoryTransactionReferenceNo =
       normalizeInventoryTransactionReferenceNo(
         inventoryTransactionReferenceNo ?? inventory_transaction_reference_no,
@@ -257,6 +290,8 @@ const validateCreateInventoryTransaction = (req, res, next) => {
       inventoryTransactionReferenceNo:
         normalizedInventoryTransactionReferenceNo,
       performed_by: performed_by ?? null,
+      other_status:
+        transaction_type === "OTHER" ? normalizedOtherStatus : null,
       remarks: remarks ?? null,
     };
 

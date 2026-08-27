@@ -13,6 +13,7 @@ const {
   isValidInventoryTransactionReferenceNo,
   normalizeInventoryTransactionReferenceNo,
 } = require("../utils/inventoryTransactionReference");
+const { getInventoryBatchStatus } = require("../utils/inventoryBatchStatus");
 const additiveTransactionTypes = new Set(["INFLOW", "RETURN", "ADJUSTMENT"]);
 const subtractiveTransactionTypes = new Set([
   "OUTFLOW",
@@ -21,6 +22,7 @@ const subtractiveTransactionTypes = new Set([
   "DAMAGED",
   "SPOILED",
   "STOLEN",
+  "OTHER",
 ]);
 
 const isEventSpecificReliefOutflow = (transactionData) =>
@@ -38,32 +40,6 @@ const createDisasterEventNotActiveError = () => {
 
 const buildFullName = (firstName, lastName) => {
   return [firstName, lastName].filter(Boolean).join(" ");
-};
-
-const getNextBatchStatus = (expirationDate, quantityAvailable) => {
-  if (expirationDate) {
-    const today = new Date();
-    const todayDateOnly = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate(),
-    );
-    const batchExpirationDate = new Date(expirationDate);
-
-    if (batchExpirationDate < todayDateOnly) {
-      return "EXPIRED";
-    }
-  }
-
-  if (quantityAvailable === 0) {
-    return "DEPLETED";
-  }
-
-  if (quantityAvailable > 0 && quantityAvailable <= 10) {
-    return "LOW_STOCK";
-  }
-
-  return "AVAILABLE";
 };
 
 const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
@@ -113,6 +89,7 @@ const mapInventoryTransaction = (transaction) => {
     performed_by: transaction.performed_by,
     performed_at: transaction.performed_at,
     remarks: transaction.remarks,
+    other_status: transaction.other_status,
     created_at: transaction.created_at,
     inventory_batch: {
       id: transaction.inventory_batch_id,
@@ -180,6 +157,7 @@ const summarizeInventoryTransaction = (transaction) =>
     "performed_by",
     "performed_at",
     "remarks",
+    "other_status",
   ]);
 
 const INVENTORY_DOMAIN_EFFECT_BATCH_SIZE = Math.max(
@@ -391,6 +369,47 @@ const getInventoryTransactionById = async (id) => {
 };
 
 const createInventoryTransaction = async (transactionData) => {
+  const normalizedOtherStatus =
+    typeof transactionData.other_status === "string"
+      ? transactionData.other_status.trim()
+      : null;
+
+  if (
+    normalizedOtherStatus &&
+    normalizedOtherStatus.length > 80
+  ) {
+    const error = new Error("other_status must not exceed 80 characters");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (transactionData.transaction_type === "OTHER" && !normalizedOtherStatus) {
+    const error = new Error(
+      "other_status is required when transaction_type is OTHER",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (
+    transactionData.transaction_type === "OTHER" &&
+    !String(transactionData.remarks || "").trim()
+  ) {
+    const error = new Error(
+      "remarks is required when transaction_type is OTHER",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  transactionData = {
+    ...transactionData,
+    other_status:
+      transactionData.transaction_type === "OTHER"
+        ? normalizedOtherStatus
+        : null,
+  };
+
   const externalClient = transactionData.dbClient || null;
   const deferDomainSideEffect =
     typeof transactionData.deferDomainSideEffect === "function"
@@ -517,10 +536,28 @@ const createInventoryTransaction = async (transactionData) => {
       newQuantityAvailable -= transactionData.quantity;
     }
 
-    const newBatchStatus = getNextBatchStatus(
-      inventoryBatch.expiration_date,
-      newQuantityAvailable,
+    const currentItemQuantityResult = await client.query(
+      `
+        SELECT COALESCE(SUM(quantity_available), 0)::integer AS total_quantity
+        FROM inventory_batches
+        WHERE inventory_item_id = $1
+      `,
+      [inventoryBatch.inventory_item_id],
     );
+    const currentItemQuantity = Number(
+      currentItemQuantityResult.rows[0]?.total_quantity || 0,
+    );
+    const projectedItemQuantity = Math.max(
+      0,
+      currentItemQuantity - Number(inventoryBatch.quantity_available || 0) +
+        Number(newQuantityAvailable || 0),
+    );
+    const newBatchStatus = getInventoryBatchStatus({
+      quantityAvailable: newQuantityAvailable,
+      totalQuantityAvailable: projectedItemQuantity,
+      expirationDate: inventoryBatch.expiration_date,
+      reorderLevel: inventoryItem.reorder_level,
+    });
 
     const createdTransaction =
       await inventoryTransactionRepository.insertInventoryTransaction(
@@ -571,6 +608,8 @@ const createInventoryTransaction = async (transactionData) => {
         quantity_available: newQuantityAvailable,
         status: newBatchStatus,
         expiration_date: inventoryBatch.expiration_date,
+        reorder_level: inventoryItem.reorder_level,
+        item_total_stock: projectedItemQuantity,
         item_name: inventoryBatch.item_name,
       },
       previousQuantityAvailable: inventoryBatch.quantity_available,
@@ -626,6 +665,7 @@ const createInventoryTransaction = async (transactionData) => {
         createdTransaction.inventory_transaction_reference_no || null,
       inventory_batch_id: createdTransaction.inventory_batch_id,
       transaction_type: createdTransaction.transaction_type,
+      other_status: createdTransaction.other_status || null,
       quantity: createdTransaction.quantity,
       new_quantity_available: newQuantityAvailable,
       new_batch_status: newBatchStatus,
@@ -652,6 +692,7 @@ const exportInventoryTransactions = async (filters, format) => {
     reference_type: transaction.reference_type || "--",
     performed_by: transaction.performer?.full_name || "--",
     performed_at: mayorReportExport.formatDateTime(transaction.performed_at),
+    other_status: transaction.other_status || "--",
     remarks: transaction.remarks || "--",
   }));
 
@@ -671,6 +712,7 @@ const exportInventoryTransactions = async (filters, format) => {
       { key: "reference_type", label: "Reference Type", width: 18, pdfWidth: 90 },
       { key: "performed_by", label: "Performed By", width: 24, pdfWidth: 120 },
       { key: "performed_at", label: "Performed At", width: 22, pdfWidth: 95 },
+      { key: "other_status", label: "Other Status", width: 20, pdfWidth: 95 },
       { key: "remarks", label: "Remarks", width: 34, pdfWidth: 300 },
     ],
     rows,

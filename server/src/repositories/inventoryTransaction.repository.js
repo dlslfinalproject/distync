@@ -13,6 +13,7 @@ const baseSelectQuery = `
     it.performed_by,
     it.performed_at,
     it.remarks,
+    it.other_status,
     it.created_at,
     ib.batch_no,
     ib.inventory_item_stock_form_id,
@@ -99,7 +100,7 @@ const getInventoryTransactions = async (filters) => {
   if (filters.search) {
     values.push(`%${filters.search}%`);
     conditions.push(
-      `(ib.batch_no ILIKE $${values.length} OR ii.item_name ILIKE $${values.length} OR ii.item_code ILIKE $${values.length} OR it.remarks ILIKE $${values.length} OR it.inventory_transaction_reference_no ILIKE $${values.length})`,
+      `(ib.batch_no ILIKE $${values.length} OR ii.item_name ILIKE $${values.length} OR ii.item_code ILIKE $${values.length} OR it.remarks ILIKE $${values.length} OR it.other_status ILIKE $${values.length} OR it.inventory_transaction_reference_no ILIKE $${values.length})`,
     );
   }
 
@@ -187,7 +188,8 @@ const getAvailableInventoryBatchesByItemIdForUpdate = async (inventoryItemId, db
       ii.item_code,
       ii.item_name,
       ii.category,
-      ii.unit_of_measure
+      ii.unit_of_measure,
+      ii.reorder_level
     FROM inventory_batches ib
     INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
     WHERE ib.inventory_item_id = $1
@@ -220,7 +222,8 @@ const getDistributableInventoryBatchesByItemIdForUpdate = async (
       ii.item_code,
       ii.item_name,
       ii.category,
-      ii.unit_of_measure
+      ii.unit_of_measure,
+      ii.reorder_level
     FROM inventory_batches ib
     INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
     WHERE ib.inventory_item_id = $1
@@ -268,7 +271,8 @@ const getDistributableInventoryBatchesByItemIdsForUpdate = async (
       ii.item_code,
       ii.item_name,
       ii.category,
-      ii.unit_of_measure
+      ii.unit_of_measure,
+      ii.reorder_level
     FROM inventory_batches ib
     INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
     WHERE ib.inventory_item_id = ANY($1::uuid[])
@@ -331,10 +335,11 @@ const insertInventoryTransaction = async (transactionData, dbClient) => {
       performed_by,
       performed_at,
       remarks,
+      other_status,
       created_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, NOW()
     )
     ON CONFLICT DO NOTHING
     RETURNING
@@ -349,6 +354,7 @@ const insertInventoryTransaction = async (transactionData, dbClient) => {
       performed_by,
       performed_at,
       remarks,
+      other_status,
       created_at
   `;
 
@@ -362,6 +368,7 @@ const insertInventoryTransaction = async (transactionData, dbClient) => {
     transactionData.inventory_transaction_reference_no || null,
     transactionData.performed_by,
     transactionData.remarks,
+    transactionData.other_status || null,
   ];
 
   const result = await dbClient.query(query, values);

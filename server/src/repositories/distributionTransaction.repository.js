@@ -73,7 +73,8 @@ const getInventoryBatchByIdForUpdate = async (batchId, dbClient) => {
       ib.status,
       ii.item_code,
       ii.item_name,
-      ii.unit_of_measure
+      ii.unit_of_measure,
+      ii.reorder_level
     FROM inventory_batches ib
     INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
     WHERE ib.id = $1
@@ -171,7 +172,8 @@ const getAvailableInventoryBatchesByItemIdForUpdate = async (
       ib.status,
       ii.item_code,
       ii.item_name,
-      ii.unit_of_measure
+      ii.unit_of_measure,
+      ii.reorder_level
     FROM inventory_batches ib
     INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
     WHERE ib.inventory_item_id = $1
@@ -222,7 +224,8 @@ const getDonatedReliefPackItemsByDisasterEventId = async (
       ib.status,
       ii.item_code,
       ii.item_name,
-      ii.unit_of_measure
+      ii.unit_of_measure,
+      ii.reorder_level
     FROM donation_items di
     INNER JOIN donations d ON d.id = di.donation_id
     INNER JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
@@ -267,7 +270,8 @@ const getAvailableDonatedLooseItemsByDisasterEventId = async (
       ib.status,
       ii.item_code,
       ii.item_name,
-      ii.unit_of_measure
+      ii.unit_of_measure,
+      ii.reorder_level
     FROM donation_items di
     INNER JOIN donations d ON d.id = di.donation_id
     INNER JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
@@ -280,7 +284,7 @@ const getAvailableDonatedLooseItemsByDisasterEventId = async (
       AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
       AND (
         ib.expiration_date IS NULL
-        OR ib.expiration_date >= CURRENT_DATE
+        OR ib.expiration_date > CURRENT_DATE
       )
     ORDER BY
       d.received_at ASC,
@@ -696,7 +700,13 @@ const getDistributionTransactionItemsForUpdate = async (
       ib.quantity_available,
       ib.status,
       ii.item_name,
-      ii.unit_of_measure
+      ii.unit_of_measure,
+      ii.reorder_level,
+      CAST(COALESCE((
+        SELECT SUM(COALESCE(item_stock.quantity_available, 0))
+        FROM inventory_batches item_stock
+        WHERE item_stock.inventory_item_id = ib.inventory_item_id
+      ), 0) AS integer) AS item_total_stock
     FROM distribution_transaction_items dti
     INNER JOIN inventory_batches ib ON ib.id = dti.inventory_batch_id
     INNER JOIN inventory_items ii ON ii.id = dti.inventory_item_id

@@ -52,11 +52,13 @@ const transactionTypes = [
   "MISSING",
   "DAMAGED",
   "RETURN",
+  "OTHER",
 ];
 
 const createDefaultForm = () => ({
   inventory_batch_id: "",
   transaction_type: "OUTFLOW",
+  other_status: "",
   quantity: 1,
   reference_type: "MANUAL",
   remarks: "",
@@ -84,10 +86,15 @@ const InventoryTransactionFormModal = ({
     return null;
   }
 
+  const isOtherStatus = formValues.transaction_type === "OTHER";
+
   const handleChange = (fieldName, value) => {
     setFormValues((currentValues) => ({
       ...currentValues,
       [fieldName]: value,
+      ...(fieldName === "transaction_type" && value !== "OTHER"
+        ? { other_status: "" }
+        : {}),
     }));
   };
 
@@ -101,6 +108,7 @@ const InventoryTransactionFormModal = ({
       disaster_event_id: null,
       inventory_batch_id: formValues.inventory_batch_id,
       transaction_type: formValues.transaction_type,
+      other_status: isOtherStatus ? formValues.other_status.trim() : null,
       quantity: Number.parseInt(formValues.quantity, 10),
       reference_type: "MANUAL",
       reference_id: null,
@@ -209,6 +217,25 @@ const InventoryTransactionFormModal = ({
                 style={inputStyles}
               />
             </div>
+
+            {isOtherStatus ? (
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label htmlFor="other_status" style={labelStyles}>
+                  Other Status
+                </label>
+                <input
+                  id="other_status"
+                  type="text"
+                  value={formValues.other_status}
+                  onChange={(event) =>
+                    handleChange("other_status", event.target.value)
+                  }
+                  style={inputStyles}
+                  maxLength={80}
+                  placeholder="e.g., Contaminated"
+                />
+              </div>
+            ) : null}
 
             <div style={{ gridColumn: "1 / -1" }}>
               <label htmlFor="inventory_transaction_reference_no" style={labelStyles}>

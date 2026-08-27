@@ -98,6 +98,9 @@ const InventoryTransactionDetailModal = ({ isOpen, row, onClose }) => {
     ["Quantity Moved", String(row.quantity ?? 0)],
     ["Movement", row.transaction_direction || "--"],
     ["Transaction Type", row.transaction_type_label || row.transaction_type || "--"],
+    ...(String(row.transaction_type || "").toUpperCase() === "OTHER"
+      ? [["Other Status", row.other_status || "--"]]
+      : []),
     ["Date and Time", formatDateTime(row.performed_at)],
     ["Performed By", row.performed_by_label || "--"],
     ["Remaining Batch Stock", row.quantity_available ?? "--"],

@@ -6,32 +6,7 @@ const {
   getPrimaryAssignedReliefPackTemplate,
   resolveAssignedReliefPackTemplatesForHousehold,
 } = require("./reliefPackAssignment.service");
-
-const getNextBatchStatus = (expirationDate, quantityAvailable) => {
-  if (expirationDate) {
-    const today = new Date();
-    const todayDateOnly = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate(),
-    );
-    const batchExpirationDate = new Date(expirationDate);
-
-    if (batchExpirationDate < todayDateOnly) {
-      return "EXPIRED";
-    }
-  }
-
-  if (quantityAvailable === 0) {
-    return "DEPLETED";
-  }
-
-  if (quantityAvailable > 0 && quantityAvailable <= 10) {
-    return "LOW_STOCK";
-  }
-
-  return "AVAILABLE";
-};
+const { getInventoryBatchStatus } = require("../utils/inventoryBatchStatus");
 
 const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
   const normalizedOnHandQuantity = Math.max(Number(onHandQuantity || 0), 0);
@@ -501,6 +476,7 @@ const buildDonatedLooseItemClaimPlan = async (
       item_code: row.item_code,
       item_name: row.item_name,
       unit_of_measure: row.unit_of_measure,
+      reorder_level: row.reorder_level,
       previous_quantity_available: availableQuantity,
       previous_status: row.status,
       expiration_date: row.expiration_date || null,
@@ -603,10 +579,11 @@ const buildAutomaticClaimAllocations = async (
         return false;
       }
 
-      return getNextBatchStatus(
-        batch.expiration_date,
-        Number(batch.quantity_available || 0),
-      ) !== "EXPIRED";
+      return getInventoryBatchStatus({
+        quantityAvailable: Number(batch.quantity_available || 0),
+        expirationDate: batch.expiration_date,
+        reorderLevel: batch.reorder_level,
+      }) !== "EXPIRED";
     });
 
     let remainingQuantity = requiredQuantity;
@@ -633,6 +610,7 @@ const buildAutomaticClaimAllocations = async (
         item_code: batch.item_code,
         item_name: batch.item_name,
         unit_of_measure: batch.unit_of_measure,
+        reorder_level: batch.reorder_level,
         previous_quantity_available: Number(batch.quantity_available || 0),
         previous_status: batch.status,
         expiration_date: batch.expiration_date || null,
@@ -864,6 +842,37 @@ const recordAutomaticReliefPackClaim = async ({
   const releasedItems = [];
   const batchAlertPayloads = [];
   const touchedInventoryItemIds = new Set();
+  const releasedQuantityByItemId = combinedAllocations.reduce(
+    (totals, allocation) => {
+      const itemId = allocation.inventory_item_id;
+      totals.set(
+        itemId,
+        (totals.get(itemId) || 0) + Number(allocation.quantity_released || 0),
+      );
+      return totals;
+    },
+    new Map(),
+  );
+  const currentItemStockResult =
+    releasedQuantityByItemId.size > 0
+      ? await client.query(
+          `
+            SELECT
+              inventory_item_id,
+              COALESCE(SUM(quantity_available), 0)::integer AS total_quantity
+            FROM inventory_batches
+            WHERE inventory_item_id = ANY($1::uuid[])
+            GROUP BY inventory_item_id
+          `,
+          [[...releasedQuantityByItemId.keys()]],
+        )
+      : { rows: [] };
+  const currentItemStockById = new Map(
+    currentItemStockResult.rows.map((row) => [
+      row.inventory_item_id,
+      Number(row.total_quantity || 0),
+    ]),
+  );
 
   for (const allocation of combinedAllocations) {
     const insertedItem =
@@ -893,10 +902,17 @@ const recordAutomaticReliefPackClaim = async ({
 
     const remainingQuantity =
       allocation.previous_quantity_available - allocation.quantity_released;
-    const nextBatchStatus = getNextBatchStatus(
-      allocation.expiration_date,
-      remainingQuantity,
+    const nextItemQuantity = Math.max(
+      0,
+      (currentItemStockById.get(allocation.inventory_item_id) || 0) -
+        (releasedQuantityByItemId.get(allocation.inventory_item_id) || 0),
     );
+    const nextBatchStatus = getInventoryBatchStatus({
+      quantityAvailable: remainingQuantity,
+      expirationDate: allocation.expiration_date,
+      reorderLevel: allocation.reorder_level,
+      totalQuantityAvailable: nextItemQuantity,
+    });
     const updatedBatch =
       await distributionTransactionRepository.updateInventoryBatchQuantityAndStatus(
         allocation.inventory_batch_id,
@@ -926,6 +942,8 @@ const recordAutomaticReliefPackClaim = async ({
         batch_no: allocation.batch_no,
         quantity_available: updatedBatch.quantity_available,
         status: updatedBatch.status,
+        reorder_level: allocation.reorder_level,
+        item_total_stock: nextItemQuantity,
         item_name: allocation.item_name,
       },
       previousQuantityAvailable: allocation.previous_quantity_available,

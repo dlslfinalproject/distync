@@ -271,7 +271,7 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
                   {form.isReAdmissionMode
                     ? "Register Family - Re-admission"
                     : form.isEditMode
-                      ? "Edit Household"
+                      ? "Edit Household Details"
                       : "Register Family"}
                 </h2>
                 {form.isReAdmissionMode ? (

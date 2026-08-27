@@ -64,6 +64,12 @@ const donationItemSelect = `
     ii.item_name,
     ii.category,
     ii.unit_of_measure,
+    ii.reorder_level,
+    CAST(COALESCE((
+      SELECT SUM(COALESCE(item_stock.quantity_available, 0))
+      FROM inventory_batches item_stock
+      WHERE item_stock.inventory_item_id = di.inventory_item_id
+    ), 0) AS integer) AS item_total_stock,
     ib.inventory_item_stock_form_id,
     ib.batch_no,
     ib.source_type,
@@ -117,6 +123,7 @@ const getInventoryItemById = async (id, dbClient = pool) => {
         packaging,
         packaging_count,
         quantity,
+        reorder_level,
         is_active,
         is_perishable
       FROM inventory_items
@@ -652,6 +659,11 @@ const getInventoryBatchByIdForUpdate = async (id, dbClient) => {
         source_type,
         quantity_received,
         quantity_available,
+        CAST(COALESCE((
+          SELECT SUM(COALESCE(item_stock.quantity_available, 0))
+          FROM inventory_batches item_stock
+          WHERE item_stock.inventory_item_id = inventory_batches.inventory_item_id
+        ), 0) AS integer) AS item_total_stock,
         expiration_date,
         received_at,
         storage_location,
@@ -1176,7 +1188,7 @@ const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
   const distributionConditions = [`ib.source_type = 'DONATED'`, `it.transaction_type = 'OUTFLOW'`, `it.reference_type = 'DISTRIBUTION'`];
   const writeOffConditions = [
     `ib.source_type = 'DONATED'`,
-    `it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN')`,
+    `it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN', 'OTHER')`,
   ];
   const batchConditions = [`ib.source_type = 'DONATED'`];
   const disasterEventIds = normalizeDisasterEventFilter(disasterEventId);
@@ -1330,7 +1342,7 @@ const getDonationItemTransparencySummary = async (
           INNER JOIN inventory_batches ib2 ON ib2.id = it.inventory_batch_id
           WHERE ib2.inventory_item_id = ii.id
             AND ib2.source_type = 'DONATED'
-            AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN')
+            AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN', 'OTHER')
             AND EXISTS (
               SELECT 1
               FROM donation_items di2
@@ -1366,7 +1378,7 @@ const getDonationItemTransparencySummary = async (
             INNER JOIN inventory_batches ib2 ON ib2.id = it.inventory_batch_id
             WHERE ib2.inventory_item_id = ii.id
               AND ib2.source_type = 'DONATED'
-              AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN')
+              AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN', 'OTHER')
               AND EXISTS (
                 SELECT 1
                 FROM donation_items di2
@@ -1469,7 +1481,7 @@ const getDonationTransparencyExportRows = async (
             SUM(it.quantity)::int AS quantity
           FROM inventory_transactions it
           WHERE it.inventory_batch_id = di.inventory_batch_id
-            AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN')
+            AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN', 'OTHER')
           GROUP BY it.transaction_type
         ) reason_rows
       ) written_off ON TRUE
@@ -1496,6 +1508,7 @@ const getDonationInventoryTransactions = async (donationId, dbClient = pool) => 
         it.performed_by,
         it.performed_at,
         it.remarks,
+        it.other_status,
         it.created_at,
         ib.batch_no,
         ib.status AS batch_status,

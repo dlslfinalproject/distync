@@ -758,19 +758,26 @@ const getBatchesForExpiryNotificationScan = async (
     `
       SELECT
         ib.id,
+        ib.inventory_item_id,
         ib.batch_no,
         ib.quantity_available,
+        CAST(COALESCE((
+          SELECT SUM(COALESCE(item_stock.quantity_available, 0))
+          FROM inventory_batches item_stock
+          WHERE item_stock.inventory_item_id = ib.inventory_item_id
+        ), 0) AS integer) AS item_total_stock,
         ib.expiration_date,
         ib.status,
-        ii.item_name
+        ii.item_name,
+        ii.reorder_level
       FROM inventory_batches ib
       INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
       WHERE ib.expiration_date IS NOT NULL
         AND ib.quantity_available > 0
         AND (
-          ib.expiration_date < CURRENT_DATE
+          ib.expiration_date <= CURRENT_DATE
           OR (
-            ib.expiration_date >= CURRENT_DATE
+            ib.expiration_date > CURRENT_DATE
             AND ib.expiration_date <= CURRENT_DATE + ($1::integer * INTERVAL '1 day')
           )
         )

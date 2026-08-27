@@ -47,6 +47,10 @@ import {
   inventoryPageStyles,
 } from "../../features/inventory-items/inventoryItemsPageUi";
 import {
+  matchesInventoryItemCategory,
+  matchesInventoryItemSearch,
+} from "../../features/inventory-items/inventoryItemFilters";
+import {
   buildInventoryTrackingMap,
   createEmptyTrackingStats,
   getTrackedExpirationDate,
@@ -167,33 +171,6 @@ const getPositiveIntegerValue = (value) => {
 
 const getNormalizedInventoryText = (value) =>
   String(value || "").trim().toLowerCase();
-
-const matchesInventorySearch = (item, searchTerm) => {
-  const normalizedSearch = getNormalizedInventoryText(searchTerm);
-
-  if (!normalizedSearch) {
-    return true;
-  }
-
-  const stockForms = getItemStockForms(item);
-  const searchableValues = [
-    item?.item_name,
-    item?.item_code,
-    item?.category,
-    item?.unit_of_measure,
-    item?.tracking_method,
-    item?.packaging,
-    ...stockForms.flatMap((stockForm) => [
-      stockForm?.barcode,
-      stockForm?.packaging,
-      stockForm?.unit_of_measure,
-    ]),
-  ];
-
-  return searchableValues.some((value) =>
-    getNormalizedInventoryText(value).includes(normalizedSearch),
-  );
-};
 
 const getFirstPositiveNumber = (values) => {
   for (const value of values) {
@@ -329,6 +306,10 @@ const buildScannedInventoryBatchNumber = (item, relatedBatches = []) => {
 const getDisplayStockStatus = (item, trackingStats) => {
   const onHand = getMonitorQuantity(item, trackingStats);
 
+  if (onHand <= 0) {
+    return "Depleted";
+  }
+
   if (isExpiredItem(item, trackingStats)) {
     return "Expired";
   }
@@ -337,11 +318,11 @@ const getDisplayStockStatus = (item, trackingStats) => {
     return "Near Expiry";
   }
 
-  if (onHand <= 0 || isLowStockItem(item, trackingStats)) {
+  if (isLowStockItem(item, trackingStats)) {
     return "Low Stock";
   }
 
-  return "In Stock";
+  return "Available";
 };
 
 const getDisplayStockStatuses = (item, trackingStats) => {
@@ -487,8 +468,8 @@ const InventoryItemsPage = () => {
   };
 
   useEffect(() => {
-    loadInventoryData();
-  }, [filters]);
+    void loadInventoryData();
+  }, []);
 
   useEffect(() => {
     const unsubscribe = subscribeToSyncUpdates(() => {
@@ -498,7 +479,7 @@ const InventoryItemsPage = () => {
     });
 
     return () => unsubscribe();
-  }, [filters]);
+  }, []);
 
   useEffect(() => {
     const refreshInventoryMonitor = () => {
@@ -524,7 +505,7 @@ const InventoryItemsPage = () => {
       window.removeEventListener("focus", refreshInventoryMonitor);
       document.removeEventListener("visibilitychange", handleVisibilityRefresh);
     };
-  }, [filters]);
+  }, []);
 
   const inventoryItemsWithSyncStatus = useMemo(
     () => mergeInventoryItemsWithSyncStatus(inventoryItems, syncQueueEntries),
@@ -707,8 +688,6 @@ const InventoryItemsPage = () => {
   }, [matchedScannedItem, matchedScannedItemBatches]);
 
   const visibleInventoryItems = useMemo(() => {
-    const normalizedCategoryFilter =
-      getNormalizedInventoryText(filters.category) || "all";
     const selectedStockStatuses = Array.isArray(filters.status)
       ? filters.status
       : filters.status && filters.status !== "All"
@@ -718,11 +697,8 @@ const InventoryItemsPage = () => {
     const filteredItems = inventoryItemsForInventoryManagement.filter((item) => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
-      const itemCategory = getNormalizedInventoryText(item.category);
-      const matchesSearch = matchesInventorySearch(item, filters.search);
-      const matchesCategory =
-        normalizedCategoryFilter === "all" ||
-        itemCategory === normalizedCategoryFilter;
+      const matchesSearch = matchesInventoryItemSearch(item, filters.search);
+      const matchesCategory = matchesInventoryItemCategory(item, filters.category);
       const matchesStatus =
         selectedStockStatuses.length === 0
           ? true
@@ -737,7 +713,7 @@ const InventoryItemsPage = () => {
                 return isLowStockItem(item, trackingStats);
               }
 
-              if (status === "Near Expiry" || status === "Expiring") {
+              if (status === "Near Expiry") {
                 return isNearExpiryItem(item, trackingStats);
               }
 
@@ -745,7 +721,7 @@ const InventoryItemsPage = () => {
                 return isExpiredItem(item, trackingStats);
               }
 
-              if (status === "Depleted" || status === "Out of Stock") {
+              if (status === "Depleted") {
                 return getMonitorQuantity(item, trackingStats) <= 0;
               }
 

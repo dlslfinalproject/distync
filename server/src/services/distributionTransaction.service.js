@@ -14,6 +14,11 @@ const {
 } = require("./automaticReliefPackClaim.service");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
 const mswdoReportExport = require("../utils/mswdoReportExport");
+const {
+  getInventoryBatchStatus,
+  isInventoryBatchExpired,
+  isInventoryBatchNearExpiry,
+} = require("../utils/inventoryBatchStatus");
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
@@ -1092,18 +1097,6 @@ const assertBarangayDistributionScope = (stub, requester) => {
   }
 };
 
-const getInventoryBatchStatus = (quantityAvailable) => {
-  if (quantityAvailable === 0) {
-    return "DEPLETED";
-  }
-
-  if (quantityAvailable > 0 && quantityAvailable <= 10) {
-    return "LOW_STOCK";
-  }
-
-  return "AVAILABLE";
-};
-
 const STANDARD_DISASTER_TYPES = [
   "Typhoon",
   "Flood",
@@ -1136,61 +1129,11 @@ const isTemplateApplicableToDisasterType = (templateDisasterTypes, disasterType)
   });
 };
 
-const NEAR_EXPIRY_DAYS = 30;
-
-const isNearExpiryDate = (value, thresholdDays = NEAR_EXPIRY_DAYS) => {
-  if (!value) {
-    return false;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const thresholdDate = new Date(today);
-  thresholdDate.setDate(thresholdDate.getDate() + thresholdDays);
-
-  const parsedDate = new Date(value);
-  parsedDate.setHours(0, 0, 0, 0);
-
-  return (
-    !Number.isNaN(parsedDate.getTime()) &&
-    parsedDate >= today &&
-    parsedDate <= thresholdDate
-  );
-};
-
 const isDistributableBatch = (batch) =>
   Boolean(batch) &&
   ["AVAILABLE", "LOW_STOCK"].includes(batch.status) &&
-  !isNearExpiryDate(batch.expiration_date);
-
-const getInventoryBatchStatusWithExpiry = (batch, quantityAvailable) => {
-  const normalizedQuantity = Number(quantityAvailable || 0);
-
-  if (normalizedQuantity <= 0) {
-    return "DEPLETED";
-  }
-
-  if (batch?.expiration_date) {
-    const today = new Date();
-    const todayDateOnly = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate(),
-    );
-    const expirationDate = new Date(batch.expiration_date);
-
-    if (expirationDate < todayDateOnly) {
-      return "EXPIRED";
-    }
-  }
-
-  if (normalizedQuantity <= 10) {
-    return "LOW_STOCK";
-  }
-
-  return "AVAILABLE";
-};
+  !isInventoryBatchExpired(batch.expiration_date) &&
+  !isInventoryBatchNearExpiry(batch.expiration_date, 30);
 
 const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
   const normalizedOnHandQuantity = Math.max(Number(onHandQuantity || 0), 0);
@@ -1302,6 +1245,33 @@ const recomputeAndUpdateInventoryItemSnapshots = async (
       dbClient,
     );
   }
+};
+
+const getInventoryItemStockTotals = async (inventoryItemIds, dbClient) => {
+  const uniqueInventoryItemIds = [...new Set(inventoryItemIds || [])].filter(Boolean);
+
+  if (uniqueInventoryItemIds.length === 0) {
+    return new Map();
+  }
+
+  const result = await dbClient.query(
+    `
+      SELECT
+        inventory_item_id,
+        COALESCE(SUM(quantity_available), 0)::integer AS total_quantity
+      FROM inventory_batches
+      WHERE inventory_item_id = ANY($1::uuid[])
+      GROUP BY inventory_item_id
+    `,
+    [uniqueInventoryItemIds],
+  );
+
+  return new Map(
+    result.rows.map((row) => [
+      row.inventory_item_id,
+      Number(row.total_quantity || 0),
+    ]),
+  );
 };
 
 const buildTemplateReleasePlan = async ({
@@ -1595,7 +1565,12 @@ const formatDistributionActionRemarks = ({
   return `${actionLabel} reason: ${normalizedReason}\nPrevious remarks: ${normalizedPreviousRemarks}`;
 };
 
-const normalizeRestoredBatchStatus = (batch, restoredQuantity) => {
+const normalizeRestoredBatchStatus = (
+  batch,
+  restoredQuantity,
+  reorderLevel,
+  totalQuantityAvailable,
+) => {
   if (!batch) {
     return "AVAILABLE";
   }
@@ -1604,7 +1579,12 @@ const normalizeRestoredBatchStatus = (batch, restoredQuantity) => {
     return "EXPIRED";
   }
 
-  return getInventoryBatchStatus(restoredQuantity);
+  return getInventoryBatchStatus({
+    quantityAvailable: restoredQuantity,
+    expirationDate: batch.expiration_date,
+    reorderLevel,
+    totalQuantityAvailable,
+  });
 };
 
 const createDistributionTransaction = async (requestData) => {
@@ -1721,6 +1701,31 @@ const createDistributionTransaction = async (requestData) => {
           client,
           inventoryItemsById,
         });
+    const releaseQuantityByItemId = releasePlan.reduce(
+      (totals, item) => {
+        totals.set(
+          item.inventory_item_id,
+          (totals.get(item.inventory_item_id) || 0) +
+            Number(item.quantity_released || 0),
+        );
+        return totals;
+      },
+      new Map(),
+    );
+    const currentItemStockById = await getInventoryItemStockTotals(
+      [...releaseQuantityByItemId.keys()],
+      client,
+    );
+    const nextItemStockById = new Map(
+      [...releaseQuantityByItemId.keys()].map((inventoryItemId) => [
+        inventoryItemId,
+        Math.max(
+          0,
+          (currentItemStockById.get(inventoryItemId) || 0) -
+            (releaseQuantityByItemId.get(inventoryItemId) || 0),
+        ),
+      ]),
+    );
 
     const receiptNo =
       await distributionTransactionRepository.getDistributionReceiptSequence(
@@ -1818,10 +1823,15 @@ const createDistributionTransaction = async (requestData) => {
         throw error;
       }
 
-      const nextStatus = getInventoryBatchStatusWithExpiry(
-        batchDetails,
-        remainingQuantity,
-      );
+      const nextStatus = getInventoryBatchStatus({
+        quantityAvailable: remainingQuantity,
+        expirationDate: batchDetails.expiration_date,
+        reorderLevel:
+          inventoryItemsById.get(batchDetails.inventory_item_id)?.reorder_level,
+        totalQuantityAvailable: nextItemStockById.get(
+          batchDetails.inventory_item_id,
+        ),
+      });
 
       const updatedBatch =
         await distributionTransactionRepository.updateInventoryBatchQuantityAndStatus(
@@ -1837,6 +1847,9 @@ const createDistributionTransaction = async (requestData) => {
           batch_no: batchDetails.batch_no,
           quantity_available: updatedBatch.quantity_available,
           status: updatedBatch.status,
+          reorder_level:
+            inventoryItemsById.get(batchDetails.inventory_item_id)?.reorder_level,
+          item_total_stock: nextItemStockById.get(batchDetails.inventory_item_id),
           item_name: batchDetails.item_name,
         },
         previousQuantityAvailable: batchDetails.quantity_available,
@@ -2534,6 +2547,17 @@ const updateDistributionTransactionLifecycle = async ({
         client,
       );
     const inventoryItemsById = new Map();
+    const restoredQuantityByItemId = transactionItems.reduce(
+      (totals, item) => {
+        totals.set(
+          item.inventory_item_id,
+          (totals.get(item.inventory_item_id) || 0) +
+            Number(item.quantity_released || 0),
+        );
+        return totals;
+      },
+      new Map(),
+    );
 
     const batchSummaries = [];
 
@@ -2549,7 +2573,17 @@ const updateDistributionTransactionLifecycle = async ({
 
       const restoredQuantity =
         Number(item.quantity_available || 0) + Number(item.quantity_released || 0);
-      const nextStatus = normalizeRestoredBatchStatus(item, restoredQuantity);
+      const nextItemTotalStock =
+        item.item_total_stock === undefined || item.item_total_stock === null
+          ? undefined
+          : Number(item.item_total_stock || 0) +
+            (restoredQuantityByItemId.get(item.inventory_item_id) || 0);
+      const nextStatus = normalizeRestoredBatchStatus(
+        item,
+        restoredQuantity,
+        inventoryItem?.reorder_level,
+        nextItemTotalStock,
+      );
 
       await distributionTransactionRepository.updateInventoryBatchQuantityAndStatus(
         item.inventory_batch_id,

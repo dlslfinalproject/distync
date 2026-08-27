@@ -328,12 +328,6 @@ const FamilyHeadSection = ({ form, onViewSuggestedHousehold }) => {
             <span style={fieldStyles.badge}>Protected Information</span>
           ) : null}
         </div>
-        {isFamilyHeadProtected ? (
-          <p style={fieldStyles.helperText}>
-            Family head information is locked after registration to preserve
-            beneficiary and distribution record consistency.
-          </p>
-        ) : null}
       </div>
 
       <div className="household-registration-name-grid" style={fieldStyles.nameGrid}>

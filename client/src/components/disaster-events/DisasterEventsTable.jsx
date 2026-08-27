@@ -195,7 +195,7 @@ const DisasterEventsTable = ({
                   label: "Edit Disaster Event",
                   icon: <FiEdit2 size={18} />,
                   disabled: typeof onEditEvent !== "function",
-                  title: "Edit Disaster Event",
+                  title: "Edit Disaster Event Details",
                   onClick: (selectedRow) => onEditEvent?.(selectedRow.id),
                 },
                 {

@@ -679,7 +679,7 @@ const StubResultsTable = ({
                     <button
                       type="button"
                       onClick={() => onViewStub(row)}
-                      title={row.is_local_only ? "Available after sync" : "View Details"}
+                      title={row.is_local_only ? "Available after sync" : "View Household Details"}
                       aria-label="View Details"
                       disabled={row.is_local_only}
                       style={{

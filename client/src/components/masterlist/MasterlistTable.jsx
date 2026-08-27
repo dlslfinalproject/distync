@@ -241,7 +241,7 @@ const MasterlistTable = ({
   const buildActionItems = (row) => {
     const viewAction = {
       key: "view",
-      label: "View Details",
+      label: "View Household Details",
       icon: <FiEye size={18} />,
       disabled: typeof onViewHousehold !== "function",
       onClick: (selectedRow) =>
@@ -305,7 +305,7 @@ const MasterlistTable = ({
         label: "Edit Household",
         icon: <FiEdit2 size={18} />,
         disabled: typeof onEditHousehold !== "function",
-        title: "Edit Household",
+        title: "Edit Household Details",
         onClick: (selectedRow) => onEditHousehold?.(selectedRow.household_id),
       },
     ];

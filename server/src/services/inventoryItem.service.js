@@ -8,6 +8,11 @@ const systemLogRepository = require("../repositories/systemLog.repository");
 const inventoryItemExport = require("../utils/inventoryItemExport");
 const { createInventoryStateBasis } = require("../utils/inventoryStateBasis");
 const mayorReportExport = require("../utils/mayorReportExport");
+const {
+  getInventoryBatchStatus,
+  isInventoryBatchExpired,
+  isInventoryBatchNearExpiry,
+} = require("../utils/inventoryBatchStatus");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
 const {
   isValidInventoryBarcode,
@@ -207,27 +212,8 @@ const summarizeInventoryTransaction = (transaction) =>
     "performed_by",
     "performed_at",
     "remarks",
+    "other_status",
   ]);
-
-const getInitialBatchStatus = (expirationDate) => {
-  if (!expirationDate) {
-    return "AVAILABLE";
-  }
-
-  const today = new Date();
-  const todayDateOnly = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate(),
-  );
-  const resolvedExpirationDate = new Date(expirationDate);
-
-  if (resolvedExpirationDate < todayDateOnly) {
-    return "EXPIRED";
-  }
-
-  return "AVAILABLE";
-};
 
 const buildOpeningBatchNumber = (itemCode) => {
   const timestamp = Date.now();
@@ -271,6 +257,7 @@ const buildInventoryTrackingMap = (inventoryItems, inventoryBatches, inventoryTr
       missing: 0,
       spoiled: 0,
       stolen: 0,
+      other: 0,
       nearestExpirationDate: item.expiration_date || null,
     });
   });
@@ -331,29 +318,13 @@ const buildInventoryTrackingMap = (inventoryItems, inventoryBatches, inventoryTr
     if (transaction.transaction_type === "STOLEN") {
       tracking.stolen += quantity;
     }
+
+    if (transaction.transaction_type === "OTHER") {
+      tracking.other += quantity;
+    }
   });
 
   return trackingMap;
-};
-
-const isNearExpiryDate = (value, thresholdDays) => {
-  if (!value) {
-    return false;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const comparisonDate = new Date(value);
-  comparisonDate.setHours(0, 0, 0, 0);
-
-  if (Number.isNaN(comparisonDate.getTime()) || comparisonDate < today) {
-    return false;
-  }
-
-  const differenceInDays =
-    (comparisonDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
-
-  return differenceInDays <= thresholdDays;
 };
 
 const buildInventoryConditionRows = async ({
@@ -372,40 +343,76 @@ const buildInventoryConditionRows = async ({
     inventoryBatches,
     inventoryTransactions,
   );
+  const inventoryItemMap = new Map(
+    inventoryItems.map((item) => [String(item.id), item]),
+  );
+  const filteredItemIds = new Set(inventoryItemMap.keys());
+  const batchesForReport = inventoryBatches.filter((batch) =>
+    filteredItemIds.has(String(batch.inventory_item_id)),
+  );
+  const totalStockByItemId = batchesForReport.reduce((totals, batch) => {
+    const itemId = String(batch.inventory_item_id || "");
+    totals.set(
+      itemId,
+      (totals.get(itemId) || 0) + Number(batch.quantity_available || 0),
+    );
+    return totals;
+  }, new Map());
+  const getComputedBatchStatus = (batch) => {
+    const item = inventoryItemMap.get(String(batch.inventory_item_id || ""));
+
+    return getInventoryBatchStatus({
+      quantityAvailable: batch.quantity_available,
+      totalQuantityAvailable:
+        batch.item_total_stock ??
+        totalStockByItemId.get(String(batch.inventory_item_id || "")) ??
+        0,
+      expirationDate: batch.expiration_date,
+      reorderLevel: batch.reorder_level ?? item?.reorder_level,
+    });
+  };
 
   if (report_type === "LOW_STOCK") {
-    return inventoryBatches
-      .filter((batch) => batch.status === "LOW_STOCK")
+    return batchesForReport
+      .filter((batch) => getComputedBatchStatus(batch) === "LOW_STOCK")
       .map((batch) => ({
         item_name: batch.item_name || "--",
         batch_no: batch.batch_no || "--",
-        status: batch.status || "--",
+        status: "LOW_STOCK",
         quantity_available: batch.quantity_available ?? 0,
         expiration_date: mayorReportExport.formatDateOnly(batch.expiration_date),
       }));
   }
 
   if (report_type === "NEAR_EXPIRY") {
-    return inventoryBatches
-      .filter((batch) => isNearExpiryDate(batch.expiration_date, near_expiry_days))
+    return batchesForReport
+      .filter(
+        (batch) =>
+          Number(batch.quantity_available || 0) > 0 &&
+          isInventoryBatchNearExpiry(batch.expiration_date, near_expiry_days),
+      )
       .map((batch) => ({
         item_name: batch.item_name || "--",
         batch_no: batch.batch_no || "--",
         expiration_date: mayorReportExport.formatDateOnly(batch.expiration_date),
         quantity_available: batch.quantity_available ?? 0,
-        status: batch.status || "--",
+        status: "NEAR_EXPIRY",
       }));
   }
 
   if (report_type === "EXPIRED") {
-    return inventoryBatches
-      .filter((batch) => batch.status === "EXPIRED")
+    return batchesForReport
+      .filter(
+        (batch) =>
+          Number(batch.quantity_available || 0) > 0 &&
+          isInventoryBatchExpired(batch.expiration_date),
+      )
       .map((batch) => ({
         item_name: batch.item_name || "--",
         batch_no: batch.batch_no || "--",
         expiration_date: mayorReportExport.formatDateOnly(batch.expiration_date),
         quantity_available: batch.quantity_available ?? 0,
-        status: batch.status || "--",
+        status: "EXPIRED",
       }));
   }
 
@@ -419,10 +426,16 @@ const buildInventoryConditionRows = async ({
         missing: tracking?.missing || 0,
         spoiled: tracking?.spoiled || 0,
         stolen: tracking?.stolen || 0,
+        other: tracking?.other || 0,
       };
     })
     .filter(
-      (row) => row.damaged > 0 || row.missing > 0 || row.spoiled > 0 || row.stolen > 0,
+      (row) =>
+        row.damaged > 0 ||
+        row.missing > 0 ||
+        row.spoiled > 0 ||
+        row.stolen > 0 ||
+        row.other > 0,
     );
 };
 
@@ -586,8 +599,6 @@ const exportInventoryItems = async (filters) => {
   }, new Map());
 
   const normalizeText = (value) => String(value || "").trim().toLowerCase();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
 
   const inferTrackingMethodLabel = (item, batch) => {
     const unitOfMeasure = item?.unit_of_measure || batch?.stock_form_unit_of_measure || "";
@@ -629,30 +640,26 @@ const exportInventoryItems = async (filters) => {
 
   const getBatchStatus = (batch, itemTotalStock, reorderLevel) => {
     const quantityAvailable = Number(batch?.quantity_available || 0);
+    const status = getInventoryBatchStatus({
+      quantityAvailable,
+      totalQuantityAvailable: itemTotalStock,
+      expirationDate: batch?.expiration_date,
+      reorderLevel,
+    });
 
-    if (quantityAvailable <= 0) {
+    if (status === "DEPLETED") {
       return "Depleted";
     }
 
-    if (batch?.expiration_date) {
-      const expirationDate = new Date(batch.expiration_date);
-      expirationDate.setHours(0, 0, 0, 0);
-
-      if (!Number.isNaN(expirationDate.getTime())) {
-        if (expirationDate.getTime() <= today.getTime()) {
-          return "Expired";
-        }
-
-        const daysUntilExpiration =
-          (expirationDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
-
-        if (daysUntilExpiration > 0 && daysUntilExpiration <= 30) {
-          return "Near Expiry";
-        }
-      }
+    if (status === "EXPIRED") {
+      return "Expired";
     }
 
-    if (reorderLevel > 0 && itemTotalStock > 0 && itemTotalStock <= reorderLevel) {
+    if (isInventoryBatchNearExpiry(batch?.expiration_date, 30)) {
+      return "Near Expiry";
+    }
+
+    if (status === "LOW_STOCK") {
       return "Low Stock";
     }
 
@@ -808,7 +815,7 @@ const exportInventoryConditionReport = async ({
       ],
     },
     INCIDENT_LOSS: {
-      filePrefix: "office-mayor-damaged-missing-spoiled-stolen-report",
+      filePrefix: "office-mayor-inventory-loss-report",
       title: "Office of the Mayor Inventory Loss Report",
       worksheetName: "Inventory Loss",
       columns: [
@@ -817,6 +824,7 @@ const exportInventoryConditionReport = async ({
         { key: "missing", label: "Missing", width: 14, pdfWidth: 65 },
         { key: "spoiled", label: "Spoiled", width: 14, pdfWidth: 65 },
         { key: "stolen", label: "Stolen", width: 14, pdfWidth: 65 },
+        { key: "other", label: "Other", width: 14, pdfWidth: 65 },
       ],
     },
   }[report_type];
@@ -994,7 +1002,12 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
         quantity_available: totalInitialQuantity,
         expiration_date: createdItem.expiration_date || null,
         storage_location: "Mayor's Office Inventory",
-        status: getInitialBatchStatus(createdItem.expiration_date),
+        status: getInventoryBatchStatus({
+          quantityAvailable: totalInitialQuantity,
+          totalQuantityAvailable: totalInitialQuantity,
+          expirationDate: createdItem.expiration_date,
+          reorderLevel: createdItem.reorder_level,
+        }),
         created_by: actor?.userId || null,
       },
       client,

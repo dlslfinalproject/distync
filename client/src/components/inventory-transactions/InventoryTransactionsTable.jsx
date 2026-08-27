@@ -84,6 +84,14 @@ const getDirectionStyles = (direction) => {
   };
 };
 
+const getTransactionTypeDisplay = (row) => {
+  if (String(row.transaction_type || "").toUpperCase() === "OTHER") {
+    return String(row.other_status || "").trim() || "Other";
+  }
+
+  return row.transaction_type_label || row.transaction_type || "--";
+};
+
 const InventoryTransactionsTable = ({
   rows,
   isLoading,
@@ -176,7 +184,7 @@ const InventoryTransactionsTable = ({
                 </span>
               </td>
               <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
-                {row.transaction_type_label || row.transaction_type || "--"}
+                {getTransactionTypeDisplay(row)}
               </td>
               <td className="inventory-tracking-table-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
                 <div>{formatDateTime(row.performed_at)}</div>
