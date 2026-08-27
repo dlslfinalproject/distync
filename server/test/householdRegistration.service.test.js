@@ -850,6 +850,72 @@ test("H04-05 different household in the same lock scope still registers", async 
   }
 });
 
+test("re-admission registration preserves the archived-source guard for an active source", async () => {
+  const events = [];
+  const activeSource = {
+    id: "active-household",
+    disaster_event_id: "event-1",
+    barangay_id: "barangay-1",
+    is_active: true,
+  };
+  let insertHouseholdCalled = false;
+  const fakeClient = {
+    query: async (query) => {
+      events.push(String(query).trim());
+      return { rows: [] };
+    },
+    release: () => events.push("RELEASE"),
+  };
+  const harness = loadServiceWithMocks(
+    {
+      getSectorsByIds: async () => [],
+      getSectorsByCodes: async () => [],
+      getAgeGroupSectors: async () => [{ id: "adult-sector", code: "ADULT" }],
+      getHouseholdSummaryByIdForUpdate: async (householdId, dbClient) => {
+        assert.equal(householdId, activeSource.id);
+        assert.equal(dbClient, fakeClient);
+        return activeSource;
+      },
+      insertHousehold: async () => {
+        insertHouseholdCalled = true;
+        return { id: "should-not-be-created" };
+      },
+    },
+    {
+      connect: async () => fakeClient,
+    },
+  );
+
+  try {
+    const request = buildValidRegistrationRequest({
+      registration_operation: "CREATE_NEW_HOUSEHOLD_OCCURRENCE",
+      re_admission_source_household_id: activeSource.id,
+    });
+
+    await assert.rejects(
+      harness.service.registerHousehold(request, {
+        operation: "RE_ADMISSION",
+        sourceHouseholdId: activeSource.id,
+      }),
+      (error) => {
+        assert.equal(error.statusCode, 400);
+        assert.equal(error.code, "RE_ADMISSION_SOURCE_NOT_ARCHIVED");
+        assert.equal(
+          error.message,
+          "Only an archived household occurrence can be re-admitted.",
+        );
+        return true;
+      },
+    );
+
+    assert.equal(insertHouseholdCalled, false);
+    assert.equal(events.includes("UPDATE_SOURCE"), false);
+    assert.equal(events.includes("ROLLBACK"), true);
+  } finally {
+    harness.restore();
+  }
+});
+
 test("re-admission registration creates a new occurrence without reusing archived IDs", async () => {
   const events = [];
   const archivedSource = {
