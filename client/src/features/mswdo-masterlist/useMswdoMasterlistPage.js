@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useHouseholdRegistrationForm } from "../household-registration/useHouseholdRegistrationForm";
 import { ROLE_CODES } from "../../utils/roleSession";
 import { getActiveCrossEventTitles } from "../household-registration/crossEventInformation";
@@ -129,8 +129,11 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const [reAdmissionHouseholdId, setReAdmissionHouseholdId] = useState("");
   const [reAdmissionHouseholdDetails, setReAdmissionHouseholdDetails] =
     useState(null);
+  const [reAdmissionSourceArchivedHouseholdId, setReAdmissionSourceArchivedHouseholdId] =
+    useState("");
   const [isLoadingReAdmissionHouseholdDetails, setIsLoadingReAdmissionHouseholdDetails] =
     useState(false);
+  const reAdmissionRequestSequenceRef = useRef(0);
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
     message: "",
@@ -253,6 +256,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     isOpen: Boolean(reAdmissionHouseholdId),
     mode: "reAdmission",
     initialHouseholdDetails: reAdmissionHouseholdDetails,
+    sourceArchivedHouseholdId: reAdmissionSourceArchivedHouseholdId,
     defaultBarangayId: selectedBarangayId || "",
     defaultBarangayName: selectedBarangayId ? selectedBarangayLabel || "" : "",
     defaultDisasterEventId:
@@ -783,30 +787,72 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   };
 
   const handleOpenRestoreHousehold = async (householdId) => {
+    const sourceArchivedHouseholdId = String(householdId || "").trim();
+    const requestSequence = ++reAdmissionRequestSequenceRef.current;
     const selectedRow = displayedRows.find(
       (row) => row.household_id === householdId,
     );
 
     if (!selectedRow?.is_non_admitted_resident) {
+      if (!sourceArchivedHouseholdId) {
+        setReAdmissionHouseholdDetails(null);
+        setReAdmissionSourceArchivedHouseholdId("");
+        setAttendanceActionMessage(
+          "The selected household could not be identified. Refresh the masterlist and try again.",
+        );
+        return;
+      }
+
       setReAdmissionHouseholdId("");
       setReAdmissionHouseholdDetails(null);
+      setReAdmissionSourceArchivedHouseholdId(sourceArchivedHouseholdId);
       setIsLoadingReAdmissionHouseholdDetails(true);
 
       try {
-        const details = await fetchHouseholdDetails(householdId);
+        const details = await fetchHouseholdDetails(sourceArchivedHouseholdId);
+        const loadedHouseholdId = String(details?.household?.id || "").trim();
+
+        if (requestSequence !== reAdmissionRequestSequenceRef.current) {
+          return;
+        }
+
+        if (loadedHouseholdId !== sourceArchivedHouseholdId) {
+          throw new Error(
+            "The selected household occurrence could not be verified for re-admission. Refresh the masterlist and try again.",
+          );
+        }
+
+        if (details?.household?.is_active !== false) {
+          throw new Error(
+            "This household is no longer archived. Refresh the masterlist to view the current occurrence.",
+          );
+        }
+
         setReAdmissionHouseholdDetails(details);
-        setReAdmissionHouseholdId(householdId);
+        setReAdmissionHouseholdId(sourceArchivedHouseholdId);
       } catch (error) {
+        if (requestSequence !== reAdmissionRequestSequenceRef.current) {
+          return;
+        }
+
+        setReAdmissionHouseholdDetails(null);
+        setReAdmissionSourceArchivedHouseholdId("");
         setAttendanceActionMessage(
           error.message || "Failed to load household details for re-admission.",
         );
       } finally {
-        setIsLoadingReAdmissionHouseholdDetails(false);
+        if (requestSequence === reAdmissionRequestSequenceRef.current) {
+          setIsLoadingReAdmissionHouseholdDetails(false);
+        }
       }
 
       return;
     }
 
+    setReAdmissionHouseholdId("");
+    setReAdmissionHouseholdDetails(null);
+    setReAdmissionSourceArchivedHouseholdId("");
+    setIsLoadingReAdmissionHouseholdDetails(false);
     setPendingRestoreHouseholdId(householdId);
     setPendingRestoreHouseholdDetails(null);
     setIsLoadingRestoreHouseholdDetails(true);
@@ -826,8 +872,10 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       return;
     }
 
+    reAdmissionRequestSequenceRef.current += 1;
     setReAdmissionHouseholdId("");
     setReAdmissionHouseholdDetails(null);
+    setReAdmissionSourceArchivedHouseholdId("");
     setIsLoadingReAdmissionHouseholdDetails(false);
   };
 
@@ -984,6 +1032,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     isRestoringHousehold,
     reAdmissionHouseholdId,
     reAdmissionHouseholdDetails,
+    reAdmissionSourceArchivedHouseholdId,
     isLoadingReAdmissionHouseholdDetails,
     exportFeedback,
     selectedSectorIds,

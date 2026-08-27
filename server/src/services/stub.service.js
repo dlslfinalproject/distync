@@ -144,6 +144,37 @@ const buildQrValidationError = ({
   return error;
 };
 
+const normalizeReferenceId = (value) => String(value ?? "").trim().toLowerCase();
+
+const assertStubMatchesRequestedEvent = (stub, requestedEventId) => {
+  const normalizedRequestedEventId = normalizeReferenceId(requestedEventId);
+
+  if (!normalizedRequestedEventId) {
+    return;
+  }
+
+  const normalizedStubEventId = normalizeReferenceId(stub?.disaster_event_id);
+
+  if (!normalizedStubEventId) {
+    throw buildQrValidationError({
+      code: "STUB_EVENT_UNAVAILABLE",
+      message: "The stub disaster event could not be verified.",
+      statusCode: 400,
+      details: buildStubReferenceDetails(stub),
+    });
+  }
+
+  if (normalizedStubEventId !== normalizedRequestedEventId) {
+    throw buildQrValidationError({
+      code: "WRONG_EVENT",
+      message:
+        "This stub belongs to a different disaster event. Select the correct event before scanning.",
+      statusCode: 400,
+      details: buildStubReferenceDetails(stub),
+    });
+  }
+};
+
 const buildStubReferenceDetails = (stub) => {
   if (!stub) {
     return {};
@@ -600,6 +631,8 @@ const claimBarangayStub = async (params) => {
     throw error;
   }
 
+  assertStubMatchesRequestedEvent(scopedStub, params.disaster_event_id);
+
   if (scopedStub.is_active === false) {
     throw buildArchivedHouseholdError(scopedStub);
   }
@@ -638,6 +671,8 @@ const claimBarangayStub = async (params) => {
       error.code = "STUB_NOT_FOUND";
       throw error;
     }
+
+    assertStubMatchesRequestedEvent(lockedStub, params.disaster_event_id);
 
     if (lockedStub.is_active === false) {
       throw buildArchivedHouseholdError(lockedStub);

@@ -106,13 +106,27 @@ test("MSWDO filters and search expose municipal operational fields", async () =>
 test("MSWDO details support result recording without technical identifiers or sync actions", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
   const presentationSource = await fs.readFile(presentationSourcePath, "utf8");
+  const modalStart = source.indexOf("const AnomalyDetailModal");
+  const modalEnd = source.indexOf("const AnomalyTrackingPage", modalStart);
+  const modalSource = source.slice(modalStart, modalEnd);
 
   assert.match(source, /mswdoReviewOutcomeOptions/);
   assert.match(source, /saveAnomalyReview/);
   assert.match(source, /Record Review/);
-  assert.match(source, /Review Note \*/);
+  assert.match(source, /Note \*/);
+  assert.match(source, /const formatReviewNote = \(value\) => getNormalizedReviewNote\(value\) \|\| "Not provided"/);
   assert.match(source, /Review Status/);
+  assert.match(source, /Reviewed By/);
+  assert.match(source, /Reviewed At/);
   assert.match(source, /!reviewHasChanges/);
+  assert.doesNotMatch(modalSource, /<div style=\{labelStyles\}>Context<\/div>/);
+  assert.doesNotMatch(modalSource, /<div style=\{labelStyles\}>Recommended Action<\/div>/);
+  assert.doesNotMatch(modalSource, /<div style=\{labelStyles\}>Review Result<\/div>/);
+  assert.doesNotMatch(modalSource, /<DetailField label="Responsible Office">/);
+  assert.doesNotMatch(modalSource, /Review Note/);
+  assert.match(modalSource, /<DetailField label="Recommendation">/);
+  assert.match(modalSource, /<DetailField label="Note" fullWidth>/);
+  assert.match(modalSource, /!isBarangayScope \? \([\s\S]*<DetailField label="Barangay">/);
   assert.match(presentationSource, /Synchronization Conflict Detected/);
   assert.doesNotMatch(source, /Technical Reference|Source ID:|Retry Sync|Force Sync|Manual Sync/);
 });
@@ -130,7 +144,7 @@ test("MSWDO reviewed anomalies remain read-only while the shared Barangay edit p
   );
   assert.match(source, /\) : canEditSavedReview \? \(/);
   assert.match(source, /if \(!canEditSavedReview\) \{[\s\S]*return;/);
-  assert.match(source, /Review Result/);
+  assert.doesNotMatch(source, /<div style=\{labelStyles\}>Review Result<\/div>/);
   assert.match(source, /FiEye/);
   assert.doesNotMatch(source, /FiEdit|FiEdit2|FiEdit3|MdEdit/);
 });
@@ -212,7 +226,7 @@ test("Barangay anomaly page exposes review workflow without resolving sync confl
 
   assert.match(source, /saveAnomalyReview/);
   assert.match(source, /manual_review_allowed === true/);
-  assert.match(source, /Review Note/);
+  assert.match(source, /Note/);
   assert.match(source, /Review in Sync Center/);
   assert.match(serviceSource, /\/api\/v1\/mswdo-reports\/anomalies\/reviews/);
   assert.match(presentationSource, /REVIEWED_VALID/);
@@ -230,12 +244,14 @@ test("Barangay review form requires an intentional outcome and custom note valid
   assert.match(source, /setReviewStatus\(anomaly\?\.review_status \|\| ""\)/);
   assert.match(source, /noValidate/);
   assert.doesNotMatch(source, /\srequired\s*[\r\n>]/);
-  assert.match(source, /Review Outcome \*/);
+  assert.doesNotMatch(source, /Review Outcome \*/);
   assert.match(source, /Please select a review outcome\./);
-  assert.match(source, /Review Note \*/);
+  assert.match(source, /Note \*/);
   assert.match(source, /Briefly describe what you verified and why you selected this outcome\./);
-  assert.match(source, /Please enter a brief review note\./);
-  assert.match(source, /Review note must be \$\{REVIEW_NOTE_MAX_LENGTH\} characters or fewer\./);
+  assert.match(source, /Note is required\./);
+  assert.match(source, /Note must be \$\{REVIEW_NOTE_MAX_LENGTH\} characters or fewer\./);
+  assert.match(source, /currentReviewNote\.length > 0/);
+  assert.match(source, /getNormalizedReviewNote\(resolutionReason\)/);
   assert.match(source, /aria-required="true"/);
   assert.match(source, /aria-invalid=\{Boolean\(reviewErrors\.resolutionReason\)\}/);
   assert.match(source, /role="alert"/);
@@ -282,7 +298,7 @@ test("reviewed MSWDO details remain read-only while Barangay retains explicit ed
   assert.match(source, /const hasSavedReview = Boolean\(displayedAnomaly\.review_status\)/);
   assert.match(source, /const shouldShowReviewForm =\s+canRecordReview && \(!hasSavedReview \|\| \(isBarangayScope && isEditingReview\)\)/);
   assert.match(source, /const canEditSavedReview =\s+isBarangayScope && canRecordReview && hasSavedReview/);
-  assert.match(source, /Review Result/);
+  assert.doesNotMatch(source, /<div style=\{labelStyles\}>Review Result<\/div>/);
   assert.doesNotMatch(source, /!isBarangayScope && canRecordReview && hasSavedReview/);
   assert.match(source, /Edit Review/);
   assert.match(source, /const reviewHasChanges =/);
@@ -330,20 +346,21 @@ test("Barangay anomaly details separates metadata fields instead of flowing para
   assert.match(source, /<DetailField label="Affected Record">[\s\S]*\{formatAffectedRecord\(displayedAnomaly, isBarangayScope\)\}/);
   assert.match(source, /<DetailField label="Detected At">[\s\S]*\{formatDateTime\(displayedAnomaly\.detected_at\)\}/);
   assert.match(source, /<DetailField label="Recommendation">[\s\S]*\{getAnomalyActionSummary\(displayedAnomaly, presentationScope\)\}/);
-  assert.match(source, /<DetailField label="Responsible Office">[\s\S]*\{getAnomalyOwner\(displayedAnomaly, presentationScope\)\}/);
+  assert.doesNotMatch(source, /<DetailField label="Responsible Office">/);
   assert.match(source, /<DetailField label="Outcome">[\s\S]*formatReviewOutcome\([\s\S]*displayedAnomaly\.review_status,[\s\S]*presentationScope/);
   assert.match(source, /<DetailField label="Reviewed By">[\s\S]*\{displayedAnomaly\.reviewer_name \|\| "Not available"\}/);
   assert.match(source, /<DetailField label="Reviewed At">[\s\S]*\{formatDateTime\(displayedAnomaly\.reviewed_at\)\}/);
-  assert.match(source, /<DetailField label="Review Note" fullWidth>[\s\S]*\{displayedAnomaly\.resolution_reason \|\| "Not available"\}/);
+  assert.match(source, /<DetailField label="Note" fullWidth>[\s\S]*\{formatReviewNote\(displayedAnomaly\.resolution_reason\)\}/);
   assert.match(source, /const DetailField = \(\{ label, children, fullWidth = false \}\)/);
   assert.match(source, /fullWidth \? \{ gridColumn: "1 \/ -1" \}/);
   assert.doesNotMatch(source, /Disaster Event:|Affected Record:|Detected:|Responsible office:|Outcome:|Reviewed by:|Reviewed at:|Review Note:/);
   assert.doesNotMatch(source, /displayedAnomaly\.reviewer_name \|\| displayedAnomaly\.reviewed_by/);
 });
 
-test("MSWDO anomaly details keeps Barangay context but does not repeat Review Status in Context", async () => {
+test("MSWDO anomaly details keeps Barangay context without a redundant Context heading", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
-  const contextStart = source.indexOf('<div style={labelStyles}>Context</div>');
+  const modalStart = source.indexOf("const AnomalyDetailModal");
+  const contextStart = source.indexOf('<div style={modalStyles.fieldGrid}>', modalStart);
   const whyFlaggedStart = source.indexOf('<div style={labelStyles}>Why Flagged</div>', contextStart);
   const contextBlock = source.slice(contextStart, whyFlaggedStart);
 
@@ -354,6 +371,7 @@ test("MSWDO anomaly details keeps Barangay context but does not repeat Review St
   assert.match(contextBlock, /Detected At/);
   assert.match(contextBlock, /<DetailField label="Barangay">/);
   assert.doesNotMatch(contextBlock, /Review Status/);
+  assert.doesNotMatch(source, /<div style=\{labelStyles\}>Context<\/div>/);
 });
 
 test("MSWDO reviewed presentation separates lifecycle status from persisted outcome", async () => {
@@ -396,7 +414,7 @@ test("MSWDO reviewed presentation separates lifecycle status from persisted outc
   );
   assert.match(source, /<StatusPill row=\{displayedAnomaly\} scope=\{presentationScope\} \/>/);
   assert.match(source, /<DetailField label="Outcome">[\s\S]*formatReviewOutcome\(/);
-  assert.match(source, /<DetailField label="Review Note" fullWidth>/);
+  assert.match(source, /<DetailField label="Note" fullWidth>/);
 });
 
 test("MSWDO review-status presentation does not derive lifecycle status from outcome labels", async () => {
@@ -410,7 +428,7 @@ test("MSWDO review-status presentation does not derive lifecycle status from out
   assert.match(presentationSource, /export const getAnomalyReviewStatusLabel/);
 });
 
-test("Barangay anomaly page removes summary cards, sync banner, and extra row review action", async () => {
+test("anomaly tracking removes summary cards, sync banner, and extra row review action", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
   const sidebarSource = await fs.readFile(sidebarSourcePath, "utf8");
   const layoutSource = await fs.readFile(barangayLayoutSourcePath, "utf8");
@@ -420,7 +438,7 @@ test("Barangay anomaly page removes summary cards, sync banner, and extra row re
   assert.match(layoutSource, /isBarangayAnomalyRoute/);
   assert.match(layoutSource, /shouldShowSyncStatusBanner/);
   assert.match(layoutSource, /\{shouldShowSyncStatusBanner \? <SyncStatusBanner \/> : null\}/);
-  assert.match(source, /!\isBarangayScope \? \([\s\S]*<StatusCard label="Total Detected"/);
+  assert.doesNotMatch(source, /<StatusCard\b|shellStyles\.statGrid|Total Detected|Open on Page|Sync Center Items on Page|Resolved on Page/);
   assert.match(source, /overflowX: "auto", width: "100%", minWidth: 0/);
   assert.match(source, /const isManualReviewableAnomaly = \(row\) => row\?\.manual_review_allowed === true/);
   assert.match(source, /isManualReviewableAnomaly\(row\) \? \([\s\S]*>\s*Review\s*<\/button>/);

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
@@ -102,8 +102,11 @@ const BarangayMasterlistPage = () => {
   const [reAdmissionHouseholdId, setReAdmissionHouseholdId] = useState("");
   const [reAdmissionHouseholdDetails, setReAdmissionHouseholdDetails] =
     useState(null);
+  const [reAdmissionSourceArchivedHouseholdId, setReAdmissionSourceArchivedHouseholdId] =
+    useState("");
   const [isLoadingReAdmissionHouseholdDetails, setIsLoadingReAdmissionHouseholdDetails] =
     useState(false);
+  const reAdmissionRequestSequenceRef = useRef(0);
   const [selectedHouseholds, setSelectedHouseholds] = useState([]);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
@@ -224,6 +227,7 @@ const BarangayMasterlistPage = () => {
     isOpen: Boolean(reAdmissionHouseholdId),
     mode: "reAdmission",
     initialHouseholdDetails: reAdmissionHouseholdDetails,
+    sourceArchivedHouseholdId: reAdmissionSourceArchivedHouseholdId,
     defaultBarangayId: assignedBarangay?.id || "",
     defaultBarangayName: assignedBarangay?.name || "",
     defaultDisasterEventId:
@@ -734,30 +738,72 @@ const BarangayMasterlistPage = () => {
   };
 
   const handleOpenRestoreHousehold = async (householdId) => {
+    const sourceArchivedHouseholdId = String(householdId || "").trim();
+    const requestSequence = ++reAdmissionRequestSequenceRef.current;
     const selectedRow = filteredRows.find(
       (row) => row.household_id === householdId,
     );
 
     if (!selectedRow?.is_non_admitted_resident) {
+      if (!sourceArchivedHouseholdId) {
+        setReAdmissionHouseholdDetails(null);
+        setReAdmissionSourceArchivedHouseholdId("");
+        setAttendanceActionMessage(
+          "The selected household could not be identified. Refresh the masterlist and try again.",
+        );
+        return;
+      }
+
       setReAdmissionHouseholdId("");
       setReAdmissionHouseholdDetails(null);
+      setReAdmissionSourceArchivedHouseholdId(sourceArchivedHouseholdId);
       setIsLoadingReAdmissionHouseholdDetails(true);
 
       try {
-        const details = await fetchHouseholdDetails(householdId);
+        const details = await fetchHouseholdDetails(sourceArchivedHouseholdId);
+        const loadedHouseholdId = String(details?.household?.id || "").trim();
+
+        if (requestSequence !== reAdmissionRequestSequenceRef.current) {
+          return;
+        }
+
+        if (loadedHouseholdId !== sourceArchivedHouseholdId) {
+          throw new Error(
+            "The selected household occurrence could not be verified for re-admission. Refresh the masterlist and try again.",
+          );
+        }
+
+        if (details?.household?.is_active !== false) {
+          throw new Error(
+            "This household is no longer archived. Refresh the masterlist to view the current occurrence.",
+          );
+        }
+
         setReAdmissionHouseholdDetails(details);
-        setReAdmissionHouseholdId(householdId);
+        setReAdmissionHouseholdId(sourceArchivedHouseholdId);
       } catch (error) {
+        if (requestSequence !== reAdmissionRequestSequenceRef.current) {
+          return;
+        }
+
+        setReAdmissionHouseholdDetails(null);
+        setReAdmissionSourceArchivedHouseholdId("");
         setAttendanceActionMessage(
           error.message || "Failed to load household details for re-admission.",
         );
       } finally {
-        setIsLoadingReAdmissionHouseholdDetails(false);
+        if (requestSequence === reAdmissionRequestSequenceRef.current) {
+          setIsLoadingReAdmissionHouseholdDetails(false);
+        }
       }
 
       return;
     }
 
+    setReAdmissionHouseholdId("");
+    setReAdmissionHouseholdDetails(null);
+    setReAdmissionSourceArchivedHouseholdId("");
+    setIsLoadingReAdmissionHouseholdDetails(false);
     setPendingRestoreHouseholdId(householdId);
     setPendingRestoreHouseholdDetails(null);
     setIsLoadingRestoreHouseholdDetails(true);
@@ -777,8 +823,10 @@ const BarangayMasterlistPage = () => {
       return;
     }
 
+    reAdmissionRequestSequenceRef.current += 1;
     setReAdmissionHouseholdId("");
     setReAdmissionHouseholdDetails(null);
+    setReAdmissionSourceArchivedHouseholdId("");
     setIsLoadingReAdmissionHouseholdDetails(false);
   };
 

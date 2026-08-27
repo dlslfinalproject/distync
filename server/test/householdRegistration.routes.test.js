@@ -157,6 +157,87 @@ test("EE-FIX-01 HTTP register returns safe non-ACTIVE event validation failure f
   );
 });
 
+test("HTTP re-admission forwards the selected archived occurrence to the shared create service", async () => {
+  let serviceCall = null;
+  const archivedHouseholdId = "archived-household-1";
+
+  await withStubbedHouseholdRoute(
+    {
+      authMiddlewareStub: {
+        ROLE_CODES: {
+          BARANGAY: "BARANGAY",
+          MSWDO: "MSWDO",
+          MAYOR: "MAYOR",
+        },
+        requireRoles: () => (req, _res, next) => {
+          req.auth = {
+            userId: "barangay-user-a",
+            roleCode: "BARANGAY",
+            defaultBarangayId: "barangay-a",
+          };
+          next();
+        },
+      },
+      serviceStub: {
+        registerHousehold: async (requestData, options) => {
+          serviceCall = { requestData, options };
+          return {
+            household: { id: "new-household-2", is_active: true },
+            source_household_id: archivedHouseholdId,
+          };
+        },
+      },
+      validatorStub: {
+        ...buildValidatorStub(),
+        validateCreateHouseholdRegistration: (req, _res, next) => {
+          req.validatedBody = req.body || {};
+          next();
+        },
+      },
+    },
+    async (router) => {
+      const app = express();
+      app.use(express.json());
+      app.use("/api/v1/households", router);
+
+      const server = await new Promise((resolve) => {
+        const instance = app.listen(0, () => resolve(instance));
+      });
+
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:${server.address().port}/api/v1/households/register`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              registration_operation: "CREATE_NEW_HOUSEHOLD_OCCURRENCE",
+              re_admission_source_household_id: archivedHouseholdId,
+            }),
+          },
+        );
+        const payload = await response.json();
+
+        assert.equal(response.status, 201);
+        assert.equal(
+          serviceCall.requestData.re_admission_source_household_id,
+          archivedHouseholdId,
+        );
+        assert.equal(serviceCall.options.operation, "RE_ADMISSION");
+        assert.equal(
+          serviceCall.options.sourceHouseholdId,
+          archivedHouseholdId,
+        );
+        assert.equal(payload.data.source_household_id, archivedHouseholdId);
+      } finally {
+        await new Promise((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    },
+  );
+});
+
 test("EE-FIX-02 HTTP update returns safe non-ACTIVE event validation failure from shared service", async () => {
   let serviceCall = null;
 

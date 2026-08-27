@@ -201,6 +201,7 @@ export const useHouseholdRegistrationForm = ({
   isOpen,
   mode = "create",
   initialHouseholdDetails = null,
+  sourceArchivedHouseholdId = null,
   defaultBarangayId,
   defaultBarangayName = "",
   defaultDisasterEventId,
@@ -215,6 +216,9 @@ export const useHouseholdRegistrationForm = ({
   const isEditMode = mode === "edit";
   const isReAdmissionMode = mode === "reAdmission";
   const isPrefilledHouseholdMode = isEditMode || isReAdmissionMode;
+  const retainedSourceArchivedHouseholdId = isReAdmissionMode
+    ? String(sourceArchivedHouseholdId || "").trim() || null
+    : null;
   const isExistingHousehold = Boolean(initialHouseholdDetails?.household?.id);
   const isFamilyHeadProtected = isEditMode && isExistingHousehold;
   const [household, setHousehold] = useState(initialHousehold);
@@ -1471,8 +1475,7 @@ export const useHouseholdRegistrationForm = ({
       ...(isReAdmissionMode
         ? {
             registration_operation: "CREATE_NEW_HOUSEHOLD_OCCURRENCE",
-            re_admission_source_household_id:
-              initialHouseholdDetails?.household?.id || null,
+            re_admission_source_household_id: retainedSourceArchivedHouseholdId,
           }
         : {}),
       disaster_event_id: selectedDisasterEventId,
@@ -1628,6 +1631,7 @@ export const useHouseholdRegistrationForm = ({
     isEditMode,
     isPrefilledHouseholdMode,
     isReAdmissionMode,
+    sourceArchivedHouseholdId: retainedSourceArchivedHouseholdId,
     isExistingHousehold,
     isFamilyHeadProtected,
     latestPrivacyConsent,

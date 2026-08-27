@@ -374,6 +374,327 @@ const getSyncTransactionsByUser = async ({ userId, syncStatus = null, limit = 50
   return result.rows;
 };
 
+// Sync transactions do not carry a Barangay column. Keep municipality-wide
+// reads truthful by deriving context from the related operational record (or
+// the validated payload for create attempts) at query time. This deliberately
+// remains a read-only projection; the sync schema and write paths are unchanged.
+const SYNC_UUID_PATTERN =
+  "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
+
+const SYNC_MSWDO_ENTITY_SCOPE = `
+  st.entity_type IN ('HOUSEHOLD', 'STUB', 'DISTRIBUTION_TRANSACTION')
+`;
+
+const SYNC_BARANGAY_ATTRIBUTION_CTE = `
+  WITH sync_transaction_context AS (
+    SELECT
+      st.*,
+      CASE
+        WHEN COALESCE(
+          st.payload_json #>> '{payload,barangay_id}',
+          st.payload_json ->> 'barangay_id'
+        ) ~* '${SYNC_UUID_PATTERN}'
+        THEN COALESCE(
+          st.payload_json #>> '{payload,barangay_id}',
+          st.payload_json ->> 'barangay_id'
+        )::uuid
+        ELSE NULL
+      END AS payload_barangay_id,
+      CASE
+        WHEN COALESCE(
+          st.payload_json #>> '{payload,disaster_event_id}',
+          st.payload_json ->> 'disaster_event_id'
+        ) ~* '${SYNC_UUID_PATTERN}'
+        THEN COALESCE(
+          st.payload_json #>> '{payload,disaster_event_id}',
+          st.payload_json ->> 'disaster_event_id'
+        )::uuid
+        ELSE NULL
+      END AS payload_disaster_event_id,
+      CASE
+        WHEN COALESCE(
+          st.payload_json #>> '{payload,household_id}',
+          st.payload_json ->> 'household_id'
+        ) ~* '${SYNC_UUID_PATTERN}'
+        THEN COALESCE(
+          st.payload_json #>> '{payload,household_id}',
+          st.payload_json ->> 'household_id'
+        )::uuid
+        ELSE NULL
+      END AS payload_household_id,
+      CASE
+        WHEN COALESCE(
+          st.payload_json #>> '{payload,stub_id}',
+          st.payload_json ->> 'stub_id'
+        ) ~* '${SYNC_UUID_PATTERN}'
+        THEN COALESCE(
+          st.payload_json #>> '{payload,stub_id}',
+          st.payload_json ->> 'stub_id'
+        )::uuid
+        ELSE NULL
+      END AS payload_stub_id
+    FROM sync_transactions st
+  ),
+  sync_barangay_attribution AS (
+    SELECT
+      st.id AS sync_transaction_id,
+      COALESCE(
+        h_household.disaster_event_id,
+        h_evacuee.disaster_event_id,
+        h_evacuation_log.disaster_event_id,
+        s_stub.disaster_event_id,
+        dt_distribution.disaster_event_id,
+        st.payload_disaster_event_id
+      ) AS disaster_event_id,
+      COALESCE(
+        h_household.barangay_id,
+        h_evacuee.barangay_id,
+        h_evacuation_log.barangay_id,
+        h_stub.barangay_id,
+        h_distribution.barangay_id,
+        h_payload_household.barangay_id,
+        h_payload_stub.barangay_id,
+        st.payload_barangay_id,
+        CASE
+          WHEN st.entity_type IN ('HOUSEHOLD', 'STUB', 'DISTRIBUTION_TRANSACTION')
+            AND st.operation_type IN ('CREATE', 'UPDATE', 'DELETE', 'CLAIM', 'QR_SCAN', 'TIME_IN', 'TIME_OUT', 'PROOF_RECEIPT')
+            AND u.default_barangay_id IS NOT NULL
+            AND EXISTS (
+              SELECT 1
+              FROM user_roles ur_barangay
+              INNER JOIN roles r_barangay
+                ON r_barangay.id = ur_barangay.role_id
+              WHERE ur_barangay.user_id = u.id
+                AND r_barangay.code = 'BARANGAY'
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM user_roles ur_other
+              INNER JOIN roles r_other
+                ON r_other.id = ur_other.role_id
+              WHERE ur_other.user_id = u.id
+                AND r_other.code IN ('MSWDO', 'MAYOR')
+            )
+          THEN u.default_barangay_id
+          ELSE NULL
+        END
+      ) AS barangay_id
+    FROM sync_transaction_context st
+    LEFT JOIN users u
+      ON u.id = st.user_id
+    LEFT JOIN households h_household
+      ON st.entity_type = 'HOUSEHOLD'
+      AND h_household.id = st.entity_server_id
+    LEFT JOIN evacuees e_evacuee
+      ON st.entity_type = 'EVACUEE'
+      AND e_evacuee.id = st.entity_server_id
+    LEFT JOIN households h_evacuee
+      ON h_evacuee.id = e_evacuee.household_id
+    LEFT JOIN evacuation_logs el_evacuation_log
+      ON st.entity_type = 'EVACUATION_LOG'
+      AND el_evacuation_log.id = st.entity_server_id
+    LEFT JOIN households h_evacuation_log
+      ON h_evacuation_log.id = el_evacuation_log.household_id
+    LEFT JOIN stubs s_stub
+      ON st.entity_type = 'STUB'
+      AND s_stub.id = st.entity_server_id
+    LEFT JOIN households h_stub
+      ON h_stub.id = s_stub.household_id
+    LEFT JOIN distribution_transactions dt_distribution
+      ON st.entity_type = 'DISTRIBUTION_TRANSACTION'
+      AND dt_distribution.id = st.entity_server_id
+    LEFT JOIN households h_distribution
+      ON h_distribution.id = dt_distribution.household_id
+    LEFT JOIN households h_payload_household
+      ON st.entity_type = 'DISTRIBUTION_TRANSACTION'
+      AND h_payload_household.id = st.payload_household_id
+    LEFT JOIN stubs s_payload_stub
+      ON st.entity_type = 'DISTRIBUTION_TRANSACTION'
+      AND s_payload_stub.id = st.payload_stub_id
+    LEFT JOIN households h_payload_stub
+      ON h_payload_stub.id = s_payload_stub.household_id
+  )
+`;
+
+const appendSyncScopeFilter = (conditions, values, column, value) => {
+  if (value === undefined || value === null || value === "") {
+    return;
+  }
+
+  values.push(value);
+  conditions.push(`${column} = $${values.length}`);
+};
+
+const selectAttributedSyncTransactionFields = `
+  st.*,
+  sba.disaster_event_id AS sync_history_disaster_event_id,
+  sba.barangay_id AS barangay_id,
+  b.name AS barangay_name
+`;
+
+const selectAttributedSyncConflictFields = `
+  sc.*,
+  st.user_id,
+  st.entity_local_id,
+  st.sync_status,
+  st.error_message,
+  st.client_timestamp,
+  st.server_timestamp,
+  st.operation_type,
+  st.payload_json,
+  st.created_at AS sync_transaction_created_at,
+  st.updated_at AS sync_transaction_updated_at,
+  sba.disaster_event_id AS sync_history_disaster_event_id,
+  sba.barangay_id AS barangay_id,
+  b.name AS barangay_name
+`;
+
+const getSyncTransactionsByMunicipality = async ({
+  syncStatus = null,
+  barangayId = null,
+  limit = 50,
+}) => {
+  const values = [];
+  const conditions = [SYNC_MSWDO_ENTITY_SCOPE];
+
+  appendSyncScopeFilter(conditions, values, "st.sync_status", syncStatus);
+  appendSyncScopeFilter(conditions, values, "sba.barangay_id", barangayId);
+
+  values.push(limit);
+
+  const query = `
+    ${SYNC_BARANGAY_ATTRIBUTION_CTE}
+    SELECT ${selectAttributedSyncTransactionFields}
+    FROM sync_transactions st
+    LEFT JOIN sync_barangay_attribution sba
+      ON sba.sync_transaction_id = st.id
+    LEFT JOIN barangays b
+      ON b.id = sba.barangay_id
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY st.created_at DESC
+    LIMIT $${values.length}
+  `;
+
+  const result = await pool.query(query, values);
+  return result.rows;
+};
+
+const getSyncConflictsByMunicipality = async ({
+  status = null,
+  barangayId = null,
+  limit = 50,
+}) => {
+  const values = [];
+  const conditions = [SYNC_MSWDO_ENTITY_SCOPE];
+
+  appendSyncScopeFilter(conditions, values, "sc.status", status);
+  appendSyncScopeFilter(conditions, values, "sba.barangay_id", barangayId);
+
+  values.push(limit);
+
+  const query = `
+    ${SYNC_BARANGAY_ATTRIBUTION_CTE}
+    SELECT ${selectAttributedSyncConflictFields}
+    FROM sync_conflicts sc
+    INNER JOIN sync_transactions st
+      ON st.id = sc.sync_transaction_id
+    LEFT JOIN sync_barangay_attribution sba
+      ON sba.sync_transaction_id = st.id
+    LEFT JOIN barangays b
+      ON b.id = sba.barangay_id
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY sc.created_at DESC
+    LIMIT $${values.length}
+  `;
+
+  const result = await pool.query(query, values);
+  return result.rows;
+};
+
+const getSyncConflictByIdForMunicipality = async (
+  { id, barangayId = null },
+  dbClient = pool,
+) => {
+  const values = [id];
+  const conditions = [
+    "sc.id = $1",
+    SYNC_MSWDO_ENTITY_SCOPE,
+  ];
+
+  appendSyncScopeFilter(conditions, values, "sba.barangay_id", barangayId);
+
+  const query = `
+    ${SYNC_BARANGAY_ATTRIBUTION_CTE}
+    SELECT ${selectAttributedSyncConflictFields}
+    FROM sync_conflicts sc
+    INNER JOIN sync_transactions st
+      ON st.id = sc.sync_transaction_id
+    LEFT JOIN sync_barangay_attribution sba
+      ON sba.sync_transaction_id = st.id
+    LEFT JOIN barangays b
+      ON b.id = sba.barangay_id
+    WHERE ${conditions.join(" AND ")}
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0] || null;
+};
+
+const countOpenSyncConflictsByMunicipality = async (
+  { barangayId = null } = {},
+  dbClient = pool,
+) => {
+  const values = [];
+  const conditions = [
+    SYNC_MSWDO_ENTITY_SCOPE,
+    "sc.status = 'OPEN'",
+  ];
+
+  appendSyncScopeFilter(conditions, values, "sba.barangay_id", barangayId);
+
+  const query = `
+    ${SYNC_BARANGAY_ATTRIBUTION_CTE}
+    SELECT COUNT(*)::int AS count
+    FROM sync_conflicts sc
+    INNER JOIN sync_transactions st
+      ON st.id = sc.sync_transaction_id
+    LEFT JOIN sync_barangay_attribution sba
+      ON sba.sync_transaction_id = st.id
+    WHERE ${conditions.join(" AND ")}
+  `;
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0]?.count || 0;
+};
+
+const getLastSuccessfulSyncAtForMunicipality = async (
+  { barangayId = null } = {},
+  dbClient = pool,
+) => {
+  const values = [];
+  const conditions = [
+    SYNC_MSWDO_ENTITY_SCOPE,
+    "st.sync_status = 'SYNCED'",
+  ];
+
+  appendSyncScopeFilter(conditions, values, "sba.barangay_id", barangayId);
+
+  const query = `
+    ${SYNC_BARANGAY_ATTRIBUTION_CTE}
+    SELECT COALESCE(st.server_timestamp, st.updated_at, st.created_at) AS last_successful_sync_at
+    FROM sync_transactions st
+    LEFT JOIN sync_barangay_attribution sba
+      ON sba.sync_transaction_id = st.id
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY COALESCE(st.server_timestamp, st.updated_at, st.created_at) DESC
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0]?.last_successful_sync_at || null;
+};
+
 const getDisasterEventTitlesByIds = async ({
   eventIds = [],
   roleCode = null,
@@ -770,14 +1091,19 @@ module.exports = {
   recordConflictAndUpdateSyncTransaction,
   recordSyncFailureAndNotificationIntent,
   getSyncTransactionsByUser,
+  getSyncTransactionsByMunicipality,
   getDisasterEventTitlesByIds,
   getSyncConflictsByUser,
+  getSyncConflictsByMunicipality,
   getReviewableManualInventoryConflicts,
   getSyncConflictByIdForUser,
+  getSyncConflictByIdForMunicipality,
   lockSyncConflictById,
   markSyncConflictResolved,
   countOpenSyncConflictsByUser,
+  countOpenSyncConflictsByMunicipality,
   countOpenReviewableManualInventoryConflicts,
   getLastSuccessfulSyncAtByUser,
+  getLastSuccessfulSyncAtForMunicipality,
   withSyncProcessingTransaction,
 };

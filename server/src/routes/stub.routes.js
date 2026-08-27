@@ -25,6 +25,8 @@ const VERIFICATION_ERROR_CODES = new Set([
   "STUB_CANCELLED",
   "STUB_VOID",
   "STUB_UNAVAILABLE",
+  "WRONG_EVENT",
+  "STUB_EVENT_UNAVAILABLE",
 ]);
 
 const logStubAnomalySource = async ({

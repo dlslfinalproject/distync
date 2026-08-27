@@ -49,6 +49,11 @@ const subtractiveInventoryTransactionTypes = new Set([
 ]);
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MSWDO_MUNICIPAL_SYNC_ENTITY_TYPES = new Set([
+  "HOUSEHOLD",
+  "STUB",
+  "DISTRIBUTION_TRANSACTION",
+]);
 
 const createConflictPersistenceError = (message) => {
   const error = new Error(message);
@@ -132,6 +137,18 @@ const getRequesterForSync = (auth) => ({
   roleCode: auth.roleCode,
   defaultBarangayId: auth.defaultBarangayId || null,
 });
+
+const canUseMswdoMunicipalitySyncRead = (auth) =>
+  auth?.roleCode === ROLE_CODES.MSWDO &&
+  typeof syncRepository.getSyncTransactionsByMunicipality === "function" &&
+  typeof syncRepository.getSyncConflictsByMunicipality === "function";
+
+const isRestrictedMswdoConflict = (conflict, auth) =>
+  auth?.roleCode === ROLE_CODES.MSWDO &&
+  conflict?.user_id &&
+  conflict.user_id !== auth.userId &&
+  conflict.resolution_strategy === RESOLUTION_STRATEGY.MANUAL_REVIEW &&
+  conflict.conflict_type === INVENTORY_STOCK_STATE_DRIFT;
 
 const ACTION_HANDLERS = {
   HOUSEHOLD_REGISTER: {
@@ -258,6 +275,7 @@ const ACTION_HANDLERS = {
           auth.roleCode === ROLE_CODES.MSWDO ? payload?.barangay_id || null : null,
         verified_by: auth.userId,
         claimed_at: clientTimestamp,
+        disaster_event_id: payload?.disaster_event_id || null,
         override_barangay_id: null,
         dbClient,
       }),
@@ -1323,7 +1341,13 @@ const processSyncEntries = async ({ entries, auth }) => {
   return results;
 };
 
-const getSyncHistory = async ({ auth, syncStatus, conflictStatus, limit }) => {
+const getSyncHistory = async ({
+  auth,
+  syncStatus,
+  conflictStatus,
+  barangayId = null,
+  limit,
+}) => {
   const reviewablePromise =
     auth.roleCode === ROLE_CODES.MAYOR &&
     isReviewableConflictStatusFilter(conflictStatus)
@@ -1332,17 +1356,31 @@ const getSyncHistory = async ({ auth, syncStatus, conflictStatus, limit }) => {
         })
       : Promise.resolve([]);
 
+  const useMswdoMunicipalityScope = canUseMswdoMunicipalitySyncRead(auth);
+
   const [rawTransactions, ownedConflicts, reviewableConflicts] = await Promise.all([
-    syncRepository.getSyncTransactionsByUser({
-      userId: auth.userId,
-      syncStatus,
-      limit,
-    }),
-    syncRepository.getSyncConflictsByUser({
-      userId: auth.userId,
-      status: conflictStatus,
-      limit,
-    }),
+    useMswdoMunicipalityScope
+      ? syncRepository.getSyncTransactionsByMunicipality({
+          syncStatus,
+          barangayId,
+          limit,
+        })
+      : syncRepository.getSyncTransactionsByUser({
+          userId: auth.userId,
+          syncStatus,
+          limit,
+        }),
+    useMswdoMunicipalityScope
+      ? syncRepository.getSyncConflictsByMunicipality({
+          status: conflictStatus,
+          barangayId,
+          limit,
+        })
+      : syncRepository.getSyncConflictsByUser({
+          userId: auth.userId,
+          status: conflictStatus,
+          limit,
+        }),
     reviewablePromise,
   ]);
   const transactions = await enrichSyncTransactionsWithDisasterEventTitles({
@@ -1365,6 +1403,24 @@ const getSyncHistory = async ({ auth, syncStatus, conflictStatus, limit }) => {
 };
 
 const getSyncStatusSummary = async ({ auth }) => {
+  const useMswdoMunicipalityScope =
+    auth.roleCode === ROLE_CODES.MSWDO &&
+    typeof syncRepository.countOpenSyncConflictsByMunicipality === "function" &&
+    typeof syncRepository.getLastSuccessfulSyncAtForMunicipality === "function";
+
+  if (useMswdoMunicipalityScope) {
+    const [conflictCount, lastSuccessfulSyncAt] = await Promise.all([
+      syncRepository.countOpenSyncConflictsByMunicipality({}),
+      syncRepository.getLastSuccessfulSyncAtForMunicipality({}),
+    ]);
+
+    return {
+      conflictCount,
+      lastSuccessfulSyncAt,
+      backendReachable: true,
+    };
+  }
+
   const reviewableCountPromise =
     auth.roleCode === ROLE_CODES.MAYOR
       ? syncRepository.countOpenReviewableManualInventoryConflicts({
@@ -1391,12 +1447,28 @@ const getSyncStatusSummary = async ({ auth }) => {
 };
 
 const getSyncConflictDetail = async ({ auth, conflictId }) => {
-  const conflict = await syncRepository.getSyncConflictById({
-    id: conflictId,
-  });
+  const useMswdoMunicipalityScope =
+    auth.roleCode === ROLE_CODES.MSWDO &&
+    typeof syncRepository.getSyncConflictByIdForMunicipality === "function";
+  const conflict = useMswdoMunicipalityScope
+    ? await syncRepository.getSyncConflictByIdForMunicipality({
+        id: conflictId,
+      })
+    : await syncRepository.getSyncConflictById({
+        id: conflictId,
+      });
   const capability = getSyncConflictReviewCapability(conflict, auth);
+  const isMswdoMunicipalityConflict =
+    useMswdoMunicipalityScope &&
+    MSWDO_MUNICIPAL_SYNC_ENTITY_TYPES.has(conflict?.entity_type) &&
+    !isRestrictedMswdoConflict(conflict, auth);
 
-  if (!conflict || (!capability.isOwnedByUser && !capability.canReview)) {
+  if (
+    !conflict ||
+    (!capability.isOwnedByUser &&
+      !capability.canReview &&
+      !isMswdoMunicipalityConflict)
+  ) {
     const error = new Error("Sync conflict not found");
     error.statusCode = 404;
     throw error;

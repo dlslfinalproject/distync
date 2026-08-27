@@ -123,3 +123,41 @@ test("validateGetSyncHistory rejects unsupported filter statuses", () => {
     assert.match(res.payload.message, /must be one of/i);
   }
 });
+
+test("validateGetSyncHistory accepts a valid MSWDO Barangay filter", () => {
+  const barangayId = "11111111-1111-4111-8111-111111111111";
+  const req = {
+    query: {
+      barangay_id: barangayId,
+      limit: "25",
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateGetSyncHistory(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(req.validatedQuery.barangay_id, barangayId);
+  assert.equal(req.validatedQuery.limit, 25);
+});
+
+test("validateGetSyncHistory rejects a malformed Barangay filter", () => {
+  const req = {
+    query: {
+      barangay_id: "not-a-uuid",
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateGetSyncHistory(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.payload.message, /barangay_id must be a valid UUID/i);
+});

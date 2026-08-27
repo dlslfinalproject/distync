@@ -149,7 +149,7 @@ const validateProcessSyncEntries = (req, res, next) => {
 
 const validateGetSyncHistory = (req, res, next) => {
   try {
-    const { sync_status, conflict_status, limit } = req.query || {};
+    const { sync_status, conflict_status, barangay_id, limit } = req.query || {};
     const parsedLimit =
       limit === undefined ? 50 : Number.parseInt(String(limit), 10);
 
@@ -186,9 +186,21 @@ const validateGetSyncHistory = (req, res, next) => {
       });
     }
 
+    const normalizedBarangayId =
+      typeof barangay_id === "string" && barangay_id.trim()
+        ? barangay_id.trim()
+        : null;
+
+    if (normalizedBarangayId && !isValidUuid(normalizedBarangayId)) {
+      return res.status(400).json({
+        message: "barangay_id must be a valid UUID",
+      });
+    }
+
     req.validatedQuery = {
       sync_status: normalizedSyncStatus,
       conflict_status: normalizedConflictStatus,
+      barangay_id: normalizedBarangayId,
       limit: parsedLimit,
     };
 

@@ -39,6 +39,12 @@ import {
   createWrongEventQrScanError,
 } from "../../features/stubs/stubQrScanErrors";
 import {
+  compareOfflineEventIdentity,
+  compareOfflineIdentity,
+  OFFLINE_QR_IDENTITY_RESULTS,
+  isRecognizedStubQrValue,
+} from "../../features/stubs/offlineQrValidation";
+import {
   getCachedStubDetailsByQrValue,
   upsertOfflineStubSnapshots,
 } from "../../features/stubs/stubCache";
@@ -210,6 +216,32 @@ const buildQrScanErrorDetails = (verification, stubDetails) => {
   };
 };
 
+const OFFLINE_VERIFICATION_MESSAGE =
+  "The information required to verify this QR is not available on this device. Reconnect to the internet and try again.";
+
+const createOfflineVerificationUnavailableError = () =>
+  createQrScanError({
+    code: QR_SCAN_ERROR_CODES.OFFLINE_VERIFICATION_UNAVAILABLE,
+    message: OFFLINE_VERIFICATION_MESSAGE,
+  });
+
+const getStubEventId = (stubDetails) =>
+  stubDetails?.disaster_event_id || stubDetails?.disaster_event?.id || "";
+
+const getStubBarangayId = (stubDetails) =>
+  stubDetails?.barangay_id || stubDetails?.barangay?.id || "";
+
+const isOfflineQueuedClaimResult = (result) =>
+  result?.data?.status === "PENDING_SYNC";
+
+const setOfflineClaimSavedToast = (setToast) => {
+  setToast({
+    type: "success",
+    title: "Distribution saved offline",
+    message: "This transaction will synchronize when connectivity is restored.",
+  });
+};
+
 const StubDistributionPage = () => {
   const { authenticatedUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
@@ -255,6 +287,7 @@ const StubDistributionPage = () => {
     value: "",
     until: 0,
   });
+  const fallbackBarangayId = authenticatedUser?.default_barangay_id || "";
 
   const {
     accessMode,
@@ -280,6 +313,7 @@ const StubDistributionPage = () => {
     setOverrideBarangayId,
   } = useBarangayDashboard({
     userId: authenticatedUser?.id || "",
+    fallbackBarangayId,
   });
 
   const currentFilters = filtersByScope[eventScope] || {
@@ -298,10 +332,10 @@ const StubDistributionPage = () => {
     reloadDashboard,
   } = useStubDashboard({
     userId: authenticatedUser?.id || "",
-    disasterEventId: selectedEvent?.id || "",
+    disasterEventId: selectedDisasterEventId || selectedEvent?.id || "",
     overrideBarangayId,
     allowFallback,
-    assignedBarangayId: assignedBarangay?.id || "",
+    assignedBarangayId: assignedBarangay?.id || fallbackBarangayId || "",
     sectorOptions,
     page: currentPage,
     pageSize,
@@ -686,6 +720,16 @@ const StubDistributionPage = () => {
         setSelectedStubIds([]);
         setIsBulkClaimConfirmOpen(false);
         setPendingClaimStubDetails(null);
+
+        if (
+          claimResults.some(
+            (result) =>
+              result.status === "fulfilled" &&
+              isOfflineQueuedClaimResult(result.value),
+          )
+        ) {
+          setOfflineClaimSavedToast(setScanToast);
+        }
       } catch (error) {
         setIsBulkClaimConfirmOpen(false);
         setPendingClaimStubDetails(null);
@@ -706,7 +750,9 @@ const StubDistributionPage = () => {
       return;
     }
 
-    const pendingClaimRow = stubRows.find((row) => row.id === pendingClaimStubId);
+    const pendingClaimRow =
+      stubRows.find((row) => row.id === pendingClaimStubId) ||
+      pendingClaimStubDetails;
 
     if (!isSelectableClaimStubRow(pendingClaimRow)) {
       setClaimErrorMessage(
@@ -722,7 +768,7 @@ const StubDistributionPage = () => {
     setClaimingStubId(pendingClaimStubId);
 
     try {
-      await claimStub({
+      const claimResult = await claimStub({
         stubId: pendingClaimStubId,
         userId: authenticatedUser?.id || "",
         overrideBarangayId: allowFallback ? overrideBarangayId : "",
@@ -741,6 +787,10 @@ const StubDistributionPage = () => {
       reloadDashboard();
       setPendingClaimStubId("");
       setPendingClaimStubDetails(null);
+
+      if (isOfflineQueuedClaimResult(claimResult)) {
+        setOfflineClaimSavedToast(setScanToast);
+      }
     } catch (error) {
       setPendingClaimStubId("");
       setPendingClaimStubDetails(null);
@@ -760,7 +810,8 @@ const StubDistributionPage = () => {
     window.open(printUrl, "_blank", "noopener,noreferrer");
   };
 
-  const selectedBarangayForPrintId = assignedBarangay?.id || overrideBarangayId || "";
+  const selectedBarangayForPrintId =
+    assignedBarangay?.id || overrideBarangayId || fallbackBarangayId || "";
 
   const openQrScanError = (error, scannedQrValue) => {
     setQrScanErrorState({
@@ -808,13 +859,23 @@ const StubDistributionPage = () => {
     setIsResolvingScannedQr(true);
     setClaimErrorMessage("");
     setScannerHelperMessage("");
+    const isOffline =
+      typeof navigator !== "undefined" && navigator.onLine === false;
 
     try {
       let verification = null;
       let stubDetails = null;
       let resolvedStubId = "";
 
-      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      if (isOffline && !isRecognizedStubQrValue(qrCodeValue)) {
+        throw createQrScanError({
+          code: QR_SCAN_ERROR_CODES.INVALID_QR_STUB,
+          message:
+            "The scanned QR code is not recognized as a valid DISTYNC relief stub.",
+        });
+      }
+
+      if (isOffline) {
         stubDetails = await getCachedStubDetailsByQrValue(qrCodeValue, {
           currentBarangayId: selectedBarangayForPrintId,
         });
@@ -823,7 +884,7 @@ const StubDistributionPage = () => {
           throw createQrScanError({
             code: QR_SCAN_ERROR_CODES.STUB_NOT_AVAILABLE_OFFLINE,
             message:
-              "This stub is not saved on this device for offline use. Reconnect to verify it.",
+              OFFLINE_VERIFICATION_MESSAGE,
           });
         }
 
@@ -844,18 +905,93 @@ const StubDistributionPage = () => {
         });
         await upsertOfflineStubSnapshots([stubDetails]);
       }
-      const stubEventId = stubDetails?.disaster_event?.id || "";
-      const stubBarangayId = stubDetails?.barangay?.id || "";
+      if (!resolvedStubId) {
+        throw isOffline
+          ? createOfflineVerificationUnavailableError()
+          : createQrScanError({
+              code: QR_SCAN_ERROR_CODES.INVALID_QR_STUB,
+              message: "QR lookup did not return a valid stub record.",
+            });
+      }
 
-      if (stubEventId !== selectedEvent?.id) {
+      const stubEventId = getStubEventId(stubDetails);
+      const selectedEventId = selectedDisasterEventId || selectedEvent?.id || "";
+      const eventIdentityResult = compareOfflineEventIdentity({
+        selectedEventId,
+        stubEventId,
+      });
+
+      if (eventIdentityResult === OFFLINE_QR_IDENTITY_RESULTS.UNAVAILABLE) {
+        throw isOffline
+          ? createOfflineVerificationUnavailableError()
+          : createQrScanError({
+              code: QR_SCAN_ERROR_CODES.STUB_UNAVAILABLE,
+              message: "The stub event could not be verified.",
+            });
+      }
+
+      if (eventIdentityResult === OFFLINE_QR_IDENTITY_RESULTS.MISMATCH) {
         throw createWrongEventQrScanError({
           stubNumber: getStubReferenceNumber(stubDetails, verification) || undefined,
         });
       }
 
-      if (stubBarangayId !== selectedBarangayForPrintId) {
+      const barangayIdentityResult = compareOfflineIdentity({
+        expectedId: selectedBarangayForPrintId,
+        actualId: getStubBarangayId(stubDetails),
+      });
+
+      if (barangayIdentityResult === OFFLINE_QR_IDENTITY_RESULTS.UNAVAILABLE) {
+        throw isOffline
+          ? createOfflineVerificationUnavailableError()
+          : createWrongBarangayQrScanError({
+              stubNumber: getStubReferenceNumber(stubDetails, verification) || undefined,
+            });
+      }
+
+      if (barangayIdentityResult === OFFLINE_QR_IDENTITY_RESULTS.MISMATCH) {
         throw createWrongBarangayQrScanError({
           stubNumber: getStubReferenceNumber(stubDetails, verification) || undefined,
+        });
+      }
+
+      const localClaimStatus = String(stubDetails?.sync_status || "").toUpperCase();
+
+      if (localClaimStatus === "PENDING" || stubDetails?.is_claim_pending) {
+        throw createQrScanError({
+          code: QR_SCAN_ERROR_CODES.STUB_CLAIM_PENDING,
+          message:
+            "This relief stub already has a pending offline claim on this device. Wait for synchronization before trying again.",
+          details: buildQrScanErrorDetails(verification, stubDetails),
+        });
+      }
+
+      if (localClaimStatus === "CONFLICT") {
+        throw createQrScanError({
+          code: QR_SCAN_ERROR_CODES.STUB_CLAIM_CONFLICT,
+          message:
+            "This relief stub has a synchronization conflict and cannot be claimed again until it is reviewed.",
+          details: buildQrScanErrorDetails(verification, stubDetails),
+        });
+      }
+
+      if (stubDetails?.household?.is_active === false) {
+        throw createQrScanError({
+          code: QR_SCAN_ERROR_CODES.HOUSEHOLD_ARCHIVED,
+          message:
+            "This household is archived and cannot receive a new relief distribution.",
+          details: buildQrScanErrorDetails(verification, stubDetails),
+        });
+      }
+
+      const qrStatus = String(stubDetails?.qr_status || "").toUpperCase();
+
+      if (qrStatus && qrStatus !== "ACTIVE") {
+        throw createQrScanError({
+          code: QR_SCAN_ERROR_CODES.QR_INACTIVE,
+          message:
+            "This QR reference is inactive and cannot be used for relief distribution.",
+          details: buildQrScanErrorDetails(verification, stubDetails),
         });
       }
 
@@ -884,11 +1020,21 @@ const StubDistributionPage = () => {
       setIsQrScanModalOpen(false);
       setScanToast({
         type: "success",
-        title: "QR Verified",
-        message: "QR stub verified successfully. Please confirm relief distribution.",
+        title: isOffline ? "QR Verified — Offline" : "QR Verified",
+        message: isOffline
+          ? "This stub matches the current disaster event. Confirm the distribution to save it offline."
+          : "QR stub verified successfully. Please confirm relief distribution.",
       });
     } catch (error) {
-      openQrScanError(error, qrCodeValue);
+      const knownQrErrorCode = Object.values(QR_SCAN_ERROR_CODES).includes(
+        String(error?.code || "").trim().toUpperCase(),
+      );
+      openQrScanError(
+        isOffline && !knownQrErrorCode
+          ? createOfflineVerificationUnavailableError()
+          : error,
+        qrCodeValue,
+      );
     } finally {
       setIsResolvingScannedQr(false);
     }

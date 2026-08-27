@@ -285,6 +285,23 @@ const getEntityType = (record = {}) =>
 const getFirstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
 
+export const getSyncRecordBarangayId = (record = {}) => {
+  const payload = getPayloadContainer(record);
+  const value = getFirstValue(
+    record.barangay_id,
+    record.barangayId,
+    record.queueDisplayContext?.barangay_id,
+    record.queueDisplayContext?.barangayId,
+    payload.barangay_id,
+    payload.override_barangay_id,
+    payload.barangay?.id,
+    payload.household?.barangay_id,
+    payload.distribution?.barangay_id,
+  );
+
+  return String(value || "").trim() || null;
+};
+
 const getPersonName = (person = {}) =>
   [
     person.first_name || person.firstName,
@@ -373,6 +390,11 @@ export const getSyncRecordDetails = (record = {}) => {
     payload.distribution?.stub_number,
   );
   const barangay = getFirstValue(
+    record.barangay_name,
+    record.barangayName,
+    record.barangay?.name,
+    record.queueDisplayContext?.barangay_name,
+    record.queueDisplayContext?.barangayName,
     payload.barangay_name,
     payload.barangay,
     payload.barangay?.name,
@@ -561,9 +583,13 @@ export const getSyncHistoryNotes = (record = {}) => {
   return notes.length > 0 ? notes : [SYNC_MISSING_VALUE];
 };
 
-export const buildSyncSearchText = (record = {}) => {
+export const buildSyncSearchText = (
+  record = {},
+  { includeBarangay = false } = {},
+) => {
   const details = getSyncRecordDetails(record);
   const payload = getPayloadContainer(record);
+  const { barangay } = details;
 
   return [
     details.recordType,
@@ -574,6 +600,7 @@ export const buildSyncSearchText = (record = {}) => {
     details.disasterEvent,
     details.status,
     details.notes,
+    includeBarangay ? barangay : "",
     payload.sectors_text,
     payload.sectors,
     payload.relief_pack,

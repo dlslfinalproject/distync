@@ -251,13 +251,13 @@ const validateAnomalyReviewPayload = (req, res, next) => {
 
     if (!normalizedReason) {
       return res.status(400).json({
-        message: "resolution_reason is required",
+        message: "Note is required.",
       });
     }
 
     if (normalizedReason.length > 2000) {
       return res.status(400).json({
-        message: "resolution_reason must be 2000 characters or fewer",
+        message: "Note must be 2000 characters or fewer.",
       });
     }
 
