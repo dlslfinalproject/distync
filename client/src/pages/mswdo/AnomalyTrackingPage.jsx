@@ -15,13 +15,14 @@ import {
 } from "../../features/disaster-events/disasterEventService";
 import {
   formatAnomalyType,
+  formatAffectedRecord,
   formatReviewOutcome,
   getAnomalyActionSummary,
   getAnomalyExplanation,
   getAnomalyOwner,
   getAnomalyTypesForScope,
   getAnomalyPresentation,
-  getAnomalyReviewStateLabel,
+  getAnomalyReviewStatusLabel,
   mswdoReviewOutcomeOptions,
   reviewOutcomeOptions,
 } from "../../features/mswdo-reports/anomalyPresentation";
@@ -151,9 +152,9 @@ const filterPopoverStyles = {
 
 const statusFilters = [
   { value: "all", label: "All review statuses" },
-  { value: "needs_review", label: "Pending Review" },
+  { value: "needs_review", label: "Needs Review" },
   { value: "reviewed", label: "Resolved" },
-  { value: "referred", label: "Resolved" },
+  { value: "referred", label: "Referred" },
   { value: "system_handled", label: "Automatically Handled" },
   { value: "sync_center", label: "Review in Sync Center" },
 ];
@@ -161,7 +162,7 @@ const statusFilters = [
 const mswdoStatusFilters = [
   { value: "all", label: "All review statuses" },
   { value: "needs_review", label: "Open" },
-  { value: "reviewed", label: "Reviewed / Result Recorded" },
+  { value: "reviewed", label: "Resolved" },
   { value: "referred", label: "Referred" },
   { value: "system_handled", label: "Dismissed / Automatically Handled" },
   { value: "sync_center", label: "Sync Center Review" },
@@ -196,8 +197,8 @@ const modalStyles = {
   },
   fieldGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(min(210px, 100%), 1fr))",
-    gap: "14px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))",
+    gap: "16px",
   },
   fieldStack: {
     display: "grid",
@@ -325,40 +326,6 @@ const formatEventLabel = (row) =>
       row?.disaster_event?.title ||
       row?.disasterEvent?.title,
   );
-
-const formatAffectedRecord = (row, isBarangayScope = true) => {
-  const familyHeadName = String(row?.family_head_name || "").trim();
-
-  if (isBarangayScope) {
-    return familyHeadName || "Not identified";
-  }
-
-  const affectedRecordLabels = {
-    SUSPICIOUS_DISTRIBUTION_ACTIVITY: familyHeadName
-      ? `${familyHeadName} household distribution`
-      : "Distribution record",
-    SYNC_FAILED: familyHeadName
-      ? `${familyHeadName} synchronization record`
-      : "Synchronization record",
-    SYNC_CONFLICT: familyHeadName
-      ? `${familyHeadName} synchronization record`
-      : "Synchronization record",
-    DUPLICATE_CLAIM_ATTEMPT: familyHeadName
-      ? `${familyHeadName} relief claim`
-      : "Relief claim record",
-    DUPLICATE_HOUSEHOLD_REGISTRATION: familyHeadName
-      ? `${familyHeadName} household`
-      : "Household record",
-    INVENTORY_DISTRIBUTION_MISMATCH: familyHeadName
-      ? `${familyHeadName} distribution record`
-      : "Inventory / distribution record",
-    FAILED_STUB_OR_QR_VERIFICATION: familyHeadName
-      ? `${familyHeadName} stub or QR record`
-      : "Stub or QR record",
-  };
-
-  return affectedRecordLabels[row?.anomaly_type] || familyHeadName || "Operational record";
-};
 
 const formatBarangayLabel = (row) =>
   formatNullableValue(row?.barangay_name, "Not attributed");
@@ -494,23 +461,7 @@ const getStatusCategory = (row) => {
 const isManualReviewableAnomaly = (row) => row?.manual_review_allowed === true;
 
 const getStatusLabel = (row, scope = "barangay") => {
-  if (scope === "barangay") {
-    if (isManualReviewableAnomaly(row)) {
-      return row?.review_status ? "Resolved" : "Pending Review";
-    }
-
-    if (
-      row?.review_state === "sync_center" ||
-      row?.anomaly_type === "SYNC_CONFLICT" ||
-      row?.anomaly_type === "SYNC_FAILED"
-    ) {
-      return "Sync Center";
-    }
-
-    return "Automatically Handled";
-  }
-
-  const reviewLabel = getAnomalyReviewStateLabel(row, scope);
+  const reviewLabel = getAnomalyReviewStatusLabel(row, scope);
 
   if (reviewLabel) {
     return reviewLabel;
@@ -564,8 +515,13 @@ const StatusPill = ({ row, scope = "barangay" }) => {
   );
 };
 
-const DetailField = ({ label, children }) => (
-  <div style={modalStyles.field}>
+const DetailField = ({ label, children, fullWidth = false }) => (
+  <div
+    style={{
+      ...modalStyles.field,
+      ...(fullWidth ? { gridColumn: "1 / -1" } : {}),
+    }}
+  >
     <div style={modalStyles.fieldLabel}>{label}</div>
     <div style={modalStyles.value}>{children}</div>
   </div>
@@ -899,9 +855,6 @@ const AnomalyDetailModal = ({
                 <DetailField label="Barangay">
                   {formatBarangayLabel(displayedAnomaly)}
                 </DetailField>
-                <DetailField label="Review Status">
-                  <StatusPill row={displayedAnomaly} scope={presentationScope} />
-                </DetailField>
               </>
             ) : null}
           </div>
@@ -956,7 +909,7 @@ const AnomalyDetailModal = ({
               <DetailField label="Reviewed At">
                 {formatDateTime(displayedAnomaly.reviewed_at)}
               </DetailField>
-              <DetailField label={isBarangayScope ? "Review Note" : "Review Notes"}>
+              <DetailField label="Review Note" fullWidth>
                 {displayedAnomaly.resolution_reason || "Not available"}
               </DetailField>
             </div>
@@ -1663,7 +1616,7 @@ const AnomalyTrackingPage = ({
           <StatusCard label="Total Detected" value={totalItems} />
           <StatusCard label="Open on Page" value={summary.open} />
           <StatusCard label="Sync Center Items on Page" value={summary.failed} />
-          <StatusCard label="Reviewed / Dismissed on Page" value={summary.resolved} />
+          <StatusCard label="Resolved on Page" value={summary.resolved} />
         </div>
       ) : null}
 

@@ -98,7 +98,7 @@ test("A11Y-19 through A11Y-24 anomaly details modal has responsive sizing and lo
     fs.readFile(modalShellSourcePath, "utf8"),
   ]);
 
-  assert.match(pageSource, /gridTemplateColumns: "repeat\(auto-fit, minmax\(min\(220px, 100%\), 1fr\)\)"/);
+  assert.match(pageSource, /gridTemplateColumns: "repeat\(auto-fit, minmax\(min\(300px, 100%\), 1fr\)\)"/);
   assert.match(pageSource, /wordBreak: "break-word"/);
   assert.match(pageSource, /maxHeight: "calc\(100vh - 32px\)"/);
   assert.match(pageSource, /overflowY: "hidden"/);

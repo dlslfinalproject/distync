@@ -130,7 +130,6 @@ const MSWDO_ANOMALY_PRESENTATION_OVERRIDES = {
     statusHint: "Dismissed / Automatically Handled",
   },
   DUPLICATE_HOUSEHOLD_REGISTRATION: {
-    label: "Duplicate Household Record",
     explanation:
       "Two household registrations may represent the same family in the same operational context.",
     nextStep:
@@ -206,11 +205,22 @@ const mswdoReviewOutcomeLabels = Object.fromEntries(
 
 export const formatReviewOutcome = (value, scope = "barangay") =>
   (scope === "mswdo" ? mswdoReviewOutcomeLabels : reviewOutcomeLabels)[value] ||
-  (scope === "mswdo" ? "Open" : "Needs Review");
+  "Not available";
 
 export const getAnomalyReviewStateLabel = (row, scope = "barangay") => {
+  if (row?.review_state === "reviewed") {
+    return "Resolved";
+  }
+
+  if (row?.review_state === "referred") {
+    return "Referred";
+  }
+
+  // review_status is the persisted reviewer outcome code. Its presence
+  // indicates that the manual review lifecycle is complete, even when an
+  // older response does not include the derived review_state field.
   if (row?.review_status) {
-    return formatReviewOutcome(row.review_status, scope);
+    return "Resolved";
   }
 
   if (row?.review_state === "system_handled") {
@@ -228,6 +238,9 @@ export const getAnomalyReviewStateLabel = (row, scope = "barangay") => {
     (scope === "mswdo" ? "Open" : "Needs Review")
   );
 };
+
+export const getAnomalyReviewStatusLabel = (row, scope = "barangay") =>
+  getAnomalyReviewStateLabel(row, scope);
 
 const toTitleCase = (value) =>
   String(value || "")
@@ -280,6 +293,38 @@ export const getAnomalyTypesForScope = (scope) =>
 
 export const formatAnomalyType = (value, scope = "barangay") =>
   getAnomalyPresentation(value, scope).label;
+
+export const formatAffectedRecord = (row, isBarangayScope = true) => {
+  const familyHeadName = String(row?.family_head_name || "").trim();
+
+  if (isBarangayScope) {
+    return familyHeadName || "Not identified";
+  }
+
+  const affectedRecordLabels = {
+    SUSPICIOUS_DISTRIBUTION_ACTIVITY: familyHeadName
+      ? `${familyHeadName} household distribution`
+      : "Distribution record",
+    SYNC_FAILED: familyHeadName
+      ? `${familyHeadName} synchronization record`
+      : "Synchronization record",
+    SYNC_CONFLICT: familyHeadName
+      ? `${familyHeadName} synchronization record`
+      : "Synchronization record",
+    DUPLICATE_CLAIM_ATTEMPT: familyHeadName
+      ? `${familyHeadName} relief claim`
+      : "Relief claim record",
+    DUPLICATE_HOUSEHOLD_REGISTRATION: familyHeadName || "Household record",
+    INVENTORY_DISTRIBUTION_MISMATCH: familyHeadName
+      ? `${familyHeadName} distribution record`
+      : "Inventory / distribution record",
+    FAILED_STUB_OR_QR_VERIFICATION: familyHeadName
+      ? `${familyHeadName} stub or QR record`
+      : "Stub or QR record",
+  };
+
+  return affectedRecordLabels[row?.anomaly_type] || familyHeadName || "Operational record";
+};
 
 export const getAnomalyActionSummary = (row, scope = "barangay") =>
   getAnomalyPresentation(row?.anomaly_type, scope).nextStep;
