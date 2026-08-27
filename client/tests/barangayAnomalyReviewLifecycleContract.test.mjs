@@ -14,10 +14,10 @@ test("BRG-ANOM-L01 Barangay status labels describe pending and resolved workflow
 
   assert.match(
     source,
-    /if \(scope === "barangay"\) \{[\s\S]*row\?\.review_status \? "Resolved" : "Pending Review"/,
+    /const getStatusLabel = \(row, scope = "barangay"\) => \{[\s\S]*getAnomalyReviewStatusLabel\(row, scope\)/,
   );
-  assert.match(source, /if \(row\?\.review_status\) \{\s*return "resolved";/);
-  assert.match(source, /\{ value: "needs_review", label: "Pending Review" \}/);
+  assert.match(source, /return getStatusCategory\(row\) === "failed" \? "Sync Retry Needed" : "Needs Review"/);
+  assert.match(source, /\{ value: "needs_review", label: "Needs Review" \}/);
   assert.match(source, /\{ value: "reviewed", label: "Resolved" \}/);
   assert.match(source, />Review Status<\/th>/);
 });
@@ -50,7 +50,7 @@ test("BRG-ANOM-L03 reviewed MSWDO details remain read-only while Barangay retain
     modalSource,
     /const shouldShowReviewForm =\s*canRecordReview && \(!hasSavedReview \|\| \(isBarangayScope && isEditingReview\)\)/,
   );
-  assert.match(modalSource, /<div style=\{labelStyles\}>Review Result<\/div>/);
+  assert.doesNotMatch(modalSource, /<div style=\{labelStyles\}>Review Result<\/div>/);
   assert.match(modalSource, /isBarangayScope && canRecordReview && hasSavedReview/);
   assert.match(modalSource, /Edit Review/);
   assert.doesNotMatch(modalSource, /!isBarangayScope && canRecordReview && hasSavedReview/);
@@ -68,7 +68,7 @@ test("BRG-ANOM-L05 lifecycle table preserves the semantic responsive and paginat
   const source = await readPageSource();
 
   assert.match(source, /overflowX: "auto", width: "100%", minWidth: 0/);
-  assert.match(source, /const barangayAnomalyTableMinWidth = "1240px"/);
+  assert.match(source, /const barangayAnomalyTableMinWidth = "1040px"/);
   assert.match(source, /tableLayout: "auto"/);
   assert.match(source, /\{paginationControls\}/);
 });

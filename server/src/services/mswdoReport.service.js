@@ -7,6 +7,7 @@ const MANUAL_REVIEW_ANOMALY_TYPES = new Set([
   "INVENTORY_DISTRIBUTION_MISMATCH",
   "FAILED_STUB_OR_QR_VERIFICATION",
 ]);
+const REVIEW_NOTE_MAX_LENGTH = 2000;
 
 const createHttpError = (statusCode, message, code = null) => {
   const error = new Error(message);
@@ -21,6 +22,23 @@ const createFinalAnomalyReviewError = () =>
     "This anomaly has already been reviewed. Completed reviews cannot be changed.",
     "ANOMALY_REVIEW_FINAL",
   );
+
+const getValidatedReviewNote = (value) => {
+  const normalizedNote = typeof value === "string" ? value.trim() : "";
+
+  if (!normalizedNote) {
+    throw createHttpError(400, "Note is required.");
+  }
+
+  if (normalizedNote.length > REVIEW_NOTE_MAX_LENGTH) {
+    throw createHttpError(
+      400,
+      `Note must be ${REVIEW_NOTE_MAX_LENGTH} characters or fewer.`,
+    );
+  }
+
+  return normalizedNote;
+};
 
 const getAnomalyTracking = async (filters) => {
   return mswdoReportRepository.getMswdoAnomalyTracking({
@@ -56,6 +74,10 @@ const upsertAnomalyReview = async ({ payload, auth, barangayId = null }) => {
   if (!isBarangayScope && auth?.roleCode !== "MSWDO") {
     throw createHttpError(403, "This role cannot record anomaly review results");
   }
+
+  const normalizedResolutionReason = getValidatedReviewNote(
+    payload?.resolution_reason,
+  );
 
   if (!MANUAL_REVIEW_ANOMALY_TYPES.has(payload.anomaly_type)) {
     throw createHttpError(
@@ -121,7 +143,7 @@ const upsertAnomalyReview = async ({ payload, auth, barangayId = null }) => {
     barangayId: reviewBarangayId,
     disasterEventId: anomaly.disaster_event_id || null,
     reviewStatus: payload.review_status,
-    resolutionReason: payload.resolution_reason,
+    resolutionReason: normalizedResolutionReason,
     reviewedBy: auth.userId,
   };
 

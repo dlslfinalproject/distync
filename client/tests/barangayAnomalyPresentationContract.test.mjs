@@ -26,7 +26,7 @@ test("BRG-ANOM-P01 Barangay table presents the required review context in order"
 test("BRG-ANOM-P02 event rendering uses the stored title and an explicit missing-value fallback", async () => {
   const source = await readPageSource();
   const formatterStart = source.indexOf("const formatEventLabel");
-  const formatterEnd = source.indexOf("const formatAffectedRecord", formatterStart);
+  const formatterEnd = source.indexOf("const formatBarangayLabel", formatterStart);
   const formatter = source.slice(formatterStart, formatterEnd);
 
   assert.match(formatter, /row\?\.disaster_event_title/);
@@ -67,16 +67,20 @@ test("BRG-ANOM-P05 responsive table and modal workflow contracts remain intact",
   const modalSource = source.slice(modalStart, modalEnd);
 
   assert.match(source, /overflowX: "auto", width: "100%", minWidth: 0/);
-  assert.match(source, /const barangayAnomalyTableMinWidth = "1240px"/);
+  assert.match(source, /const barangayAnomalyTableMinWidth = "1040px"/);
   assert.doesNotMatch(source, /tableLayout: "fixed"/);
   assert.match(source, /\{paginationControls\}/);
   assert.match(modalSource, /title=\{isBarangayScope && !hasSavedReview \? "Review Anomaly" : "Anomaly Details"\}/);
   assert.match(modalSource, /<div style=\{labelStyles\}>Anomaly Type<\/div>/);
-  assert.match(modalSource, /<div style=\{labelStyles\}>Context<\/div>/);
+  assert.doesNotMatch(modalSource, /<div style=\{labelStyles\}>Context<\/div>/);
   assert.match(modalSource, /<div style=\{labelStyles\}>Why Flagged<\/div>/);
-  assert.match(modalSource, /<div style=\{labelStyles\}>Recommended Action<\/div>/);
-  assert.match(modalSource, /<div style=\{labelStyles\}>Review Result<\/div>/);
-  assert.doesNotMatch(modalSource, /Edit Review/);
-  assert.match(modalSource, /const shouldShowReviewForm =\s*canRecordReview && \(!hasSavedReview \|\| \(!isBarangayScope && isEditingReview\)\)/);
+  assert.doesNotMatch(modalSource, /<div style=\{labelStyles\}>Recommended Action<\/div>/);
+  assert.doesNotMatch(modalSource, /<div style=\{labelStyles\}>Review Result<\/div>/);
+  assert.doesNotMatch(modalSource, /Responsible Office/);
+  assert.match(modalSource, /<DetailField label="Recommendation">/);
+  assert.match(modalSource, /<DetailField label="Note" fullWidth>/);
+  assert.match(modalSource, /<label htmlFor="anomaly-review-note" style=\{labelStyles\}>\s*Note \*/);
+  assert.match(modalSource, /Edit Review/);
+  assert.match(modalSource, /const shouldShowReviewForm =\s*canRecordReview && \(!hasSavedReview \|\| \(isBarangayScope && isEditingReview\)\)/);
   assert.match(modalSource, /disabled=\{isSaveDisabled\}/);
 });
