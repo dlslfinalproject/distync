@@ -260,14 +260,14 @@ test("BRG-SC-07-M01 TEST L dashboard offline fallback merges cached rows without
   assert.doesNotMatch(source, /offlineStubCache\.clear|bulkDelete|offlineStubCache\.delete/);
 });
 
-test("BRG-RGD-PAG-006 guarded cache warming avoids routine full dashboard refetches", async () => {
+test("BRG-RGD-PAG-006 prepares the complete scoped dataset after the paginated load", async () => {
   const hookSource = await readSource("../src/features/stubs/useStubDashboard.js");
   const cacheSource = await readSource("../src/features/stubs/stubCache.js");
 
-  assert.match(hookSource, /skipOfflineCache: true/);
   assert.match(hookSource, /const offlineStubCacheWarmRequests = new Map\(\)/);
-  assert.match(hookSource, /hasCachedStubSnapshotsForScope\(\{/);
   assert.match(hookSource, /!offlineStubCacheWarmRequests\.has\(warmKey\)/);
+  assert.match(hookSource, /complete scoped dataset/);
+  assert.match(hookSource, /await warmRequest/);
   assert.match(cacheSource, /export const hasCachedStubSnapshotsForScope = async/);
   assert.match(cacheSource, /getCachedStubSnapshotsForScope\(\{/);
 });
