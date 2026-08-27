@@ -15,6 +15,13 @@ const createHttpError = (statusCode, message, code = null) => {
   return error;
 };
 
+const createFinalAnomalyReviewError = () =>
+  createHttpError(
+    409,
+    "This anomaly has already been reviewed. Completed reviews cannot be changed.",
+    "ANOMALY_REVIEW_FINAL",
+  );
+
 const getAnomalyTracking = async (filters) => {
   return mswdoReportRepository.getMswdoAnomalyTracking({
     disasterEventId: filters.disasterEventId || filters.disaster_event_id || null,
@@ -103,7 +110,11 @@ const upsertAnomalyReview = async ({ payload, auth, barangayId = null }) => {
       }
     : null;
 
-  const review = await mswdoReportRepository.upsertAnomalyReview({
+  if (!isBarangayScope && existingReview) {
+    throw createFinalAnomalyReviewError();
+  }
+
+  const reviewPayload = {
     sourceType: payload.source_type,
     sourceId: payload.source_id,
     anomalyType: payload.anomaly_type,
@@ -112,7 +123,21 @@ const upsertAnomalyReview = async ({ payload, auth, barangayId = null }) => {
     reviewStatus: payload.review_status,
     resolutionReason: payload.resolution_reason,
     reviewedBy: auth.userId,
-  });
+  };
+
+  let review;
+
+  try {
+    review = await (isBarangayScope
+      ? mswdoReportRepository.upsertAnomalyReview(reviewPayload)
+      : mswdoReportRepository.createAnomalyReview(reviewPayload));
+  } catch (error) {
+    if (!isBarangayScope && error?.code === "23505") {
+      throw createFinalAnomalyReviewError();
+    }
+
+    throw error;
+  }
 
   await logAuditSafely({
     actor: {

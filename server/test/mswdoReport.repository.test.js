@@ -1091,3 +1091,52 @@ test("Barangay anomaly review upsert updates existing current review identity", 
     harness.restore();
   }
 });
+
+test("MSWDO anomaly review create-once path never updates an existing identity", async () => {
+  let capturedQuery = "";
+  let capturedValues = [];
+  const harness = loadRepositoryWithMockPool(async (query, values) => {
+    capturedQuery = query;
+    capturedValues = values;
+    return {
+      rows: [
+        {
+          id: "review-mswdo-1",
+          review_status: values[5],
+          resolution_reason: values[6],
+        },
+      ],
+    };
+  });
+
+  try {
+    const result = await harness.repository.createAnomalyReview({
+      sourceType: "ERROR_LOG",
+      sourceId: "error-mswdo-1",
+      anomalyType: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+      barangayId: "barangay-a",
+      disasterEventId: "event-1",
+      reviewStatus: "ISSUE_CONFIRMED",
+      resolutionReason: "Confirmed with the affected Barangay.",
+      reviewedBy: "mswdo-user",
+    });
+
+    assert.match(capturedQuery, /INSERT INTO anomaly_reviews/);
+    assert.match(capturedQuery, /RETURNING \*/);
+    assert.doesNotMatch(capturedQuery, /ON CONFLICT/);
+    assert.doesNotMatch(capturedQuery, /DO UPDATE/);
+    assert.deepEqual(capturedValues, [
+      "ERROR_LOG",
+      "error-mswdo-1",
+      "DUPLICATE_HOUSEHOLD_REGISTRATION",
+      "barangay-a",
+      "event-1",
+      "ISSUE_CONFIRMED",
+      "Confirmed with the affected Barangay.",
+      "mswdo-user",
+    ]);
+    assert.equal(result.review_status, "ISSUE_CONFIRMED");
+  } finally {
+    harness.restore();
+  }
+});

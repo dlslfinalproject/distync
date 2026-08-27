@@ -466,6 +466,50 @@ test("MSWDO review route records a consolidated result without using a default B
   );
 });
 
+test("MSWDO review route exposes final-review conflict for a direct second write attempt", async () => {
+  await withStubbedMswdoReportRoute(
+    {
+      roleCode: "MSWDO",
+      serviceImpl: async () => {
+        const error = new Error(
+          "This anomaly has already been reviewed. Completed reviews cannot be changed.",
+        );
+        error.statusCode = 409;
+        error.code = "ANOMALY_REVIEW_FINAL";
+        throw error;
+      },
+    },
+    async (router) => {
+      const server = await listen(router);
+
+      try {
+        const port = server.address().port;
+        const response = await fetch(
+          `http://127.0.0.1:${port}/api/v1/mswdo-reports/anomalies/reviews`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              source_type: "ERROR_LOG",
+              source_id: "error-final",
+              anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+              review_status: "ISSUE_CONFIRMED",
+              resolution_reason: "Attempted direct replacement.",
+            }),
+          },
+        );
+        const payload = await response.json();
+
+        assert.equal(response.status, 409);
+        assert.equal(payload.code, "ANOMALY_REVIEW_FINAL");
+        assert.match(payload.message, /Completed reviews cannot be changed/);
+      } finally {
+        await closeServer(server);
+      }
+    },
+  );
+});
+
 test("Mayor cannot use the MSWDO and Barangay anomaly review endpoint", async () => {
   let serviceCalled = false;
 

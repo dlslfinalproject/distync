@@ -113,6 +113,24 @@ test("MSWDO details support result recording without technical identifiers or sy
   assert.doesNotMatch(source, /Technical Reference|Source ID:|Retry Sync|Force Sync|Manual Sync/);
 });
 
+test("MSWDO reviewed anomalies remain read-only while the shared Barangay edit path stays scoped", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const canEditSavedReview =\s+isBarangayScope && canRecordReview && hasSavedReview/,
+  );
+  assert.match(
+    source,
+    /const shouldShowReviewForm =\s+canRecordReview && \(!hasSavedReview \|\| \(isBarangayScope && isEditingReview\)\)/,
+  );
+  assert.match(source, /\) : canEditSavedReview \? \(/);
+  assert.match(source, /if \(!canEditSavedReview\) \{[\s\S]*return;/);
+  assert.match(source, /Review Result/);
+  assert.match(source, /FiEye/);
+  assert.doesNotMatch(source, /FiEdit|FiEdit2|FiEdit3|MdEdit/);
+});
+
 test("M05 anomaly page resets pagination when result filters change", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
 
@@ -258,7 +276,8 @@ test("Barangay existing review opens read-only before explicit edit", async () =
 
   assert.match(source, /const \[isEditingReview, setIsEditingReview\] = useState\(false\)/);
   assert.match(source, /const hasSavedReview = Boolean\(displayedAnomaly\.review_status\)/);
-  assert.match(source, /const shouldShowReviewForm = canRecordReview && \(!hasSavedReview \|\| isEditingReview\)/);
+  assert.match(source, /const shouldShowReviewForm =\s+canRecordReview && \(!hasSavedReview \|\| \(isBarangayScope && isEditingReview\)\)/);
+  assert.match(source, /const canEditSavedReview =\s+isBarangayScope && canRecordReview && hasSavedReview/);
   assert.match(source, /Review Result/);
   assert.match(source, /Edit Review/);
   assert.match(source, /Save Changes/);

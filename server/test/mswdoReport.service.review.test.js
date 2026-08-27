@@ -114,7 +114,8 @@ test("Barangay anomaly review revalidates derived anomaly before persisting", as
 
 test("MSWDO anomaly review revalidates in consolidated scope and persists the anomaly Barangay", async () => {
   let lookupFilters = null;
-  let upsertPayload = null;
+  let createPayload = null;
+  let upsertCalled = false;
   const { service, restore } = loadService({
     repository: {
       findAnomalyBySourceIdentity: async (filters) => {
@@ -128,13 +129,17 @@ test("MSWDO anomaly review revalidates in consolidated scope and persists the an
           manual_review_allowed: true,
         };
       },
-      upsertAnomalyReview: async (payload) => {
-        upsertPayload = payload;
+      createAnomalyReview: async (payload) => {
+        createPayload = payload;
         return {
           id: "review-2",
           barangay_id: payload.barangayId,
           review_status: payload.reviewStatus,
         };
+      },
+      upsertAnomalyReview: async () => {
+        upsertCalled = true;
+        throw new Error("MSWDO must not use the editable upsert path");
       },
     },
   });
@@ -158,9 +163,202 @@ test("MSWDO anomaly review revalidates in consolidated scope and persists the an
       sourceId: "error-2",
       roleScope: "MSWDO",
     });
-    assert.equal(upsertPayload.barangayId, "barangay-b");
-    assert.equal(upsertPayload.reviewedBy, "mswdo-user");
+    assert.equal(createPayload.barangayId, "barangay-b");
+    assert.equal(createPayload.reviewedBy, "mswdo-user");
+    assert.equal(upsertCalled, false);
     assert.equal(review.review_status, "ISSUE_CONFIRMED");
+  } finally {
+    restore();
+  }
+});
+
+test("MSWDO anomaly review rejects an existing completed review without rewriting or auditing it", async () => {
+  let createCalled = false;
+  let auditCalled = false;
+  const { service, restore } = loadService({
+    repository: {
+      findAnomalyBySourceIdentity: async () => ({
+        source_type: "ERROR_LOG",
+        source_id: "error-final",
+        anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+        barangay_id: "barangay-b",
+        disaster_event_id: "event-1",
+        manual_review_allowed: true,
+        review_id: "review-final",
+        review_status: "REVIEWED_VALID",
+        resolution_reason: "Original review note.",
+        reviewed_by: "original-reviewer",
+        reviewed_at: "2026-08-22T00:00:00.000Z",
+      }),
+      createAnomalyReview: async () => {
+        createCalled = true;
+        throw new Error("MSWDO must not rewrite a completed review");
+      },
+      upsertAnomalyReview: async () => {
+        createCalled = true;
+        throw new Error("MSWDO must not use the editable upsert path");
+      },
+    },
+    auditImpl: async () => {
+      auditCalled = true;
+    },
+  });
+
+  try {
+    await assert.rejects(
+      async () =>
+        service.upsertAnomalyReview({
+          auth: { userId: "new-reviewer", roleCode: "MSWDO" },
+          payload: {
+            source_type: "ERROR_LOG",
+            source_id: "error-final",
+            anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+            review_status: "ISSUE_CONFIRMED",
+            resolution_reason: "Attempted replacement note.",
+          },
+        }),
+      (error) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.code, "ANOMALY_REVIEW_FINAL");
+        assert.match(error.message, /already been reviewed/);
+        return true;
+      },
+    );
+    assert.equal(createCalled, false);
+    assert.equal(auditCalled, false);
+  } finally {
+    restore();
+  }
+});
+
+test("MSWDO anomaly review maps a concurrent unique-identity race to final-review conflict", async () => {
+  const { service, restore } = loadService({
+    repository: {
+      findAnomalyBySourceIdentity: async () => ({
+        source_type: "ERROR_LOG",
+        source_id: "error-race",
+        anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+        barangay_id: "barangay-b",
+        disaster_event_id: "event-1",
+        manual_review_allowed: true,
+        review_id: null,
+      }),
+      createAnomalyReview: async () => {
+        const error = new Error("duplicate key value violates unique constraint");
+        error.code = "23505";
+        throw error;
+      },
+    },
+  });
+
+  try {
+    await assert.rejects(
+      async () =>
+        service.upsertAnomalyReview({
+          auth: { userId: "racing-reviewer", roleCode: "MSWDO" },
+          payload: {
+            source_type: "ERROR_LOG",
+            source_id: "error-race",
+            anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+            review_status: "REFERRED",
+            resolution_reason: "Concurrent review attempt.",
+          },
+        }),
+      (error) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.code, "ANOMALY_REVIEW_FINAL");
+        return true;
+      },
+    );
+  } finally {
+    restore();
+  }
+});
+
+test("MSWDO first review remains unchanged when a later differing submission is attempted", async () => {
+  let persistedReview = null;
+  let auditCount = 0;
+  const { service, restore } = loadService({
+    repository: {
+      findAnomalyBySourceIdentity: async () => ({
+        source_type: "ERROR_LOG",
+        source_id: "error-once",
+        anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+        barangay_id: "barangay-b",
+        disaster_event_id: "event-1",
+        manual_review_allowed: true,
+        ...(persistedReview
+          ? {
+              review_id: persistedReview.id,
+              review_status: persistedReview.review_status,
+              resolution_reason: persistedReview.resolution_reason,
+              reviewed_by: persistedReview.reviewed_by,
+              reviewed_at: persistedReview.reviewed_at,
+            }
+          : {}),
+      }),
+      createAnomalyReview: async (payload) => {
+        if (persistedReview) {
+          const error = new Error("duplicate key value violates unique constraint");
+          error.code = "23505";
+          throw error;
+        }
+
+        persistedReview = {
+          id: "review-once",
+          source_type: payload.sourceType,
+          source_id: payload.sourceId,
+          anomaly_type: payload.anomalyType,
+          barangay_id: payload.barangayId,
+          review_status: payload.reviewStatus,
+          resolution_reason: payload.resolutionReason,
+          reviewed_by: payload.reviewedBy,
+          reviewed_at: "2026-08-27T00:00:00.000Z",
+        };
+        return persistedReview;
+      },
+    },
+    auditImpl: async () => {
+      auditCount += 1;
+    },
+  });
+
+  const firstPayload = {
+    source_type: "ERROR_LOG",
+    source_id: "error-once",
+    anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+    review_status: "ISSUE_CONFIRMED",
+    resolution_reason: "Original final review.",
+  };
+
+  try {
+    const firstReview = await service.upsertAnomalyReview({
+      auth: { userId: "first-reviewer", roleCode: "MSWDO" },
+      payload: firstPayload,
+    });
+
+    await assert.rejects(
+      async () =>
+        service.upsertAnomalyReview({
+          auth: { userId: "second-reviewer", roleCode: "MSWDO" },
+          payload: {
+            ...firstPayload,
+            review_status: "REFERRED",
+            resolution_reason: "Attempted second final review.",
+          },
+        }),
+      (error) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.code, "ANOMALY_REVIEW_FINAL");
+        return true;
+      },
+    );
+
+    assert.equal(firstReview.review_status, "ISSUE_CONFIRMED");
+    assert.equal(persistedReview.review_status, "ISSUE_CONFIRMED");
+    assert.equal(persistedReview.resolution_reason, "Original final review.");
+    assert.equal(persistedReview.reviewed_by, "first-reviewer");
+    assert.equal(auditCount, 1);
   } finally {
     restore();
   }

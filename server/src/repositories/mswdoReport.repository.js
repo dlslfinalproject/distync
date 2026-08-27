@@ -1174,6 +1174,48 @@ const findAnomalyBySourceIdentity = async ({
   return result.items[0] || null;
 };
 
+const createAnomalyReview = async ({
+  sourceType,
+  sourceId,
+  anomalyType,
+  barangayId,
+  disasterEventId = null,
+  reviewStatus,
+  resolutionReason,
+  reviewedBy,
+}) => {
+  const query = `
+    INSERT INTO anomaly_reviews (
+      source_type,
+      source_id,
+      anomaly_type,
+      barangay_id,
+      disaster_event_id,
+      review_status,
+      resolution_reason,
+      reviewed_by,
+      reviewed_at,
+      created_at,
+      updated_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), NOW())
+    RETURNING *
+  `;
+
+  const result = await pool.query(query, [
+    sourceType,
+    sourceId,
+    anomalyType,
+    barangayId,
+    disasterEventId,
+    reviewStatus,
+    resolutionReason,
+    reviewedBy,
+  ]);
+
+  return result.rows[0];
+};
+
 const upsertAnomalyReview = async ({
   sourceType,
   sourceId,
@@ -1228,5 +1270,6 @@ module.exports = {
   getDisasterEventReportSummary,
   getMswdoAnomalyTracking,
   findAnomalyBySourceIdentity,
+  createAnomalyReview,
   upsertAnomalyReview,
 };
