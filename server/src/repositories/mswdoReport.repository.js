@@ -18,7 +18,7 @@ const getAnomalyReviewStateExpression = ({
   CASE
     WHEN ${anomalyPrefix}anomaly_type = 'DUPLICATE_CLAIM_ATTEMPT'
       THEN 'system_handled'
-    WHEN ${anomalyPrefix}anomaly_type = 'SYNC_CONFLICT'
+    WHEN ${anomalyPrefix}anomaly_type IN ('SYNC_CONFLICT', 'SYNC_FAILED')
       THEN 'sync_center'
     WHEN ${reviewPrefix}review_status = 'REFERRED'
       THEN 'referred'
@@ -33,7 +33,88 @@ const getAnomalyReviewStateExpression = ({
 
 const getManualReviewAllowedExpression = (anomalyAlias = "") => `
   ${anomalyAlias ? `${anomalyAlias}.` : ""}anomaly_type IN (${MANUAL_REVIEW_ANOMALY_TYPES.map((type) => `'${type}'`).join(", ")})
+  AND ${anomalyAlias ? `${anomalyAlias}.` : ""}barangay_id IS NOT NULL
 `;
+
+const DEFAULT_WHY_FLAGGED =
+  "This record was flagged because its information does not match the expected operational data.";
+
+const getOperationalWhyFlaggedExpression = (anomalyAlias = "") => {
+  const prefix = anomalyAlias ? `${anomalyAlias}.` : "";
+
+  return `
+    CASE ${prefix}anomaly_type
+      WHEN 'SUSPICIOUS_DISTRIBUTION_ACTIVITY'
+        THEN 'A later relief distribution claim created a possible duplicate for this household and disaster event.'
+      WHEN 'SYNC_FAILED'
+        THEN 'A synchronized operational update could not be recorded successfully.'
+      WHEN 'SYNC_CONFLICT'
+        THEN 'Conflicting synchronized updates were detected for this record.'
+      WHEN 'DUPLICATE_CLAIM_ATTEMPT'
+        THEN 'A relief claim was attempted after another claim already existed for this household and disaster event.'
+      WHEN 'DUPLICATE_HOUSEHOLD_REGISTRATION'
+        THEN 'The submitted household information conflicts with an existing household registration.'
+      WHEN 'INVENTORY_DISTRIBUTION_MISMATCH'
+        THEN 'The distribution record does not match the related inventory movement.'
+      WHEN 'FAILED_STUB_OR_QR_VERIFICATION'
+        THEN 'The stub or QR verification could not be matched to an eligible relief record.'
+      ELSE '${DEFAULT_WHY_FLAGGED}'
+    END
+  `;
+};
+
+const getOperationalAnomalySearchExpression = (anomalyAlias = "") => {
+  const prefix = anomalyAlias ? `${anomalyAlias}.` : "";
+
+  return `
+    CONCAT_WS(
+      ' ',
+      REPLACE(COALESCE(${prefix}anomaly_type, ''), '_', ' '),
+      ${getOperationalWhyFlaggedExpression(anomalyAlias)},
+      CASE ${prefix}anomaly_type
+        WHEN 'SUSPICIOUS_DISTRIBUTION_ACTIVITY'
+          THEN CONCAT(COALESCE(${prefix}family_head_name, ''), ' household distribution record')
+        WHEN 'SYNC_FAILED'
+          THEN CONCAT(COALESCE(${prefix}family_head_name, ''), ' synchronization record')
+        WHEN 'SYNC_CONFLICT'
+          THEN CONCAT(COALESCE(${prefix}family_head_name, ''), ' synchronization record')
+        WHEN 'DUPLICATE_CLAIM_ATTEMPT'
+          THEN CONCAT(COALESCE(${prefix}family_head_name, ''), ' relief claim')
+        WHEN 'DUPLICATE_HOUSEHOLD_REGISTRATION'
+          THEN CONCAT(COALESCE(${prefix}family_head_name, ''), ' household')
+        WHEN 'INVENTORY_DISTRIBUTION_MISMATCH'
+          THEN CONCAT(COALESCE(${prefix}family_head_name, ''), ' distribution record')
+        WHEN 'FAILED_STUB_OR_QR_VERIFICATION'
+          THEN CONCAT(COALESCE(${prefix}family_head_name, ''), ' stub or QR record')
+        ELSE COALESCE(${prefix}family_head_name, '')
+      END
+    )
+  `;
+};
+
+const getOperationalReviewSearchExpression = ({
+  anomalyAlias = "",
+  reviewAlias = "",
+} = {}) => {
+  const anomalyPrefix = anomalyAlias ? `${anomalyAlias}.` : "";
+  const reviewPrefix = reviewAlias ? `${reviewAlias}.` : "";
+
+  return `
+    CASE
+      WHEN ${reviewPrefix}review_status = 'REVIEWED_VALID'
+        THEN 'Dismissed No Issue Reviewed Valid'
+      WHEN ${reviewPrefix}review_status = 'ISSUE_CONFIRMED'
+        THEN 'Issue Confirmed Reviewed Resolved'
+      WHEN ${reviewPrefix}review_status = 'REFERRED'
+        THEN 'Referred for Resolution'
+      WHEN ${anomalyPrefix}anomaly_type = 'DUPLICATE_CLAIM_ATTEMPT'
+        THEN 'Dismissed Automatically Handled'
+      WHEN ${anomalyPrefix}anomaly_type IN ('SYNC_CONFLICT', 'SYNC_FAILED')
+        THEN 'Sync Center Review Synchronization Issue'
+      ELSE 'Open Needs Review'
+    END
+  `;
+};
 
 const getAnomalyOrderByClause = (order) => {
   const stableTieBreaker = `
@@ -43,7 +124,7 @@ const getAnomalyOrderByClause = (order) => {
 
   if (order === "oldest") {
     return `
-      occurred_at ASC NULLS FIRST,
+      detected_at ASC NULLS FIRST,
       anomaly_type ASC,
       reference_id ASC NULLS LAST,
       ${stableTieBreaker}
@@ -55,7 +136,7 @@ const getAnomalyOrderByClause = (order) => {
 
     return `
       LOWER(CONCAT_WS(' ', disaster_event_title, family_head_name)) ${direction},
-      occurred_at DESC NULLS LAST,
+      detected_at DESC NULLS LAST,
       anomaly_type ASC,
       reference_id ASC NULLS LAST,
       ${stableTieBreaker}
@@ -63,7 +144,7 @@ const getAnomalyOrderByClause = (order) => {
   }
 
   return `
-    occurred_at DESC NULLS LAST,
+    detected_at DESC NULLS LAST,
     anomaly_type ASC,
     reference_id ASC NULLS LAST,
     ${stableTieBreaker}
@@ -215,8 +296,7 @@ const getMswdoAnomalyTracking = async ({
     "it.transaction_type = 'OUTFLOW'",
     "it.reference_type = 'DISTRIBUTION'",
   ];
-  const syncConditions = [];
-  const errorConditions = [];
+  const detectedAtConditions = [];
   let disasterEventParamIndex = null;
   let barangayParamIndex = null;
 
@@ -241,28 +321,14 @@ const getMswdoAnomalyTracking = async ({
 
   if (dateFrom) {
     values.push(dateFrom);
-    distributionConditions.push(`dt.distribution_date >= $${values.length}`);
-    reconciliationDistributionConditions.push(
-      `dt.distribution_date >= $${values.length}`,
-    );
-    reconciliationOutflowConditions.push(`it.performed_at >= $${values.length}`);
-    syncConditions.push(`st.created_at >= $${values.length}`);
-    errorConditions.push(`el.created_at >= $${values.length}`);
+    detectedAtConditions.push(`anomaly_rows.detected_at >= $${values.length}`);
   }
 
   if (dateTo) {
     values.push(dateTo);
-    distributionConditions.push(
-      `dt.distribution_date < ($${values.length}::date + INTERVAL '1 day')`,
+    detectedAtConditions.push(
+      `anomaly_rows.detected_at < ($${values.length}::date + INTERVAL '1 day')`,
     );
-    reconciliationDistributionConditions.push(
-      `dt.distribution_date < ($${values.length}::date + INTERVAL '1 day')`,
-    );
-    reconciliationOutflowConditions.push(
-      `it.performed_at < ($${values.length}::date + INTERVAL '1 day')`,
-    );
-    syncConditions.push(`st.created_at < ($${values.length}::date + INTERVAL '1 day')`);
-    errorConditions.push(`el.created_at < ($${values.length}::date + INTERVAL '1 day')`);
   }
 
   const statusIndex = status ? values.push(status) : null;
@@ -277,15 +343,8 @@ const getMswdoAnomalyTracking = async ({
   const reconciliationDistributionWhere =
     reconciliationDistributionConditions.join(" AND ");
   const reconciliationOutflowWhere = reconciliationOutflowConditions.join(" AND ");
-  const syncFailedWhere = [
-    "st.sync_status = 'FAILED'",
-    ...syncConditions,
-  ].join(" AND ");
-  const syncConflictWhere = [
-    "sc.status = 'OPEN'",
-    ...syncConditions,
-  ].join(" AND ");
-  const errorWhere = errorConditions.length > 0 ? `AND ${errorConditions.join(" AND ")}` : "";
+  const syncFailedWhere = "st.sync_status = 'FAILED'";
+  const syncConflictWhere = "sc.status = 'OPEN'";
   const barangayVerificationNoiseExclusion = isBarangayScope
     ? `
         AND NOT (
@@ -308,11 +367,10 @@ const getMswdoAnomalyTracking = async ({
   if (statusCategoryIndex) {
     finalConditions.push(`
       CASE
-        WHEN UPPER(COALESCE(anomaly_rows.status, '')) IN ('FAILED', 'ERROR') THEN 'failed'
-        WHEN UPPER(COALESCE(anomaly_rows.status, '')) = 'OPEN'
-          OR UPPER(COALESCE(anomaly_rows.resolution_status, '')) LIKE '%PENDING%'
-          OR UPPER(COALESCE(anomaly_rows.resolution_status, '')) LIKE '%RECOMMENDED%'
-        THEN 'open'
+        WHEN ${getAnomalyReviewStateExpression({ anomalyAlias: "anomaly_rows", reviewAlias: "ar" })} = 'needs_review'
+          THEN 'open'
+        WHEN ${getAnomalyReviewStateExpression({ anomalyAlias: "anomaly_rows", reviewAlias: "ar" })} = 'sync_center'
+          THEN 'failed'
         ELSE 'resolved'
       END = $${statusCategoryIndex}
     `);
@@ -322,13 +380,14 @@ const getMswdoAnomalyTracking = async ({
     finalConditions.push(`
       (
         anomaly_rows.anomaly_type ILIKE $${searchIndex}
+        OR REPLACE(anomaly_rows.anomaly_type, '_', ' ') ILIKE $${searchIndex}
+        OR ${getOperationalAnomalySearchExpression("anomaly_rows")} ILIKE $${searchIndex}
         OR COALESCE(anomaly_rows.event_code, '') ILIKE $${searchIndex}
         OR COALESCE(anomaly_rows.disaster_event_title, '') ILIKE $${searchIndex}
         OR COALESCE(anomaly_rows.barangay_name, '') ILIKE $${searchIndex}
         OR COALESCE(anomaly_rows.family_head_name, '') ILIKE $${searchIndex}
-        OR COALESCE(anomaly_rows.anomaly_reason, '') ILIKE $${searchIndex}
-        OR COALESCE(anomaly_rows.status, '') ILIKE $${searchIndex}
-        OR COALESCE(anomaly_rows.resolution_status, '') ILIKE $${searchIndex}
+        OR COALESCE(ar.resolution_reason, '') ILIKE $${searchIndex}
+        OR ${getOperationalReviewSearchExpression({ anomalyAlias: "anomaly_rows", reviewAlias: "ar" })} ILIKE $${searchIndex}
       )
     `);
   }
@@ -348,6 +407,8 @@ const getMswdoAnomalyTracking = async ({
   if (barangayId) {
     finalConditions.push(`anomaly_rows.barangay_id = $${barangayParamIndex}`);
   }
+
+  finalConditions.push(...detectedAtConditions);
 
   const finalWhere = finalConditions.length
     ? `WHERE ${finalConditions.join(" AND ")}`
@@ -378,7 +439,7 @@ const getMswdoAnomalyTracking = async ({
           ' claimed distribution records for the same disaster event.'
         ) AS anomaly_reason,
         'CLAIMED' AS status,
-        MAX(dt.distribution_date) AS occurred_at,
+        MAX(dt.distribution_date) AS detected_at,
         'Distribution history review recommended.' AS resolution_status
       FROM distribution_transactions dt
       INNER JOIN households h ON h.id = dt.household_id
@@ -570,13 +631,11 @@ const getMswdoAnomalyTracking = async ({
           )
         END AS anomaly_reason,
         'OPEN' AS status,
-        COALESCE(
-          actual.last_outflow_at,
-          expected.distribution_date,
-          actual.distribution_date,
-          expected.distribution_created_at,
-          actual.distribution_created_at
-        ) AS occurred_at,
+        CASE
+          WHEN expected.distribution_date IS NULL THEN actual.last_outflow_at
+          WHEN actual.last_outflow_at IS NULL THEN expected.distribution_date
+          ELSE GREATEST(expected.distribution_date, actual.last_outflow_at)
+        END AS detected_at,
         'Inventory reconciliation review recommended.' AS resolution_status
       FROM reconciliation_expected expected
       FULL OUTER JOIN reconciliation_actual actual
@@ -615,7 +674,7 @@ const getMswdoAnomalyTracking = async ({
           )
         END AS anomaly_reason,
         'OPEN' AS status,
-        it.performed_at AS occurred_at,
+        it.performed_at AS detected_at,
         'Inventory reconciliation review recommended.' AS resolution_status
       FROM inventory_transactions it
       INNER JOIN inventory_batches ib
@@ -856,7 +915,7 @@ const getMswdoAnomalyTracking = async ({
         NULLIF(TRIM(sba.family_head_name), '') AS family_head_name,
         COALESCE(st.error_message, 'Sync transaction failed.') AS anomaly_reason,
         st.sync_status AS status,
-        st.created_at AS occurred_at,
+        COALESCE(st.server_timestamp, st.updated_at) AS detected_at,
         'Pending retry or investigation.' AS resolution_status
       FROM sync_transactions st
       LEFT JOIN sync_barangay_attribution sba
@@ -882,7 +941,7 @@ const getMswdoAnomalyTracking = async ({
         NULLIF(TRIM(sba.family_head_name), '') AS family_head_name,
         CONCAT(sc.conflict_type, ' conflict for ', sc.entity_type) AS anomaly_reason,
         sc.status AS status,
-        sc.created_at AS occurred_at,
+        sc.created_at AS detected_at,
         sc.resolution_strategy AS resolution_status
       FROM sync_conflicts sc
       INNER JOIN sync_transactions st ON st.id = sc.sync_transaction_id
@@ -909,7 +968,7 @@ const getMswdoAnomalyTracking = async ({
         eba.family_head_name,
         el.error_message AS anomaly_reason,
         el.severity AS status,
-        el.created_at AS occurred_at,
+        el.created_at AS detected_at,
         'Captured through error logging.' AS resolution_status
       FROM error_logs el
       LEFT JOIN error_barangay_attribution eba
@@ -921,7 +980,6 @@ const getMswdoAnomalyTracking = async ({
       WHERE el.module_name IN ('distribution', 'stubs')
         AND el.error_code = 'STUB_ALREADY_CLAIMED'
         ${disasterEventId ? `AND eba.disaster_event_id = $${disasterEventParamIndex}` : ""}
-        ${errorWhere}
     ),
     duplicate_household_registration AS (
       SELECT
@@ -937,7 +995,7 @@ const getMswdoAnomalyTracking = async ({
         eba.family_head_name,
         el.error_message AS anomaly_reason,
         el.severity AS status,
-        el.created_at AS occurred_at,
+        el.created_at AS detected_at,
         'Captured through error logging.' AS resolution_status
       FROM error_logs el
       LEFT JOIN error_barangay_attribution eba
@@ -949,7 +1007,6 @@ const getMswdoAnomalyTracking = async ({
       WHERE el.module_name = 'household-registration'
         AND el.error_code = 'DUPLICATE_HOUSEHOLD_REGISTRATION'
         ${disasterEventId ? `AND eba.disaster_event_id = $${disasterEventParamIndex}` : ""}
-        ${errorWhere}
     ),
     failed_stub_verification AS (
       SELECT
@@ -965,7 +1022,7 @@ const getMswdoAnomalyTracking = async ({
         eba.family_head_name,
         el.error_message AS anomaly_reason,
         el.severity AS status,
-        el.created_at AS occurred_at,
+        el.created_at AS detected_at,
         'Captured through error logging.' AS resolution_status
       FROM error_logs el
       LEFT JOIN error_barangay_attribution eba
@@ -987,7 +1044,6 @@ const getMswdoAnomalyTracking = async ({
         )
         ${disasterEventId ? `AND eba.disaster_event_id = $${disasterEventParamIndex}` : ""}
         ${barangayVerificationNoiseExclusion}
-        ${errorWhere}
     ),
     anomaly_rows AS (
       SELECT * FROM suspicious_distribution
@@ -1006,6 +1062,7 @@ const getMswdoAnomalyTracking = async ({
     filtered_anomalies AS (
       SELECT
         anomaly_rows.*,
+        ${getOperationalWhyFlaggedExpression("anomaly_rows")} AS why_flagged,
         ar.id AS review_id,
         ar.review_status,
         ar.resolution_reason,
@@ -1062,9 +1119,9 @@ const getMswdoAnomalyTracking = async ({
         barangay_id,
         barangay_name,
         family_head_name,
-        anomaly_reason,
+        why_flagged,
         status,
-        occurred_at,
+        detected_at,
         resolution_status,
         review_id,
         review_status,
@@ -1115,6 +1172,48 @@ const findAnomalyBySourceIdentity = async ({
   });
 
   return result.items[0] || null;
+};
+
+const createAnomalyReview = async ({
+  sourceType,
+  sourceId,
+  anomalyType,
+  barangayId,
+  disasterEventId = null,
+  reviewStatus,
+  resolutionReason,
+  reviewedBy,
+}) => {
+  const query = `
+    INSERT INTO anomaly_reviews (
+      source_type,
+      source_id,
+      anomaly_type,
+      barangay_id,
+      disaster_event_id,
+      review_status,
+      resolution_reason,
+      reviewed_by,
+      reviewed_at,
+      created_at,
+      updated_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), NOW())
+    RETURNING *
+  `;
+
+  const result = await pool.query(query, [
+    sourceType,
+    sourceId,
+    anomalyType,
+    barangayId,
+    disasterEventId,
+    reviewStatus,
+    resolutionReason,
+    reviewedBy,
+  ]);
+
+  return result.rows[0];
 };
 
 const upsertAnomalyReview = async ({
@@ -1171,5 +1270,6 @@ module.exports = {
   getDisasterEventReportSummary,
   getMswdoAnomalyTracking,
   findAnomalyBySourceIdentity,
+  createAnomalyReview,
   upsertAnomalyReview,
 };

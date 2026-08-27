@@ -149,6 +149,84 @@ test("MSWDO anomaly tracking keeps plain sync failures for consolidated review",
   });
 
   assert.match(capturedQueries[1], /UNION ALL SELECT \* FROM sync_failed/);
+  assert.match(
+    capturedQueries[1],
+    /anomaly_type IN \('SYNC_CONFLICT', 'SYNC_FAILED'\)[\s\S]*THEN 'sync_center'/,
+  );
+});
+
+test("MSWDO operational search covers safe reasons, affected context, review status, and notes", async () => {
+  const { capturedQueries } = await captureAnomalyRepositoryCall({
+    roleScope: "MSWDO",
+    search: "validated",
+    page: 1,
+    pageSize: 10,
+  });
+
+  const itemQuery = capturedQueries[1];
+
+  assert.match(itemQuery, /REPLACE\(anomaly_rows\.anomaly_type, '_', ' '\) ILIKE \$1/);
+  assert.match(itemQuery, /Conflicting synchronized updates were detected for this record/);
+  assert.match(itemQuery, /The submitted household information conflicts with an existing household registration/);
+  assert.match(itemQuery, /COALESCE\(anomaly_rows\.barangay_name, ''\) ILIKE \$1/);
+  assert.match(itemQuery, /COALESCE\(anomaly_rows\.family_head_name, ''\) ILIKE \$1/);
+  assert.match(itemQuery, /COALESCE\(ar\.resolution_reason, ''\) ILIKE \$1/);
+  assert.match(itemQuery, /Referred for Resolution/);
+  assert.doesNotMatch(
+    itemQuery,
+    /OR COALESCE\(anomaly_rows\.status, ''\) ILIKE/,
+  );
+});
+
+test("MSWDO anomaly rows expose a fixed operational reason without raw error text", async () => {
+  const { capturedQueries } = await captureAnomalyRepositoryCall({
+    roleScope: "MSWDO",
+    page: 1,
+    pageSize: 10,
+  });
+
+  const itemQuery = capturedQueries[1];
+
+  assert.match(itemQuery, /AS why_flagged/);
+  assert.match(itemQuery, /A later relief distribution claim created a possible duplicate/);
+  assert.match(itemQuery, /A synchronized operational update could not be recorded successfully/);
+  assert.match(itemQuery, /why_flagged,\s+status,\s+detected_at/);
+  assert.doesNotMatch(itemQuery, /\n\s*anomaly_reason,\s*\n/);
+});
+
+test("MSWDO anomaly timestamps follow the approved source-event contract", async () => {
+  const { capturedQueries } = await captureAnomalyRepositoryCall({
+    roleScope: "MSWDO",
+    page: 1,
+    pageSize: 10,
+  });
+
+  const itemQuery = capturedQueries[1];
+
+  assert.match(itemQuery, /MAX\(dt\.distribution_date\) AS detected_at/);
+  assert.match(itemQuery, /GREATEST\(expected\.distribution_date, actual\.last_outflow_at\)/);
+  assert.match(itemQuery, /it\.performed_at AS detected_at/);
+  assert.match(itemQuery, /COALESCE\(st\.server_timestamp, st\.updated_at\) AS detected_at/);
+  assert.match(itemQuery, /sc\.created_at AS detected_at/);
+  assert.match(itemQuery, /el\.created_at AS detected_at/);
+  assert.match(itemQuery, /detected_at DESC NULLS LAST/);
+  assert.doesNotMatch(itemQuery, /occurred_at/);
+});
+
+test("manual review availability requires an attributed Barangay without narrowing MSWDO scope", async () => {
+  const { capturedQueries } = await captureAnomalyRepositoryCall({
+    roleScope: "MSWDO",
+    page: 1,
+    pageSize: 10,
+  });
+
+  const itemQuery = capturedQueries[1];
+
+  assert.match(
+    itemQuery,
+    /anomaly_rows\.anomaly_type IN \([\s\S]*\)[\s\S]*AND anomaly_rows\.barangay_id IS NOT NULL[\s\S]*AS manual_review_allowed/,
+  );
+  assert.doesNotMatch(itemQuery, /WHERE anomaly_rows\.barangay_id = \$/);
 });
 
 test("H01-04 and H01-05 error-log anomalies use a narrow Barangay-only actor fallback", async () => {
@@ -370,8 +448,8 @@ test("MSWDO-ANOM-I09 orphan distribution outflows use structured references and 
     assert.match(capturedQuery, /it\.reference_type = 'DISTRIBUTION'/);
     assert.match(capturedQuery, /it\.reference_id IS NULL[\s\S]*OR dt\.id IS NULL[\s\S]*OR dt\.distribution_status <> 'CLAIMED'/);
     assert.match(capturedQuery, /references a distribution transaction that does not exist/);
-    assert.match(capturedQuery, /it\.performed_at >= \$1/);
-    assert.match(capturedQuery, /it\.performed_at < \(\$2::date \+ INTERVAL '1 day'\)/);
+    assert.match(capturedQuery, /anomaly_rows\.detected_at >= \$1/);
+    assert.match(capturedQuery, /anomaly_rows\.detected_at < \(\$2::date \+ INTERVAL '1 day'\)/);
     assert.doesNotMatch(capturedQuery, /it\.transaction_type IN \('OUTFLOW', 'DAMAGED', 'SPOILED', 'MISSING', 'STOLEN'\)/);
     assert.doesNotMatch(capturedQuery, /ILIKE[\s\S]*remarks/);
   } finally {
@@ -462,7 +540,7 @@ test("M05 server pagination counts filtered anomalies before applying limit and 
         {
           anomaly_type: "SYNC_CONFLICT",
           reference_id: "conflict-51",
-          occurred_at: "2026-08-08T10:00:00.000Z",
+          detected_at: "2026-08-08T10:00:00.000Z",
         },
       ],
     };
@@ -483,7 +561,7 @@ test("M05 server pagination counts filtered anomalies before applying limit and 
     assert.equal(capturedQueries.length, 2);
     assert.match(capturedQueries[0], /FROM filtered_anomalies/);
     assert.doesNotMatch(capturedQueries[0], /LIMIT/);
-    assert.match(capturedQueries[1], /ORDER BY[\s\S]*occurred_at DESC NULLS LAST[\s\S]*anomaly_type ASC[\s\S]*reference_id ASC NULLS LAST[\s\S]*source_type ASC[\s\S]*source_id ASC/);
+    assert.match(capturedQueries[1], /ORDER BY[\s\S]*detected_at DESC NULLS LAST[\s\S]*anomaly_type ASC[\s\S]*reference_id ASC NULLS LAST[\s\S]*source_type ASC[\s\S]*source_id ASC/);
     assert.match(capturedQueries[1], /source_type,\s+source_id,/);
     assert.match(capturedQueries[1], /LIMIT \$6\s+OFFSET \$7/);
     assert.match(capturedQueries[1], /anomaly_rows AS/);
@@ -527,17 +605,17 @@ test("M05-04/M05F-01 tied timestamp/type/reference rows use source identity afte
         {
           anomaly_type: "DUPLICATE_CLAIM_ATTEMPT",
           reference_id: "same-stub-reference",
-          occurred_at: "2026-08-08T10:00:00.000Z",
+          detected_at: "2026-08-08T10:00:00.000Z",
         },
         {
           anomaly_type: "DUPLICATE_CLAIM_ATTEMPT",
           reference_id: "same-stub-reference",
-          occurred_at: "2026-08-08T10:00:00.000Z",
+          detected_at: "2026-08-08T10:00:00.000Z",
         },
         {
           anomaly_type: "DUPLICATE_CLAIM_ATTEMPT",
           reference_id: "same-stub-reference",
-          occurred_at: "2026-08-08T10:00:00.000Z",
+          detected_at: "2026-08-08T10:00:00.000Z",
         },
       ],
     };
@@ -617,8 +695,8 @@ test("M05F-04 same reference_id rows remain separate because error log source ID
     itemQuery = query;
     return {
       rows: [
-        { anomaly_type: "DUPLICATE_CLAIM_ATTEMPT", reference_id: "stub-s", occurred_at: "2026-08-08T10:00:00.000Z" },
-        { anomaly_type: "DUPLICATE_CLAIM_ATTEMPT", reference_id: "stub-s", occurred_at: "2026-08-08T10:00:00.000Z" },
+        { anomaly_type: "DUPLICATE_CLAIM_ATTEMPT", reference_id: "stub-s", detected_at: "2026-08-08T10:00:00.000Z" },
+        { anomaly_type: "DUPLICATE_CLAIM_ATTEMPT", reference_id: "stub-s", detected_at: "2026-08-08T10:00:00.000Z" },
       ],
     };
   });
@@ -650,8 +728,8 @@ test("M05F-05 null reference_id ties still end with non-null source identity ord
     itemQuery = query;
     return {
       rows: [
-        { anomaly_type: "SYNC_FAILED", reference_id: null, occurred_at: "2026-08-08T10:00:00.000Z" },
-        { anomaly_type: "SYNC_FAILED", reference_id: null, occurred_at: "2026-08-08T10:00:00.000Z" },
+        { anomaly_type: "SYNC_FAILED", reference_id: null, detected_at: "2026-08-08T10:00:00.000Z" },
+        { anomaly_type: "SYNC_FAILED", reference_id: null, detected_at: "2026-08-08T10:00:00.000Z" },
       ],
     };
   });
@@ -771,7 +849,7 @@ test("M05 out-of-range pagination returns empty items with scoped total metadata
   }
 });
 
-test("M05NULL-01 oldest keeps null occurred_at rows before dated rows in generated SQL", async () => {
+test("M05NULL-01 oldest keeps null detected_at rows before dated rows in generated SQL", async () => {
   const { capturedQueries } = await captureAnomalyRepositoryCall({
     order: "oldest",
     page: 1,
@@ -780,7 +858,7 @@ test("M05NULL-01 oldest keeps null occurred_at rows before dated rows in generat
 
   const orderBy = extractOrderBy(capturedQueries[1]);
 
-  assert.match(orderBy, /^occurred_at ASC NULLS FIRST/);
+  assert.match(orderBy, /^detected_at ASC NULLS FIRST/);
   assert.match(orderBy, /anomaly_type ASC/);
   assert.match(orderBy, /reference_id ASC NULLS LAST/);
   assert.match(orderBy, /source_type ASC, source_id ASC$/);
@@ -796,7 +874,7 @@ test("M05NULL-02 null timestamp ties still use source identity for deterministic
   const itemQuery = capturedQueries[1];
   const orderBy = extractOrderBy(itemQuery);
 
-  assert.match(orderBy, /occurred_at ASC NULLS FIRST/);
+  assert.match(orderBy, /detected_at ASC NULLS FIRST/);
   assert.match(orderBy, /anomaly_type ASC, reference_id ASC NULLS LAST, source_type ASC, source_id ASC/);
   assert.match(itemQuery, /'ERROR_LOG' AS source_type[\s\S]*el\.id::text AS source_id/);
   assert.match(itemQuery, /'SYNC_TRANSACTION' AS source_type[\s\S]*st\.id::text AS source_id/);
@@ -814,7 +892,7 @@ test("M05NULL-03 null timestamp page boundaries retain stable ORDER BY with LIMI
 
   const itemQuery = capturedQueries[1];
 
-  assert.match(itemQuery, /ORDER BY[\s\S]*occurred_at ASC NULLS FIRST[\s\S]*source_type ASC[\s\S]*source_id ASC[\s\S]*LIMIT \$1\s+OFFSET \$2/);
+  assert.match(itemQuery, /ORDER BY[\s\S]*detected_at ASC NULLS FIRST[\s\S]*source_type ASC[\s\S]*source_id ASC[\s\S]*LIMIT \$1\s+OFFSET \$2/);
   assert.deepEqual(capturedValues[1], [2, 2]);
 });
 
@@ -827,8 +905,8 @@ test("M05NULL-04 non-null oldest chronology remains ascending", async () => {
 
   const orderBy = extractOrderBy(capturedQueries[1]);
 
-  assert.match(orderBy, /^occurred_at ASC NULLS FIRST/);
-  assert.doesNotMatch(orderBy, /occurred_at DESC/);
+  assert.match(orderBy, /^detected_at ASC NULLS FIRST/);
+  assert.doesNotMatch(orderBy, /detected_at DESC/);
 });
 
 test("M05NULL-05 newest ORDER BY remains unchanged", async () => {
@@ -840,7 +918,7 @@ test("M05NULL-05 newest ORDER BY remains unchanged", async () => {
 
   assert.equal(
     extractOrderBy(capturedQueries[1]),
-    "occurred_at DESC NULLS LAST, anomaly_type ASC, reference_id ASC NULLS LAST, source_type ASC, source_id ASC",
+    "detected_at DESC NULLS LAST, anomaly_type ASC, reference_id ASC NULLS LAST, source_type ASC, source_id ASC",
   );
 });
 
@@ -850,11 +928,11 @@ test("M05NULL-06 alphabetical ORDER BY clauses remain unchanged", async () => {
 
   assert.equal(
     extractOrderBy(az.capturedQueries[1]),
-    "LOWER(CONCAT_WS(' ', disaster_event_title, family_head_name)) ASC, occurred_at DESC NULLS LAST, anomaly_type ASC, reference_id ASC NULLS LAST, source_type ASC, source_id ASC",
+    "LOWER(CONCAT_WS(' ', disaster_event_title, family_head_name)) ASC, detected_at DESC NULLS LAST, anomaly_type ASC, reference_id ASC NULLS LAST, source_type ASC, source_id ASC",
   );
   assert.equal(
     extractOrderBy(za.capturedQueries[1]),
-    "LOWER(CONCAT_WS(' ', disaster_event_title, family_head_name)) DESC, occurred_at DESC NULLS LAST, anomaly_type ASC, reference_id ASC NULLS LAST, source_type ASC, source_id ASC",
+    "LOWER(CONCAT_WS(' ', disaster_event_title, family_head_name)) DESC, detected_at DESC NULLS LAST, anomaly_type ASC, reference_id ASC NULLS LAST, source_type ASC, source_id ASC",
   );
 });
 
@@ -1009,6 +1087,55 @@ test("Barangay anomaly review upsert updates existing current review identity", 
       "user-1",
     ]);
     assert.equal(result.review_status, "REFERRED");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("MSWDO anomaly review create-once path never updates an existing identity", async () => {
+  let capturedQuery = "";
+  let capturedValues = [];
+  const harness = loadRepositoryWithMockPool(async (query, values) => {
+    capturedQuery = query;
+    capturedValues = values;
+    return {
+      rows: [
+        {
+          id: "review-mswdo-1",
+          review_status: values[5],
+          resolution_reason: values[6],
+        },
+      ],
+    };
+  });
+
+  try {
+    const result = await harness.repository.createAnomalyReview({
+      sourceType: "ERROR_LOG",
+      sourceId: "error-mswdo-1",
+      anomalyType: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+      barangayId: "barangay-a",
+      disasterEventId: "event-1",
+      reviewStatus: "ISSUE_CONFIRMED",
+      resolutionReason: "Confirmed with the affected Barangay.",
+      reviewedBy: "mswdo-user",
+    });
+
+    assert.match(capturedQuery, /INSERT INTO anomaly_reviews/);
+    assert.match(capturedQuery, /RETURNING \*/);
+    assert.doesNotMatch(capturedQuery, /ON CONFLICT/);
+    assert.doesNotMatch(capturedQuery, /DO UPDATE/);
+    assert.deepEqual(capturedValues, [
+      "ERROR_LOG",
+      "error-mswdo-1",
+      "DUPLICATE_HOUSEHOLD_REGISTRATION",
+      "barangay-a",
+      "event-1",
+      "ISSUE_CONFIRMED",
+      "Confirmed with the affected Barangay.",
+      "mswdo-user",
+    ]);
+    assert.equal(result.review_status, "ISSUE_CONFIRMED");
   } finally {
     harness.restore();
   }

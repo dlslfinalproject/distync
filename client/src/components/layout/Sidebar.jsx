@@ -201,7 +201,7 @@ const roleMeta = {
       { label: "Relief Goods Distribution", to: "/mswdo/stub-distribution" },
       { label: "Distribution History", to: "/mswdo/distribution-history" },
       { label: "Evacuee Analytics Dashboard", to: "/mswdo/analytics" },
-      { label: "Anomaly Tracking Management", to: "/mswdo/anomalies" },
+      { label: "Anomaly Tracking", to: "/mswdo/anomalies" },
       { label: "Sync Center", to: "/mswdo/sync" },
     ],
   },

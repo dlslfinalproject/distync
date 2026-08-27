@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FiAlertTriangle, FiEye, FiFilter, FiSearch } from "react-icons/fi";
+import { FiEye, FiFilter, FiSearch } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { pageSpacingStyles, shellStyles } from "../../components/layout/BarangayLayout";
 import EmptyState from "../../components/shared/EmptyState";
@@ -16,18 +16,18 @@ import {
 import {
   formatAnomalyType,
   formatReviewOutcome,
-  getAnomalyActionRequired,
   getAnomalyActionSummary,
   getAnomalyExplanation,
   getAnomalyOwner,
   getAnomalyTypesForScope,
   getAnomalyPresentation,
   getAnomalyReviewStateLabel,
+  mswdoReviewOutcomeOptions,
   reviewOutcomeOptions,
 } from "../../features/mswdo-reports/anomalyPresentation";
 import {
   fetchMswdoAnomalies,
-  saveBarangayAnomalyReview,
+  saveAnomalyReview,
 } from "../../features/mswdo-reports/mswdoReportService";
 
 const inputStyles = {
@@ -83,27 +83,55 @@ const tableStyles = {
 };
 
 const barangayAnomalyTableMinWidth = "1040px";
+const mswdoAnomalyTableMinWidth = "1320px";
 
 const barangayAnomalyColumnStyles = {
-  anomaly: { width: "18%", minWidth: "190px" },
-  affectedRecord: { width: "17%", minWidth: "170px" },
-  whyFlagged: { width: "31%", minWidth: "320px" },
-  reviewStatus: { width: "14%", minWidth: "150px" },
-  detectedAt: { width: "13%", minWidth: "150px" },
+  anomalyType: { width: "18%", minWidth: "190px" },
+  affectedRecord: { width: "16%", minWidth: "170px" },
+  disasterEvent: { width: "16%", minWidth: "180px" },
+  whyFlagged: { width: "25%", minWidth: "300px" },
+  reviewStatus: { width: "13%", minWidth: "150px" },
+  detectedAt: { width: "10%", minWidth: "150px" },
+  action: { width: "10%", minWidth: "136px", textAlign: "center", whiteSpace: "nowrap" },
+};
+
+const mswdoAnomalyColumnStyles = {
+  anomalyType: { width: "17%", minWidth: "190px" },
+  barangay: { width: "13%", minWidth: "150px" },
+  affectedRecord: { width: "16%", minWidth: "185px" },
+  disasterEvent: { width: "14%", minWidth: "170px" },
+  whyFlagged: { width: "26%", minWidth: "320px" },
+  reviewStatus: { width: "14%", minWidth: "160px" },
+  detectedAt: { width: "12%", minWidth: "150px" },
   action: { width: "7%", minWidth: "88px", textAlign: "center", whiteSpace: "nowrap" },
 };
 
+const reviewButtonStyles = {
+  ...pageHeaderStyles.primaryButton,
+  minHeight: "42px",
+  padding: "10px 14px",
+  borderRadius: "12px",
+};
+
 const viewButtonStyles = {
-  width: "46px",
-  height: "46px",
-  borderRadius: "14px",
-  border: "1px solid #c6d8ea",
+  minWidth: "42px",
+  minHeight: "42px",
+  padding: "10px",
+  border: "1px solid #cfddeb",
+  borderRadius: "12px",
   backgroundColor: "#f8fbfe",
-  color: "#24496e",
+  color: "#2f5f8f",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
   cursor: "pointer",
+};
+
+const nonReviewActionStyles = {
+  color: "#5f7892",
+  fontSize: "13px",
+  fontWeight: 700,
+  lineHeight: 1.4,
 };
 
 const searchInputStyles = {
@@ -123,11 +151,20 @@ const filterPopoverStyles = {
 
 const statusFilters = [
   { value: "all", label: "All review statuses" },
-  { value: "needs_review", label: "Needs Review" },
-  { value: "reviewed", label: "Reviewed" },
-  { value: "referred", label: "Referred" },
+  { value: "needs_review", label: "Pending Review" },
+  { value: "reviewed", label: "Resolved" },
+  { value: "referred", label: "Resolved" },
   { value: "system_handled", label: "Automatically Handled" },
   { value: "sync_center", label: "Review in Sync Center" },
+];
+
+const mswdoStatusFilters = [
+  { value: "all", label: "All review statuses" },
+  { value: "needs_review", label: "Open" },
+  { value: "reviewed", label: "Reviewed / Result Recorded" },
+  { value: "referred", label: "Referred" },
+  { value: "system_handled", label: "Dismissed / Automatically Handled" },
+  { value: "sync_center", label: "Sync Center Review" },
 ];
 
 const orderOptions = [
@@ -139,8 +176,10 @@ const orderOptions = [
 
 const DEFAULT_PAGE_SIZE = 50;
 const REVIEW_NOTE_MAX_LENGTH = 2000;
-const STALE_REVIEW_MESSAGE =
+const BARANGAY_STALE_REVIEW_MESSAGE =
   "This anomaly is no longer available for review. Its underlying record may have changed or it may no longer require Barangay review.";
+const MSWDO_STALE_REVIEW_MESSAGE =
+  "This anomaly is no longer available for review. Its underlying record may have changed or it may no longer require MSWDO review.";
 const pageSizeOptions = [25, 50, 100];
 
 const modalStyles = {
@@ -274,15 +313,55 @@ const formatDateTime = (value) => {
   });
 };
 
-const formatEventLabel = (row) => row?.title || row?.disaster_event_title || "Not available";
-
-const formatAffectedRecord = (row) => row?.family_head_name || "Not identified";
-
 const formatNullableValue = (value, fallback = "Not available") => {
   const normalizedValue = String(value || "").trim();
 
   return normalizedValue || fallback;
 };
+
+const formatEventLabel = (row) =>
+  formatNullableValue(
+    row?.disaster_event_title ||
+      row?.disaster_event?.title ||
+      row?.disasterEvent?.title,
+  );
+
+const formatAffectedRecord = (row, isBarangayScope = true) => {
+  const familyHeadName = String(row?.family_head_name || "").trim();
+
+  if (isBarangayScope) {
+    return familyHeadName || "Not identified";
+  }
+
+  const affectedRecordLabels = {
+    SUSPICIOUS_DISTRIBUTION_ACTIVITY: familyHeadName
+      ? `${familyHeadName} household distribution`
+      : "Distribution record",
+    SYNC_FAILED: familyHeadName
+      ? `${familyHeadName} synchronization record`
+      : "Synchronization record",
+    SYNC_CONFLICT: familyHeadName
+      ? `${familyHeadName} synchronization record`
+      : "Synchronization record",
+    DUPLICATE_CLAIM_ATTEMPT: familyHeadName
+      ? `${familyHeadName} relief claim`
+      : "Relief claim record",
+    DUPLICATE_HOUSEHOLD_REGISTRATION: familyHeadName
+      ? `${familyHeadName} household`
+      : "Household record",
+    INVENTORY_DISTRIBUTION_MISMATCH: familyHeadName
+      ? `${familyHeadName} distribution record`
+      : "Inventory / distribution record",
+    FAILED_STUB_OR_QR_VERIFICATION: familyHeadName
+      ? `${familyHeadName} stub or QR record`
+      : "Stub or QR record",
+  };
+
+  return affectedRecordLabels[row?.anomaly_type] || familyHeadName || "Operational record";
+};
+
+const formatBarangayLabel = (row) =>
+  formatNullableValue(row?.barangay_name, "Not attributed");
 
 const normalizeBarangayName = (value) => String(value || "").trim().toLowerCase();
 
@@ -382,7 +461,15 @@ const isBarangayInEventScope = (barangay, scope) => {
 const getStatusCategory = (row) => {
   const reviewState = String(row?.review_state || "").toLowerCase();
 
-  if (reviewState === "reviewed" || reviewState === "referred" || reviewState === "system_handled") {
+  if (reviewState === "needs_review") {
+    return "open";
+  }
+
+  if (
+    reviewState === "reviewed" ||
+    reviewState === "referred" ||
+    reviewState === "system_handled"
+  ) {
     return "resolved";
   }
 
@@ -404,17 +491,55 @@ const getStatusCategory = (row) => {
   return "resolved";
 };
 
-const getStatusLabel = (row) => {
-  const reviewLabel = getAnomalyReviewStateLabel(row);
+const isManualReviewableAnomaly = (row) => row?.manual_review_allowed === true;
+
+const getStatusLabel = (row, scope = "barangay") => {
+  if (scope === "barangay") {
+    if (isManualReviewableAnomaly(row)) {
+      return row?.review_status ? "Resolved" : "Pending Review";
+    }
+
+    if (
+      row?.review_state === "sync_center" ||
+      row?.anomaly_type === "SYNC_CONFLICT" ||
+      row?.anomaly_type === "SYNC_FAILED"
+    ) {
+      return "Sync Center";
+    }
+
+    return "Automatically Handled";
+  }
+
+  const reviewLabel = getAnomalyReviewStateLabel(row, scope);
 
   if (reviewLabel) {
     return reviewLabel;
   }
 
+  if (scope === "mswdo") {
+    return getStatusCategory(row) === "failed" ? "Sync Center Review" : "Open";
+  }
+
   return getStatusCategory(row) === "failed" ? "Sync Retry Needed" : "Needs Review";
 };
 
-const StatusPill = ({ row }) => {
+const getAnomalyRowActionLabel = (row) => {
+  if (isManualReviewableAnomaly(row)) {
+    return "Review";
+  }
+
+  if (
+    row?.review_state === "sync_center" ||
+    row?.anomaly_type === "SYNC_CONFLICT" ||
+    row?.anomaly_type === "SYNC_FAILED"
+  ) {
+    return "Sync Center";
+  }
+
+  return "No review needed";
+};
+
+const StatusPill = ({ row, scope = "barangay" }) => {
   const category = getStatusCategory(row);
   const palette = statusPalette[category] || statusPalette.open;
 
@@ -434,7 +559,7 @@ const StatusPill = ({ row }) => {
         whiteSpace: "nowrap",
       }}
     >
-      {getStatusLabel(row)}
+      {getStatusLabel(row, scope)}
     </span>
   );
 };
@@ -504,7 +629,14 @@ const AnomalyDetailModal = ({
     return null;
   }
 
-  const presentation = getAnomalyPresentation(anomaly.anomaly_type);
+  const presentationScope = isBarangayScope ? "barangay" : "mswdo";
+  const presentation = getAnomalyPresentation(
+    anomaly.anomaly_type,
+    presentationScope,
+  );
+  const availableReviewOutcomeOptions = isBarangayScope
+    ? reviewOutcomeOptions
+    : mswdoReviewOutcomeOptions;
   const displayedAnomaly = localReview
     ? {
         ...anomaly,
@@ -522,22 +654,35 @@ const AnomalyDetailModal = ({
   const hasSavedReview = Boolean(displayedAnomaly.review_status);
   const isSyncAnomaly = anomaly.anomaly_type === "SYNC_CONFLICT" || anomaly.anomaly_type === "SYNC_FAILED";
   const canRecordReview =
-    isBarangayScope &&
     anomaly.manual_review_allowed === true &&
+    (isBarangayScope || Boolean(anomaly.barangay_id)) &&
     !isReviewUnavailable;
-  const shouldShowReviewForm = canRecordReview && (!hasSavedReview || isEditingReview);
+  const needsBarangayAttribution =
+    !isBarangayScope &&
+    displayedAnomaly.review_state === "needs_review" &&
+    !displayedAnomaly.barangay_id;
+  const canEditSavedReview =
+    isBarangayScope && canRecordReview && hasSavedReview;
+  const shouldShowReviewForm =
+    canRecordReview && (!hasSavedReview || (isBarangayScope && isEditingReview));
   const originalReviewStatus = hasSavedReview ? displayedAnomaly.review_status || "" : "";
   const originalReviewNote = hasSavedReview
     ? getNormalizedReviewNote(displayedAnomaly.resolution_reason)
     : "";
   const currentReviewNote = getNormalizedReviewNote(resolutionReason);
   const reviewHasChanges =
-    !hasSavedReview ||
-    reviewStatus !== originalReviewStatus ||
-    currentReviewNote !== originalReviewNote;
+    hasSavedReview
+      ? reviewStatus !== originalReviewStatus ||
+        currentReviewNote !== originalReviewNote
+      : Boolean(reviewStatus || currentReviewNote);
+  const hasValidReviewInput =
+    Boolean(reviewStatus) &&
+    currentReviewNote.length > 0 &&
+    currentReviewNote.length <= REVIEW_NOTE_MAX_LENGTH;
   const isSaveDisabled =
     isSubmittingReview ||
-    (hasSavedReview && isEditingReview && !reviewHasChanges);
+    !reviewHasChanges ||
+    !hasValidReviewInput;
   const reviewOutcomeErrorId = "anomaly-review-outcome-error";
   const reviewOutcomeHelperId = "anomaly-review-outcome-helper";
   const reviewNoteErrorId = "anomaly-review-note-error";
@@ -590,7 +735,7 @@ const AnomalyDetailModal = ({
     try {
       setIsSubmittingReview(true);
 
-      const response = await saveBarangayAnomalyReview({
+      const response = await saveAnomalyReview({
         source_type: anomaly.source_type,
         source_id: anomaly.source_id,
         anomaly_type: anomaly.anomaly_type,
@@ -604,6 +749,24 @@ const AnomalyDetailModal = ({
       setReviewSubmitError("");
       await onReviewSaved?.(response?.data || null);
     } catch (error) {
+      if (error.code === "ANOMALY_REVIEW_BARANGAY_REQUIRED") {
+        setIsReviewUnavailable(true);
+        setReviewSubmitError(
+          "Affected Barangay information must be identified before MSWDO can record a review result.",
+        );
+        await onReviewStale?.();
+        return;
+      }
+
+      if (error.code === "ANOMALY_REVIEW_FINAL") {
+        setIsReviewUnavailable(true);
+        setReviewSubmitError(
+          "This anomaly has already been reviewed. The completed review is final and read-only.",
+        );
+        await onReviewStale?.();
+        return;
+      }
+
       if (
         error.code === "ANOMALY_REVIEW_UNAVAILABLE" ||
         error.code === "ANOMALY_REVIEW_NOT_ALLOWED" ||
@@ -611,7 +774,11 @@ const AnomalyDetailModal = ({
         error.statusCode === 409
       ) {
         setIsReviewUnavailable(true);
-        setReviewSubmitError(STALE_REVIEW_MESSAGE);
+        setReviewSubmitError(
+          isBarangayScope
+            ? BARANGAY_STALE_REVIEW_MESSAGE
+            : MSWDO_STALE_REVIEW_MESSAGE,
+        );
         await onReviewStale?.();
         return;
       }
@@ -625,6 +792,10 @@ const AnomalyDetailModal = ({
   };
 
   const startEditingReview = () => {
+    if (!canEditSavedReview) {
+      return;
+    }
+
     setIsEditingReview(true);
     setReviewStatus(displayedAnomaly.review_status || "");
     setResolutionReason(displayedAnomaly.resolution_reason || "");
@@ -652,7 +823,7 @@ const AnomalyDetailModal = ({
       </button>
       <button
         type="submit"
-        form="barangay-anomaly-review-form"
+        form="anomaly-review-form"
         disabled={isSaveDisabled}
         aria-busy={isSubmittingReview}
         style={pageHeaderStyles.primaryButton}
@@ -664,7 +835,7 @@ const AnomalyDetailModal = ({
             : "Save Review"}
       </button>
     </>
-  ) : canRecordReview && hasSavedReview ? (
+  ) : canEditSavedReview ? (
     <>
       <button type="button" onClick={onClose} style={pageHeaderStyles.secondaryButton}>
         Close
@@ -682,7 +853,7 @@ const AnomalyDetailModal = ({
   return (
     <FormModalShell
       isOpen
-      title="Anomaly Details"
+      title={isBarangayScope && !hasSavedReview ? "Review Anomaly" : "Anomaly Details"}
       onClose={onClose}
       closeButtonLabel="Close anomaly details"
       closeOnBackdrop={false}
@@ -695,7 +866,7 @@ const AnomalyDetailModal = ({
       footer={modalFooter}
     >
       <div style={{ ...modalStyles.card, marginBottom: "16px" }}>
-        <div style={labelStyles}>Anomaly</div>
+        <div style={labelStyles}>Anomaly Type</div>
         <div
           style={{
             display: "flex",
@@ -706,7 +877,7 @@ const AnomalyDetailModal = ({
           }}
         >
           <strong style={{ ...modalStyles.value, fontSize: "16px" }}>{presentation.label}</strong>
-          <StatusPill row={displayedAnomaly} />
+          <StatusPill row={displayedAnomaly} scope={presentationScope} />
         </div>
       </div>
 
@@ -718,42 +889,50 @@ const AnomalyDetailModal = ({
               {formatEventLabel(displayedAnomaly)}
             </DetailField>
             <DetailField label="Affected Record">
-              {formatAffectedRecord(displayedAnomaly)}
+              {formatAffectedRecord(displayedAnomaly, isBarangayScope)}
             </DetailField>
             <DetailField label="Detected At">
-              {formatDateTime(displayedAnomaly.occurred_at)}
+              {formatDateTime(displayedAnomaly.detected_at)}
             </DetailField>
             {!isBarangayScope ? (
-              <DetailField label="Barangay">
-                {formatNullableValue(displayedAnomaly.barangay_name)}
-              </DetailField>
+              <>
+                <DetailField label="Barangay">
+                  {formatBarangayLabel(displayedAnomaly)}
+                </DetailField>
+                <DetailField label="Review Status">
+                  <StatusPill row={displayedAnomaly} scope={presentationScope} />
+                </DetailField>
+              </>
             ) : null}
           </div>
         </div>
 
         <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
           <div style={labelStyles}>Why Flagged</div>
-          <div style={modalStyles.value}>{getAnomalyExplanation(displayedAnomaly)}</div>
+          <div style={modalStyles.value}>
+            {getAnomalyExplanation(displayedAnomaly, presentationScope)}
+          </div>
         </div>
 
         <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
           <div style={labelStyles}>Recommended Action</div>
           <div style={modalStyles.fieldStack}>
             <DetailField label="Recommendation">
-              {getAnomalyActionSummary(displayedAnomaly)}
+              {getAnomalyActionSummary(displayedAnomaly, presentationScope)}
             </DetailField>
             <DetailField label="Responsible Office">
-              {getAnomalyOwner(displayedAnomaly)}
+              {getAnomalyOwner(displayedAnomaly, presentationScope)}
             </DetailField>
           </div>
         </div>
 
-        {isSyncAnomaly && isBarangayScope ? (
+        {isSyncAnomaly ? (
           <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
             <div style={labelStyles}>Related Information</div>
             <div style={modalStyles.value}>
-              This item is primarily handled in Sync Center. Review the local queue,
-              server history, and conflict details there before taking operational action.
+              {isBarangayScope
+                ? "This item is primarily handled in Sync Center. Review the local queue, server history, and conflict details there before taking operational action."
+                : "This synchronization issue is shown here for consolidated monitoring. Sync Center remains responsible for synchronization operations, recovery, and conflict handling."}
             </div>
           </div>
         ) : null}
@@ -762,8 +941,14 @@ const AnomalyDetailModal = ({
           <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
             <div style={labelStyles}>Review Result</div>
             <div style={modalStyles.fieldGrid}>
+              <DetailField label="Review Status">
+                <StatusPill row={displayedAnomaly} scope={presentationScope} />
+              </DetailField>
               <DetailField label="Outcome">
-                {formatReviewOutcome(displayedAnomaly.review_status)}
+                {formatReviewOutcome(
+                  displayedAnomaly.review_status,
+                  presentationScope,
+                )}
               </DetailField>
               <DetailField label="Reviewed By">
                 {displayedAnomaly.reviewer_name || "Not available"}
@@ -771,7 +956,7 @@ const AnomalyDetailModal = ({
               <DetailField label="Reviewed At">
                 {formatDateTime(displayedAnomaly.reviewed_at)}
               </DetailField>
-              <DetailField label="Review Note">
+              <DetailField label={isBarangayScope ? "Review Note" : "Review Notes"}>
                 {displayedAnomaly.resolution_reason || "Not available"}
               </DetailField>
             </div>
@@ -783,6 +968,15 @@ const AnomalyDetailModal = ({
             <div style={labelStyles}>Resolution</div>
             <div style={modalStyles.value}>
               Automatically handled by DISTYNC. No separate Barangay anomaly review is required.
+            </div>
+          </div>
+        ) : null}
+
+        {needsBarangayAttribution ? (
+          <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
+            <div style={labelStyles}>Review Availability</div>
+            <div style={modalStyles.value}>
+              Affected Barangay information must be identified before MSWDO can record a review result.
             </div>
           </div>
         ) : null}
@@ -799,7 +993,7 @@ const AnomalyDetailModal = ({
 
         {shouldShowReviewForm ? (
           <form
-            id="barangay-anomaly-review-form"
+            id="anomaly-review-form"
             onSubmit={handleReviewSubmit}
             noValidate
             style={{ ...modalStyles.card, gridColumn: "1 / -1", padding: "14px" }}
@@ -823,12 +1017,16 @@ const AnomalyDetailModal = ({
               <legend style={labelStyles}>
                 {hasSavedReview ? "Edit Review" : "Record Review"}
               </legend>
-              <div style={{ ...labelStyles, marginBottom: 0 }}>Review Outcome *</div>
+              <div style={{ ...labelStyles, marginBottom: 0 }}>
+                Review Outcome *
+              </div>
               <p id={reviewOutcomeHelperId} style={modalStyles.helperText}>
-                Select the result that best matches your verification.
+                {isBarangayScope
+                  ? "Select the result that best matches your verification."
+                  : "Select the result that best documents MSWDO validation."}
               </p>
               <div style={{ display: "grid", gap: "8px", marginBottom: "10px" }}>
-                {reviewOutcomeOptions.map((option) => (
+                {availableReviewOutcomeOptions.map((option) => (
                   <label
                     key={option.value}
                     style={{
@@ -883,7 +1081,9 @@ const AnomalyDetailModal = ({
               Review Note *
             </label>
             <p id={reviewNoteHelperId} style={modalStyles.helperText}>
-              Briefly describe what you verified and why you selected this outcome.
+              {isBarangayScope
+                ? "Briefly describe what you verified and why you selected this outcome."
+                : "Document what MSWDO validated, coordinated, or referred and why this result was selected."}
             </p>
             <textarea
               id="anomaly-review-note"
@@ -914,17 +1114,6 @@ const AnomalyDetailModal = ({
           </form>
         ) : null}
 
-        {!isBarangayScope ? (
-          <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
-            <div style={labelStyles}>Technical Reference</div>
-            <div style={modalStyles.value}>
-              Current state: {anomaly.resolution_status || anomaly.status || "Not available"}
-              {anomaly.reference_id ? `\nReference: ${anomaly.reference_id}` : ""}
-              {anomaly.source_type ? `\nSource: ${anomaly.source_type}` : ""}
-              {anomaly.source_id ? `\nSource ID: ${anomaly.source_id}` : ""}
-            </div>
-          </div>
-        ) : null}
       </div>
     </FormModalShell>
   );
@@ -938,6 +1127,10 @@ const AnomalyTrackingPage = ({
   scopeErrorMessage = "",
 }) => {
   const isBarangayScope = scope === "barangay";
+  const presentationScope = isBarangayScope ? "barangay" : "mswdo";
+  const availableStatusFilters = isBarangayScope
+    ? statusFilters
+    : mswdoStatusFilters;
   const availableAnomalyTypes = useMemo(
     () => getAnomalyTypesForScope(scope),
     [scope],
@@ -1343,12 +1536,7 @@ const AnomalyTrackingPage = ({
   return (
     <div style={pageSpacingStyles.pageStack}>
       <PageHeader
-        title={isBarangayScope ? "Anomaly Tracking" : "Anomaly Tracking Management"}
-        description={
-          isBarangayScope
-            ? ""
-            : "Monitor operational records that may need review across disaster-relief workflows."
-        }
+        title="Anomaly Tracking"
         actions={[]}
       />
 
@@ -1399,7 +1587,7 @@ const AnomalyTrackingPage = ({
                 disabled={isLoadingFilters}
                 style={inputStyles}
               >
-                <option value="">All barangays</option>
+                <option value="">All Barangays</option>
                 {availableBarangays.map((row) => (
                   <option key={row.id} value={row.id}>
                     {row.name}
@@ -1473,9 +1661,9 @@ const AnomalyTrackingPage = ({
       {!isBarangayScope ? (
         <div style={shellStyles.statGrid}>
           <StatusCard label="Total Detected" value={totalItems} />
-          <StatusCard label="Needs Review on Page" value={summary.open} />
-          <StatusCard label="Sync Retry Needed on Page" value={summary.failed} />
-          <StatusCard label="No Action / Referred on Page" value={summary.resolved} />
+          <StatusCard label="Open on Page" value={summary.open} />
+          <StatusCard label="Sync Center Items on Page" value={summary.failed} />
+          <StatusCard label="Reviewed / Dismissed on Page" value={summary.resolved} />
         </div>
       ) : null}
 
@@ -1500,7 +1688,12 @@ const AnomalyTrackingPage = ({
                 search: event.target.value,
               }))
             }
-            placeholder="Search anomaly type, family head, barangay, event, or reason"
+            placeholder={
+              isBarangayScope
+                ? "Search anomaly type, family head, barangay, event, or reason"
+                : "Search anomaly type, Barangay, affected record, event, reason, review status, or notes"
+            }
+            aria-label="Search anomaly records"
             style={searchInputStyles}
           />
         </div>
@@ -1541,7 +1734,7 @@ const AnomalyTrackingPage = ({
                 fontWeight: 600,
               }}
             >
-              {statusFilters.map((status) => (
+              {availableStatusFilters.map((status) => (
                 <option key={status.value} value={status.value}>
                   {status.label}
                 </option>
@@ -1631,14 +1824,17 @@ const AnomalyTrackingPage = ({
               <table
                 style={{
                   ...tableStyles.table,
-                  minWidth: isBarangayScope ? barangayAnomalyTableMinWidth : undefined,
+                  minWidth: isBarangayScope
+                    ? barangayAnomalyTableMinWidth
+                    : mswdoAnomalyTableMinWidth,
                 }}
               >
                 <thead>
                   {isBarangayScope ? (
                     <tr>
-                      <th style={{ ...tableStyles.th, ...barangayAnomalyColumnStyles.anomaly }}>Anomaly</th>
+                      <th style={{ ...tableStyles.th, ...barangayAnomalyColumnStyles.anomalyType }}>Anomaly Type</th>
                       <th style={{ ...tableStyles.th, ...barangayAnomalyColumnStyles.affectedRecord }}>Affected Record</th>
+                      <th style={{ ...tableStyles.th, ...barangayAnomalyColumnStyles.disasterEvent }}>Disaster Event</th>
                       <th style={{ ...tableStyles.th, ...barangayAnomalyColumnStyles.whyFlagged }}>Why Flagged</th>
                       <th style={{ ...tableStyles.th, ...barangayAnomalyColumnStyles.reviewStatus }}>Review Status</th>
                       <th style={{ ...tableStyles.th, ...barangayAnomalyColumnStyles.detectedAt }}>Detected At</th>
@@ -1646,16 +1842,14 @@ const AnomalyTrackingPage = ({
                     </tr>
                   ) : (
                     <tr>
-                      <th style={tableStyles.th}>Anomaly Type</th>
-                      <th style={tableStyles.th}>Disaster Event</th>
-                      <th style={tableStyles.th}>Barangay</th>
-                      <th style={tableStyles.th}>Household / Stub</th>
-                      <th style={tableStyles.th}>Why Flagged</th>
-                      <th style={tableStyles.th}>Action Required</th>
-                      <th style={tableStyles.th}>Responsible Office</th>
-                      <th style={tableStyles.th}>Status</th>
-                      <th style={tableStyles.th}>Detected At</th>
-                      <th style={{ ...tableStyles.th, textAlign: "center" }}>Action</th>
+                      <th style={{ ...tableStyles.th, ...mswdoAnomalyColumnStyles.anomalyType }}>Anomaly Type</th>
+                      <th style={{ ...tableStyles.th, ...mswdoAnomalyColumnStyles.barangay }}>Barangay</th>
+                      <th style={{ ...tableStyles.th, ...mswdoAnomalyColumnStyles.affectedRecord }}>Affected Record</th>
+                      <th style={{ ...tableStyles.th, ...mswdoAnomalyColumnStyles.disasterEvent }}>Disaster Event</th>
+                      <th style={{ ...tableStyles.th, ...mswdoAnomalyColumnStyles.whyFlagged }}>Why Flagged</th>
+                      <th style={{ ...tableStyles.th, ...mswdoAnomalyColumnStyles.reviewStatus }}>Review Status</th>
+                      <th style={{ ...tableStyles.th, ...mswdoAnomalyColumnStyles.detectedAt }}>Detected At</th>
+                      <th style={{ ...tableStyles.th, ...mswdoAnomalyColumnStyles.action }}>Action</th>
                     </tr>
                   )}
                 </thead>
@@ -1664,87 +1858,91 @@ const AnomalyTrackingPage = ({
                     <tr
                       key={`${row.anomaly_type}-${row.reference_id || "no-reference"}-${
                         row.source_type || "no-source"
-                      }-${row.source_id || row.occurred_at || rowIndex}`}
+                      }-${row.source_id || row.detected_at || rowIndex}`}
                     >
                       {isBarangayScope ? (
                         <>
-                          <td style={{ ...tableStyles.td, ...barangayAnomalyColumnStyles.anomaly }}>
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "flex-start",
-                                gap: "8px",
-                                fontWeight: 700,
-                              }}
-                            >
-                              <FiAlertTriangle size={16} color="#9a6400" style={{ flexShrink: 0, marginTop: "2px" }} />
-                              {formatAnomalyType(row.anomaly_type)}
+                          <td style={{ ...tableStyles.td, ...barangayAnomalyColumnStyles.anomalyType }}>
+                            <span style={{ fontWeight: 700 }}>
+                              {formatAnomalyType(row.anomaly_type, presentationScope)}
                             </span>
                           </td>
                           <td style={{ ...tableStyles.td, ...barangayAnomalyColumnStyles.affectedRecord }}>
-                            {formatAffectedRecord(row)}
+                            {formatAffectedRecord(row, true)}
+                          </td>
+                          <td style={{ ...tableStyles.td, ...barangayAnomalyColumnStyles.disasterEvent }}>
+                            {formatEventLabel(row)}
                           </td>
                           <td style={{ ...tableStyles.td, ...barangayAnomalyColumnStyles.whyFlagged }}>
-                            {getAnomalyExplanation(row)}
+                            {getAnomalyExplanation(row, presentationScope)}
                           </td>
                           <td style={{ ...tableStyles.td, ...barangayAnomalyColumnStyles.reviewStatus }}>
-                            <StatusPill row={row} />
+                            <StatusPill row={row} scope={presentationScope} />
                           </td>
                           <td style={{ ...tableStyles.td, ...barangayAnomalyColumnStyles.detectedAt }}>
-                            {formatDateTime(row.occurred_at)}
+                            {formatDateTime(row.detected_at)}
                           </td>
                         </>
                       ) : (
                         <>
-                          <td style={tableStyles.td}>
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "8px",
-                                fontWeight: 700,
-                              }}
-                            >
-                              <FiAlertTriangle size={16} color="#9a6400" />
-                              {formatAnomalyType(row.anomaly_type)}
+                          <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.anomalyType }}>
+                            <span style={{ fontWeight: 700 }}>
+                              {formatAnomalyType(row.anomaly_type, presentationScope)}
                             </span>
                           </td>
-                          <td style={tableStyles.td}>{formatEventLabel(row)}</td>
-                          <td style={tableStyles.td}>{row.barangay_name || "Not available"}</td>
-                          <td style={tableStyles.td}>{formatAffectedRecord(row)}</td>
-                          <td style={{ ...tableStyles.td, minWidth: "260px" }}>
-                            {getAnomalyExplanation(row)}
+                          <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.barangay }}>
+                            {formatBarangayLabel(row)}
                           </td>
-                          <td style={{ ...tableStyles.td, minWidth: "220px" }}>
-                            {getAnomalyActionSummary(row)}
+                          <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.affectedRecord }}>
+                            {formatAffectedRecord(row, false)}
                           </td>
-                          <td style={tableStyles.td}>{getAnomalyOwner(row)}</td>
-                          <td style={tableStyles.td}>
-                            {getAnomalyActionRequired(row)}
+                          <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.disasterEvent }}>
+                            {formatEventLabel(row)}
                           </td>
-                          <td style={tableStyles.td}>
-                            <StatusPill row={row} />
+                          <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.whyFlagged }}>
+                            {getAnomalyExplanation(row, presentationScope)}
                           </td>
-                          <td style={tableStyles.td}>{formatDateTime(row.occurred_at)}</td>
+                          <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.reviewStatus }}>
+                            <StatusPill row={row} scope={presentationScope} />
+                          </td>
+                          <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.detectedAt }}>
+                            {formatDateTime(row.detected_at)}
+                          </td>
                         </>
                       )}
                       <td
                         style={{
                           ...tableStyles.td,
-                          ...(isBarangayScope ? barangayAnomalyColumnStyles.action : { textAlign: "center" }),
+                          ...(isBarangayScope
+                            ? barangayAnomalyColumnStyles.action
+                            : mswdoAnomalyColumnStyles.action),
                         }}
                       >
-                        <div style={{ display: "inline-flex", gap: "8px" }}>
+                        {isBarangayScope && isManualReviewableAnomaly(row) && row.review_status ? (
                           <button
                             type="button"
                             onClick={(event) => openAnomalyDetails(row, event)}
-                            aria-label={`View details for ${formatAnomalyType(row.anomaly_type)}`}
-                            title={`View details for ${formatAnomalyType(row.anomaly_type)}`}
+                            aria-label="View anomaly details"
+                            title="View anomaly details"
                             style={viewButtonStyles}
                           >
-                            <FiEye size={18} />
+                            <FiEye size={18} aria-hidden="true" />
                           </button>
-                        </div>
+                        ) : isManualReviewableAnomaly(row) ? (
+                          <button
+                            type="button"
+                            onClick={(event) => openAnomalyDetails(row, event)}
+                            aria-label="Review anomaly"
+                            title="Review anomaly"
+                            style={reviewButtonStyles}
+                          >
+                            Review
+                          </button>
+                        ) : (
+                          <span style={nonReviewActionStyles}>
+                            {getAnomalyRowActionLabel(row)}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}

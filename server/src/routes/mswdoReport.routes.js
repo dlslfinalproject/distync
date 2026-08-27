@@ -65,24 +65,27 @@ router.get(
 
 router.post(
   "/anomalies/reviews",
-  requireRoles(ROLE_CODES.BARANGAY),
+  requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.BARANGAY),
   validateAnomalyReviewPayload,
   async (req, res) => {
     try {
-      let assignedBarangayId = req.auth.defaultBarangayId;
+      const isBarangayScope = req.auth.roleCode === ROLE_CODES.BARANGAY;
+      let assignedBarangayId = isBarangayScope
+        ? req.auth.defaultBarangayId
+        : null;
 
-      if (!assignedBarangayId && req.auth.userId) {
+      if (isBarangayScope && !assignedBarangayId && req.auth.userId) {
         const user = await settingsRepository.getUserById(req.auth.userId);
         assignedBarangayId = user?.default_barangay_id || null;
       }
 
-      if (!assignedBarangayId) {
+      if (isBarangayScope && !assignedBarangayId) {
         return res.status(403).json({
           message: "No assigned barangay. Please contact administrator.",
         });
       }
 
-      const review = await mswdoReportService.upsertBarangayAnomalyReview({
+      const review = await mswdoReportService.upsertAnomalyReview({
         payload: req.validatedBody,
         barangayId: assignedBarangayId,
         auth: {
@@ -92,13 +95,13 @@ router.post(
       });
 
       return res.status(200).json({
-        message: "Barangay anomaly review saved successfully",
+        message: `${isBarangayScope ? "Barangay" : "MSWDO"} anomaly review saved successfully`,
         data: review,
       });
     } catch (error) {
       return res.status(error.statusCode || 500).json({
         code: error.code || null,
-        message: error.message || "Failed to save Barangay anomaly review",
+        message: error.message || "Failed to save anomaly review",
       });
     }
   },

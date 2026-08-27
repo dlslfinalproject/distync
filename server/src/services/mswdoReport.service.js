@@ -15,6 +15,13 @@ const createHttpError = (statusCode, message, code = null) => {
   return error;
 };
 
+const createFinalAnomalyReviewError = () =>
+  createHttpError(
+    409,
+    "This anomaly has already been reviewed. Completed reviews cannot be changed.",
+    "ANOMALY_REVIEW_FINAL",
+  );
+
 const getAnomalyTracking = async (filters) => {
   return mswdoReportRepository.getMswdoAnomalyTracking({
     disasterEventId: filters.disasterEventId || filters.disaster_event_id || null,
@@ -34,8 +41,11 @@ const getAnomalyTracking = async (filters) => {
   });
 };
 
-const upsertBarangayAnomalyReview = async ({ payload, auth, barangayId }) => {
-  if (!barangayId) {
+const upsertAnomalyReview = async ({ payload, auth, barangayId = null }) => {
+  const isBarangayScope = auth?.roleCode === "BARANGAY";
+  const roleScope = isBarangayScope ? "BARANGAY" : "MSWDO";
+
+  if (isBarangayScope && !barangayId) {
     throw createHttpError(403, "No assigned barangay. Please contact administrator.");
   }
 
@@ -43,26 +53,42 @@ const upsertBarangayAnomalyReview = async ({ payload, auth, barangayId }) => {
     throw createHttpError(401, "Authentication is required for this request");
   }
 
+  if (!isBarangayScope && auth?.roleCode !== "MSWDO") {
+    throw createHttpError(403, "This role cannot record anomaly review results");
+  }
+
   if (!MANUAL_REVIEW_ANOMALY_TYPES.has(payload.anomaly_type)) {
     throw createHttpError(
       400,
-      "This anomaly is not eligible for manual Barangay review",
+      "This anomaly is not eligible for manual review",
     );
   }
 
   const anomaly = await mswdoReportRepository.findAnomalyBySourceIdentity({
-    barangayId,
+    barangayId: isBarangayScope ? barangayId : null,
     anomalyType: payload.anomaly_type,
     sourceType: payload.source_type,
     sourceId: payload.source_id,
-    roleScope: "BARANGAY",
+    roleScope,
   });
 
   if (!anomaly) {
     throw createHttpError(
       404,
-      "This anomaly is no longer available for review. Its underlying record may have changed or it may no longer require Barangay review.",
+      "This anomaly is no longer available for review. Its underlying record may have changed or it may no longer require review.",
       "ANOMALY_REVIEW_UNAVAILABLE",
+    );
+  }
+
+  const reviewBarangayId = isBarangayScope
+    ? barangayId
+    : anomaly.barangay_id || null;
+
+  if (!reviewBarangayId) {
+    throw createHttpError(
+      409,
+      "A Barangay must be identified before a review result can be recorded for this anomaly.",
+      "ANOMALY_REVIEW_BARANGAY_REQUIRED",
     );
   }
 
@@ -84,16 +110,34 @@ const upsertBarangayAnomalyReview = async ({ payload, auth, barangayId }) => {
       }
     : null;
 
-  const review = await mswdoReportRepository.upsertAnomalyReview({
+  if (!isBarangayScope && existingReview) {
+    throw createFinalAnomalyReviewError();
+  }
+
+  const reviewPayload = {
     sourceType: payload.source_type,
     sourceId: payload.source_id,
     anomalyType: payload.anomaly_type,
-    barangayId,
+    barangayId: reviewBarangayId,
     disasterEventId: anomaly.disaster_event_id || null,
     reviewStatus: payload.review_status,
     resolutionReason: payload.resolution_reason,
     reviewedBy: auth.userId,
-  });
+  };
+
+  let review;
+
+  try {
+    review = await (isBarangayScope
+      ? mswdoReportRepository.upsertAnomalyReview(reviewPayload)
+      : mswdoReportRepository.createAnomalyReview(reviewPayload));
+  } catch (error) {
+    if (!isBarangayScope && error?.code === "23505") {
+      throw createFinalAnomalyReviewError();
+    }
+
+    throw error;
+  }
 
   await logAuditSafely({
     actor: {
@@ -125,5 +169,6 @@ const upsertBarangayAnomalyReview = async ({ payload, auth, barangayId }) => {
 
 module.exports = {
   getAnomalyTracking,
-  upsertBarangayAnomalyReview,
+  upsertAnomalyReview,
+  upsertBarangayAnomalyReview: upsertAnomalyReview,
 };

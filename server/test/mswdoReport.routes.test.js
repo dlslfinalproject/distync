@@ -41,13 +41,18 @@ const withStubbedMswdoReportRoute = async (
           MSWDO: "MSWDO",
           BARANGAY: "BARANGAY",
         },
-        requireRoles: (...allowedRoles) => (req, _res, next) => {
+        requireRoles: (...allowedRoles) => (req, res, next) => {
           req.allowedRoles = allowedRoles;
           req.auth = {
             userId,
             roleCode,
             defaultBarangayId,
           };
+
+          if (!allowedRoles.includes(roleCode)) {
+            return res.status(403).json({ message: "Forbidden" });
+          }
+
           next();
         },
       },
@@ -58,6 +63,7 @@ const withStubbedMswdoReportRoute = async (
       loaded: true,
       exports: {
         getAnomalyTracking: serviceImpl,
+        upsertAnomalyReview: serviceImpl,
         upsertBarangayAnomalyReview: serviceImpl,
       },
     };
@@ -288,6 +294,37 @@ test("H01-11 MSWDO route preserves explicit consolidated barangay filtering", as
   );
 });
 
+test("MSWDO route remains municipality-wide when no Barangay filter is selected", async () => {
+  let capturedFilters = null;
+
+  await withStubbedMswdoReportRoute(
+    {
+      roleCode: "MSWDO",
+      defaultBarangayId: "barangay-a",
+      serviceImpl: async (filters) => {
+        capturedFilters = filters;
+        return [];
+      },
+    },
+    async (router) => {
+      const server = await listen(router);
+
+      try {
+        const port = server.address().port;
+        const response = await fetch(
+          `http://127.0.0.1:${port}/api/v1/mswdo-reports/anomalies`,
+        );
+
+        assert.equal(response.status, 200);
+        assert.equal(capturedFilters.barangay_id, null);
+        assert.equal(capturedFilters.role_scope, "MSWDO");
+      } finally {
+        await closeServer(server);
+      }
+    },
+  );
+});
+
 test("Barangay review route uses authenticated assignment instead of client barangay_id", async () => {
   let capturedPayload = null;
 
@@ -374,6 +411,132 @@ test("Barangay review route returns structured stale anomaly code", async () => 
         assert.equal(response.status, 404);
         assert.equal(payload.code, "ANOMALY_REVIEW_UNAVAILABLE");
         assert.match(payload.message, /no longer available for review/);
+      } finally {
+        await closeServer(server);
+      }
+    },
+  );
+});
+
+test("MSWDO review route records a consolidated result without using a default Barangay scope", async () => {
+  let capturedPayload = null;
+
+  await withStubbedMswdoReportRoute(
+    {
+      roleCode: "MSWDO",
+      defaultBarangayId: "barangay-a",
+      serviceImpl: async (request) => {
+        capturedPayload = request;
+        return {
+          id: "review-1",
+          review_status: request.payload.review_status,
+        };
+      },
+    },
+    async (router) => {
+      const server = await listen(router);
+
+      try {
+        const port = server.address().port;
+        const response = await fetch(
+          `http://127.0.0.1:${port}/api/v1/mswdo-reports/anomalies/reviews`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              source_type: "ERROR_LOG",
+              source_id: "error-1",
+              anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+              review_status: "ISSUE_CONFIRMED",
+              resolution_reason: "MSWDO validated the duplicate with the Barangay.",
+            }),
+          },
+        );
+        const payload = await response.json();
+
+        assert.equal(response.status, 200);
+        assert.equal(payload.data.review_status, "ISSUE_CONFIRMED");
+        assert.match(payload.message, /MSWDO anomaly review saved/);
+        assert.equal(capturedPayload.barangayId, null);
+        assert.equal(capturedPayload.auth.roleCode, "MSWDO");
+      } finally {
+        await closeServer(server);
+      }
+    },
+  );
+});
+
+test("MSWDO review route exposes final-review conflict for a direct second write attempt", async () => {
+  await withStubbedMswdoReportRoute(
+    {
+      roleCode: "MSWDO",
+      serviceImpl: async () => {
+        const error = new Error(
+          "This anomaly has already been reviewed. Completed reviews cannot be changed.",
+        );
+        error.statusCode = 409;
+        error.code = "ANOMALY_REVIEW_FINAL";
+        throw error;
+      },
+    },
+    async (router) => {
+      const server = await listen(router);
+
+      try {
+        const port = server.address().port;
+        const response = await fetch(
+          `http://127.0.0.1:${port}/api/v1/mswdo-reports/anomalies/reviews`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              source_type: "ERROR_LOG",
+              source_id: "error-final",
+              anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+              review_status: "ISSUE_CONFIRMED",
+              resolution_reason: "Attempted direct replacement.",
+            }),
+          },
+        );
+        const payload = await response.json();
+
+        assert.equal(response.status, 409);
+        assert.equal(payload.code, "ANOMALY_REVIEW_FINAL");
+        assert.match(payload.message, /Completed reviews cannot be changed/);
+      } finally {
+        await closeServer(server);
+      }
+    },
+  );
+});
+
+test("Mayor cannot use the MSWDO and Barangay anomaly review endpoint", async () => {
+  let serviceCalled = false;
+
+  await withStubbedMswdoReportRoute(
+    {
+      roleCode: "MAYOR",
+      serviceImpl: async () => {
+        serviceCalled = true;
+        return {};
+      },
+    },
+    async (router) => {
+      const server = await listen(router);
+
+      try {
+        const port = server.address().port;
+        const response = await fetch(
+          `http://127.0.0.1:${port}/api/v1/mswdo-reports/anomalies/reviews`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          },
+        );
+
+        assert.equal(response.status, 403);
+        assert.equal(serviceCalled, false);
       } finally {
         await closeServer(server);
       }

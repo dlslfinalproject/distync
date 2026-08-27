@@ -226,7 +226,7 @@ const validateAnomalyReviewPayload = (req, res, next) => {
 
     if (!allowedManualReviewSourceTypes.has(normalizedSourceType)) {
       return res.status(400).json({
-        message: "source_type is not reviewable through Barangay anomaly review",
+        message: "source_type is not reviewable through anomaly review",
       });
     }
 
@@ -238,7 +238,7 @@ const validateAnomalyReviewPayload = (req, res, next) => {
 
     if (!allowedManualReviewAnomalyTypes.has(normalizedAnomalyType)) {
       return res.status(400).json({
-        message: "anomaly_type is not eligible for manual Barangay review",
+        message: "anomaly_type is not eligible for manual review",
       });
     }
 
