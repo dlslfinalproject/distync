@@ -53,6 +53,7 @@ const getInventoryItemStockFormByBarcode = async (barcode, dbClient = pool) => {
 const getInventoryItemStockFormByDefinition = async (
   {
     inventory_item_id,
+    barcode,
     packaging,
     units_per_packaging,
     unit_of_measure,
@@ -65,17 +66,23 @@ const getInventoryItemStockFormByDefinition = async (
       ${stockFormSelectFields}
     FROM inventory_item_stock_forms
     WHERE inventory_item_id = $1
-      AND packaging = $2
-      AND units_per_packaging = $3
-      AND unit_of_measure = $4
+      AND is_active = true
       AND (
-        (unit_of_measure_value IS NULL AND $5::numeric IS NULL)
-        OR unit_of_measure_value = $5
+        (barcode IS NULL AND $2::text IS NULL)
+        OR barcode = $2
+      )
+      AND packaging = $3
+      AND units_per_packaging = $4
+      AND unit_of_measure = $5
+      AND (
+        (unit_of_measure_value IS NULL AND $6::numeric IS NULL)
+        OR unit_of_measure_value = $6
       )
   `;
 
   const result = await dbClient.query(query, [
     inventory_item_id,
+    barcode,
     packaging,
     units_per_packaging,
     unit_of_measure,

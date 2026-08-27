@@ -72,7 +72,7 @@ const withStubbedInventoryItemService = async (stubs, runTest) => {
 
 const buildInventoryItemPayload = (overrides = {}) => ({
   item_name: "Century Tuna Flakes in Oil - Test",
-  barcode: "TEST-748485100081",
+  barcode: "0748485100081",
   category: "perishable",
   expiration_date: "2027-08-14",
   packaging: "piece",
@@ -204,7 +204,7 @@ test("createInventoryItem creates opening stock batch and transaction with Mayor
   });
 
   assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
-  assert.equal(calls.insertedItem.barcode, "TEST-748485100081");
+  assert.equal(calls.insertedItem.barcode, "0748485100081");
   assert.equal(calls.insertedItem.expiration_date, "2027-08-14");
   assert.equal(calls.insertedItem.packaging, "piece");
   assert.equal(calls.insertedItem.packaging_count, "100");
@@ -214,7 +214,7 @@ test("createInventoryItem creates opening stock batch and transaction with Mayor
   assert.equal(calls.insertedItem.unit_of_measure_value, "1");
 
   assert.equal(calls.insertedStockForm.inventory_item_id, "item-created");
-  assert.equal(calls.insertedStockForm.barcode, "TEST-748485100081");
+  assert.equal(calls.insertedStockForm.barcode, "0748485100081");
   assert.equal(calls.insertedStockForm.packaging, "piece");
   assert.equal(calls.insertedStockForm.units_per_packaging, 1);
   assert.equal(calls.insertedStockForm.unit_of_measure, "pc");

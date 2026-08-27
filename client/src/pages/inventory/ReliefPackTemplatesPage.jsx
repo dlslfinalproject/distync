@@ -1394,7 +1394,7 @@ const ReliefPackTemplateDetailModal = ({
   return (
     <DetailsModalShell
       isOpen={isOpen}
-      title="View Details"
+      title="Relief Pack Details"
       onClose={onClose}
       maxWidth="980px"
       closeMode="icon"
@@ -2496,7 +2496,7 @@ const ReliefPackTemplatesPage = () => {
                           type="button"
                           style={reliefPackPageStyles.viewDetailsIconButton}
                           onClick={() => handleOpenDetailModal(template)}
-                          title="View Details"
+                          title="View Relief Pack Details"
                           aria-label={`View details for ${template.name}`}
                         >
                           <FiEye size={18} />

@@ -191,14 +191,19 @@ test("lookupInventoryItemByBarcode resolves stock-form barcode to its inventory 
   );
 });
 
-test("lookupInventoryItemByBarcode returns not found when external catalog fails for unknown barcode", async () => {
+test("lookupInventoryItemByBarcode falls back to the external catalog for unknown barcode", async () => {
+  let fetchCalled = false;
+
   await withStubbedInventoryItemService(
     baseStubs({
-      fetch: async () => ({
-        ok: false,
-        status: 502,
-        json: async () => ({}),
-      }),
+      fetch: async () => {
+        fetchCalled = true;
+        return {
+          ok: false,
+          status: 502,
+          json: async () => ({}),
+        };
+      },
     }),
     async ({ lookupInventoryItemByBarcode }) => {
       const result = await lookupInventoryItemByBarcode("0000000000000");
@@ -210,6 +215,7 @@ test("lookupInventoryItemByBarcode returns not found when external catalog fails
         result.message,
         "Barcode was not found locally and online catalog lookup failed.",
       );
+      assert.equal(fetchCalled, true);
     },
   );
 });
