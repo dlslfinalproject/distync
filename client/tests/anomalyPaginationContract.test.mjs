@@ -46,6 +46,10 @@ test("MSWDO-ANOM-I01 anomaly page exposes duplicate household registration label
   );
   assert.match(
     presentationSource,
+    /DUPLICATE_HOUSEHOLD_REGISTRATION:[\s\S]*nextStep:\s*"Compare the affected household records and coordinate identity validation with the Barangay\."/,
+  );
+  assert.doesNotMatch(
+    presentationSource,
     /MSWDO_ANOMALY_PRESENTATION_OVERRIDES[\s\S]*DUPLICATE_HOUSEHOLD_REGISTRATION:[\s\S]*label:\s*"Duplicate Household Record"/,
   );
   assert.match(source, /availableAnomalyTypes/);
@@ -318,7 +322,7 @@ test("Barangay anomaly list uses one horizontally scrollable table representatio
 test("Barangay anomaly details separates metadata fields instead of flowing paragraphs", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
 
-  assert.match(source, /const DetailField = \(\{ label, children \}\) =>/);
+  assert.match(source, /const DetailField = \(\{ label, children, fullWidth = false \}\) =>/);
   assert.match(source, /<strong style=\{\{ \.\.\.modalStyles\.value, fontSize: "16px" \}\}>\{presentation\.label\}<\/strong>/);
   assert.match(source, /<StatusPill row=\{displayedAnomaly\} scope=\{presentationScope\} \/>/);
   assert.doesNotMatch(source, /<div style=\{labelStyles\}>Status<\/div>/);
@@ -330,9 +334,80 @@ test("Barangay anomaly details separates metadata fields instead of flowing para
   assert.match(source, /<DetailField label="Outcome">[\s\S]*formatReviewOutcome\([\s\S]*displayedAnomaly\.review_status,[\s\S]*presentationScope/);
   assert.match(source, /<DetailField label="Reviewed By">[\s\S]*\{displayedAnomaly\.reviewer_name \|\| "Not available"\}/);
   assert.match(source, /<DetailField label="Reviewed At">[\s\S]*\{formatDateTime\(displayedAnomaly\.reviewed_at\)\}/);
-  assert.match(source, /<DetailField label=\{isBarangayScope \? "Review Note" : "Review Notes"\}>[\s\S]*\{displayedAnomaly\.resolution_reason \|\| "Not available"\}/);
+  assert.match(source, /<DetailField label="Review Note" fullWidth>[\s\S]*\{displayedAnomaly\.resolution_reason \|\| "Not available"\}/);
+  assert.match(source, /const DetailField = \(\{ label, children, fullWidth = false \}\)/);
+  assert.match(source, /fullWidth \? \{ gridColumn: "1 \/ -1" \}/);
   assert.doesNotMatch(source, /Disaster Event:|Affected Record:|Detected:|Responsible office:|Outcome:|Reviewed by:|Reviewed at:|Review Note:/);
   assert.doesNotMatch(source, /displayedAnomaly\.reviewer_name \|\| displayedAnomaly\.reviewed_by/);
+});
+
+test("MSWDO anomaly details keeps Barangay context but does not repeat Review Status in Context", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+  const contextStart = source.indexOf('<div style={labelStyles}>Context</div>');
+  const whyFlaggedStart = source.indexOf('<div style={labelStyles}>Why Flagged</div>', contextStart);
+  const contextBlock = source.slice(contextStart, whyFlaggedStart);
+
+  assert.notEqual(contextStart, -1);
+  assert.notEqual(whyFlaggedStart, -1);
+  assert.match(contextBlock, /Disaster Event/);
+  assert.match(contextBlock, /Affected Record/);
+  assert.match(contextBlock, /Detected At/);
+  assert.match(contextBlock, /<DetailField label="Barangay">/);
+  assert.doesNotMatch(contextBlock, /Review Status/);
+});
+
+test("MSWDO reviewed presentation separates lifecycle status from persisted outcome", async () => {
+  const [source, presentationSource] = await Promise.all([
+    fs.readFile(pageSourcePath, "utf8"),
+    fs.readFile(presentationSourcePath, "utf8"),
+  ]);
+  const presentation = await import(
+    `data:text/javascript,${encodeURIComponent(presentationSource)}`,
+  );
+  const reviewedAnomaly = {
+    anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+    review_state: "reviewed",
+    review_status: "REVIEWED_VALID",
+    family_head_name: "Daniel Padilla",
+  };
+
+  assert.equal(
+    presentation.getAnomalyReviewStatusLabel(reviewedAnomaly, "mswdo"),
+    "Resolved",
+  );
+  assert.equal(
+    presentation.formatReviewOutcome(reviewedAnomaly.review_status, "mswdo"),
+    "Dismissed / No Issue",
+  );
+  assert.equal(
+    presentation.formatAnomalyType(
+      reviewedAnomaly.anomaly_type,
+      "barangay",
+    ),
+    presentation.formatAnomalyType(reviewedAnomaly.anomaly_type, "mswdo"),
+  );
+  assert.equal(
+    presentation.formatAffectedRecord(reviewedAnomaly, true),
+    "Daniel Padilla",
+  );
+  assert.equal(
+    presentation.formatAffectedRecord(reviewedAnomaly, false),
+    "Daniel Padilla",
+  );
+  assert.match(source, /<StatusPill row=\{displayedAnomaly\} scope=\{presentationScope\} \/>/);
+  assert.match(source, /<DetailField label="Outcome">[\s\S]*formatReviewOutcome\(/);
+  assert.match(source, /<DetailField label="Review Note" fullWidth>/);
+});
+
+test("MSWDO review-status presentation does not derive lifecycle status from outcome labels", async () => {
+  const presentationSource = await fs.readFile(presentationSourcePath, "utf8");
+  const stateFunction = presentationSource.match(
+    /export const getAnomalyReviewStateLabel = \(row, scope = "barangay"\) => \{[\s\S]*?\n\};/,
+  )?.[0] || "";
+
+  assert.match(stateFunction, /return "Resolved"/);
+  assert.doesNotMatch(stateFunction, /formatReviewOutcome\(/);
+  assert.match(presentationSource, /export const getAnomalyReviewStatusLabel/);
 });
 
 test("Barangay anomaly page removes summary cards, sync banner, and extra row review action", async () => {
