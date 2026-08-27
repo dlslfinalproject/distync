@@ -139,7 +139,7 @@ test("Barangay anomaly review validator accepts only persisted manual outcomes",
     source_id: "error-1",
     anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
     review_status: "ISSUE_CONFIRMED",
-    resolution_reason: "Two records describe the same household.",
+    resolution_reason: "  Two records describe the same household.  ",
   });
   const invalidStatus = await runReviewValidator({
     source_type: "ERROR_LOG",
@@ -155,6 +155,19 @@ test("Barangay anomaly review validator accepts only persisted manual outcomes",
     review_status: "REFERRED",
     resolution_reason: "   ",
   });
+  const missingReason = await runReviewValidator({
+    source_type: "ERROR_LOG",
+    source_id: "error-1",
+    anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+    review_status: "REFERRED",
+  });
+  const nullReason = await runReviewValidator({
+    source_type: "ERROR_LOG",
+    source_id: "error-1",
+    anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+    review_status: "REFERRED",
+    resolution_reason: null,
+  });
   const syncConflict = await runReviewValidator({
     source_type: "SYNC_CONFLICT",
     source_id: "conflict-1",
@@ -165,7 +178,15 @@ test("Barangay anomaly review validator accepts only persisted manual outcomes",
 
   assert.equal(valid.statusCode, 200);
   assert.equal(valid.validatedBody.review_status, "ISSUE_CONFIRMED");
+  assert.equal(
+    valid.validatedBody.resolution_reason,
+    "Two records describe the same household.",
+  );
   assert.equal(invalidStatus.statusCode, 400);
   assert.equal(whitespaceReason.statusCode, 400);
+  assert.equal(missingReason.statusCode, 400);
+  assert.equal(missingReason.payload.message, "Note is required.");
+  assert.equal(nullReason.statusCode, 400);
+  assert.equal(nullReason.payload.message, "Note is required.");
   assert.equal(syncConflict.statusCode, 400);
 });

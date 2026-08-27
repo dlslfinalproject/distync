@@ -92,7 +92,7 @@ test("Barangay anomaly review revalidates derived anomaly before persisting", as
         source_id: "error-1",
         anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
         review_status: "REVIEWED_VALID",
-        resolution_reason: "Same name, but verified as a legitimate separate household.",
+        resolution_reason: "  Same name, but verified as a legitimate separate household.  ",
       },
     });
 
@@ -105,8 +105,63 @@ test("Barangay anomaly review revalidates derived anomaly before persisting", as
     });
     assert.equal(upsertPayload.reviewedBy, "user-1");
     assert.equal(upsertPayload.barangayId, "barangay-a");
+    assert.equal(
+      upsertPayload.resolutionReason,
+      "Same name, but verified as a legitimate separate household.",
+    );
     assert.equal(review.review_status, "REVIEWED_VALID");
     assert.equal(auditPayload.action, "ANOMALY_REVIEW_CREATE");
+  } finally {
+    restore();
+  }
+});
+
+test("anomaly review service rejects missing or whitespace-only notes before persistence", async () => {
+  let lookupCalled = false;
+  const { service, restore } = loadService({
+    repository: {
+      findAnomalyBySourceIdentity: async () => {
+        lookupCalled = true;
+        return null;
+      },
+    },
+  });
+
+  const submit = (resolutionReason) =>
+    service.upsertBarangayAnomalyReview({
+      barangayId: "barangay-a",
+      auth: { userId: "user-1", roleCode: "BARANGAY" },
+      payload: {
+        source_type: "ERROR_LOG",
+        source_id: "error-note",
+        anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+        review_status: "REVIEWED_VALID",
+        ...(resolutionReason === undefined ? {} : { resolution_reason: resolutionReason }),
+      },
+    });
+
+  try {
+    for (const resolutionReason of [undefined, null, "", "   "]) {
+      await assert.rejects(
+        () => submit(resolutionReason),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.equal(error.message, "Note is required.");
+          return true;
+        },
+      );
+    }
+
+    await assert.rejects(
+      () => submit("x".repeat(2001)),
+      (error) => {
+        assert.equal(error.statusCode, 400);
+        assert.equal(error.message, "Note must be 2000 characters or fewer.");
+        return true;
+      },
+    );
+
+    assert.equal(lookupCalled, false);
   } finally {
     restore();
   }

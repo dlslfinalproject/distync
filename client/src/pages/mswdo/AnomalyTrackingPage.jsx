@@ -19,7 +19,6 @@ import {
   formatReviewOutcome,
   getAnomalyActionSummary,
   getAnomalyExplanation,
-  getAnomalyOwner,
   getAnomalyTypesForScope,
   getAnomalyPresentation,
   getAnomalyReviewStatusLabel,
@@ -199,10 +198,6 @@ const modalStyles = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))",
     gap: "16px",
-  },
-  fieldStack: {
-    display: "grid",
-    gap: "14px",
   },
   field: {
     display: "grid",
@@ -551,6 +546,7 @@ const modalFooterStyles = {
 };
 
 const getNormalizedReviewNote = (value) => String(value || "").trim();
+const formatReviewNote = (value) => getNormalizedReviewNote(value) || "Not provided";
 
 const AnomalyDetailModal = ({
   anomaly,
@@ -575,7 +571,7 @@ const AnomalyDetailModal = ({
     setLocalReview(null);
     setIsEditingReview(false);
     setReviewStatus(anomaly?.review_status || "");
-    setResolutionReason(anomaly?.resolution_reason || "");
+    setResolutionReason(getNormalizedReviewNote(anomaly?.resolution_reason));
     setReviewErrors({});
     setReviewSubmitError("");
     setIsReviewUnavailable(false);
@@ -653,9 +649,9 @@ const AnomalyDetailModal = ({
     }
 
     if (!trimmedReason) {
-      nextErrors.resolutionReason = "Please enter a brief review note.";
+      nextErrors.resolutionReason = "Note is required.";
     } else if (trimmedReason.length > REVIEW_NOTE_MAX_LENGTH) {
-      nextErrors.resolutionReason = `Review note must be ${REVIEW_NOTE_MAX_LENGTH} characters or fewer.`;
+      nextErrors.resolutionReason = `Note must be ${REVIEW_NOTE_MAX_LENGTH} characters or fewer.`;
     }
 
     setReviewErrors(nextErrors);
@@ -754,7 +750,7 @@ const AnomalyDetailModal = ({
 
     setIsEditingReview(true);
     setReviewStatus(displayedAnomaly.review_status || "");
-    setResolutionReason(displayedAnomaly.resolution_reason || "");
+    setResolutionReason(getNormalizedReviewNote(displayedAnomaly.resolution_reason));
     setReviewErrors({});
     setReviewSubmitError("");
   };
@@ -763,7 +759,7 @@ const AnomalyDetailModal = ({
     if (hasSavedReview) {
       setIsEditingReview(false);
       setReviewStatus(displayedAnomaly.review_status || "");
-      setResolutionReason(displayedAnomaly.resolution_reason || "");
+      setResolutionReason(getNormalizedReviewNote(displayedAnomaly.resolution_reason));
       setReviewErrors({});
       setReviewSubmitError("");
       return;
@@ -839,7 +835,6 @@ const AnomalyDetailModal = ({
 
       <div style={modalStyles.grid}>
         <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
-          <div style={labelStyles}>Context</div>
           <div style={modalStyles.fieldGrid}>
             <DetailField label="Disaster Event">
               {formatEventLabel(displayedAnomaly)}
@@ -868,15 +863,9 @@ const AnomalyDetailModal = ({
         </div>
 
         <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
-          <div style={labelStyles}>Recommended Action</div>
-          <div style={modalStyles.fieldStack}>
-            <DetailField label="Recommendation">
-              {getAnomalyActionSummary(displayedAnomaly, presentationScope)}
-            </DetailField>
-            <DetailField label="Responsible Office">
-              {getAnomalyOwner(displayedAnomaly, presentationScope)}
-            </DetailField>
-          </div>
+          <DetailField label="Recommendation">
+            {getAnomalyActionSummary(displayedAnomaly, presentationScope)}
+          </DetailField>
         </div>
 
         {isSyncAnomaly ? (
@@ -892,7 +881,6 @@ const AnomalyDetailModal = ({
 
         {hasSavedReview ? (
           <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
-            <div style={labelStyles}>Review Result</div>
             <div style={modalStyles.fieldGrid}>
               <DetailField label="Review Status">
                 <StatusPill row={displayedAnomaly} scope={presentationScope} />
@@ -909,8 +897,8 @@ const AnomalyDetailModal = ({
               <DetailField label="Reviewed At">
                 {formatDateTime(displayedAnomaly.reviewed_at)}
               </DetailField>
-              <DetailField label="Review Note" fullWidth>
-                {displayedAnomaly.resolution_reason || "Not available"}
+              <DetailField label="Note" fullWidth>
+                {formatReviewNote(displayedAnomaly.resolution_reason)}
               </DetailField>
             </div>
           </div>
@@ -1031,7 +1019,7 @@ const AnomalyDetailModal = ({
             </fieldset>
 
             <label htmlFor="anomaly-review-note" style={labelStyles}>
-              Review Note *
+              Note *
             </label>
             <p id={reviewNoteHelperId} style={modalStyles.helperText}>
               {isBarangayScope
