@@ -257,6 +257,7 @@ const BarangayMasterlistPage = () => {
     syncQueueEntries,
     selectedEvent,
     assignedBarangay,
+    recordStatus,
     reloadMasterlist,
   });
 
