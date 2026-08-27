@@ -661,8 +661,10 @@ const AnomalyDetailModal = ({
     !isBarangayScope &&
     displayedAnomaly.review_state === "needs_review" &&
     !displayedAnomaly.barangay_id;
+  const canEditSavedReview =
+    isBarangayScope && canRecordReview && hasSavedReview;
   const shouldShowReviewForm =
-    canRecordReview && (!hasSavedReview || (!isBarangayScope && isEditingReview));
+    canRecordReview && (!hasSavedReview || (isBarangayScope && isEditingReview));
   const originalReviewStatus = hasSavedReview ? displayedAnomaly.review_status || "" : "";
   const originalReviewNote = hasSavedReview
     ? getNormalizedReviewNote(displayedAnomaly.resolution_reason)
@@ -756,6 +758,15 @@ const AnomalyDetailModal = ({
         return;
       }
 
+      if (error.code === "ANOMALY_REVIEW_FINAL") {
+        setIsReviewUnavailable(true);
+        setReviewSubmitError(
+          "This anomaly has already been reviewed. The completed review is final and read-only.",
+        );
+        await onReviewStale?.();
+        return;
+      }
+
       if (
         error.code === "ANOMALY_REVIEW_UNAVAILABLE" ||
         error.code === "ANOMALY_REVIEW_NOT_ALLOWED" ||
@@ -781,6 +792,10 @@ const AnomalyDetailModal = ({
   };
 
   const startEditingReview = () => {
+    if (!canEditSavedReview) {
+      return;
+    }
+
     setIsEditingReview(true);
     setReviewStatus(displayedAnomaly.review_status || "");
     setResolutionReason(displayedAnomaly.resolution_reason || "");
@@ -820,7 +835,7 @@ const AnomalyDetailModal = ({
             : "Save Review"}
       </button>
     </>
-  ) : !isBarangayScope && canRecordReview && hasSavedReview ? (
+  ) : canEditSavedReview ? (
     <>
       <button type="button" onClick={onClose} style={pageHeaderStyles.secondaryButton}>
         Close
