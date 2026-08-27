@@ -187,8 +187,8 @@ export const toStubRowFromOfflineSnapshot = (snapshot, syncEntry = null) => {
   };
 };
 
-export const toStubDetailsFromOfflineSnapshot = (snapshot) => {
-  const row = toStubRowFromOfflineSnapshot(snapshot);
+export const toStubDetailsFromOfflineSnapshot = (snapshot, syncEntry = null) => {
+  const row = toStubRowFromOfflineSnapshot(snapshot, syncEntry);
 
   if (!row) {
     return null;
@@ -208,7 +208,7 @@ export const toStubDetailsFromOfflineSnapshot = (snapshot) => {
   };
 };
 
-const getClaimSyncEntryForStub = (syncEntries = [], stubId) =>
+export const getClaimSyncEntryForStub = (syncEntries = [], stubId) =>
   syncEntries.find(
     (entry) =>
       entry.actionKey === STUB_CLAIM_ACTION_KEY &&
@@ -216,6 +216,15 @@ const getClaimSyncEntryForStub = (syncEntries = [], stubId) =>
       entry.entityServerId === stubId &&
       claimBlockingStatuses.has(entry.status),
   ) || null;
+
+export const getCachedStubClaimSyncEntry = async (stubId) => {
+  if (!stubId) {
+    return null;
+  }
+
+  const syncEntries = await getVisibleSyncQueueEntries();
+  return getClaimSyncEntryForStub(syncEntries, stubId);
+};
 
 export const canUseOfflineStubCacheFallback = (error) => {
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
@@ -327,7 +336,8 @@ export const getCachedStubSnapshotById = async (stubId, { currentBarangayId }) =
 
 export const getCachedStubDetailsById = async (stubId, { currentBarangayId }) => {
   const snapshot = await getCachedStubSnapshotById(stubId, { currentBarangayId });
-  return toStubDetailsFromOfflineSnapshot(snapshot);
+  const syncEntry = await getCachedStubClaimSyncEntry(stubId);
+  return toStubDetailsFromOfflineSnapshot(snapshot, syncEntry);
 };
 
 export const getCachedStubDetailsByQrValue = async (
@@ -355,7 +365,8 @@ export const getCachedStubDetailsByQrValue = async (
     return null;
   }
 
-  return toStubDetailsFromOfflineSnapshot(cachedRow);
+  const syncEntry = await getCachedStubClaimSyncEntry(cachedRow.stubId);
+  return toStubDetailsFromOfflineSnapshot(cachedRow, syncEntry);
 };
 
 export const markCachedStubClaimTerminal = async (

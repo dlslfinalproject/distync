@@ -4,6 +4,7 @@ import {
 } from "../../offline/syncService";
 import {
   canUseOfflineStubCacheFallback,
+  getCachedStubClaimSyncEntry,
   getCachedStubDetailsById,
   markCachedStubClaimTerminal,
   upsertOfflineStubSnapshots,
@@ -40,6 +41,37 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   }
 
   return responseData;
+};
+
+const assertNoBlockingLocalStubClaim = async (stubId) => {
+  let syncEntry;
+
+  try {
+    syncEntry = await getCachedStubClaimSyncEntry(stubId);
+  } catch (error) {
+    // Online claims still have server-side duplicate protection. If local
+    // storage is unavailable, do not regress the existing online path; an
+    // offline claim must still fail safely instead of queueing unverified data.
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      throw error;
+    }
+
+    return;
+  }
+
+  if (!syncEntry) {
+    return;
+  }
+
+  const isConflict = syncEntry.status === "CONFLICT";
+  const error = new Error(
+    isConflict
+      ? "This relief stub has a synchronization conflict and cannot be claimed again until it is reviewed."
+      : "This relief stub already has a pending offline claim on this device. Wait for synchronization before trying again.",
+  );
+  error.code = isConflict ? "STUB_CLAIM_CONFLICT" : "STUB_CLAIM_PENDING";
+  error.statusCode = 409;
+  throw error;
 };
 
 export const fetchBarangayStubDashboard = async ({
@@ -174,6 +206,8 @@ export const claimStub = async ({
     override_barangay_id: overrideBarangayId || null,
     ...(disasterEventId ? { disaster_event_id: disasterEventId } : {}),
   };
+
+  await assertNoBlockingLocalStubClaim(stubId);
 
   return performSyncableMutation({
     moduleName: "stubs",

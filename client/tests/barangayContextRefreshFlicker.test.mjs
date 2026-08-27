@@ -48,13 +48,17 @@ test("Barangay event selector separates unresolved loading from scoped empty sel
   assert.doesNotMatch(source, /Select \$\{scopeLabel\.toLowerCase\(\)\} disaster event/);
 });
 
-test("Barangay dashboard clears stale event payload and skips self-triggered default refetch", async () => {
+test("Barangay dashboard retains confirmed event context through offline refreshes", async () => {
   const source = await readSource(
     "../src/features/barangay-dashboard/useBarangayDashboard.js",
   );
 
   assert.match(source, /const skipSelectedEventReloadRef = useRef\(""\)/);
   assert.match(source, /skipSelectedEventReloadRef\.current === selectedDisasterEventId/);
+  assert.match(source, /const canRestoreOfflineContext = \(error\) =>/);
+  assert.match(source, /readOperationalDisasterEventContext\(\{/);
+  assert.match(source, /available_events: retainedEvent \? \[retainedEvent\] : \[\]/);
+  assert.match(source, /selected_event: retainedEvent/);
   assert.match(source, /setPayload\(\{\s*\.\.\.emptyPayload,\s*event_scope: eventScope,\s*\}\)/s);
   assert.match(source, /nextSelectedEvent\.id !== selectedDisasterEventId[\s\S]*skipSelectedEventReloadRef\.current = nextSelectedEvent\.id/s);
 });

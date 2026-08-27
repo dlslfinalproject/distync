@@ -2933,6 +2933,7 @@ test("DEPLOY-MSWDO-RGD-01 MSWDO STUB_CLAIM sync forwards barangay_id without ove
             client_timestamp: "2026-08-08T01:00:00.000Z",
             payload: {
               barangay_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+              disaster_event_id: "11111111-1111-4111-8111-111111111111",
             },
           },
         ],
@@ -2949,6 +2950,10 @@ test("DEPLOY-MSWDO-RGD-01 MSWDO STUB_CLAIM sync forwards barangay_id without ove
   );
   assert.equal(capturedClaimParams.override_barangay_id, null);
   assert.equal(capturedClaimParams.verified_by, baseAuth.userId);
+  assert.equal(
+    capturedClaimParams.disaster_event_id,
+    "11111111-1111-4111-8111-111111111111",
+  );
 });
 
 test("BRG-SC-10-H01 Test A keeps same-stub STUB_CLAIM processing in received order despite inverted client_timestamp", async () => {

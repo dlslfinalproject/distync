@@ -291,7 +291,7 @@ test("BRG-SC-07-M01 TEST N QR component IDs are not trusted independently", asyn
 test("BRG-SC-07-M01 TEST O uncached offline QR blocks without queue creation", async () => {
   const source = await readSource("../src/pages/barangay/StubDistributionPage.jsx");
 
-  assert.match(source, /This stub is not saved on this device for offline use/);
+  assert.match(source, /The information required to verify this QR is not available on this device/);
   assert.match(source, /QR_SCAN_ERROR_CODES\.STUB_NOT_AVAILABLE_OFFLINE/);
   assert.doesNotMatch(source, /if \(!stubDetails\) \{[\s\S]*QR_SCAN_ERROR_CODES\.STUB_NOT_FOUND/);
   assert.doesNotMatch(source, /queueSyncEntry\(|performSyncableMutation\(/);
@@ -306,10 +306,10 @@ test("BRG-SC-08-L01 TEST A offline cache miss has distinct local availability co
     }),
   );
 
-  assert.equal(config.title, "Not Available Offline");
+  assert.equal(config.title, "Unable to Verify Offline");
   assert.equal(
     config.message,
-    "This stub is not saved on this device for offline use. Reconnect to verify it.",
+    "The information required to verify this QR is not available on this device. Reconnect to the internet and try again.",
   );
   assert.equal(config.detailRows.length, 0);
   assert.doesNotMatch(`${config.title} ${config.message}`, /Stub Not Found|not linked|does not exist/i);

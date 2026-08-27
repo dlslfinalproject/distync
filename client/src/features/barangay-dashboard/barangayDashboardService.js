@@ -7,6 +7,7 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   if (!response.ok) {
     const error = new Error(payload.message || fallbackMessage);
     error.code = payload.error || null;
+    error.statusCode = response.status;
     throw error;
   }
 

@@ -245,6 +245,7 @@ const validateClaimBarangayStub = (req, res, next) => {
       barangay_id,
       override_barangay_id,
       donated_loose_items,
+      disaster_event_id,
     } = req.body;
 
     const hasUserId =
@@ -283,6 +284,17 @@ const validateClaimBarangayStub = (req, res, next) => {
     ) {
       return res.status(400).json({
         message: "override_barangay_id must be a valid UUID when provided",
+      });
+    }
+
+    if (
+      disaster_event_id !== undefined &&
+      disaster_event_id !== null &&
+      disaster_event_id !== "" &&
+      !isValidUuid(disaster_event_id)
+    ) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID when provided",
       });
     }
 
@@ -331,6 +343,9 @@ const validateClaimBarangayStub = (req, res, next) => {
       barangay_id: barangay_id || null,
       override_barangay_id: override_barangay_id || null,
       donated_loose_items: normalizedDonatedLooseItems,
+      ...(disaster_event_id
+        ? { disaster_event_id: disaster_event_id.trim() }
+        : {}),
     };
 
     return next();

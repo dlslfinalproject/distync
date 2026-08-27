@@ -3,6 +3,9 @@ const QR_SCAN_ERROR_CODES = {
   HOUSEHOLD_ARCHIVED: "HOUSEHOLD_ARCHIVED",
   INVALID_QR_STUB: "INVALID_QR_STUB",
   STUB_NOT_AVAILABLE_OFFLINE: "STUB_NOT_AVAILABLE_OFFLINE",
+  OFFLINE_VERIFICATION_UNAVAILABLE: "OFFLINE_VERIFICATION_UNAVAILABLE",
+  STUB_CLAIM_PENDING: "STUB_CLAIM_PENDING",
+  STUB_CLAIM_CONFLICT: "STUB_CLAIM_CONFLICT",
   STUB_NOT_FOUND: "STUB_NOT_FOUND",
   WRONG_EVENT: "WRONG_EVENT",
   WRONG_BARANGAY: "WRONG_BARANGAY",
@@ -180,11 +183,26 @@ export const getQrScanBlockingErrorConfig = (error) => {
         detailRows: [],
       };
     case QR_SCAN_ERROR_CODES.STUB_NOT_AVAILABLE_OFFLINE:
+    case QR_SCAN_ERROR_CODES.OFFLINE_VERIFICATION_UNAVAILABLE:
       return {
-        title: "Not Available Offline",
+        title: "Unable to Verify Offline",
         message:
-          "This stub is not saved on this device for offline use. Reconnect to verify it.",
+          "The information required to verify this QR is not available on this device. Reconnect to the internet and try again.",
         detailRows: [],
+      };
+    case QR_SCAN_ERROR_CODES.STUB_CLAIM_PENDING:
+      return {
+        title: "Claim Pending Sync",
+        message:
+          "This relief stub already has a pending offline claim on this device. Wait for synchronization before trying again.",
+        detailRows: getClaimedStubDetailRows(details),
+      };
+    case QR_SCAN_ERROR_CODES.STUB_CLAIM_CONFLICT:
+      return {
+        title: "Claim Needs Review",
+        message:
+          "This relief stub has a synchronization conflict and cannot be claimed again until it is reviewed.",
+        detailRows: getClaimedStubDetailRows(details),
       };
     case QR_SCAN_ERROR_CODES.STUB_NOT_FOUND:
       return {
