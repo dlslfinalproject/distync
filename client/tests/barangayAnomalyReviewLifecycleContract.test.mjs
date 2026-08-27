@@ -36,7 +36,7 @@ test("BRG-ANOM-L02 pending and resolved Barangay anomalies expose different acti
   assert.doesNotMatch(source, /Review anomaly details for/);
 });
 
-test("BRG-ANOM-L03 resolved Barangay details are read-only while pending reviews remain editable", async () => {
+test("BRG-ANOM-L03 reviewed MSWDO details remain read-only while Barangay retains explicit edit", async () => {
   const source = await readPageSource();
   const modalStart = source.indexOf("const AnomalyDetailModal");
   const modalEnd = source.indexOf("const AnomalyTrackingPage", modalStart);
@@ -48,11 +48,12 @@ test("BRG-ANOM-L03 resolved Barangay details are read-only while pending reviews
   );
   assert.match(
     modalSource,
-    /const shouldShowReviewForm =\s*canRecordReview && \(!hasSavedReview \|\| \(!isBarangayScope && isEditingReview\)\)/,
+    /const shouldShowReviewForm =\s*canRecordReview && \(!hasSavedReview \|\| \(isBarangayScope && isEditingReview\)\)/,
   );
   assert.match(modalSource, /<div style=\{labelStyles\}>Review Result<\/div>/);
-  assert.match(modalSource, /!isBarangayScope && canRecordReview && hasSavedReview/);
-  assert.doesNotMatch(modalSource, /Edit Review/);
+  assert.match(modalSource, /isBarangayScope && canRecordReview && hasSavedReview/);
+  assert.match(modalSource, /Edit Review/);
+  assert.doesNotMatch(modalSource, /!isBarangayScope && canRecordReview && hasSavedReview/);
 });
 
 test("BRG-ANOM-L04 Sync Center rows keep recovery ownership outside Barangay review actions", async () => {

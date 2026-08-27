@@ -275,7 +275,7 @@ test("Barangay review stale response is specific and refreshes authoritative ano
   assert.match(source, /onReviewStale=\{async \(\) => \{[\s\S]*setReloadToken/);
 });
 
-test("Barangay existing review opens read-only while MSWDO retains explicit result editing", async () => {
+test("reviewed MSWDO details remain read-only while Barangay retains explicit edit", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
 
   assert.match(source, /const \[isEditingReview, setIsEditingReview\] = useState\(false\)/);
@@ -283,10 +283,8 @@ test("Barangay existing review opens read-only while MSWDO retains explicit resu
   assert.match(source, /const shouldShowReviewForm =\s+canRecordReview && \(!hasSavedReview \|\| \(isBarangayScope && isEditingReview\)\)/);
   assert.match(source, /const canEditSavedReview =\s+isBarangayScope && canRecordReview && hasSavedReview/);
   assert.match(source, /Review Result/);
-  assert.match(source, /!isBarangayScope && canRecordReview && hasSavedReview/);
-  assert.match(source, /Edit Result/);
-  assert.doesNotMatch(source, /Edit Review/);
-  assert.match(source, /Save Changes/);
+  assert.doesNotMatch(source, /!isBarangayScope && canRecordReview && hasSavedReview/);
+  assert.match(source, /Edit Review/);
   assert.match(source, /const reviewHasChanges =/);
   assert.match(source, /hasSavedReview && isEditingReview && !reviewHasChanges/);
   assert.match(source, /setIsEditingReview\(false\)/);
