@@ -333,6 +333,128 @@ test("BRG-SC-04B generic sync transaction history remains user scoped", () => {
   assert.doesNotMatch(source, /FROM sync_transactions[\s\S]*r\.code = 'MAYOR'/);
 });
 
+test("MSWDO municipality transaction queries use authoritative Barangay attribution and filtering", async () => {
+  const barangayId = "11111111-1111-4111-8111-111111111111";
+  let capturedQuery = "";
+  let capturedValues = [];
+
+  await withStubbedPool(
+    {
+      query: async (query, values) => {
+        capturedQuery = query;
+        capturedValues = values;
+        return {
+          rows: [
+            {
+              id: "sync-1",
+              entity_type: "HOUSEHOLD",
+              barangay_id: barangayId,
+              barangay_name: "Barangay Poblacion",
+            },
+          ],
+        };
+      },
+      on: () => {},
+    },
+    async ({ getSyncTransactionsByMunicipality }) => {
+      const rows = await getSyncTransactionsByMunicipality({
+        syncStatus: "FAILED",
+        barangayId,
+        limit: 25,
+      });
+
+      assert.equal(rows[0].barangay_name, "Barangay Poblacion");
+    },
+  );
+
+  assert.deepEqual(capturedValues, ["FAILED", barangayId, 25]);
+  assert.match(capturedQuery, /WITH sync_transaction_context AS/);
+  assert.match(capturedQuery, /LEFT JOIN households h_household/);
+  assert.match(capturedQuery, /LEFT JOIN stubs s_payload_stub/);
+  assert.match(capturedQuery, /payload_barangay_id/);
+  assert.match(capturedQuery, /LEFT JOIN barangays b/);
+  assert.match(capturedQuery, /st\.entity_type IN \('HOUSEHOLD', 'STUB', 'DISTRIBUTION_TRANSACTION'\)/);
+  assert.match(capturedQuery, /sba\.barangay_id = \$2/);
+  assert.match(capturedQuery, /LIMIT \$3/);
+});
+
+test("MSWDO municipality conflict queries preserve safe details and optional Barangay scope", async () => {
+  const conflictId = "22222222-2222-4222-8222-222222222222";
+  const barangayId = "33333333-3333-4333-8333-333333333333";
+  const captured = [];
+
+  await withStubbedPool(
+    {
+      query: async (query, values) => {
+        captured.push({ query, values });
+        return { rows: [{ id: conflictId, barangay_id: barangayId }] };
+      },
+      on: () => {},
+    },
+    async ({
+      getSyncConflictsByMunicipality,
+      getSyncConflictByIdForMunicipality,
+    }) => {
+      await getSyncConflictsByMunicipality({
+        status: "OPEN",
+        barangayId,
+        limit: 10,
+      });
+      const detail = await getSyncConflictByIdForMunicipality({
+        id: conflictId,
+        barangayId,
+      });
+
+      assert.equal(detail.id, conflictId);
+    },
+  );
+
+  assert.deepEqual(captured[0].values, ["OPEN", barangayId, 10]);
+  assert.match(captured[0].query, /SELECT\s+sc\.\*,/);
+  assert.match(captured[0].query, /sba\.barangay_id AS barangay_id/);
+  assert.match(captured[0].query, /sc\.status = \$1/);
+  assert.match(captured[0].query, /sba\.barangay_id = \$2/);
+  assert.deepEqual(captured[1].values, [conflictId, barangayId]);
+  assert.match(captured[1].query, /sc\.id = \$1/);
+  assert.match(captured[1].query, /sba\.barangay_id = \$2/);
+});
+
+test("MSWDO municipality health queries count open conflicts and use the latest successful sync", async () => {
+  const barangayId = "44444444-4444-4444-8444-444444444444";
+  const captured = [];
+
+  await withStubbedPool(
+    {
+      query: async (query, values) => {
+        captured.push({ query, values });
+        return /COUNT\(\*\)/i.test(query)
+          ? { rows: [{ count: 4 }] }
+          : { rows: [{ last_successful_sync_at: "2026-08-20T01:02:03.000Z" }] };
+      },
+      on: () => {},
+    },
+    async ({
+      countOpenSyncConflictsByMunicipality,
+      getLastSuccessfulSyncAtForMunicipality,
+    }) => {
+      assert.equal(
+        await countOpenSyncConflictsByMunicipality({ barangayId }),
+        4,
+      );
+      assert.equal(
+        await getLastSuccessfulSyncAtForMunicipality({ barangayId }),
+        "2026-08-20T01:02:03.000Z",
+      );
+    },
+  );
+
+  assert.deepEqual(captured[0].values, [barangayId]);
+  assert.deepEqual(captured[1].values, [barangayId]);
+  assert.match(captured[0].query, /sc\.status = 'OPEN'/);
+  assert.match(captured[1].query, /st\.sync_status = 'SYNCED'/);
+  assert.match(captured[1].query, /ORDER BY COALESCE\(st\.server_timestamp/);
+});
+
 test("H03F-07/H03F-08/H03F-09 claim decisions protect stale, active, and legacy pending rows", async () => {
   const createClient = (existingRow) => ({
     query: async (query, values) => {
