@@ -4,9 +4,10 @@ import {
   fetchSectors,
 } from "../household-registration/householdRegistrationService";
 import {
-  buildQueuedHouseholdRow,
+  getLatestHouseholdLifecycleEntry,
+  resolveEffectiveMasterlistRows,
 } from "./barangayMasterlistUi";
-import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
+import { buildSyncDescriptor } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
 import {
   buildMasterlistFilterSectorOptions,
@@ -17,56 +18,34 @@ export const useBarangayMasterlistSync = ({
   syncQueueEntries,
   selectedEvent,
   assignedBarangay,
+  recordStatus,
   reloadMasterlist,
 }) => {
+  // HOUSEHOLD_RE_ADMISSION remains an optimistic Active occurrence.
   const [sectorOptions, setSectorOptions] = useState([]);
 
   const rowsWithSyncStatus = useMemo(() => {
-    const syncedRows = rows.map((row) => {
-      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
-        if (
-          entry.entityType !== "HOUSEHOLD" ||
-          !["barangay-households", "barangay-masterlist"].includes(entry.moduleName)
-        ) {
-          return false;
-        }
+    const syncedRows = rows.map((row) => ({
+      ...row,
+      sync_status: buildSyncDescriptor(
+        getLatestHouseholdLifecycleEntry(syncQueueEntries, row),
+      ).status,
+      is_local_only: false,
+    }));
 
-        return (
-          entry.entityServerId === row.household_id ||
-          entry.entityLocalId === row.household_id
-        );
-      });
-
-      return {
-        ...row,
-        sync_status: buildSyncDescriptor(matchingEntry).status,
-        is_local_only: false,
-      };
+    return resolveEffectiveMasterlistRows({
+      rows: syncedRows,
+      syncQueueEntries,
+      recordStatus,
+      selectedEventId: selectedEvent?.id,
+      assignedBarangayId: assignedBarangay?.id,
+      assignedBarangayName: assignedBarangay?.name || "",
     });
-
-    const optimisticRows = syncQueueEntries
-      .filter((entry) => {
-        return (
-          entry.moduleName === "barangay-households" &&
-          ["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION"].includes(
-            entry.actionKey,
-          ) &&
-          entry.payload?.disaster_event_id === selectedEvent?.id &&
-          entry.payload?.barangay_id === assignedBarangay?.id &&
-          !syncedRows.some(
-            (row) =>
-              row.household_id === entry.entityServerId ||
-              row.household_id === entry.entityLocalId,
-          )
-        );
-      })
-      .map((entry) => buildQueuedHouseholdRow(entry, assignedBarangay?.name || ""));
-
-    return [...optimisticRows, ...syncedRows];
   }, [
     assignedBarangay?.id,
     assignedBarangay?.name,
     rows,
+    recordStatus,
     selectedEvent?.id,
     syncQueueEntries,
   ]);
