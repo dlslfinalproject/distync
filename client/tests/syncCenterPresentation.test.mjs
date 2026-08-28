@@ -317,7 +317,10 @@ test("BRG-SC-P13 table scroll and prior Sync Center fixes remain present", async
   const source = await fs.readFile(pageSourcePath, "utf8");
   const componentSource = await fs.readFile(syncHealthComponentSourcePath, "utf8");
 
-  assert.match(source, /<div style=\{\{ overflowX: "auto" \}\}>[\s\S]*syncHistoryTableStyles/);
+  assert.match(
+    source,
+    /<div className="sync-center-table-scroll" style=\{\{ overflowX: "auto" \}\}>[\s\S]*syncHistoryTableStyles/,
+  );
   assert.match(source, /aria-label="View synchronization details"/);
   assert.match(componentSource, /Last successful sync:/);
 });

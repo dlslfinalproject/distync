@@ -130,33 +130,89 @@ const fieldStyles = {
 const toolbarButtonStyles = {
   ...pageHeaderStyles.secondaryButton,
   boxShadow: "0 16px 30px rgba(31, 64, 96, 0.08)",
+  minHeight: "48px",
 };
 
 const syncTabButtonStyles = (isActive) => ({
-  padding: "12px 24px",
+  alignItems: "center",
+  boxSizing: "border-box",
   border: "none",
   borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
   background: "none",
   color: isActive ? "#17324d" : "#6b8298",
   cursor: "pointer",
+  display: "inline-flex",
   fontSize: "14px",
+  fontFamily: "inherit",
   fontWeight: 700,
+  justifyContent: "center",
+  letterSpacing: "0.01em",
+  lineHeight: 1.3,
+  minHeight: "48px",
+  padding: "11px 16px",
+  transition: "color 160ms ease, border-color 160ms ease",
   whiteSpace: "nowrap",
 });
 
+const syncCenterPageStyles = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "16px",
+  minWidth: 0,
+  width: "100%",
+};
+
+const syncCenterFilterCardStyles = {
+  ...shellStyles.card,
+  padding: "clamp(16px, 1.8vw, 22px)",
+};
+
+const syncCenterTabsModuleStyles = {
+  ...shellStyles.card,
+  padding: 0,
+};
+
+const syncCenterTabListStyles = {
+  alignItems: "stretch",
+  borderBottom: "1px solid #d6e2ef",
+  backgroundColor: "#fbfdff",
+  borderTopLeftRadius: "17px",
+  borderTopRightRadius: "17px",
+  display: "flex",
+  flexWrap: "nowrap",
+  gap: "4px",
+  overflowX: "auto",
+  padding: "8px clamp(14px, 2vw, 24px) 0",
+  minHeight: "56px",
+  WebkitOverflowScrolling: "touch",
+};
+
+const syncCenterTabPanelStyles = {
+  boxSizing: "border-box",
+  minHeight: "112px",
+  minWidth: 0,
+  padding: "clamp(16px, 1.8vw, 24px)",
+};
+
 const tableStyles = {
   table: {
+    backgroundColor: "#ffffff",
+    tableLayout: "auto",
     width: "100%",
     borderCollapse: "collapse",
   },
   th: {
-    padding: "12px 14px",
+    backgroundColor: "#f8fbff",
+    borderBottom: "1px solid #cfdde9",
+    color: "#71879a",
+    fontSize: "11px",
+    fontWeight: 700,
+    letterSpacing: "0.1em",
+    lineHeight: 1.35,
+    padding: "10px 14px",
     textAlign: "left",
-    fontSize: "12px",
-    letterSpacing: "0.08em",
     textTransform: "uppercase",
-    color: "#66809c",
-    borderBottom: "1px solid #e0eaf4",
+    verticalAlign: "middle",
     whiteSpace: "nowrap",
   },
   td: {
@@ -816,20 +872,21 @@ const SyncManagementPage = () => {
   };
 
   return (
-    <>
+    <div className="sync-center-page" style={syncCenterPageStyles}>
       <PageHeader title="SYNC CENTER" />
 
       <SyncHealthStatus health={syncHealth} />
 
-      <section style={shellStyles.card}>
+      <section
+        className="sync-center-filter-card"
+        data-filter-count={isMswdoPortal ? "5" : "4"}
+        style={syncCenterFilterCardStyles}
+      >
         <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "18px",
-          }}
+          className="sync-center-filter-grid"
+          data-filter-count={isMswdoPortal ? "5" : "4"}
         >
-          <label>
+          <label className="sync-center-filter-field">
             <span style={fieldStyles.label}>Record Type</span>
             <select
               value={filters.recordType}
@@ -845,7 +902,7 @@ const SyncManagementPage = () => {
           </label>
 
           {isMswdoPortal ? (
-            <label>
+            <label className="sync-center-filter-field">
               <span style={fieldStyles.label}>{BARANGAY_COLUMN_LABEL}</span>
               <select
                 value={filters.barangayId}
@@ -868,7 +925,7 @@ const SyncManagementPage = () => {
             </label>
           ) : null}
 
-          <label>
+          <label className="sync-center-filter-field">
             <span style={fieldStyles.label}>
               {activeSyncTab === "CONFLICTS" ? "Conflict Status" : "Sync Status"}
             </span>
@@ -885,7 +942,7 @@ const SyncManagementPage = () => {
             </select>
           </label>
 
-          <label>
+          <label className="sync-center-filter-field">
             <span style={fieldStyles.label}>Date From</span>
             <input
               type="date"
@@ -895,7 +952,7 @@ const SyncManagementPage = () => {
             />
           </label>
 
-          <label>
+          <label className="sync-center-filter-field">
             <span style={fieldStyles.label}>Date To</span>
             <input
               type="date"
@@ -908,14 +965,9 @@ const SyncManagementPage = () => {
       </section>
 
       <div
-        style={{
-          alignItems: "center",
-          display: "grid",
-          gap: "16px",
-          gridTemplateColumns: "minmax(260px, 1fr) auto auto",
-        }}
+        className="sync-center-toolbar"
       >
-        <div style={{ position: "relative" }}>
+        <div className="sync-center-toolbar__search" style={{ position: "relative" }}>
           <FiSearch
             size={18}
             style={{
@@ -929,6 +981,7 @@ const SyncManagementPage = () => {
           />
           <input
             type="search"
+            aria-label="Search synchronization records"
             value={filters.search}
             onChange={(event) => updateFilter("search", event.target.value)}
             placeholder="Search record type, affected record, stub number, action, status, event, sector, relief pack, or notes"
@@ -941,7 +994,7 @@ const SyncManagementPage = () => {
           />
         </div>
 
-        <div>
+        <div className="sync-center-toolbar__filter">
           <ResponsiveFilterPopover
             isOpen={isFilterOpen}
             onOpenChange={setIsFilterOpen}
@@ -980,11 +1033,13 @@ const SyncManagementPage = () => {
         </div>
 
         <button
+          className="sync-center-toolbar__retry"
           type="button"
           onClick={() => handleRetrySync()}
           disabled={!isOnline || failedQueueEntries.length === 0 || isRetrying}
           style={{
             ...pageHeaderStyles.primaryButton,
+            minHeight: "48px",
             opacity: !isOnline || failedQueueEntries.length === 0 || isRetrying ? 0.7 : 1,
             cursor:
               !isOnline || failedQueueEntries.length === 0 || isRetrying
@@ -997,17 +1052,15 @@ const SyncManagementPage = () => {
         </button>
       </div>
 
-      <section style={{ ...shellStyles.card, padding: "22px 36px 0" }}>
+      <section
+        className="sync-center-tabs-module"
+        style={syncCenterTabsModuleStyles}
+      >
         <div
+          className="sync-center-tablist"
           role="tablist"
           aria-label="Sync Center sections"
-          style={{
-            borderBottom: "1px solid #d6e2ef",
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "8px",
-            overflowX: "auto",
-          }}
+          style={syncCenterTabListStyles}
         >
           {SYNC_SECTION_TABS.map((tab) => (
             <button
@@ -1024,14 +1077,14 @@ const SyncManagementPage = () => {
             </button>
           ))}
         </div>
-      </section>
 
       {activeSyncTab === "QUEUE" ? (
       <section
         id={SYNC_TABPANEL_IDS.QUEUE}
         role="tabpanel"
         aria-labelledby={SYNC_TAB_IDS.QUEUE}
-        style={shellStyles.card}
+        className="sync-center-tabpanel"
+        style={syncCenterTabPanelStyles}
       >
         <h2 style={srOnlyStyles}>Offline Queue</h2>
 
@@ -1040,7 +1093,7 @@ const SyncManagementPage = () => {
             {syncQueueEntries.length === 0 ? EMPTY_QUEUE_MESSAGE : EMPTY_MESSAGE}
           </p>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div className="sync-center-table-scroll" style={{ overflowX: "auto" }}>
             <table style={offlineQueueTableStyles}>
               <thead>
                 <tr>
@@ -1127,7 +1180,8 @@ const SyncManagementPage = () => {
         id={SYNC_TABPANEL_IDS.AUDIT}
         role="tabpanel"
         aria-labelledby={SYNC_TAB_IDS.AUDIT}
-        style={shellStyles.card}
+        className="sync-center-tabpanel"
+        style={syncCenterTabPanelStyles}
       >
         <h2 style={srOnlyStyles}>Sync History</h2>
 
@@ -1142,7 +1196,7 @@ const SyncManagementPage = () => {
             {syncHistory.transactions.length === 0 ? EMPTY_HISTORY_MESSAGE : EMPTY_MESSAGE}
           </p>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div className="sync-center-table-scroll" style={{ overflowX: "auto" }}>
             <table style={syncHistoryTableStyles}>
               <thead>
                 <tr>
@@ -1203,7 +1257,8 @@ const SyncManagementPage = () => {
         id={SYNC_TABPANEL_IDS.CONFLICTS}
         role="tabpanel"
         aria-labelledby={SYNC_TAB_IDS.CONFLICTS}
-        style={shellStyles.card}
+        className="sync-center-tabpanel"
+        style={syncCenterTabPanelStyles}
       >
         <h2 style={srOnlyStyles}>Conflict Review</h2>
 
@@ -1214,7 +1269,7 @@ const SyncManagementPage = () => {
             {syncHistory.conflicts.length === 0 ? EMPTY_CONFLICT_MESSAGE : EMPTY_MESSAGE}
           </p>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div className="sync-center-table-scroll" style={{ overflowX: "auto" }}>
             <table style={conflictReviewTableStyles}>
               <thead>
                 <tr>
@@ -1277,6 +1332,8 @@ const SyncManagementPage = () => {
       </section>
       ) : null}
 
+      </section>
+
       <SyncConflictDetailModal
         isOpen={Boolean(selectedConflictDetail)}
         conflict={selectedConflictDetail}
@@ -1297,7 +1354,7 @@ const SyncManagementPage = () => {
         message={feedback.message}
         onClose={() => setFeedback({ type: "", title: "", message: "" })}
       />
-    </>
+    </div>
   );
 };
 
