@@ -48,10 +48,10 @@ import {
   getCachedStubDetailsByQrValue,
   upsertOfflineStubSnapshots,
 } from "../../features/stubs/stubCache";
+import { DEFAULT_TABLE_PAGE_SIZE } from "../../features/pagination/pagination.mjs";
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
-const DEFAULT_STUB_PAGE_SIZE = 25;
 const QR_SCAN_COOLDOWN_MS = 1800;
 
 const claimErrorModalBodyStyles = {
@@ -258,7 +258,7 @@ const StubDistributionPage = () => {
     },
   });
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_STUB_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [sectorOptions, setSectorOptions] = useState([]);
   const [claimingStubId, setClaimingStubId] = useState("");
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
@@ -398,9 +398,11 @@ const StubDistributionPage = () => {
 
   useEffect(() => {
     const totalPages = Number(stubPagination?.totalPages || 0);
+    const safePage =
+      totalPages > 0 ? Math.min(Math.max(currentPage, 1), totalPages) : 1;
 
-    if (totalPages > 0 && currentPage > totalPages) {
-      setCurrentPage(totalPages);
+    if (currentPage !== safePage) {
+      setCurrentPage(safePage);
     }
   }, [currentPage, stubPagination?.totalPages]);
 

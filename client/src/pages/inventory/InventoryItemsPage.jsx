@@ -1288,7 +1288,7 @@ const InventoryItemsPage = () => {
       </div>
 
       <section className="inventory-items-records-card" style={shellStyles.card}>
-        <h3 style={inventoryPageStyles.sectionTitle}>
+        <h3 className="table-card-title">
           {getInventorySectionTitle()}
         </h3>
 

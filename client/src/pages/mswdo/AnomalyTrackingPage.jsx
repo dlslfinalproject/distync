@@ -7,6 +7,7 @@ import ErrorState from "../../components/shared/ErrorState";
 import FormModalShell from "../../components/shared/FormModalShell";
 import LoadingState from "../../components/shared/LoadingState";
 import ResponsiveFilterPopover from "../../components/shared/ResponsiveFilterPopover";
+import TablePagination from "../../components/shared/TablePagination";
 import {
   fetchAllDisasterEvents,
   fetchBarangayDisasterEventOptions,
@@ -28,6 +29,10 @@ import {
   fetchMswdoAnomalies,
   saveAnomalyReview,
 } from "../../features/mswdo-reports/mswdoReportService";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 
 const inputStyles = {
   width: "100%",
@@ -173,14 +178,11 @@ const orderOptions = [
   { value: "za", label: "Sort Z-A" },
 ];
 
-const DEFAULT_PAGE_SIZE = 50;
 const REVIEW_NOTE_MAX_LENGTH = 2000;
 const BARANGAY_STALE_REVIEW_MESSAGE =
   "This anomaly is no longer available for review. Its underlying record may have changed or it may no longer require Barangay review.";
 const MSWDO_STALE_REVIEW_MESSAGE =
   "This anomaly is no longer available for review. Its underlying record may have changed or it may no longer require MSWDO review.";
-const pageSizeOptions = [25, 50, 100];
-
 const modalStyles = {
   grid: {
     display: "grid",
@@ -260,32 +262,6 @@ const statusPalette = {
     backgroundColor: "#fdecec",
     borderColor: "#f5c2c7",
     color: "#b23b47",
-  },
-};
-
-const paginationStyles = {
-  wrapper: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "14px",
-    marginTop: "18px",
-  },
-  controls: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-  },
-  pageText: {
-    color: "#17324d",
-    fontSize: "14px",
-    fontWeight: 700,
-  },
-  resultText: {
-    color: "#5f7892",
-    fontSize: "14px",
-    fontWeight: 600,
   },
 };
 
@@ -1076,10 +1052,10 @@ const AnomalyTrackingPage = ({
   const [barangays, setBarangays] = useState([]);
   const [rows, setRows] = useState([]);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [pagination, setPagination] = useState({
     page: 1,
-    pageSize: DEFAULT_PAGE_SIZE,
+    pageSize: DEFAULT_TABLE_PAGE_SIZE,
     totalItems: 0,
     totalPages: 0,
     hasPreviousPage: false,
@@ -1364,6 +1340,21 @@ const AnomalyTrackingPage = ({
     viewState,
   ]);
 
+  useEffect(() => {
+    const numericTotalItems = Number(pagination.totalItems || 0);
+    const numericPageSize = Number(pagination.pageSize || pageSize);
+    const totalPages =
+      numericTotalItems > 0 && numericPageSize > 0
+        ? Math.ceil(numericTotalItems / numericPageSize)
+        : 0;
+    const safePage =
+      totalPages > 0 ? Math.min(Math.max(page, 1), totalPages) : 1;
+
+    if (page !== safePage) {
+      setPage(safePage);
+    }
+  }, [page, pageSize, pagination.pageSize, pagination.totalItems]);
+
   const hasActiveFilters = Boolean(
     filters.disaster_event_id ||
       (filters.barangay_id && !isBarangayScope) ||
@@ -1374,11 +1365,6 @@ const AnomalyTrackingPage = ({
       viewState.status !== "all",
   );
   const totalItems = pagination.totalItems || 0;
-  const totalPages = pagination.totalPages || 0;
-  const firstVisibleItem = totalItems === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
-  const lastVisibleItem = totalItems === 0
-    ? 0
-    : Math.min(firstVisibleItem + rows.length - 1, totalItems);
   const shouldShowPaginationControls = totalItems > 0;
   const openAnomalyDetails = useCallback((row, event) => {
     anomalyDetailsTriggerRef.current = event.currentTarget;
@@ -1387,58 +1373,6 @@ const AnomalyTrackingPage = ({
   const closeAnomalyDetails = useCallback(() => {
     setSelectedAnomaly(null);
   }, []);
-  const paginationControls = shouldShowPaginationControls ? (
-    <div style={paginationStyles.wrapper}>
-      <div style={paginationStyles.controls}>
-        <button
-          type="button"
-          onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
-          disabled={!pagination.hasPreviousPage || isLoadingRows}
-          style={pageHeaderStyles.secondaryButton}
-        >
-          Previous
-        </button>
-        <span style={paginationStyles.pageText}>
-          Page {pagination.page} of {totalPages}
-        </span>
-        <button
-          type="button"
-          onClick={() => setPage((currentPage) => currentPage + 1)}
-          disabled={!pagination.hasNextPage || isLoadingRows}
-          style={pageHeaderStyles.secondaryButton}
-        >
-          Next
-        </button>
-      </div>
-
-      <label style={{ ...paginationStyles.controls, color: "#17324d", fontWeight: 700 }}>
-        Rows per page
-        <select
-          value={pageSize}
-          onChange={(event) => {
-            setPage(1);
-            setPageSize(Number(event.target.value));
-          }}
-          style={{
-            minWidth: "92px",
-            borderRadius: "12px",
-            border: "1px solid #c7d6e5",
-            backgroundColor: "#ffffff",
-            color: "#17324d",
-            padding: "10px 12px",
-            fontSize: "14px",
-            fontWeight: 600,
-          }}
-        >
-          {pageSizeOptions.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </label>
-    </div>
-  ) : null;
 
   return (
     <div style={pageSpacingStyles.pageStack}>
@@ -1689,20 +1623,34 @@ const AnomalyTrackingPage = ({
       </div>
 
       <section style={shellStyles.card}>
-        <div style={pageSpacingStyles.tableHeader}>
-          <h3
-            ref={anomalyRecordsHeadingRef}
-            tabIndex={-1}
-            style={{ margin: 0, color: "#17324d", outline: "none" }}
-          >
-            Anomaly Records
-          </h3>
-          <span style={paginationStyles.resultText}>
-            {totalItems === 0
-              ? "No anomalies found"
-              : `Showing ${firstVisibleItem}-${lastVisibleItem} of ${totalItems}`}
-          </span>
-        </div>
+        <h3
+          className="table-card-title"
+          ref={anomalyRecordsHeadingRef}
+          tabIndex={-1}
+          style={{ outline: "none" }}
+        >
+          Anomaly Records
+        </h3>
+
+        <TablePagination
+          totalItems={totalItems}
+          currentPage={pagination.page || page}
+          pageSize={pagination.pageSize || pageSize}
+          pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+          onPageChange={setPage}
+          onPageSizeChange={(value) => {
+            setPage(1);
+            setPageSize(Number(value));
+          }}
+          isVisible={
+            !isLoadingRows && !errorMessage && shouldShowPaginationControls
+          }
+          disabled={isLoadingRows}
+          disablePageSize={isLoadingRows}
+          ariaLabel="Anomaly tracking pagination"
+          previousAriaLabel="Go to previous anomaly tracking page"
+          nextAriaLabel="Go to next anomaly tracking page"
+        />
 
         {errorMessage ? <ErrorState message={errorMessage} style={{ marginBottom: "16px" }} /> : null}
 
@@ -1848,7 +1796,6 @@ const AnomalyTrackingPage = ({
               </table>
             </div>
 
-            {paginationControls}
           </>
         )}
       </section>
