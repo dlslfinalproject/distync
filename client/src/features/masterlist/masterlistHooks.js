@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchMasterlist } from "./masterlistService";
 
 const emptyData = {
@@ -26,6 +26,7 @@ export const useMasterlist = ({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const lastSuccessfulDataRef = useRef(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -55,10 +56,17 @@ export const useMasterlist = ({
 
         if (isMounted) {
           setData(result);
+          lastSuccessfulDataRef.current = result;
         }
       } catch (error) {
         if (isMounted) {
-          setData(emptyData);
+          const isOffline =
+            typeof navigator !== "undefined" && navigator.onLine === false;
+          setData(
+            isOffline && lastSuccessfulDataRef.current
+              ? lastSuccessfulDataRef.current
+              : emptyData,
+          );
           setErrorMessage(error.message || "Failed to load masterlist");
         }
       } finally {
