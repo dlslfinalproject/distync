@@ -8,6 +8,7 @@ import {
   getCanonicalMemberSectorCode,
 } from "../../utils/registrationOptions";
 import { formatStayTypeLabel } from "../../utils/stayType";
+import { cacheMasterlistRows } from "../../offline/masterlistCache.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -389,6 +390,7 @@ export const fetchMasterlist = async ({
   const rows = households.map((household) =>
     mapMasterlistRow(household, allHouseholds, { disasterEventId }),
   );
+  await cacheMasterlistRows({ rows, disasterEventId, barangayId }).catch(() => null);
   const totalMembers = households.reduce((total, household) => {
     return total + (household.members?.length || 0);
   }, 0);

@@ -38,6 +38,17 @@ class DistyncOfflineDb extends Dexie {
       offlineStubCache:
         "id, stubId, qr_code_value, accessMode, userId, roleCode, disaster_event_id, barangay_id, status, cached_at, [accessMode+userId+roleCode+stubId], [accessMode+userId+roleCode+qr_code_value], [accessMode+userId+roleCode+disaster_event_id+barangay_id]",
     });
+
+    this.version(4).stores({
+      syncQueue:
+        "id, queueGroupKey, status, accessMode, userId, roleCode, moduleName, actionKey, entityType, entityLocalId, entityServerId, clientTimestamp, syncedAt, createdAt, updatedAt",
+      offlineStubCache:
+        "id, stubId, qr_code_value, accessMode, userId, roleCode, disaster_event_id, barangay_id, status, cached_at, [accessMode+userId+roleCode+stubId], [accessMode+userId+roleCode+qr_code_value], [accessMode+userId+roleCode+disaster_event_id+barangay_id]",
+      offlineMasterlistCache:
+        "id, household_id, accessMode, userId, roleCode, disaster_event_id, barangay_id, cached_at, [accessMode+userId+roleCode+disaster_event_id+barangay_id+household_id]",
+      offlinePreparation:
+        "id, accessMode, userId, roleCode, disaster_event_id, barangay_id, status, cache_version, updated_at, [accessMode+userId+roleCode+disaster_event_id+barangay_id]",
+    });
   }
 }
 
