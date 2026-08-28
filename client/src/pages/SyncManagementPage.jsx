@@ -84,8 +84,8 @@ const ORDER_OPTIONS = [
 
 const SYNC_SECTION_TABS = [
   { value: "QUEUE", label: "Offline Queue" },
-  { value: "AUDIT", label: "Sync History" },
   { value: "CONFLICTS", label: "Conflict Review" },
+  { value: "AUDIT", label: "Sync History" },
 ];
 
 const BARANGAY_COLUMN_LABEL = "Barangay";

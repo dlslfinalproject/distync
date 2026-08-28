@@ -28,6 +28,27 @@ const getHeaders = (section) =>
         : label.trim(),
   );
 
+const getTabDefinitions = (source) => {
+  const tabDefinitions =
+    source.match(/const SYNC_SECTION_TABS = \[([\s\S]*?)\n\];/)?.[1] || "";
+
+  return [...tabDefinitions.matchAll(/\{ value: "([^"]+)", label: "([^"]+)" \}/g)].map(
+    ([, value, label]) => ({ value, label }),
+  );
+};
+
+test("Sync Center keeps the authoritative operational tab order", async () => {
+  const [source] = await readSources();
+
+  assert.deepEqual(getTabDefinitions(source), [
+    { value: "QUEUE", label: "Offline Queue" },
+    { value: "CONFLICTS", label: "Conflict Review" },
+    { value: "AUDIT", label: "Sync History" },
+  ]);
+  assert.match(source, /const \[activeSyncTab, setActiveSyncTab\] = useState\("QUEUE"\)/);
+  assert.match(source, /\{SYNC_SECTION_TABS\.map\(\(tab\) => \(/);
+});
+
 test("Sync Center keeps one stable accessible shell for the three tab views", async () => {
   const [source] = await readSources();
 
