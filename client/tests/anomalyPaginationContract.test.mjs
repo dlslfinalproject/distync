@@ -434,7 +434,7 @@ test("anomaly tracking removes summary cards, sync banner, and extra row review 
   const layoutSource = await fs.readFile(barangayLayoutSourcePath, "utf8");
 
   assert.match(sidebarSource, /\{ label: "Anomaly Tracking", to: "\/barangay\/anomalies"(?:, isSectionChild: true)? \}/);
-  assert.match(sidebarSource, /\{ label: "Anomaly Tracking", to: "\/mswdo\/anomalies" \}/);
+  assert.match(sidebarSource, /\{ label: "Anomaly Tracking", to: "\/mswdo\/anomalies"(?:, isSectionChild: true)? \}/);
   assert.match(layoutSource, /isBarangayAnomalyRoute/);
   assert.match(layoutSource, /shouldShowSyncStatusBanner/);
   assert.match(layoutSource, /\{shouldShowSyncStatusBanner \? <SyncStatusBanner \/> : null\}/);
@@ -461,7 +461,7 @@ test("resolved anomaly rows use the eye details action for both scopes", async (
   assert.doesNotMatch(actionBlock, /isBarangayScope &&/);
 });
 
-test("Barangay sidebar groups sync and anomaly navigation under Monitoring only", async () => {
+test("shared sidebar groups each role's monitoring navigation under Monitoring", async () => {
   const sidebarSource = await fs.readFile(sidebarSourcePath, "utf8");
 
   const barangayNavBlock =
@@ -473,16 +473,27 @@ test("Barangay sidebar groups sync and anomaly navigation under Monitoring only"
   const monitoringIndex = barangayNavBlock.indexOf('{ type: "section", label: "Monitoring" }');
   const syncIndex = barangayNavBlock.indexOf('{ label: "Sync Center", to: "/barangay/sync", isSectionChild: true }');
   const anomalyIndex = barangayNavBlock.indexOf('{ label: "Anomaly Tracking", to: "/barangay/anomalies", isSectionChild: true }');
+  const mswdoMonitoringIndex = mswdoNavBlock.indexOf('{ type: "section", label: "Monitoring" }');
+  const mswdoAnalyticsIndex = mswdoNavBlock.indexOf('{ label: "Evacuee Analytics Dashboard", to: "/mswdo/analytics", isSectionChild: true }');
+  const mswdoAnomalyIndex = mswdoNavBlock.indexOf('{ label: "Anomaly Tracking", to: "/mswdo/anomalies", isSectionChild: true }');
+  const mswdoSyncIndex = mswdoNavBlock.indexOf('{ label: "Sync Center", to: "/mswdo/sync", isSectionChild: true }');
 
   assert.notEqual(monitoringIndex, -1);
   assert.notEqual(syncIndex, -1);
   assert.notEqual(anomalyIndex, -1);
   assert.ok(monitoringIndex < syncIndex);
   assert.ok(syncIndex < anomalyIndex);
+  assert.notEqual(mswdoMonitoringIndex, -1);
+  assert.notEqual(mswdoAnalyticsIndex, -1);
+  assert.notEqual(mswdoAnomalyIndex, -1);
+  assert.notEqual(mswdoSyncIndex, -1);
+  assert.ok(mswdoMonitoringIndex < mswdoAnalyticsIndex);
+  assert.ok(mswdoAnalyticsIndex < mswdoSyncIndex);
+  assert.ok(mswdoSyncIndex < mswdoAnomalyIndex);
   assert.match(sidebarSource, /item\.type === "section"[\s\S]*className="distync-sidebar__nav-section-label"/);
   assert.match(sidebarSource, /display: isCollapsed \? "none" : sidebarStyles\.navSectionLabel\.display/);
   assert.match(sidebarSource, /marginLeft: item\.isSectionChild && !isCollapsed \? "8px" : 0/);
   assert.doesNotMatch(sidebarSource, /\/barangay\/monitoring/);
-  assert.doesNotMatch(mswdoNavBlock, /type: "section", label: "Monitoring"/);
+  assert.match(mswdoNavBlock, /type: "section", label: "Monitoring"/);
   assert.doesNotMatch(mayorNavBlock, /type: "section", label: "Monitoring"/);
 });
