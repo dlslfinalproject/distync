@@ -40,7 +40,10 @@ test("MSWDO uses the same three accessible tabs and operational table behavior",
   assert.match(source, /\{ value: "CONFLICTS", label: "Conflict Review" \}/);
   assert.match(source, /<SyncHealthStatus health=\{syncHealth\} \/>/);
   assert.match(source, /aria-label="View synchronization details"/);
-  assert.match(source, /<div style=\{\{ overflowX: "auto" \}\}>/);
+  assert.match(
+    source,
+    /<div className="sync-center-table-scroll" style=\{\{ overflowX: "auto" \}\}>/,
+  );
   assert.match(source, /minWidth: "1080px"/);
   assert.match(source, /minWidth: "980px"/);
   assert.match(source, /minWidth: "820px"/);
