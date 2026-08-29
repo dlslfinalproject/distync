@@ -16,7 +16,10 @@ import {
   retryFailedSyncEntries,
   subscribeToSyncUpdates,
 } from "../offline/syncService";
-import { getVisibleSyncQueueEntriesByUpdatedAt } from "../offline/syncQueue";
+import {
+  getVisibleSyncQueueEntriesByUpdatedAt,
+  updateSyncEntryStatus,
+} from "../offline/syncQueue";
 import {
   auditSyncRetryRequest,
   fetchSyncBarangays,
@@ -950,6 +953,32 @@ const SyncManagementPage = () => {
         reason: trimmedReason,
       });
       const resolvedConflict = response?.data || null;
+
+      const localEntry = syncQueueEntries.find(
+        (entry) =>
+          entry.syncTransactionId ===
+          (resolvedConflict?.sync_transaction_id ||
+            selectedConflictDetail.sync_transaction_id),
+      );
+      if (localEntry) {
+        const isDifferentHousehold = action === "APPLY_LOCAL";
+        await updateSyncEntryStatus(localEntry.id, {
+          status: isDifferentHousehold ? LOCAL_SYNC_STATUS.SYNCED : LOCAL_SYNC_STATUS.CONFLICT,
+          resolutionStatus:
+            isDifferentHousehold
+              ? "ACCEPTED_AS_DIFFERENT_HOUSEHOLD"
+              : action === "KEEP_SERVER"
+                ? "DUPLICATE_HOUSEHOLD"
+                : "TRANSFER_REASSIGNMENT_REQUIRED",
+          entityServerId: resolvedConflict?.resolved_payload_json?.accepted_household_id || localEntry.entityServerId || null,
+          serverMessage:
+            action === "KEEP_SERVER"
+              ? "Resolved — Duplicate Household"
+              : action === "APPLY_LOCAL"
+                ? "Resolved — Accepted as Different Household"
+                : "Transfer/Reassignment Required",
+        });
+      }
 
       setSelectedConflictDetail(
         resolvedConflict

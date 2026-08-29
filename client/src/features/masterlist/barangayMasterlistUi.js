@@ -134,6 +134,9 @@ const isActiveLifecycleAction = (actionKey, row) => {
   return row?.is_active !== false && row?.is_operationally_active !== false;
 };
 
+const isReconciledDuplicate = (entry) =>
+  entry?.resolutionStatus === "DUPLICATE_HOUSEHOLD";
+
 const applyLifecycleOverlay = (row, lifecycleEntry) => {
   if (!lifecycleEntry) {
     return row;
@@ -183,6 +186,7 @@ export const resolveEffectiveMasterlistRows = ({
     return (
       HOUSEHOLD_LIFECYCLE_ACTIONS.has(entry?.actionKey) &&
       entry?.entityType === "HOUSEHOLD" &&
+      !isReconciledDuplicate(entry) &&
       (!selectedEventId || payload.disaster_event_id === selectedEventId) &&
       (!assignedBarangayId || payload.barangay_id === assignedBarangayId)
     );
@@ -199,7 +203,7 @@ export const resolveEffectiveMasterlistRows = ({
   );
 
   scopedEntries
-    .filter((entry) => ["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION", "HOUSEHOLD_DEPART"].includes(entry.actionKey))
+    .filter((entry) => ["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION", "HOUSEHOLD_DEPART"].includes(entry.actionKey) && !isReconciledDuplicate(entry))
     .sort((left, right) => getEntryTimestamp(right) - getEntryTimestamp(left))
     .forEach((entry) => {
       const localId = entry.entityLocalId || entry.entityServerId || entry.id;

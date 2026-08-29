@@ -18,6 +18,8 @@ const RESOLUTION_ACTION = Object.freeze({
 });
 
 const INVENTORY_STOCK_STATE_DRIFT = "INVENTORY_STOCK_STATE_DRIFT";
+const POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE =
+  "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE";
 
 const isManualInventoryStockDriftReviewable = (conflict = {}) =>
   conflict.status === CONFLICT_STATUS.OPEN &&
@@ -36,13 +38,20 @@ const getSyncConflictReviewCapability = (conflict = {}, auth = {}) => ({
   canReview: canReviewSyncConflict(conflict, auth),
 });
 
+const isPossibleCrossBarangayHouseholdDuplicate = (conflict = {}) =>
+  conflict.status === CONFLICT_STATUS.OPEN &&
+  conflict.resolution_strategy === RESOLUTION_STRATEGY.MANUAL_REVIEW &&
+  conflict.conflict_type === POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE;
+
 module.exports = {
   CONFLICT_STATUS,
   RESOLUTION_STRATEGY,
   RESOLUTION_ACTION,
   INVENTORY_STOCK_STATE_DRIFT,
+  POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE,
   isManualInventoryStockDriftReviewable,
   isSyncConflictOwnedByUser,
   canReviewSyncConflict,
   getSyncConflictReviewCapability,
+  isPossibleCrossBarangayHouseholdDuplicate,
 };

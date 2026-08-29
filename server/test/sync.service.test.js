@@ -5548,3 +5548,120 @@ test("M04-03 FIRST_ACCEPTED resolved conflicts expose no actions and cannot be r
     },
   );
 });
+
+test("RC1 cross-Barangay household registration remains an open review conflict", async () => {
+  let conflictPayload = null;
+  let transactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+          transactionPayload = payload.transactionPayload;
+          return {
+            syncTransaction: { id: payload.syncTransactionId, ...payload.transactionPayload },
+            conflictRecord: { id: "cross-conflict-1", ...payload.conflictPayload },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error("A similar household registration already exists under another Barangay and requires municipality-level review.");
+          error.code = "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE";
+          error.entityServerId = "33333333-3333-4333-8333-333333333333";
+          error.serverPayload = { barangay_name: "Santiago", household_size: 2 };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, defaultBarangayId: "44444444-4444-4444-8444-444444444444" },
+        entries: [{
+          client_sync_id: "cross-barangay-registration-1",
+          action_key: "HOUSEHOLD_REGISTER",
+          entity_type: "HOUSEHOLD",
+          entity_local_id: "local-cross-1",
+          client_timestamp: "2026-08-29T02:05:00.000Z",
+          payload: buildValidHouseholdRegisterSyncPayload({
+            barangay_id: "44444444-4444-4444-8444-444444444444",
+          }),
+        }],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(conflictPayload.conflict_type, "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE");
+      assert.equal(conflictPayload.resolution_strategy, "MANUAL_REVIEW");
+      assert.equal(conflictPayload.status, "OPEN");
+      assert.equal(transactionPayload.entity_server_id, null);
+    },
+  );
+});
+
+test("RC1 MSWDO different-household review accepts the competing registration once", async () => {
+  let registrationCalls = 0;
+  let updatePayload = null;
+  const conflict = {
+    id: "cross-conflict-2",
+    sync_transaction_id: "sync-cross-2",
+    user_id: "origin-user",
+    entity_type: "HOUSEHOLD",
+    conflict_type: "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE",
+    local_payload_json: { payload: buildValidHouseholdRegisterSyncPayload({ barangay_id: "44444444-4444-4444-8444-444444444444" }) },
+    server_payload_json: { household_id: "accepted-household-1", barangay_name: "Santiago" },
+    resolution_strategy: "MANUAL_REVIEW",
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    client_timestamp: "2026-08-29T02:05:00.000Z",
+    operation_type: "CREATE",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        lockSyncConflictById: async () => conflict,
+        updateSyncTransaction: async (_id, payload) => {
+          updatePayload = payload;
+          return payload;
+        },
+        markSyncConflictResolved: async (payload) => ({
+          ...conflict,
+          status: "RESOLVED",
+          resolution_action: payload.resolutionAction,
+        }),
+      },
+      [householdRegistrationServicePath]: {
+        registerHousehold: async (payload) => {
+          registrationCalls += 1;
+          assert.equal(payload.allow_reviewed_cross_barangay_duplicate, true);
+          assert.equal(payload.barangay_id, "44444444-4444-4444-8444-444444444444");
+          return { household: { id: "accepted-household-2" } };
+        },
+      },
+      [systemLogPath]: { logAuditSafely: async () => {}, logErrorSafely: async () => {}, pickDefined: () => ({}) },
+      [systemLogRepositoryPath]: { insertAuditLog: async () => ({}) },
+      [notificationServicePath]: { ensureSyncNotificationIntent: async () => null, processNotificationOutboxEventById: async () => {} },
+    },
+    async ({ resolveSyncConflict }) => {
+      const result = await resolveSyncConflict({
+        auth: { userId: "mswdo-user", roleCode: "MSWDO" },
+        conflictId: conflict.id,
+        action: "APPLY_LOCAL",
+        reason: "The household composition and address are materially different.",
+      });
+
+      assert.equal(registrationCalls, 1);
+      assert.equal(updatePayload.sync_status, "SYNCED");
+      assert.equal(updatePayload.entity_server_id, "accepted-household-2");
+      assert.equal(result.status, "RESOLVED");
+      assert.equal(result.sync_status, "SYNCED");
+    },
+  );
+});
