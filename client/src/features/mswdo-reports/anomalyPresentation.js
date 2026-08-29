@@ -154,6 +154,19 @@ const MSWDO_ANOMALY_PRESENTATION_OVERRIDES = {
   },
 };
 
+const MAYOR_ANOMALY_PRESENTATION_OVERRIDES = {
+  INVENTORY_DISTRIBUTION_MISMATCH: {
+    label: "Inventory-Distribution Mismatch",
+    explanation:
+      "A municipality inventory movement does not currently match the related claimed distribution record.",
+    actionRequired: "Review",
+    nextStep:
+      "Review the affected inventory item, batch, movement, and distribution record, then coordinate reconciliation with the responsible municipal office.",
+    owner: "Office of the Mayor",
+    statusHint: "Open",
+  },
+};
+
 export const reviewOutcomeOptions = [
   {
     value: "REVIEWED_VALID",
@@ -195,6 +208,8 @@ export const mswdoReviewOutcomeOptions = [
   },
 ];
 
+export const mayorReviewOutcomeOptions = mswdoReviewOutcomeOptions;
+
 const reviewOutcomeLabels = Object.fromEntries(
   reviewOutcomeOptions.map((option) => [option.value, option.label]),
 );
@@ -204,7 +219,9 @@ const mswdoReviewOutcomeLabels = Object.fromEntries(
 );
 
 export const formatReviewOutcome = (value, scope = "barangay") =>
-  (scope === "mswdo" ? mswdoReviewOutcomeLabels : reviewOutcomeLabels)[value] ||
+  (scope === "mswdo" || scope === "mayor"
+    ? mswdoReviewOutcomeLabels
+    : reviewOutcomeLabels)[value] ||
   "Not available";
 
 export const getAnomalyReviewStateLabel = (row, scope = "barangay") => {
@@ -224,18 +241,20 @@ export const getAnomalyReviewStateLabel = (row, scope = "barangay") => {
   }
 
   if (row?.review_state === "system_handled") {
-    return scope === "mswdo"
+    return scope === "mswdo" || scope === "mayor"
       ? "Dismissed / Automatically Handled"
       : "Automatically Handled";
   }
 
   if (row?.review_state === "sync_center") {
-    return scope === "mswdo" ? "Sync Center Review" : "Review in Sync Center";
+    return scope === "mswdo" || scope === "mayor"
+      ? "Sync Center Review"
+      : "Review in Sync Center";
   }
 
   return (
     getAnomalyPresentation(row?.anomaly_type, scope).statusHint ||
-    (scope === "mswdo" ? "Open" : "Needs Review")
+    (scope === "mswdo" || scope === "mayor" ? "Open" : "Needs Review")
   );
 };
 
@@ -267,6 +286,9 @@ export const getAnomalyPresentation = (type, scope = "barangay") => {
           ...(MSWDO_ANOMALY_PRESENTATION_OVERRIDES[type] || {}),
         }
       : {}),
+    ...(scope === "mayor"
+      ? MAYOR_ANOMALY_PRESENTATION_OVERRIDES[type] || {}
+      : {}),
   };
 };
 
@@ -281,7 +303,13 @@ export const anomalyTypes = [
 export const getAnomalyTypesForScope = (scope) =>
   (scope === "barangay"
     ? anomalyTypes.filter((type) => type.value !== "SYNC_FAILED")
-    : anomalyTypes
+    : scope === "mayor"
+      ? anomalyTypes.filter(
+          (type) =>
+            type.value === "all" ||
+            type.value === "INVENTORY_DISTRIBUTION_MISMATCH",
+        )
+      : anomalyTypes
   ).map((type) =>
     type.value === "all"
       ? type
@@ -294,11 +322,34 @@ export const getAnomalyTypesForScope = (scope) =>
 export const formatAnomalyType = (value, scope = "barangay") =>
   getAnomalyPresentation(value, scope).label;
 
-export const formatAffectedRecord = (row, isBarangayScope = true) => {
+export const formatAffectedRecord = (
+  row,
+  isBarangayScope = true,
+  scope = isBarangayScope ? "barangay" : "mswdo",
+) => {
   const familyHeadName = String(row?.family_head_name || "").trim();
 
   if (isBarangayScope) {
     return familyHeadName || "Not identified";
+  }
+
+  if (scope === "mayor" && row?.anomaly_type === "INVENTORY_DISTRIBUTION_MISMATCH") {
+    const inventoryItemName = String(row?.inventory_item_name || "").trim();
+    const inventoryBatchNo = String(row?.inventory_batch_no || "").trim();
+    const inventoryTransactionReferenceNo = String(
+      row?.inventory_transaction_reference_no || "",
+    ).trim();
+    const inventoryIdentity = [
+      inventoryItemName,
+      inventoryBatchNo ? `Batch ${inventoryBatchNo}` : "",
+      inventoryTransactionReferenceNo
+        ? `Movement ${inventoryTransactionReferenceNo}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+    return inventoryIdentity || "Inventory / distribution record";
   }
 
   const affectedRecordLabels = {
@@ -342,7 +393,7 @@ export const getAnomalyExplanation = (row, scope = "barangay") => {
   const unsafeTechnicalPattern =
     /(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|\b(?:uuid|payload|stack\s*trace|sql|constraint|database|device[_ ]?id|entity[_ ]?(?:local|server)[_ ]?id|sync[_ ]?(?:transaction|conflict)[_ ]?id)\b|\b(?:id|code|error)\s*[=:])/i;
 
-  if (scope === "mswdo") {
+  if (scope === "mswdo" || scope === "mayor") {
     return unsafeTechnicalPattern.test(normalizedWhyFlagged)
       ? presentation.whyFlagged
       : normalizedWhyFlagged || presentation.whyFlagged;

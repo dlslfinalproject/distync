@@ -22,6 +22,7 @@ import {
   getAnomalyTypesForScope,
   getAnomalyPresentation,
   getAnomalyReviewStatusLabel,
+  mayorReviewOutcomeOptions,
   mswdoReviewOutcomeOptions,
   reviewOutcomeOptions,
 } from "../../features/mswdo-reports/anomalyPresentation";
@@ -183,6 +184,8 @@ const BARANGAY_STALE_REVIEW_MESSAGE =
   "This anomaly is no longer available for review. Its underlying record may have changed or it may no longer require Barangay review.";
 const MSWDO_STALE_REVIEW_MESSAGE =
   "This anomaly is no longer available for review. Its underlying record may have changed or it may no longer require MSWDO review.";
+const MAYOR_STALE_REVIEW_MESSAGE =
+  "This anomaly is no longer available for review. Its underlying inventory or distribution record may have changed or it may no longer require Mayor review.";
 const modalStyles = {
   grid: {
     display: "grid",
@@ -290,15 +293,16 @@ const formatNullableValue = (value, fallback = "Not available") => {
   return normalizedValue || fallback;
 };
 
-const formatEventLabel = (row) =>
+const formatEventLabel = (row, scope = "mswdo") =>
   formatNullableValue(
     row?.disaster_event_title ||
       row?.disaster_event?.title ||
       row?.disasterEvent?.title,
+    scope === "mayor" ? "—" : "Not available",
   );
 
-const formatBarangayLabel = (row) =>
-  formatNullableValue(row?.barangay_name, "Not attributed");
+const formatBarangayLabel = (row, scope = "mswdo") =>
+  formatNullableValue(row?.barangay_name, scope === "mayor" ? "—" : "Not attributed");
 
 const normalizeBarangayName = (value) => String(value || "").trim().toLowerCase();
 
@@ -437,7 +441,7 @@ const getStatusLabel = (row, scope = "barangay") => {
     return reviewLabel;
   }
 
-  if (scope === "mswdo") {
+  if (scope === "mswdo" || scope === "mayor") {
     return getStatusCategory(row) === "failed" ? "Sync Center Review" : "Open";
   }
 
@@ -528,6 +532,7 @@ const AnomalyDetailModal = ({
   onClose,
   finalFocusRef,
   isBarangayScope,
+  isMayorScope,
   onReviewSaved,
   onReviewStale,
 }) => {
@@ -556,14 +561,20 @@ const AnomalyDetailModal = ({
     return null;
   }
 
-  const presentationScope = isBarangayScope ? "barangay" : "mswdo";
+  const presentationScope = isBarangayScope
+    ? "barangay"
+    : isMayorScope
+      ? "mayor"
+      : "mswdo";
   const presentation = getAnomalyPresentation(
     anomaly.anomaly_type,
     presentationScope,
   );
   const availableReviewOutcomeOptions = isBarangayScope
     ? reviewOutcomeOptions
-    : mswdoReviewOutcomeOptions;
+    : isMayorScope
+      ? mayorReviewOutcomeOptions
+      : mswdoReviewOutcomeOptions;
   const displayedAnomaly = localReview
     ? {
         ...anomaly,
@@ -582,12 +593,8 @@ const AnomalyDetailModal = ({
   const isSyncAnomaly = anomaly.anomaly_type === "SYNC_CONFLICT" || anomaly.anomaly_type === "SYNC_FAILED";
   const canRecordReview =
     anomaly.manual_review_allowed === true &&
-    (isBarangayScope || Boolean(anomaly.barangay_id)) &&
+    (!isBarangayScope || Boolean(anomaly.barangay_id)) &&
     !isReviewUnavailable;
-  const needsBarangayAttribution =
-    !isBarangayScope &&
-    displayedAnomaly.review_state === "needs_review" &&
-    !displayedAnomaly.barangay_id;
   const canEditSavedReview =
     isBarangayScope && canRecordReview && hasSavedReview;
   const shouldShowReviewForm =
@@ -676,15 +683,6 @@ const AnomalyDetailModal = ({
       setReviewSubmitError("");
       await onReviewSaved?.(response?.data || null);
     } catch (error) {
-      if (error.code === "ANOMALY_REVIEW_BARANGAY_REQUIRED") {
-        setIsReviewUnavailable(true);
-        setReviewSubmitError(
-          "Affected Barangay information must be identified before MSWDO can record a review result.",
-        );
-        await onReviewStale?.();
-        return;
-      }
-
       if (error.code === "ANOMALY_REVIEW_FINAL") {
         setIsReviewUnavailable(true);
         setReviewSubmitError(
@@ -704,7 +702,9 @@ const AnomalyDetailModal = ({
         setReviewSubmitError(
           isBarangayScope
             ? BARANGAY_STALE_REVIEW_MESSAGE
-            : MSWDO_STALE_REVIEW_MESSAGE,
+            : isMayorScope
+              ? MAYOR_STALE_REVIEW_MESSAGE
+              : MSWDO_STALE_REVIEW_MESSAGE,
         );
         await onReviewStale?.();
         return;
@@ -780,7 +780,11 @@ const AnomalyDetailModal = ({
   return (
     <FormModalShell
       isOpen
-      title={isBarangayScope && !hasSavedReview ? "Review Anomaly" : "Anomaly Details"}
+      title={
+        (isBarangayScope || isMayorScope) && !hasSavedReview
+          ? "Review Anomaly"
+          : "Anomaly Details"
+      }
       onClose={onClose}
       closeButtonLabel="Close anomaly details"
       closeOnBackdrop={false}
@@ -812,10 +816,14 @@ const AnomalyDetailModal = ({
         <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
           <div style={modalStyles.fieldGrid}>
             <DetailField label="Disaster Event">
-              {formatEventLabel(displayedAnomaly)}
+              {formatEventLabel(displayedAnomaly, presentationScope)}
             </DetailField>
             <DetailField label="Affected Record">
-              {formatAffectedRecord(displayedAnomaly, isBarangayScope)}
+              {formatAffectedRecord(
+                displayedAnomaly,
+                isBarangayScope,
+                presentationScope,
+              )}
             </DetailField>
             <DetailField label="Detected At">
               {formatDateTime(displayedAnomaly.detected_at)}
@@ -823,7 +831,7 @@ const AnomalyDetailModal = ({
             {!isBarangayScope ? (
               <>
                 <DetailField label="Barangay">
-                  {formatBarangayLabel(displayedAnomaly)}
+                  {formatBarangayLabel(displayedAnomaly, presentationScope)}
                 </DetailField>
               </>
             ) : null}
@@ -888,15 +896,6 @@ const AnomalyDetailModal = ({
           </div>
         ) : null}
 
-        {needsBarangayAttribution ? (
-          <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
-            <div style={labelStyles}>Review Availability</div>
-            <div style={modalStyles.value}>
-              Affected Barangay information must be identified before MSWDO can record a review result.
-            </div>
-          </div>
-        ) : null}
-
         {reviewSubmitError ? (
           <div
             role="alert"
@@ -936,7 +935,7 @@ const AnomalyDetailModal = ({
               <p id={reviewOutcomeHelperId} style={modalStyles.helperText}>
                 {isBarangayScope
                   ? "Select the result that best matches your verification."
-                  : "Select the result that best documents MSWDO validation."}
+                  : `Select the result that best documents ${isMayorScope ? "Mayor" : "MSWDO"} validation.`}
               </p>
               <div style={{ display: "grid", gap: "8px", marginBottom: "10px" }}>
                 {availableReviewOutcomeOptions.map((option) => (
@@ -996,7 +995,7 @@ const AnomalyDetailModal = ({
             <p id={reviewNoteHelperId} style={modalStyles.helperText}>
               {isBarangayScope
                 ? "Briefly describe what you verified and why you selected this outcome."
-                : "Document what MSWDO validated, coordinated, or referred and why this result was selected."}
+                : `Document what ${isMayorScope ? "the Mayor's office" : "MSWDO"} validated, coordinated, or referred and why this result was selected.`}
             </p>
             <textarea
               id="anomaly-review-note"
@@ -1040,7 +1039,12 @@ const AnomalyTrackingPage = ({
   scopeErrorMessage = "",
 }) => {
   const isBarangayScope = scope === "barangay";
-  const presentationScope = isBarangayScope ? "barangay" : "mswdo";
+  const isMayorScope = scope === "mayor";
+  const presentationScope = isBarangayScope
+    ? "barangay"
+    : isMayorScope
+      ? "mayor"
+      : "mswdo";
   const availableStatusFilters = isBarangayScope
     ? statusFilters
     : mswdoStatusFilters;
@@ -1523,6 +1527,8 @@ const AnomalyTrackingPage = ({
             placeholder={
               isBarangayScope
                 ? "Search anomaly type, family head, barangay, event, or reason"
+                : isMayorScope
+                  ? "Search anomaly type, Barangay, inventory record, event, reason, review status, or notes"
                 : "Search anomaly type, Barangay, affected record, event, reason, review status, or notes"
             }
             aria-label="Search anomaly records"
@@ -1737,13 +1743,13 @@ const AnomalyTrackingPage = ({
                             </span>
                           </td>
                           <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.barangay }}>
-                            {formatBarangayLabel(row)}
+                            {formatBarangayLabel(row, presentationScope)}
                           </td>
                           <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.affectedRecord }}>
-                            {formatAffectedRecord(row, false)}
+                            {formatAffectedRecord(row, false, presentationScope)}
                           </td>
                           <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.disasterEvent }}>
-                            {formatEventLabel(row)}
+                            {formatEventLabel(row, presentationScope)}
                           </td>
                           <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.whyFlagged }}>
                             {getAnomalyExplanation(row, presentationScope)}
@@ -1805,6 +1811,7 @@ const AnomalyTrackingPage = ({
         onClose={closeAnomalyDetails}
         finalFocusRef={anomalyDetailsFinalFocusRef}
         isBarangayScope={isBarangayScope}
+        isMayorScope={isMayorScope}
         onReviewSaved={async () => {
           setReloadToken((currentValue) => currentValue + 1);
         }}

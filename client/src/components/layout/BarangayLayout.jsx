@@ -150,7 +150,9 @@ const BarangayLayout = () => {
   });
   const isSettingsRoute = location.pathname.endsWith("/settings");
   const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
-  const shouldShowSyncStatusBanner = !isBarangayPortal && !isBarangayAnomalyRoute;
+  const isMayorAnomalyRoute = location.pathname.startsWith("/inventory/anomalies");
+  const shouldShowSyncStatusBanner =
+    !isBarangayPortal && !isBarangayAnomalyRoute && !isMayorAnomalyRoute;
   const isSidebarOpen = !isSidebarCollapsed;
   const sidebarToggleRef = useRef(null);
   const sidebarWidth = isDonorPortal

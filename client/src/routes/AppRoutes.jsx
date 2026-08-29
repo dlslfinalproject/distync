@@ -14,6 +14,7 @@ import StubDistributionPage from "../pages/barangay/StubDistributionPage";
 import VerifyStubPage from "../pages/VerifyStubPage";
 import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
+import MayorAnomalyTrackingPage from "../pages/inventory/MayorAnomalyTrackingPage";
 import InventoryDistributionPage from "../pages/inventory/InventoryDistributionPage";
 import InventoryForecastsPage from "../pages/inventory/InventoryForecastsPage";
 import NotificationCenterPage from "../pages/inventory/NotificationCenterPage";
@@ -161,6 +162,7 @@ const AppRoutes = () => {
             },
             { path: "notifications", element: <NotificationCenterPage /> },
             { path: "sync", element: <SyncManagementPage /> },
+            { path: "anomalies", element: <MayorAnomalyTrackingPage /> },
             { path: "suppliers", element: <SuppliersPage /> },
             {
               path: "relief-pack-templates",
