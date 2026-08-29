@@ -2,6 +2,7 @@ import React from "react";
 import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import {
   DEFAULT_TABLE_PAGE_SIZE,
+  getLoadedEntriesLabel,
   getTablePaginationState,
   TABLE_PAGE_SIZE_OPTIONS,
 } from "../../features/pagination/pagination.mjs";
@@ -27,6 +28,7 @@ const TablePagination = ({
     pageSize,
     pageSizeOptions,
   });
+  const loadedEntriesLabel = getLoadedEntriesLabel(pagination.totalItems);
 
   if (!isVisible || pagination.totalItems === 0) {
     return null;
@@ -56,7 +58,7 @@ const TablePagination = ({
   return (
     <div className={rootClassName} role="navigation" aria-label={ariaLabel}>
       <p className="table-pagination-range" aria-live="polite">
-        Showing {pagination.totalItems} loaded entries
+        Showing {pagination.totalItems} loaded {loadedEntriesLabel}
       </p>
       <div className="table-pagination-controls">
         <label className="table-pagination-size">

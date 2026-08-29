@@ -110,6 +110,10 @@ test("Distribution History canonical pagination bar is compact and adapts on nar
     navigationSource,
     /<button[\s\S]*?<span aria-live="polite">[\s\S]*?<button/,
   );
+  assert.match(
+    normalizedPaginationSource,
+    /getLoadedEntriesLabel\(pagination\.totalItems\)/,
+  );
   assert.ok(
     normalizedPaginationSource.indexOf(
       '<label className="table-pagination-size">',
@@ -155,6 +159,10 @@ test("Distribution History canonical pagination bar is compact and adapts on nar
   assert.match(
     mobilePaginationSource,
     /\.table-pagination-size \{[\s\S]*?flex: 0 0 auto;/,
+  );
+  assert.match(
+    mobilePaginationSource,
+    /\.table-pagination-controls \{[\s\S]*?row-gap: 6px;/,
   );
 });
 

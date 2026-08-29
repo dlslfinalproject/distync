@@ -73,7 +73,7 @@ test("Relief Distribution adopts final conditional paginator UI", async () => {
     "<thead>",
   ]);
   assert.doesNotMatch(normalizedTableSource, /stub-results-pagination-/);
-  assert.match(paginationSource, /Showing \{pagination\.totalItems\} loaded entries/);
+  assert.match(paginationSource, /getLoadedEntriesLabel/);
   assert.match(paginationSource, /Rows per page/);
   assert.match(paginationSource, /FiChevronLeft/);
   assert.match(paginationSource, /FiChevronRight/);

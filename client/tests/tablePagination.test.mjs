@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   DEFAULT_TABLE_PAGE_SIZE,
+  getLoadedEntriesLabel,
   getTablePaginationState,
   paginateRows,
   TABLE_PAGE_SIZE_OPTIONS,
@@ -44,6 +45,16 @@ test("canonical table pagination keeps the required options and empty state safe
       hasNextPage: false,
     },
   );
+});
+
+test("loaded entry grammar handles zero, one, and plural counts centrally", () => {
+  const formatLoadedEntries = (totalItems) =>
+    `Showing ${totalItems} loaded ${getLoadedEntriesLabel(totalItems)}`;
+
+  assert.equal(formatLoadedEntries(0), "Showing 0 loaded entries");
+  assert.equal(formatLoadedEntries(1), "Showing 1 loaded entry");
+  assert.equal(formatLoadedEntries(2), "Showing 2 loaded entries");
+  assert.equal(formatLoadedEntries(25), "Showing 25 loaded entries");
 });
 
 test("table pagination calculates boundaries from the current dataset", () => {
@@ -142,8 +153,9 @@ test("all Barangay table surfaces use the shared paginator and Sync Center slice
 
   assert.match(
     normalizedPaginationSource,
-    /Showing \{pagination\.totalItems\} loaded entries/,
+    /Showing \{pagination\.totalItems\} loaded \{loadedEntriesLabel\}/,
   );
+  assert.match(normalizedPaginationSource, /getLoadedEntriesLabel/);
   assert.match(normalizedPaginationSource, /Rows per page/);
   assert.match(normalizedPaginationSource, /FiChevronLeft/);
   assert.match(normalizedPaginationSource, /FiChevronRight/);
@@ -204,8 +216,16 @@ test("all Barangay table surfaces use the shared paginator and Sync Center slice
     /\.table-pagination-navigation \{[\s\S]*?display: flex;[\s\S]*?flex-direction: row;[\s\S]*?flex-wrap: nowrap;[\s\S]*?white-space: nowrap;/,
   );
   assert.match(
+    normalizedCssSource,
+    /\.table-pagination-range \{[\s\S]*?text-align: left;/,
+  );
+  assert.match(
+    normalizedCssSource,
+    /\.table-pagination-controls \{[\s\S]*?justify-content: flex-end;/,
+  );
+  assert.match(
     paginationMobileSource,
-    /\.table-pagination-controls \{[\s\S]*?flex-wrap: wrap;[\s\S]*?justify-content: flex-start;[\s\S]*?width: 100%;/,
+    /\.table-pagination-controls \{[\s\S]*?column-gap: 8px;[\s\S]*?flex-wrap: wrap;[\s\S]*?justify-content: flex-start;[\s\S]*?row-gap: 6px;[\s\S]*?width: 100%;/,
   );
   assert.match(
     paginationMobileNavigationSource,
@@ -214,6 +234,18 @@ test("all Barangay table surfaces use the shared paginator and Sync Center slice
   assert.doesNotMatch(
     paginationMobileNavigationSource,
     /flex-direction:\s*column/,
+  );
+  assert.match(
+    normalizedCssSource,
+    /\.table-pagination-button \{[\s\S]*?height: 44px;[\s\S]*?width: 44px;/,
+  );
+  assert.match(
+    normalizedCssSource,
+    /\.table-pagination-size select \{[\s\S]*?min-height: 36px;/,
+  );
+  assert.doesNotMatch(
+    normalizedCssSource,
+    /\.table-pagination-(?:bar|range|controls|size|navigation|button)(?:[^\{]*)\{[^\}]*?(?:position\s*:\s*absolute|transform\s*:|margin(?:-(?:top|right|bottom|left))?\s*:\s*-)/,
   );
 
   for (const source of [

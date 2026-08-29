@@ -1,6 +1,9 @@
 export const TABLE_PAGE_SIZE_OPTIONS = Object.freeze([25, 50, 100]);
 export const DEFAULT_TABLE_PAGE_SIZE = TABLE_PAGE_SIZE_OPTIONS[0];
 
+export const getLoadedEntriesLabel = (totalItems) =>
+  Number(totalItems) === 1 ? "entry" : "entries";
+
 const getSafePageSizeOptions = (pageSizeOptions) => {
   const normalizedOptions = (
     Array.isArray(pageSizeOptions) ? pageSizeOptions : []

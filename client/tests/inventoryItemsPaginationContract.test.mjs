@@ -46,7 +46,7 @@ test("Items Record table uses a consistent above-table responsive paginator", as
   assert.match(normalizedTableSource, /<TablePagination/);
   assert.match(normalizedTableSource, /isVisible=\{showPagination\}/);
   assert.match(paginationSource, /TABLE_PAGE_SIZE_OPTIONS/);
-  assert.match(paginationSource, /Showing \{pagination\.totalItems\} loaded entries/);
+  assert.match(paginationSource, /getLoadedEntriesLabel/);
   assert.match(paginationSource, /Rows per page/);
   assert.match(paginationSource, /FiChevronLeft/);
   assert.match(paginationSource, /FiChevronRight/);
