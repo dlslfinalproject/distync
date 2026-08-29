@@ -1,10 +1,16 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { FaHandHolding } from "react-icons/fa6";
 import { FiEye } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
 import { formatOrderedSectorText } from "../../utils/sectorDisplay";
 import SyncStatusIcon from "../shared/SyncStatusIcon";
 import QrCodePanel from "./QrCodePanel";
+import TablePagination from "../shared/TablePagination";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 
 const tableStyles = {
   table: {
@@ -222,7 +228,45 @@ const MswdoStubResultsTable = ({
   onSelectAll,
   onViewStub = () => {},
 }) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
   const safeSelectedStubIds = Array.isArray(selectedStubIds) ? selectedStubIds : [];
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const pagination = getTablePaginationState({
+    totalItems: safeRows.length,
+    currentPage,
+    pageSize,
+    pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+  });
+  const paginatedRows = safeRows.slice(
+    (pagination.currentPage - 1) * pagination.pageSize,
+    pagination.currentPage * pagination.pageSize,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [rows]);
+
+  useEffect(() => {
+    setCurrentPage((previousPage) => {
+      if (pagination.totalPages === 0) {
+        return 1;
+      }
+
+      return Math.min(Math.max(previousPage, 1), pagination.totalPages);
+    });
+  }, [pagination.totalPages]);
+
+  const handlePageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+      return;
+    }
+
+    setPageSize(nextPageSize);
+    setCurrentPage(1);
+  };
 
   if (!hasSelectedEvent) {
     return (
@@ -286,7 +330,7 @@ const MswdoStubResultsTable = ({
     );
   }
 
-  if (rows.length === 0) {
+  if (safeRows.length === 0) {
     return (
       <section
         className="stub-results-card mswdo-stub-results-card"
@@ -302,7 +346,7 @@ const MswdoStubResultsTable = ({
 
   const selectableRows = isClaimReadOnly
     ? []
-    : rows.filter((row) => row.status === "ISSUED" && !row.is_local_only);
+    : safeRows.filter((row) => row.status === "ISSUED" && !row.is_local_only);
 
   const areAllSelected =
     selectableRows.length > 0 &&
@@ -316,6 +360,19 @@ const MswdoStubResultsTable = ({
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Stub Information</h3>
       </div>
+
+      <TablePagination
+        totalItems={pagination.totalItems}
+        currentPage={pagination.currentPage}
+        pageSize={pagination.pageSize}
+        pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={handlePageSizeChange}
+        isVisible={!isLoading && !errorMessage && pagination.totalItems > 0}
+        ariaLabel="Relief goods distribution pagination"
+        previousAriaLabel="Go to previous relief goods distribution page"
+        nextAriaLabel="Go to next relief goods distribution page"
+      />
 
       {claimErrorMessage ? (
         <p
@@ -397,7 +454,7 @@ const MswdoStubResultsTable = ({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {paginatedRows.map((row) => {
               const isSelectable =
                 !isClaimReadOnly && row.status === "ISSUED" && !row.is_local_only;
               const isSelected = safeSelectedStubIds.includes(row.id);
