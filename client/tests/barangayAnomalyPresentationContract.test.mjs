@@ -69,7 +69,7 @@ test("BRG-ANOM-P05 responsive table and modal workflow contracts remain intact",
   assert.match(source, /overflowX: "auto", width: "100%", minWidth: 0/);
   assert.match(source, /const barangayAnomalyTableMinWidth = "1040px"/);
   assert.doesNotMatch(source, /tableLayout: "fixed"/);
-  assert.match(source, /\{paginationControls\}/);
+  assert.match(source, /<TablePagination[\s\S]*ariaLabel="Anomaly tracking pagination"/);
   assert.match(modalSource, /title=\{isBarangayScope && !hasSavedReview \? "Review Anomaly" : "Anomaly Details"\}/);
   assert.match(modalSource, /<div style=\{labelStyles\}>Anomaly Type<\/div>/);
   assert.doesNotMatch(modalSource, /<div style=\{labelStyles\}>Context<\/div>/);

@@ -13,4 +13,16 @@ test("readiness popup preserves operational states and avoids technical copy", a
   assert.match(source, /supported offline operations/);
   assert.match(source, /previous/);
   assert.doesNotMatch(source, /IndexedDB|object store|UUID|cache key/i);
+  assert.doesNotMatch(source, /API terminology/i);
+  assert.match(source, /previousStatus/);
+});
+
+test("preparation publishes sanitized diagnostics and verifies read-back before READY", async () => {
+  const source = await read("offline/offlinePreparation.js");
+  assert.match(source, /distync-offline-preparation-updated/);
+  assert.match(source, /readBack: true/);
+  assert.match(source, /masterlistReadBackSucceeded/);
+  assert.match(source, /recordsByPage/);
+  assert.match(source, /previousCompleteCache/);
+  assert.doesNotMatch(source, /publishDiagnostics\(\{[^}]*pageRows/);
 });

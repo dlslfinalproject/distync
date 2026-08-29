@@ -34,9 +34,6 @@ import db from "../../offline/db.js";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import {
-  hasInventoryExportRows,
-} from "../../features/inventory-items/inventoryItemExportOptions";
-import {
   getTotalItemQuantityValue,
 } from "../../features/inventory-items/inventoryItemFormatting";
 import { normalizeInventoryBarcode } from "../../features/inventory-items/inventoryBarcode";
@@ -59,7 +56,6 @@ import { mergeInventoryItemsWithSyncStatus } from "../../features/inventory-item
 import {
   buildExportSuccessMessage,
   downloadExportFile,
-  NO_EXPORT_DATA_MESSAGE,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
 
@@ -1099,19 +1095,6 @@ const InventoryItemsPage = () => {
   const handleExport = async (format, extraFilters = {}) => {
     const normalizedCategory = extraFilters.category || "All";
     const normalizedStatus = extraFilters.status || "All";
-    const hasRowsToExport = hasInventoryExportRows({
-      category: normalizedCategory,
-      status: normalizedStatus,
-      visibleInventoryItems,
-    });
-
-    if (!hasRowsToExport) {
-      setExportFeedback({
-        type: "error",
-        message: NO_EXPORT_DATA_MESSAGE,
-      });
-      return;
-    }
 
     setExportingFormat(format);
     setIsExportModalOpen(false);
@@ -1305,7 +1288,7 @@ const InventoryItemsPage = () => {
       </div>
 
       <section className="inventory-items-records-card" style={shellStyles.card}>
-        <h3 style={inventoryPageStyles.sectionTitle}>
+        <h3 className="table-card-title">
           {getInventorySectionTitle()}
         </h3>
 

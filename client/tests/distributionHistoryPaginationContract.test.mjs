@@ -8,6 +8,20 @@ const sourcePath = (...segments) => path.join(process.cwd(), "src", ...segments)
 const readSource = (relativePath) =>
   fs.readFile(sourcePath(...relativePath), "utf8");
 
+const normalizeSource = (source) => source.replace(/\r\n/g, "\n");
+
+const assertOrdered = (source, markers) => {
+  let previousIndex = -1;
+
+  for (const marker of markers) {
+    const index = source.indexOf(marker, previousIndex + 1);
+
+    assert.ok(index >= 0, `Missing structural marker: ${marker}`);
+    assert.ok(index > previousIndex, `Expected marker after previous: ${marker}`);
+    previousIndex = index;
+  }
+};
+
 test("Distribution History requests authoritative server pages without old 500/1000 row caps", async () => {
   const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
 
@@ -29,42 +43,57 @@ test("Distribution History resets pagination when filters, search, order, or pag
 });
 
 test("Distribution History renders accessible pagination controls outside table scroll", async () => {
-  const [pageSource, cssSource] = await Promise.all([
+  const [pageSource, paginationSource, cssSource] = await Promise.all([
     readSource(["pages", "DistributionHistoryPage.jsx"]),
+    readSource(["components", "shared", "TablePagination.jsx"]),
     readSource(["index.css"]),
   ]);
+  const normalizedPageSource = normalizeSource(pageSource);
+  const normalizedCssSource = normalizeSource(cssSource);
 
-  assert.match(pageSource, /aria-label="Distribution history pagination"/);
-  assert.match(pageSource, /Rows per page/);
-  assert.match(pageSource, /Go to previous distribution history page/);
-  assert.match(pageSource, /Page \{currentPage\} of \{totalPages\}/);
-  assert.match(pageSource, /Go to next distribution history page/);
-  assert.match(pageSource, /<HistoryPaginationMetadata[\s\S]*?<HistoryPaginationNavigation/s);
-  assert.match(pageSource, /className="distribution-history-table-scroll distribution-history-summary-scroll"[\s\S]*?<HistoryPaginationNavigation/s);
-  assert.match(cssSource, /\.distribution-history-pagination-metadata \{/);
-  assert.match(cssSource, /\.distribution-history-pagination-navigation \{/);
+  assert.match(normalizedPageSource, /<TablePagination/);
+  assert.match(normalizedPageSource, /ariaLabel="Distribution history pagination"/);
+  assert.match(normalizedPageSource, /previousAriaLabel="Go to previous distribution history page"/);
+  assert.match(normalizedPageSource, /nextAriaLabel="Go to next distribution history page"/);
+  assert.match(paginationSource, /Rows per page/);
+  assert.match(paginationSource, /FiChevronLeft/);
+  assert.match(paginationSource, /FiChevronRight/);
+  assert.match(paginationSource, /Page \{pagination\.currentPage\} of \{pagination\.totalPages\}/);
+  assert.match(
+    normalizedPageSource,
+    /<TablePagination[\s\S]*?className="distribution-history-table-scroll distribution-history-summary-scroll"/,
+  );
+  assert.match(normalizedCssSource, /\.table-pagination-bar/);
+  assert.match(normalizedCssSource, /\.table-pagination-button/);
 });
 
-test("Distribution History splits top metadata from bottom navigation by result size", async () => {
+test("Distribution History uses one canonical paginator above the active table", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+  const normalizedSource = normalizeSource(source);
+
+  assert.match(normalizedSource, /<TablePagination/);
+  assert.match(normalizedSource, /isVisible=\{!isLoadingHistory && !errorMessage\}/);
+  assert.doesNotMatch(normalizedSource, /HistoryPaginationMetadata|HistoryPaginationNavigation/);
+  assert.doesNotMatch(normalizedSource, /Showing \{firstVisibleItem\}-\{lastVisibleItem\} of \{totalItems\}/);
+  assertOrdered(normalizedSource, [
+    '<section className="distribution-history-records-card"',
+    '<h3 className="table-card-title">Distribution Records</h3>',
+    "<TablePagination",
+    'className="distribution-history-table-scroll',
+    "<table className=",
+    "<thead>",
+  ]);
+  assert.doesNotMatch(
+    normalizedSource,
+    /distribution-history-pagination-|distribution-history-records-(?:header|title-group)/,
+  );
+});
+
+test("Distribution History clamps the page when the authoritative result set shrinks", async () => {
   const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
 
-  assert.match(source, /hasResults: totalItems > 0,/);
-  assert.match(source, /hasMultiplePages: totalPages > 1,/);
-  assert.match(source, /if \(!hasResults\) \{\s*return null;/);
-  assert.match(source, /if \(!hasMultiplePages\) \{\s*return null;/);
-  assert.match(
-    source,
-    /const HistoryPaginationMetadata = \([\s\S]*?Rows per page[\s\S]*?const HistoryPaginationNavigation/s,
-  );
-  assert.match(
-    source,
-    /const HistoryPaginationNavigation = \([\s\S]*?Previous[\s\S]*?Page \{currentPage\} of \{totalPages\}[\s\S]*?Next/s,
-  );
-  assert.match(
-    source,
-    /Showing \{firstVisibleItem\}-\{lastVisibleItem\} of \{totalItems\}/,
-  );
-  assert.doesNotMatch(source, /Showing 0-0 of 0/);
+  assert.match(source, /const safePage =\s*totalPages > 0/);
+  assert.match(source, /if \(page !== safePage\) \{\s*setPage\(safePage\)/);
 });
 
 test("Distribution History stale responses cannot overwrite newer page results", async () => {

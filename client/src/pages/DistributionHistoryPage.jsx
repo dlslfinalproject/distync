@@ -22,7 +22,12 @@ import ErrorState from "../components/shared/ErrorState";
 import FeedbackToast from "../components/shared/FeedbackToast";
 import LoadingState from "../components/shared/LoadingState";
 import StubDetailModal from "../components/stubs/StubDetailModal";
+import TablePagination from "../components/shared/TablePagination";
 import { FiEye, FiFileText, FiSearch } from "react-icons/fi";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../features/pagination/pagination.mjs";
 import { formatOrderedSectorText } from "../utils/sectorDisplay";
 import {
   buildExportSuccessMessage,
@@ -138,11 +143,9 @@ const ORDER_LIST_OPTIONS = [
   { value: "za", label: "Sort Z-A" },
 ];
 
-const PAGE_SIZE_OPTIONS = [25, 50, 100];
-
 const createDefaultPagination = () => ({
   page: 1,
-  pageSize: 25,
+  pageSize: DEFAULT_TABLE_PAGE_SIZE,
   totalItems: 0,
   totalPages: 0,
   hasPreviousPage: false,
@@ -163,120 +166,6 @@ const getAffectedBarangayIds = (event) => {
       return barangay?.id || barangay?.barangay_id || "";
     })
     .filter(Boolean);
-};
-
-const getHistoryPaginationState = (pagination) => {
-  const totalItems = Number(pagination?.totalItems || 0);
-  const totalPages = Number(pagination?.totalPages || 0);
-  const currentPage = Number(pagination?.page || 1);
-  const pageSize = Number(pagination?.pageSize || 25);
-  const firstVisibleItem = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
-  const lastVisibleItem = Math.min(currentPage * pageSize, totalItems);
-
-  return {
-    totalItems,
-    totalPages,
-    currentPage,
-    pageSize,
-    firstVisibleItem,
-    lastVisibleItem,
-    hasResults: totalItems > 0,
-    hasMultiplePages: totalPages > 1,
-  };
-};
-
-const HistoryPaginationMetadata = ({
-  pagination,
-  isLoading,
-  onPageSizeChange,
-}) => {
-  const {
-    hasResults,
-    hasMultiplePages,
-    pageSize,
-    firstVisibleItem,
-    lastVisibleItem,
-    totalItems,
-  } = getHistoryPaginationState(pagination);
-
-  if (!hasResults) {
-    return null;
-  }
-
-  return (
-    <div className="distribution-history-pagination-metadata">
-      <div className="distribution-history-pagination-range" aria-live="polite">
-        Showing {firstVisibleItem}-{lastVisibleItem} of {totalItems}
-      </div>
-
-      {hasMultiplePages ? (
-        <label
-          className="distribution-history-page-size"
-          htmlFor="distribution-history-page-size"
-        >
-          <span>Rows per page</span>
-          <select
-            id="distribution-history-page-size"
-            value={pageSize}
-            onChange={(event) => onPageSizeChange(Number(event.target.value))}
-            disabled={isLoading}
-          >
-            {PAGE_SIZE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-    </div>
-  );
-};
-
-const HistoryPaginationNavigation = ({
-  pagination,
-  isLoading,
-  onPageChange,
-}) => {
-  const { hasMultiplePages, currentPage, totalPages } =
-    getHistoryPaginationState(pagination);
-
-  if (!hasMultiplePages) {
-    return null;
-  }
-
-  return (
-    <nav
-      className="distribution-history-pagination-navigation"
-      aria-label="Distribution history pagination"
-    >
-      <div className="distribution-history-pagination-controls">
-        <button
-          type="button"
-          className="distribution-history-pagination-button"
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={!pagination?.hasPreviousPage || isLoading}
-          aria-label="Go to previous distribution history page"
-        >
-          Previous
-        </button>
-
-        <span className="distribution-history-page-indicator">
-          Page {currentPage} of {totalPages}
-        </span>
-
-        <button
-          type="button"
-          className="distribution-history-pagination-button"
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={!pagination?.hasNextPage || isLoading}
-          aria-label="Go to next distribution history page"
-        >
-          Next
-        </button>
-      </div>
-    </nav>
-  );
 };
 
 const DistributionHistoryPage = () => {
@@ -321,7 +210,7 @@ const DistributionHistoryPage = () => {
   const [isLoadingStubDetails, setIsLoadingStubDetails] = useState(false);
   const [stubDetailsErrorMessage, setStubDetailsErrorMessage] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const historyRequestIdRef = useRef(0);
 
   const isSummaryMode = !filters.disaster_event_id;
@@ -428,6 +317,21 @@ const DistributionHistoryPage = () => {
       isMounted = false;
     };
   }, [filters, isSummaryMode, page, pageSize, searchTerm, sortOrder]);
+
+  useEffect(() => {
+    const numericTotalItems = Number(historyPagination.totalItems || 0);
+    const numericPageSize = Number(historyPagination.pageSize || pageSize);
+    const totalPages =
+      numericTotalItems > 0 && numericPageSize > 0
+        ? Math.ceil(numericTotalItems / numericPageSize)
+        : 0;
+    const safePage =
+      totalPages > 0 ? Math.min(Math.max(page, 1), totalPages) : 1;
+
+    if (page !== safePage) {
+      setPage(safePage);
+    }
+  }, [historyPagination.pageSize, historyPagination.totalItems, page, pageSize]);
 
   const selectedDisasterEvent = useMemo(
     () =>
@@ -741,19 +645,22 @@ const DistributionHistoryPage = () => {
       </section>
 
       <section className="distribution-history-records-card" style={shellStyles.card}>
-        <div
-          className="distribution-history-records-header"
-          style={pageSpacingStyles.tableHeader}
-        >
-          <div className="distribution-history-records-title-group">
-            <h3 style={{ margin: 0, color: "#17324d" }}>Distribution Records</h3>
-            <HistoryPaginationMetadata
-              pagination={historyPagination}
-              isLoading={isLoadingHistory}
-              onPageSizeChange={handlePageSizeChange}
-            />
-          </div>
-        </div>
+        <h3 className="table-card-title">Distribution Records</h3>
+
+        <TablePagination
+          totalItems={historyPagination?.totalItems}
+          currentPage={historyPagination?.page || page}
+          pageSize={historyPagination?.pageSize || pageSize}
+          pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+          onPageChange={setPage}
+          onPageSizeChange={handlePageSizeChange}
+          isVisible={!isLoadingHistory && !errorMessage}
+          disabled={isLoadingHistory}
+          disablePageSize={isLoadingHistory}
+          ariaLabel="Distribution history pagination"
+          previousAriaLabel="Go to previous distribution history page"
+          nextAriaLabel="Go to next distribution history page"
+        />
 
         {errorMessage ? <ErrorState message={errorMessage} style={{ marginBottom: "16px" }} /> : null}
 
@@ -913,11 +820,6 @@ const DistributionHistoryPage = () => {
           </div>
         )}
 
-        <HistoryPaginationNavigation
-          pagination={historyPagination}
-          isLoading={isLoadingHistory}
-          onPageChange={setPage}
-        />
       </section>
 
       <ExportModal

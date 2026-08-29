@@ -200,9 +200,10 @@ const roleMeta = {
       { label: "Evacuee Masterlist Management", to: "/mswdo/consolidated-masterlist" },
       { label: "Relief Goods Distribution", to: "/mswdo/stub-distribution" },
       { label: "Distribution History", to: "/mswdo/distribution-history" },
-      { label: "Evacuee Analytics Dashboard", to: "/mswdo/analytics" },
-      { label: "Anomaly Tracking", to: "/mswdo/anomalies" },
-      { label: "Sync Center", to: "/mswdo/sync" },
+      { type: "section", label: "Monitoring" },
+      { label: "Evacuee Analytics Dashboard", to: "/mswdo/analytics", isSectionChild: true },
+      { label: "Sync Center", to: "/mswdo/sync", isSectionChild: true },
+      { label: "Anomaly Tracking", to: "/mswdo/anomalies", isSectionChild: true },
     ],
   },
   [ROLE_CODES.MAYOR]: {

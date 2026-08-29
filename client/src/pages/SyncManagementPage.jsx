@@ -10,6 +10,7 @@ import SyncHealthStatus from "../components/shared/SyncHealthStatus";
 import FeedbackToast from "../components/shared/FeedbackToast";
 import SyncConflictDetailModal from "../components/shared/SyncConflictDetailModal";
 import ResponsiveFilterPopover from "../components/shared/ResponsiveFilterPopover";
+import TablePagination from "../components/shared/TablePagination";
 import db, { LOCAL_SYNC_STATUS } from "../offline/db.js";
 import {
   retryFailedSyncEntries,
@@ -44,6 +45,11 @@ import {
   isSyncIdempotencyMismatch,
   SYNC_PRESENTATION_MESSAGES,
 } from "../offline/syncStatus.js";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  paginateRows,
+} from "../features/pagination/pagination.mjs";
 
 const RECORD_TYPE_OPTIONS = [
   { value: "ALL", label: "All Records" },
@@ -84,8 +90,8 @@ const ORDER_OPTIONS = [
 
 const SYNC_SECTION_TABS = [
   { value: "QUEUE", label: "Offline Queue" },
-  { value: "AUDIT", label: "Sync History" },
   { value: "CONFLICTS", label: "Conflict Review" },
+  { value: "AUDIT", label: "Sync History" },
 ];
 
 const BARANGAY_COLUMN_LABEL = "Barangay";
@@ -103,6 +109,14 @@ const SYNC_TAB_IDS = {
   AUDIT: "sync-center-history-tab",
   CONFLICTS: "sync-center-conflict-review-tab",
 };
+const SYNC_PAGINATION_TABS = ["QUEUE", "CONFLICTS", "AUDIT"];
+const createSyncPaginationState = () =>
+  Object.fromEntries(
+    SYNC_PAGINATION_TABS.map((tab) => [
+      tab,
+      { page: 1, pageSize: DEFAULT_TABLE_PAGE_SIZE },
+    ]),
+  );
 
 const fieldStyles = {
   label: {
@@ -369,6 +383,9 @@ const SyncManagementPage = () => {
   const [resolutionReason, setResolutionReason] = useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [activeSyncTab, setActiveSyncTab] = useState("QUEUE");
+  const [paginationByTab, setPaginationByTab] = useState(
+    createSyncPaginationState,
+  );
   const [barangayOptions, setBarangayOptions] = useState([]);
   const [isLoadingBarangayOptions, setIsLoadingBarangayOptions] = useState(false);
   const [barangayOptionsError, setBarangayOptionsError] = useState("");
@@ -526,6 +543,128 @@ const SyncManagementPage = () => {
       }),
     [displayConflicts, filters, isMswdoPortal],
   );
+
+  useEffect(() => {
+    setPaginationByTab((currentPagination) => {
+      let hasChanges = false;
+      const nextPagination = { ...currentPagination };
+
+      SYNC_PAGINATION_TABS.forEach((tab) => {
+        if (currentPagination[tab]?.page !== 1) {
+          nextPagination[tab] = {
+            ...(currentPagination[tab] || {
+              pageSize: DEFAULT_TABLE_PAGE_SIZE,
+            }),
+            page: 1,
+          };
+          hasChanges = true;
+        }
+      });
+
+      return hasChanges ? nextPagination : currentPagination;
+    });
+  }, [filters]);
+
+  useEffect(() => {
+    const rowsByTab = {
+      QUEUE: filteredQueueEntries,
+      CONFLICTS: filteredConflicts,
+      AUDIT: filteredTransactions,
+    };
+
+    setPaginationByTab((currentPagination) => {
+      let hasChanges = false;
+      const nextPagination = { ...currentPagination };
+
+      SYNC_PAGINATION_TABS.forEach((tab) => {
+        const currentTabPagination = currentPagination[tab] || {
+          page: 1,
+          pageSize: DEFAULT_TABLE_PAGE_SIZE,
+        };
+        const safePagination = getTablePaginationState({
+          totalItems: rowsByTab[tab].length,
+          currentPage: currentTabPagination.page,
+          pageSize: currentTabPagination.pageSize,
+        });
+
+        if (
+          currentTabPagination.page !== safePagination.currentPage ||
+          currentTabPagination.pageSize !== safePagination.pageSize
+        ) {
+          nextPagination[tab] = {
+            page: safePagination.currentPage,
+            pageSize: safePagination.pageSize,
+          };
+          hasChanges = true;
+        }
+      });
+
+      return hasChanges ? nextPagination : currentPagination;
+    });
+  }, [filteredConflicts, filteredQueueEntries, filteredTransactions]);
+
+  const queuePagination = paginationByTab.QUEUE || {
+    page: 1,
+    pageSize: DEFAULT_TABLE_PAGE_SIZE,
+  };
+  const conflictPagination = paginationByTab.CONFLICTS || {
+    page: 1,
+    pageSize: DEFAULT_TABLE_PAGE_SIZE,
+  };
+  const auditPagination = paginationByTab.AUDIT || {
+    page: 1,
+    pageSize: DEFAULT_TABLE_PAGE_SIZE,
+  };
+  const paginatedQueueEntries = useMemo(
+    () =>
+      paginateRows(
+        filteredQueueEntries,
+        queuePagination.page,
+        queuePagination.pageSize,
+      ),
+    [filteredQueueEntries, queuePagination.page, queuePagination.pageSize],
+  );
+  const paginatedConflicts = useMemo(
+    () =>
+      paginateRows(
+        filteredConflicts,
+        conflictPagination.page,
+        conflictPagination.pageSize,
+      ),
+    [filteredConflicts, conflictPagination.page, conflictPagination.pageSize],
+  );
+  const paginatedTransactions = useMemo(
+    () =>
+      paginateRows(
+        filteredTransactions,
+        auditPagination.page,
+        auditPagination.pageSize,
+      ),
+    [filteredTransactions, auditPagination.page, auditPagination.pageSize],
+  );
+
+  const updatePaginationPage = (tab, page) => {
+    setPaginationByTab((currentPagination) => ({
+      ...currentPagination,
+      [tab]: {
+        ...(currentPagination[tab] || {
+          pageSize: DEFAULT_TABLE_PAGE_SIZE,
+        }),
+        page,
+      },
+    }));
+  };
+
+  const updatePaginationPageSize = (tab, pageSize) => {
+    setPaginationByTab((currentPagination) => ({
+      ...currentPagination,
+      [tab]: {
+        ...(currentPagination[tab] || { page: 1 }),
+        page: 1,
+        pageSize,
+      },
+    }));
+  };
 
   const loadSyncHistory = useCallback(async () => {
     setIsLoadingHistory(true);
@@ -1088,6 +1227,19 @@ const SyncManagementPage = () => {
       >
         <h2 style={srOnlyStyles}>Offline Queue</h2>
 
+        <TablePagination
+          totalItems={filteredQueueEntries.length}
+          currentPage={queuePagination.page}
+          pageSize={queuePagination.pageSize}
+          onPageChange={(page) => updatePaginationPage("QUEUE", page)}
+          onPageSizeChange={(pageSize) =>
+            updatePaginationPageSize("QUEUE", pageSize)
+          }
+          ariaLabel="Offline queue pagination"
+          previousAriaLabel="Go to previous offline queue page"
+          nextAriaLabel="Go to next offline queue page"
+        />
+
         {filteredQueueEntries.length === 0 ? (
           <p style={shellStyles.mutedText}>
             {syncQueueEntries.length === 0 ? EMPTY_QUEUE_MESSAGE : EMPTY_MESSAGE}
@@ -1111,7 +1263,7 @@ const SyncManagementPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredQueueEntries.map((entry) => {
+                {paginatedQueueEntries.map((entry) => {
                   const details = getSyncRecordDetails(entry);
                   const canRetry = isSafeRetryableQueueEntry(entry);
 
@@ -1185,6 +1337,22 @@ const SyncManagementPage = () => {
       >
         <h2 style={srOnlyStyles}>Sync History</h2>
 
+        <TablePagination
+          totalItems={filteredTransactions.length}
+          currentPage={auditPagination.page}
+          pageSize={auditPagination.pageSize}
+          onPageChange={(page) => updatePaginationPage("AUDIT", page)}
+          onPageSizeChange={(pageSize) =>
+            updatePaginationPageSize("AUDIT", pageSize)
+          }
+          isVisible={!isLoadingHistory && !errorMessage}
+          disabled={isLoadingHistory}
+          disablePageSize={isLoadingHistory}
+          ariaLabel="Sync history pagination"
+          previousAriaLabel="Go to previous sync history page"
+          nextAriaLabel="Go to next sync history page"
+        />
+
         {isLoadingHistory ? (
           <p style={shellStyles.mutedText}>Loading sync history...</p>
         ) : errorMessage ? (
@@ -1214,7 +1382,7 @@ const SyncManagementPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredTransactions.map((transaction) => {
+                {paginatedTransactions.map((transaction) => {
                   const notes = getSyncHistoryNotes(transaction);
 
                   return (
@@ -1262,6 +1430,22 @@ const SyncManagementPage = () => {
       >
         <h2 style={srOnlyStyles}>Conflict Review</h2>
 
+        <TablePagination
+          totalItems={filteredConflicts.length}
+          currentPage={conflictPagination.page}
+          pageSize={conflictPagination.pageSize}
+          onPageChange={(page) => updatePaginationPage("CONFLICTS", page)}
+          onPageSizeChange={(pageSize) =>
+            updatePaginationPageSize("CONFLICTS", pageSize)
+          }
+          isVisible={!isLoadingHistory && !errorMessage}
+          disabled={isLoadingHistory}
+          disablePageSize={isLoadingHistory}
+          ariaLabel="Conflict review pagination"
+          previousAriaLabel="Go to previous conflict review page"
+          nextAriaLabel="Go to next conflict review page"
+        />
+
         {isLoadingHistory ? (
           <p style={shellStyles.mutedText}>Loading conflicts...</p>
         ) : filteredConflicts.length === 0 ? (
@@ -1285,7 +1469,7 @@ const SyncManagementPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredConflicts.map((conflict) => {
+                {paginatedConflicts.map((conflict) => {
                   const details = getSyncRecordDetails(conflict);
 
                   return (

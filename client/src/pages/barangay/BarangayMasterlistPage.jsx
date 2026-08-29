@@ -45,9 +45,11 @@ import {
   downloadExportFile,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 
-const DEFAULT_MASTERLIST_PAGE_SIZE = 25;
-const MASTERLIST_PAGE_SIZE_OPTIONS = [25, 50, 100];
 const SEARCH_DEBOUNCE_MS = 300;
 
 const BarangayMasterlistPage = () => {
@@ -56,7 +58,7 @@ const BarangayMasterlistPage = () => {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [recordStatus, setRecordStatus] = useState("active");
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_MASTERLIST_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [selectedSectorIdsByScope, setSelectedSectorIdsByScope] = useState({
     active: [],
     ended: [],
@@ -353,7 +355,7 @@ const BarangayMasterlistPage = () => {
   };
 
   const handlePageSizeChange = (value) => {
-    setPageSize(Number(value) || DEFAULT_MASTERLIST_PAGE_SIZE);
+    setPageSize(Number(value) || DEFAULT_TABLE_PAGE_SIZE);
     setCurrentPage(1);
   };
 
@@ -373,8 +375,13 @@ const BarangayMasterlistPage = () => {
   }, [eventScope, selectedEvent?.id]);
 
   useEffect(() => {
-    if (masterlistTotalPages > 0 && currentPage > masterlistTotalPages) {
-      setCurrentPage(masterlistTotalPages);
+    const safePage =
+      masterlistTotalPages > 0
+        ? Math.min(Math.max(currentPage, 1), masterlistTotalPages)
+        : 1;
+
+    if (currentPage !== safePage) {
+      setCurrentPage(safePage);
     }
   }, [currentPage, masterlistTotalPages]);
 
@@ -1081,7 +1088,7 @@ const BarangayMasterlistPage = () => {
         onSelectAll={handleSelectAll}
         showAddressColumn={false}
         pagination={masterlistPagination}
-        pageSizeOptions={MASTERLIST_PAGE_SIZE_OPTIONS}
+        pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
         onPageChange={setCurrentPage}
         onPageSizeChange={handlePageSizeChange}
         totalItems={masterlistTotalItems}

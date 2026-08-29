@@ -5,7 +5,12 @@ import SyncStatusIcon from "../shared/SyncStatusIcon";
 import EmptyState from "../shared/EmptyState";
 import ErrorState from "../shared/ErrorState";
 import LoadingState from "../shared/LoadingState";
+import TablePagination from "../shared/TablePagination";
 import TableActionsMenu from "../shared/TableActionsMenu";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 
 const tableStyles = {
   table: {
@@ -109,7 +114,7 @@ const MasterlistTable = ({
   onSelectAll,
   showAddressColumn = true,
   pagination = null,
-  pageSizeOptions = [25, 50, 100],
+  pageSizeOptions = TABLE_PAGE_SIZE_OPTIONS,
   onPageChange,
   onPageSizeChange,
   totalItems,
@@ -120,72 +125,19 @@ const MasterlistTable = ({
   const canUseSelection =
     typeof onToggleSelect === "function" && typeof onSelectAll === "function";
   const showSelectionColumn = !isDepartureReadOnly;
+  const paginationEnabled = pagination !== null || totalItems !== undefined;
   const paginationTotalItems = Number(
     totalItems !== undefined ? totalItems : pagination?.totalItems || rows.length,
   );
   const currentPage = Number(pagination?.page || 1);
-  const currentPageSize = Number(pagination?.pageSize || 25);
-  const totalPages = Number(pagination?.totalPages || 0);
-  const hasMultiplePages = totalPages > 1;
-  const firstVisibleItem =
-    paginationTotalItems > 0 ? (currentPage - 1) * currentPageSize + 1 : 0;
-  const lastVisibleItem =
-    paginationTotalItems > 0
-      ? Math.min(firstVisibleItem + rows.length - 1, paginationTotalItems)
-      : 0;
-  const paginationRange =
-    paginationTotalItems > 0
-      ? `Showing ${firstVisibleItem}-${lastVisibleItem} of ${paginationTotalItems}`
-      : "";
-  const paginationMetadata =
-    paginationTotalItems > 0 ? (
-      <div className="masterlist-pagination-metadata">
-        <p className="masterlist-pagination-range">{paginationRange}</p>
-        {hasMultiplePages ? (
-          <label className="masterlist-pagination-size">
-            <span>Rows per page</span>
-            <select
-              value={currentPageSize}
-              onChange={(event) => onPageSizeChange?.(event.target.value)}
-            >
-              {pageSizeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-      </div>
-    ) : null;
-  const paginationNavigation = hasMultiplePages ? (
-    <nav className="masterlist-pagination-navigation" aria-label="Masterlist pagination">
-      <div className="masterlist-pagination-controls">
-        <button
-          type="button"
-          onClick={() => onPageChange?.(Math.max(currentPage - 1, 1))}
-          disabled={!pagination?.hasPreviousPage}
-          aria-label="Go to previous masterlist page"
-        >
-          Previous
-        </button>
-        <span>Page {currentPage} of {totalPages}</span>
-        <button
-          type="button"
-          onClick={() => onPageChange?.(currentPage + 1)}
-          disabled={!pagination?.hasNextPage}
-          aria-label="Go to next masterlist page"
-        >
-          Next
-        </button>
-      </div>
-    </nav>
-  ) : null;
+  const currentPageSize = Number(
+    pagination?.pageSize || DEFAULT_TABLE_PAGE_SIZE,
+  );
 
   if (!hasSelectedEvent) {
     return (
       <section style={shellStyles.card}>
-        <h3 style={{ marginTop: 0, color: "#17324d" }}>Registered Family</h3>
+        <h3 className="table-card-title">Registered Family</h3>
         <div style={{ marginTop: "10px" }}>
           <EmptyState
             compact
@@ -199,7 +151,7 @@ const MasterlistTable = ({
   if (isLoading) {
     return (
       <section style={shellStyles.card}>
-        <h3 style={{ marginTop: 0, color: "#17324d" }}>Registered Family</h3>
+        <h3 className="table-card-title">Registered Family</h3>
         <div style={{ marginTop: "10px" }}>
           <LoadingState message="Loading masterlist data..." />
         </div>
@@ -210,7 +162,7 @@ const MasterlistTable = ({
   if (errorMessage) {
     return (
       <section style={shellStyles.card}>
-        <h3 style={{ marginTop: 0, color: "#17324d" }}>Registered Family</h3>
+        <h3 className="table-card-title">Registered Family</h3>
         <div style={{ marginTop: "10px" }}>
           <ErrorState compact message={errorMessage} />
         </div>
@@ -221,7 +173,7 @@ const MasterlistTable = ({
   if (rows.length === 0) {
     return (
       <section style={shellStyles.card}>
-        <h3 style={{ marginTop: 0, color: "#17324d" }}>Registered Family</h3>
+        <h3 className="table-card-title">Registered Family</h3>
         <div style={{ marginTop: "10px" }}>
           <EmptyState
             compact
@@ -319,10 +271,19 @@ const MasterlistTable = ({
 
   return (
     <section style={shellStyles.card}>
-      <div style={{ marginBottom: "18px" }}>
-        <h3 style={{ margin: 0, color: "#17324d" }}>Registered Family</h3>
-        {paginationMetadata}
-      </div>
+      <h3 className="table-card-title">Registered Family</h3>
+      <TablePagination
+        totalItems={paginationTotalItems}
+        currentPage={currentPage}
+        pageSize={currentPageSize}
+        pageSizeOptions={pageSizeOptions}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+        isVisible={paginationEnabled}
+        ariaLabel="Masterlist pagination"
+        previousAriaLabel="Go to previous masterlist page"
+        nextAriaLabel="Go to next masterlist page"
+      />
 
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyles.table}>
@@ -553,7 +514,6 @@ const MasterlistTable = ({
           </tbody>
         </table>
       </div>
-      {paginationNavigation}
     </section>
   );
 };
