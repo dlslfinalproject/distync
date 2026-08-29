@@ -56,6 +56,12 @@ const MSWDO_MUNICIPAL_SYNC_ENTITY_TYPES = new Set([
   "STUB",
   "DISTRIBUTION_TRANSACTION",
 ]);
+const MAYOR_MUNICIPAL_SYNC_ENTITY_TYPES = new Set([
+  "INVENTORY_ITEM",
+  "INVENTORY_BATCH",
+  "INVENTORY_TRANSACTION",
+  "SUPPLIER",
+]);
 
 const createConflictPersistenceError = (message) => {
   const error = new Error(message);
@@ -144,6 +150,61 @@ const canUseMswdoMunicipalitySyncRead = (auth) =>
   auth?.roleCode === ROLE_CODES.MSWDO &&
   typeof syncRepository.getSyncTransactionsByMunicipality === "function" &&
   typeof syncRepository.getSyncConflictsByMunicipality === "function";
+
+const canUseMayorMunicipalitySyncRead = (auth) =>
+  auth?.roleCode === ROLE_CODES.MAYOR &&
+  typeof syncRepository.getSyncTransactionsByMayor === "function" &&
+  typeof syncRepository.getSyncConflictsByMayor === "function";
+
+const getMunicipalSyncReadScope = (auth) => {
+  if (canUseMswdoMunicipalitySyncRead(auth)) {
+    return {
+      transactions: syncRepository.getSyncTransactionsByMunicipality,
+      conflicts: syncRepository.getSyncConflictsByMunicipality,
+      conflictById: syncRepository.getSyncConflictByIdForMunicipality,
+      countOpenConflicts: syncRepository.countOpenSyncConflictsByMunicipality,
+      lastSuccessfulSyncAt: syncRepository.getLastSuccessfulSyncAtForMunicipality,
+      entityTypes: MSWDO_MUNICIPAL_SYNC_ENTITY_TYPES,
+    };
+  }
+
+  if (canUseMayorMunicipalitySyncRead(auth)) {
+    return {
+      transactions: syncRepository.getSyncTransactionsByMayor,
+      conflicts: syncRepository.getSyncConflictsByMayor,
+      conflictById: syncRepository.getSyncConflictByIdForMayor,
+      countOpenConflicts: syncRepository.countOpenSyncConflictsByMayor,
+      lastSuccessfulSyncAt: syncRepository.getLastSuccessfulSyncAtForMayor,
+      entityTypes: MAYOR_MUNICIPAL_SYNC_ENTITY_TYPES,
+    };
+  }
+
+  return null;
+};
+
+const getMunicipalSyncConflictDetailScope = (auth) => {
+  if (
+    auth?.roleCode === ROLE_CODES.MSWDO &&
+    typeof syncRepository.getSyncConflictByIdForMunicipality === "function"
+  ) {
+    return {
+      conflictById: syncRepository.getSyncConflictByIdForMunicipality,
+      entityTypes: MSWDO_MUNICIPAL_SYNC_ENTITY_TYPES,
+    };
+  }
+
+  if (
+    auth?.roleCode === ROLE_CODES.MAYOR &&
+    typeof syncRepository.getSyncConflictByIdForMayor === "function"
+  ) {
+    return {
+      conflictById: syncRepository.getSyncConflictByIdForMayor,
+      entityTypes: MAYOR_MUNICIPAL_SYNC_ENTITY_TYPES,
+    };
+  }
+
+  return null;
+};
 
 const isRestrictedMswdoConflict = (conflict, auth) =>
   auth?.roleCode === ROLE_CODES.MSWDO &&
@@ -634,7 +695,9 @@ const getResolutionCapability = (conflict, auth) => {
   }
 
   if (conflict.conflict_type === INVENTORY_STOCK_STATE_DRIFT) {
-    const mayResolve = auth?.roleCode === ROLE_CODES.MAYOR;
+    const mayResolve =
+      auth?.roleCode === ROLE_CODES.MAYOR &&
+      conflict.entity_type === "INVENTORY_TRANSACTION";
 
     return {
       availableResolutionActions: mayResolve
@@ -1386,53 +1449,50 @@ const getSyncHistory = async ({
   barangayId = null,
   limit,
 }) => {
-  const reviewablePromise =
-    auth.roleCode === ROLE_CODES.MAYOR &&
-    isReviewableConflictStatusFilter(conflictStatus)
-      ? syncRepository.getReviewableManualInventoryConflicts({
-          limit,
-        })
-      : Promise.resolve([]);
+  const municipalSyncReadScope = getMunicipalSyncReadScope(auth);
+  const effectiveLimit = Number(limit) > 0 ? Number(limit) : 50;
 
-  const useMswdoMunicipalityScope = canUseMswdoMunicipalitySyncRead(auth);
-
-  const [rawTransactions, ownedConflicts, reviewableConflicts] = await Promise.all([
-    useMswdoMunicipalityScope
-      ? syncRepository.getSyncTransactionsByMunicipality({
+  const [rawTransactions, conflicts] = await Promise.all([
+    municipalSyncReadScope
+      ? municipalSyncReadScope.transactions({
           syncStatus,
-          barangayId,
-          limit,
+          ...(auth.roleCode === ROLE_CODES.MSWDO
+            ? { barangayId }
+            : {}),
+          limit: effectiveLimit,
         })
       : syncRepository.getSyncTransactionsByUser({
           userId: auth.userId,
           syncStatus,
-          limit,
+          limit: effectiveLimit,
         }),
-    useMswdoMunicipalityScope
-      ? syncRepository.getSyncConflictsByMunicipality({
+    municipalSyncReadScope
+      ? municipalSyncReadScope.conflicts({
           status: conflictStatus,
-          barangayId,
-          limit,
+          ...(auth.roleCode === ROLE_CODES.MSWDO
+            ? { barangayId }
+            : {}),
+          limit: effectiveLimit,
         })
       : syncRepository.getSyncConflictsByUser({
           userId: auth.userId,
           status: conflictStatus,
-          limit,
+          limit: effectiveLimit,
         }),
-    reviewablePromise,
   ]);
   const transactions = await enrichSyncTransactionsWithDisasterEventTitles({
     transactions: rawTransactions,
     auth,
   });
 
-  const conflicts = sortConflictsByCreatedAtDesc(
-    [...mergeConflictsById(ownedConflicts, reviewableConflicts).values()],
-  ).slice(0, limit);
+  const sortedConflicts = sortConflictsByCreatedAtDesc(conflicts).slice(
+    0,
+    effectiveLimit,
+  );
 
   return {
     transactions,
-    conflicts: conflicts.map((conflict) => ({
+    conflicts: sortedConflicts.map((conflict) => ({
       ...conflict,
       availableResolutionActions:
         getResolutionCapability(conflict, auth).availableResolutionActions,
@@ -1441,15 +1501,23 @@ const getSyncHistory = async ({
 };
 
 const getSyncStatusSummary = async ({ auth }) => {
-  const useMswdoMunicipalityScope =
+  const isMswdoMunicipalityStatusScope =
     auth.roleCode === ROLE_CODES.MSWDO &&
     typeof syncRepository.countOpenSyncConflictsByMunicipality === "function" &&
     typeof syncRepository.getLastSuccessfulSyncAtForMunicipality === "function";
+  const isMayorMunicipalityStatusScope =
+    auth.roleCode === ROLE_CODES.MAYOR &&
+    typeof syncRepository.countOpenSyncConflictsByMayor === "function" &&
+    typeof syncRepository.getLastSuccessfulSyncAtForMayor === "function";
 
-  if (useMswdoMunicipalityScope) {
+  if (isMswdoMunicipalityStatusScope || isMayorMunicipalityStatusScope) {
     const [conflictCount, lastSuccessfulSyncAt] = await Promise.all([
-      syncRepository.countOpenSyncConflictsByMunicipality({}),
-      syncRepository.getLastSuccessfulSyncAtForMunicipality({}),
+      isMswdoMunicipalityStatusScope
+        ? syncRepository.countOpenSyncConflictsByMunicipality({})
+        : syncRepository.countOpenSyncConflictsByMayor({}),
+      isMswdoMunicipalityStatusScope
+        ? syncRepository.getLastSuccessfulSyncAtForMunicipality({})
+        : syncRepository.getLastSuccessfulSyncAtForMayor({}),
     ]);
 
     return {
@@ -1459,37 +1527,27 @@ const getSyncStatusSummary = async ({ auth }) => {
     };
   }
 
-  const reviewableCountPromise =
-    auth.roleCode === ROLE_CODES.MAYOR
-      ? syncRepository.countOpenReviewableManualInventoryConflicts({
-          userId: auth.userId,
-        })
-      : Promise.resolve(0);
-
-  const [ownedConflictCount, reviewableConflictCount, lastSuccessfulSyncAt] =
-    await Promise.all([
-      syncRepository.countOpenSyncConflictsByUser({
-        userId: auth.userId,
-      }),
-      reviewableCountPromise,
-      syncRepository.getLastSuccessfulSyncAtByUser({
-        userId: auth.userId,
-      }),
-    ]);
+  const [ownedConflictCount, lastSuccessfulSyncAt] = await Promise.all([
+    syncRepository.countOpenSyncConflictsByUser({
+      userId: auth.userId,
+    }),
+    syncRepository.getLastSuccessfulSyncAtByUser({
+      userId: auth.userId,
+    }),
+  ]);
 
   return {
-    conflictCount: ownedConflictCount + reviewableConflictCount,
+    conflictCount: ownedConflictCount,
     lastSuccessfulSyncAt,
     backendReachable: true,
   };
 };
 
 const getSyncConflictDetail = async ({ auth, conflictId }) => {
-  const useMswdoMunicipalityScope =
-    auth.roleCode === ROLE_CODES.MSWDO &&
-    typeof syncRepository.getSyncConflictByIdForMunicipality === "function";
-  const conflict = useMswdoMunicipalityScope
-    ? await syncRepository.getSyncConflictByIdForMunicipality({
+  const municipalSyncConflictDetailScope =
+    getMunicipalSyncConflictDetailScope(auth);
+  const conflict = municipalSyncConflictDetailScope
+    ? await municipalSyncConflictDetailScope.conflictById({
         id: conflictId,
       })
     : await syncRepository.getSyncConflictById({
@@ -1497,15 +1555,21 @@ const getSyncConflictDetail = async ({ auth, conflictId }) => {
       });
   const capability = getSyncConflictReviewCapability(conflict, auth);
   const isMswdoMunicipalityConflict =
-    useMswdoMunicipalityScope &&
+    auth.roleCode === ROLE_CODES.MSWDO &&
+    municipalSyncConflictDetailScope?.entityTypes &&
     MSWDO_MUNICIPAL_SYNC_ENTITY_TYPES.has(conflict?.entity_type) &&
     !isRestrictedMswdoConflict(conflict, auth);
+  const isMayorMunicipalityConflict =
+    auth.roleCode === ROLE_CODES.MAYOR &&
+    municipalSyncConflictDetailScope?.entityTypes &&
+    MAYOR_MUNICIPAL_SYNC_ENTITY_TYPES.has(conflict?.entity_type);
 
   if (
     !conflict ||
     (!capability.isOwnedByUser &&
       !capability.canReview &&
-      !isMswdoMunicipalityConflict)
+      !isMswdoMunicipalityConflict &&
+      !isMayorMunicipalityConflict)
   ) {
     const error = new Error("Sync conflict not found");
     error.statusCode = 404;

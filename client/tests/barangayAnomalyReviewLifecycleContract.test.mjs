@@ -44,7 +44,7 @@ test("BRG-ANOM-L03 reviewed MSWDO details remain read-only while Barangay retain
 
   assert.match(
     modalSource,
-    /title=\{isBarangayScope && !hasSavedReview \? "Review Anomaly" : "Anomaly Details"\}/,
+    /title=\{\s*\(isBarangayScope \|\| isMayorScope\) && !hasSavedReview\s*\? "Review Anomaly"\s*:\s*"Anomaly Details"\s*\}/,
   );
   assert.match(
     modalSource,

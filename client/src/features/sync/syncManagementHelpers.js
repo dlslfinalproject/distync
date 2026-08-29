@@ -39,6 +39,10 @@ const RECORD_TYPE_LABELS = {
   INVENTORY_ITEMS: "Inventory",
   INVENTORY_TRANSACTION: "Inventory",
   INVENTORY_TRANSACTIONS: "Inventory",
+  INVENTORY_BATCH: "Inventory",
+  INVENTORY_BATCHES: "Inventory",
+  SUPPLIER: "Inventory",
+  SUPPLIERS: "Inventory",
 };
 
 const ACTION_LABELS = {
@@ -59,6 +63,9 @@ const ACTION_LABELS = {
   DISASTER_EVENT_END: "End Disaster Event",
   INVENTORY_ITEM_CREATE: "Add Inventory Item",
   INVENTORY_ITEM_UPDATE: "Edit Inventory Item",
+  INVENTORY_BATCH_CREATE: "Add Inventory Batch",
+  SUPPLIER_CREATE: "Add Supplier",
+  SUPPLIER_UPDATE: "Edit Supplier",
   INVENTORY_TRANSACTION_CREATE: "Inventory Movement",
 };
 
@@ -72,6 +79,9 @@ const OPERATION_LABELS = {
   DISTRIBUTION_CREATE: "Create",
   INVENTORY_ITEM_CREATE: "Create",
   INVENTORY_ITEM_UPDATE: "Update",
+  INVENTORY_BATCH_CREATE: "Create",
+  SUPPLIER_CREATE: "Create",
+  SUPPLIER_UPDATE: "Update",
   INVENTORY_TRANSACTION_CREATE: "Create",
 };
 
@@ -93,8 +103,29 @@ const ACTION_SUBJECT_FALLBACKS = {
   DISASTER_EVENT_END: "Disaster event closure",
   INVENTORY_ITEM_CREATE: "Inventory item record",
   INVENTORY_ITEM_UPDATE: "Inventory item update",
+  INVENTORY_BATCH_CREATE: "Inventory batch record",
+  SUPPLIER_CREATE: "Supplier record",
+  SUPPLIER_UPDATE: "Supplier update",
   INVENTORY_TRANSACTION_CREATE: "Inventory movement record",
 };
+
+const MAYOR_SYNC_ENTITY_TYPES = new Set([
+  "INVENTORY_ITEM",
+  "INVENTORY_BATCH",
+  "INVENTORY_TRANSACTION",
+  "SUPPLIER",
+]);
+
+const MAYOR_SYNC_ACTION_KEYS = new Set([
+  "INVENTORY_ITEM_CREATE",
+  "INVENTORY_ITEM_UPDATE",
+  "INVENTORY_BATCH_CREATE",
+  "SUPPLIER_CREATE",
+  "SUPPLIER_UPDATE",
+  "INVENTORY_TRANSACTION_CREATE",
+]);
+
+const MAYOR_SYNC_MODULE_NAMES = new Set(["MAYOR-INVENTORY", "MAYOR-SUPPLIERS"]);
 
 const getStoredActionKey = (record = {}) =>
   normalizeKey(
@@ -282,6 +313,22 @@ const getEntityType = (record = {}) =>
       record.payload?.entity_type,
   );
 
+export const isMayorOwnedSyncRecord = (record = {}) => {
+  const actionKey = getActionKey(record);
+  const entityType = getEntityType(record);
+  const moduleName = normalizeKey(
+    record.moduleName ||
+      record.module_name ||
+      record.payload_json?.module_name ||
+      record.payload?.module_name,
+  );
+
+  return (
+    MAYOR_SYNC_ENTITY_TYPES.has(entityType) &&
+    (MAYOR_SYNC_ACTION_KEYS.has(actionKey) || MAYOR_SYNC_MODULE_NAMES.has(moduleName))
+  );
+};
+
 const getFirstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
 
@@ -377,6 +424,37 @@ export const getSyncRecordDetails = (record = {}) => {
   const recordType = getRecordTypeLabel(record, payload);
   const familyHeadName = getFamilyHeadName(payload);
   const affectedPersonName = getAffectedPersonName(payload);
+  const inventoryItemName = getFirstValue(
+    payload.item_name,
+    payload.inventory_item_name,
+    payload.inventory_item?.item_name,
+    payload.item?.item_name,
+    payload.item?.name,
+    payload.inventory_batch?.inventory_item?.item_name,
+    payload.batch?.inventory_item?.item_name,
+  );
+  const inventoryBatchNo = getFirstValue(
+    payload.batch_no,
+    payload.inventory_batch_no,
+    payload.inventory_batch?.batch_no,
+    payload.batch?.batch_no,
+  );
+  const inventoryTransactionReferenceNo = getFirstValue(
+    payload.inventory_transaction_reference_no,
+    payload.inventoryTransactionReferenceNo,
+    payload.transaction_reference_no,
+  );
+  const supplierName = getFirstValue(
+    payload.supplier_name,
+    payload.supplier?.name,
+    payload.supplier?.supplier_name,
+  );
+  const barcode = getFirstValue(
+    payload.barcode,
+    payload.item_barcode,
+    payload.inventory_item?.barcode,
+    payload.stock_form?.barcode,
+  );
   const stubNumber = getFirstValue(
     payload.display_stub_no,
     payload.display_stub_number,
@@ -434,7 +512,10 @@ export const getSyncRecordDetails = (record = {}) => {
   const subject = getFirstValue(
     affectedPersonName,
     stubNumber,
-    payload.item_name,
+    inventoryItemName,
+    supplierName,
+    inventoryBatchNo,
+    inventoryTransactionReferenceNo,
     payload.title,
     payload.name,
     uuidPattern.test(String(record.entity_server_id || record.entityServerId || ""))
@@ -453,6 +534,9 @@ export const getSyncRecordDetails = (record = {}) => {
   const primarySubject = asDisplayValue(subject || fallbackSubject);
   const secondaryCandidates = [
     stubNumber ? `Stub No. ${stubNumber}` : "",
+    inventoryBatchNo ? `Batch No. ${inventoryBatchNo}` : "",
+    inventoryTransactionReferenceNo ? `ITR No. ${inventoryTransactionReferenceNo}` : "",
+    barcode ? `Barcode ${barcode}` : "",
     familyHeadName && normalizeDisplayText(familyHeadName) !== normalizeDisplayText(primarySubject)
       ? familyHeadName
       : "",
@@ -570,7 +654,11 @@ export const getSyncHistoryNotes = (record = {}) => {
     payload.quantity_needed || payload.quantity_received
       ? `Quantity: ${payload.quantity_needed || payload.quantity_received}`
       : "",
+    payload.quantity ? `Quantity: ${payload.quantity}` : "",
     payload.item_name ? `Item: ${payload.item_name}` : "",
+    payload.condition ? `Condition: ${payload.condition}` : "",
+    payload.barcode ? `Barcode: ${payload.barcode}` : "",
+    payload.source_type ? `Source: ${payload.source_type}` : "",
     Array.isArray(payload.items) && payload.items.length > 0
       ? `${payload.items.length} item(s)`
       : "",
@@ -600,7 +688,15 @@ export const buildSyncSearchText = (
     details.disasterEvent,
     details.status,
     details.notes,
+    details.secondaryLabel,
     includeBarangay ? barangay : "",
+    payload.item_name,
+    payload.inventory_item_name,
+    payload.batch_no,
+    payload.inventory_batch_no,
+    payload.inventory_transaction_reference_no,
+    payload.barcode,
+    payload.condition,
     payload.sectors_text,
     payload.sectors,
     payload.relief_pack,
@@ -616,6 +712,7 @@ export const matchesRecordTypeFilter = (record = {}, filterValue = "ALL") => {
   }
 
   const recordType = getSyncRecordDetails(record).recordType;
+  const entityType = getEntityType(record);
   const normalizedFilter = normalizeKey(filterValue);
 
   if (normalizedFilter === "EVACUEE_MASTERLIST") {
@@ -631,7 +728,23 @@ export const matchesRecordTypeFilter = (record = {}, filterValue = "ALL") => {
   }
 
   if (normalizedFilter === "INVENTORY") {
-    return recordType === "Inventory";
+    return recordType === "Inventory" || entityType.startsWith("INVENTORY") || entityType === "SUPPLIER";
+  }
+
+  if (normalizedFilter === "INVENTORY_ITEM") {
+    return entityType === "INVENTORY_ITEM";
+  }
+
+  if (normalizedFilter === "INVENTORY_BATCH") {
+    return entityType === "INVENTORY_BATCH";
+  }
+
+  if (normalizedFilter === "INVENTORY_TRANSACTION") {
+    return entityType === "INVENTORY_TRANSACTION";
+  }
+
+  if (normalizedFilter === "SUPPLIER") {
+    return entityType === "SUPPLIER";
   }
 
   return true;

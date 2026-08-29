@@ -38,6 +38,7 @@ import {
   getSyncQueueNotes,
   getSyncRecordDetails,
   getSyncRecordBarangayId,
+  isMayorOwnedSyncRecord,
   isSafeRetryableQueueEntry,
   matchesRecordTypeFilter,
   matchesSyncFilter,
@@ -60,6 +61,14 @@ const RECORD_TYPE_OPTIONS = [
   { value: "RELIEF_GOODS_DISTRIBUTION", label: "Relief Goods Distribution" },
   { value: "DISASTER_EVENT", label: "Disaster Event Management" },
   { value: "INVENTORY", label: "Inventory" },
+];
+
+const MAYOR_RECORD_TYPE_OPTIONS = [
+  { value: "ALL", label: "All Records" },
+  { value: "INVENTORY_ITEM", label: "Inventory Items" },
+  { value: "INVENTORY_BATCH", label: "Inventory Batches" },
+  { value: "INVENTORY_TRANSACTION", label: "Inventory Movements" },
+  { value: "SUPPLIER", label: "Suppliers" },
 ];
 
 const QUEUE_STATUS_OPTIONS = [
@@ -368,6 +377,10 @@ const applySyncFilters = (
 const SyncManagementPage = () => {
   const { currentRole } = useAuth();
   const isMswdoPortal = currentRole === ROLE_CODES.MSWDO;
+  const isMayorPortal = currentRole === ROLE_CODES.MAYOR;
+  const recordTypeOptions = isMayorPortal
+    ? MAYOR_RECORD_TYPE_OPTIONS
+    : RECORD_TYPE_OPTIONS;
   const [syncHistory, setSyncHistory] = useState({
     transactions: [],
     conflicts: [],
@@ -410,6 +423,13 @@ const SyncManagementPage = () => {
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntriesByUpdatedAt(), [], []) ||
     [];
+  const scopedSyncQueueEntries = useMemo(
+    () =>
+      isMayorPortal
+        ? syncQueueEntries.filter((entry) => isMayorOwnedSyncRecord(entry))
+        : syncQueueEntries,
+    [isMayorPortal, syncQueueEntries],
+  );
 
   const barangayNameById = useMemo(
     () =>
@@ -436,8 +456,8 @@ const SyncManagementPage = () => {
   );
 
   const displayQueueEntries = useMemo(
-    () => syncQueueEntries.map(addBarangayDisplayName),
-    [addBarangayDisplayName, syncQueueEntries],
+    () => scopedSyncQueueEntries.map(addBarangayDisplayName),
+    [addBarangayDisplayName, scopedSyncQueueEntries],
   );
 
   const displayTransactions = useMemo(
@@ -467,21 +487,21 @@ const SyncManagementPage = () => {
 
   const failedQueueEntries = useMemo(
     () =>
-      syncQueueEntries.filter(
+      scopedSyncQueueEntries.filter(
         (entry) => isSafeRetryableQueueEntry(entry),
       ),
-    [syncQueueEntries],
+    [scopedSyncQueueEntries],
   );
   const failedQueueCount = useMemo(
     () =>
-      syncQueueEntries.filter(
+      scopedSyncQueueEntries.filter(
         (entry) => entry.status === LOCAL_SYNC_STATUS.FAILED,
       ).length,
-    [syncQueueEntries],
+    [scopedSyncQueueEntries],
   );
 
   const summary = useMemo(() => {
-    const localConflictCount = syncQueueEntries.filter(
+    const localConflictCount = scopedSyncQueueEntries.filter(
       (entry) => entry.status === LOCAL_SYNC_STATUS.CONFLICT,
     ).length;
     const serverConflictCount = Number.isFinite(syncStatusSummary.conflictCount)
@@ -491,14 +511,14 @@ const SyncManagementPage = () => {
     return {
       conflicts: Math.max(localConflictCount, serverConflictCount),
       failed: failedQueueCount,
-      pending: syncQueueEntries.filter(
+      pending: scopedSyncQueueEntries.filter(
         (entry) => entry.status === LOCAL_SYNC_STATUS.PENDING,
       ).length,
       lastSuccessfulSyncAt: syncStatusSummary.lastSuccessfulSyncAt,
     };
   }, [
     failedQueueCount,
-    syncQueueEntries,
+    scopedSyncQueueEntries,
     syncStatusSummary.conflictCount,
     syncStatusSummary.lastSuccessfulSyncAt,
   ]);
@@ -1061,7 +1081,7 @@ const SyncManagementPage = () => {
               onChange={(event) => updateFilter("recordType", event.target.value)}
               style={fieldStyles.input}
             >
-              {RECORD_TYPE_OPTIONS.map((option) => (
+              {recordTypeOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -1271,7 +1291,7 @@ const SyncManagementPage = () => {
 
         {filteredQueueEntries.length === 0 ? (
           <p style={shellStyles.mutedText}>
-            {syncQueueEntries.length === 0 ? EMPTY_QUEUE_MESSAGE : EMPTY_MESSAGE}
+            {scopedSyncQueueEntries.length === 0 ? EMPTY_QUEUE_MESSAGE : EMPTY_MESSAGE}
           </p>
         ) : (
           <div className="sync-center-table-scroll" style={{ overflowX: "auto" }}>

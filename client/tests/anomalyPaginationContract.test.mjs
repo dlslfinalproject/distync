@@ -100,8 +100,8 @@ test("MSWDO consolidated table uses the required operational columns in order", 
     /Severity|>Status<|Created Date|Action Required|Responsible Office|Household \/ Stub/,
   );
   assert.doesNotMatch(source, /SeverityPill|getAnomalySeverity/);
-  assert.match(source, /formatBarangayLabel\(row\)/);
-  assert.match(source, /formatAffectedRecord\(row, false\)/);
+  assert.match(source, /formatBarangayLabel\(row, presentationScope\)/);
+  assert.match(source, /formatAffectedRecord\(row, false, presentationScope\)/);
 });
 
 test("MSWDO filters and search expose municipal operational fields", async () => {
@@ -380,8 +380,8 @@ test("Barangay anomaly details separates metadata fields instead of flowing para
   assert.match(source, /<strong style=\{\{ \.\.\.modalStyles\.value, fontSize: "16px" \}\}>\{presentation\.label\}<\/strong>/);
   assert.match(source, /<StatusPill row=\{displayedAnomaly\} scope=\{presentationScope\} \/>/);
   assert.doesNotMatch(source, /<div style=\{labelStyles\}>Status<\/div>/);
-  assert.match(source, /<DetailField label="Disaster Event">[\s\S]*\{formatEventLabel\(displayedAnomaly\)\}/);
-  assert.match(source, /<DetailField label="Affected Record">[\s\S]*\{formatAffectedRecord\(displayedAnomaly, isBarangayScope\)\}/);
+  assert.match(source, /<DetailField label="Disaster Event">[\s\S]*\{formatEventLabel\(displayedAnomaly, presentationScope\)\}/);
+  assert.match(source, /<DetailField label="Affected Record">[\s\S]*\{formatAffectedRecord\([\s\S]*displayedAnomaly,[\s\S]*presentationScope,[\s\S]*\)\}/);
   assert.match(source, /<DetailField label="Detected At">[\s\S]*\{formatDateTime\(displayedAnomaly\.detected_at\)\}/);
   assert.match(source, /<DetailField label="Recommendation">[\s\S]*\{getAnomalyActionSummary\(displayedAnomaly, presentationScope\)\}/);
   assert.doesNotMatch(source, /<DetailField label="Responsible Office">/);
@@ -515,6 +515,9 @@ test("shared sidebar groups each role's monitoring navigation under Monitoring",
   const mswdoAnalyticsIndex = mswdoNavBlock.indexOf('{ label: "Evacuee Analytics Dashboard", to: "/mswdo/analytics", isSectionChild: true }');
   const mswdoAnomalyIndex = mswdoNavBlock.indexOf('{ label: "Anomaly Tracking", to: "/mswdo/anomalies", isSectionChild: true }');
   const mswdoSyncIndex = mswdoNavBlock.indexOf('{ label: "Sync Center", to: "/mswdo/sync", isSectionChild: true }');
+  const mayorMonitoringIndex = mayorNavBlock.indexOf('{ type: "section", label: "Monitoring" }');
+  const mayorSyncIndex = mayorNavBlock.indexOf('{ label: "Sync Center", to: "/inventory/sync", isSectionChild: true }');
+  const mayorAnomalyIndex = mayorNavBlock.indexOf('{ label: "Anomaly Tracking", to: "/inventory/anomalies", isSectionChild: true }');
 
   assert.notEqual(monitoringIndex, -1);
   assert.notEqual(syncIndex, -1);
@@ -528,10 +531,15 @@ test("shared sidebar groups each role's monitoring navigation under Monitoring",
   assert.ok(mswdoMonitoringIndex < mswdoAnalyticsIndex);
   assert.ok(mswdoAnalyticsIndex < mswdoSyncIndex);
   assert.ok(mswdoSyncIndex < mswdoAnomalyIndex);
+  assert.notEqual(mayorMonitoringIndex, -1);
+  assert.notEqual(mayorSyncIndex, -1);
+  assert.notEqual(mayorAnomalyIndex, -1);
+  assert.ok(mayorMonitoringIndex < mayorSyncIndex);
+  assert.ok(mayorSyncIndex < mayorAnomalyIndex);
   assert.match(sidebarSource, /item\.type === "section"[\s\S]*className="distync-sidebar__nav-section-label"/);
   assert.match(sidebarSource, /display: isCollapsed \? "none" : sidebarStyles\.navSectionLabel\.display/);
   assert.match(sidebarSource, /marginLeft: item\.isSectionChild && !isCollapsed \? "8px" : 0/);
   assert.doesNotMatch(sidebarSource, /\/barangay\/monitoring/);
   assert.match(mswdoNavBlock, /type: "section", label: "Monitoring"/);
-  assert.doesNotMatch(mayorNavBlock, /type: "section", label: "Monitoring"/);
+  assert.match(mayorNavBlock, /type: "section", label: "Monitoring"/);
 });

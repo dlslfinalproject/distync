@@ -385,6 +385,13 @@ const SYNC_MSWDO_ENTITY_SCOPE = `
   st.entity_type IN ('HOUSEHOLD', 'STUB', 'DISTRIBUTION_TRANSACTION')
 `;
 
+// Mayor Sync Center reads are limited to records created by the municipality's
+// inventory domain. Keep this allowlist explicit: a municipality-wide read must
+// not accidentally expose Barangay/MSWDO evacuee or distribution operations.
+const SYNC_MAYOR_ENTITY_SCOPE = `
+  st.entity_type IN ('INVENTORY_ITEM', 'INVENTORY_BATCH', 'INVENTORY_TRANSACTION', 'SUPPLIER')
+`;
+
 const SYNC_BARANGAY_ATTRIBUTION_CTE = `
   WITH sync_transaction_context AS (
     SELECT
@@ -553,9 +560,10 @@ const getSyncTransactionsByMunicipality = async ({
   syncStatus = null,
   barangayId = null,
   limit = 50,
+  entityScope = SYNC_MSWDO_ENTITY_SCOPE,
 }) => {
   const values = [];
-  const conditions = [SYNC_MSWDO_ENTITY_SCOPE];
+  const conditions = [entityScope];
 
   appendSyncScopeFilter(conditions, values, "st.sync_status", syncStatus);
   appendSyncScopeFilter(conditions, values, "sba.barangay_id", barangayId);
@@ -583,9 +591,10 @@ const getSyncConflictsByMunicipality = async ({
   status = null,
   barangayId = null,
   limit = 50,
+  entityScope = SYNC_MSWDO_ENTITY_SCOPE,
 }) => {
   const values = [];
-  const conditions = [SYNC_MSWDO_ENTITY_SCOPE];
+  const conditions = [entityScope];
 
   appendSyncScopeFilter(conditions, values, "sc.status", status);
   appendSyncScopeFilter(conditions, values, "sba.barangay_id", barangayId);
@@ -612,13 +621,13 @@ const getSyncConflictsByMunicipality = async ({
 };
 
 const getSyncConflictByIdForMunicipality = async (
-  { id, barangayId = null },
+  { id, barangayId = null, entityScope = SYNC_MSWDO_ENTITY_SCOPE },
   dbClient = pool,
 ) => {
   const values = [id];
   const conditions = [
     "sc.id = $1",
-    SYNC_MSWDO_ENTITY_SCOPE,
+    entityScope,
   ];
 
   appendSyncScopeFilter(conditions, values, "sba.barangay_id", barangayId);
@@ -642,12 +651,12 @@ const getSyncConflictByIdForMunicipality = async (
 };
 
 const countOpenSyncConflictsByMunicipality = async (
-  { barangayId = null } = {},
+  { barangayId = null, entityScope = SYNC_MSWDO_ENTITY_SCOPE } = {},
   dbClient = pool,
 ) => {
   const values = [];
   const conditions = [
-    SYNC_MSWDO_ENTITY_SCOPE,
+    entityScope,
     "sc.status = 'OPEN'",
   ];
 
@@ -669,12 +678,12 @@ const countOpenSyncConflictsByMunicipality = async (
 };
 
 const getLastSuccessfulSyncAtForMunicipality = async (
-  { barangayId = null } = {},
+  { barangayId = null, entityScope = SYNC_MSWDO_ENTITY_SCOPE } = {},
   dbClient = pool,
 ) => {
   const values = [];
   const conditions = [
-    SYNC_MSWDO_ENTITY_SCOPE,
+    entityScope,
     "st.sync_status = 'SYNCED'",
   ];
 
@@ -694,6 +703,44 @@ const getLastSuccessfulSyncAtForMunicipality = async (
   const result = await dbClient.query(query, values);
   return result.rows[0]?.last_successful_sync_at || null;
 };
+
+const getSyncTransactionsByMayor = async ({ syncStatus = null, limit = 50 } = {}) =>
+  getSyncTransactionsByMunicipality({
+    syncStatus,
+    limit,
+    barangayId: null,
+    entityScope: SYNC_MAYOR_ENTITY_SCOPE,
+  });
+
+const getSyncConflictsByMayor = async ({ status = null, limit = 50 } = {}) =>
+  getSyncConflictsByMunicipality({
+    status,
+    limit,
+    barangayId: null,
+    entityScope: SYNC_MAYOR_ENTITY_SCOPE,
+  });
+
+const getSyncConflictByIdForMayor = async ({ id } = {}, dbClient = pool) =>
+  getSyncConflictByIdForMunicipality(
+    {
+      id,
+      barangayId: null,
+      entityScope: SYNC_MAYOR_ENTITY_SCOPE,
+    },
+    dbClient,
+  );
+
+const countOpenSyncConflictsByMayor = async (_options = {}, dbClient = pool) =>
+  countOpenSyncConflictsByMunicipality(
+    { barangayId: null, entityScope: SYNC_MAYOR_ENTITY_SCOPE },
+    dbClient,
+  );
+
+const getLastSuccessfulSyncAtForMayor = async (_options = {}, dbClient = pool) =>
+  getLastSuccessfulSyncAtForMunicipality(
+    { barangayId: null, entityScope: SYNC_MAYOR_ENTITY_SCOPE },
+    dbClient,
+  );
 
 const getDisasterEventTitlesByIds = async ({
   eventIds = [],
@@ -1092,18 +1139,23 @@ module.exports = {
   recordSyncFailureAndNotificationIntent,
   getSyncTransactionsByUser,
   getSyncTransactionsByMunicipality,
+  getSyncTransactionsByMayor,
   getDisasterEventTitlesByIds,
   getSyncConflictsByUser,
   getSyncConflictsByMunicipality,
+  getSyncConflictsByMayor,
   getReviewableManualInventoryConflicts,
   getSyncConflictByIdForUser,
   getSyncConflictByIdForMunicipality,
+  getSyncConflictByIdForMayor,
   lockSyncConflictById,
   markSyncConflictResolved,
   countOpenSyncConflictsByUser,
   countOpenSyncConflictsByMunicipality,
+  countOpenSyncConflictsByMayor,
   countOpenReviewableManualInventoryConflicts,
   getLastSuccessfulSyncAtByUser,
   getLastSuccessfulSyncAtForMunicipality,
+  getLastSuccessfulSyncAtForMayor,
   withSyncProcessingTransaction,
 };

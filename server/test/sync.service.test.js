@@ -4898,7 +4898,7 @@ test("M04-01 stock drift detail exposes only Mayor MARK_REVIEWED and KEEP_SERVER
   await withStubbedSyncService(
     {
       [syncRepositoryPath]: {
-        getSyncConflictById: async ({ id }) => ({
+        getSyncConflictByIdForMayor: async ({ id }) => ({
           id,
           sync_transaction_id: "sync-1",
           user_id: "mayor-1",
@@ -4915,6 +4915,9 @@ test("M04-01 stock drift detail exposes only Mayor MARK_REVIEWED and KEEP_SERVER
           sync_status: "CONFLICT",
           operation_type: "INVENTORY_ADJUSTMENT",
         }),
+        getSyncConflictById: async () => {
+          throw new Error("Mayor detail must use the Mayor-scoped conflict read");
+        },
       },
       [systemLogPath]: {
         logAuditSafely: async () => {},
@@ -4946,45 +4949,49 @@ test("M04-01 stock drift detail exposes only Mayor MARK_REVIEWED and KEEP_SERVER
   );
 });
 
-test("BRG-SC-04B peer Mayor discovers eligible stock-drift conflict without foreign history", async () => {
-  const ownedConflict = {
-    id: "owned-conflict",
-    user_id: "mayor-b",
-    entity_type: "INVENTORY_TRANSACTION",
-    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
-    resolution_strategy: "MANUAL_REVIEW",
-    status: "OPEN",
-    created_at: "2026-08-09T01:00:00.000Z",
-  };
-  const peerConflict = {
-    id: "peer-conflict",
-    user_id: "mayor-a",
-    entity_type: "INVENTORY_TRANSACTION",
-    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
-    resolution_strategy: "MANUAL_REVIEW",
-    status: "OPEN",
-    created_at: "2026-08-09T02:00:00.000Z",
-  };
-  const duplicateOwnedReviewable = {
-    ...ownedConflict,
-    created_at: "2026-08-09T03:00:00.000Z",
-  };
+test("MAYOR Sync Center history uses municipality-wide inventory scope", async () => {
+  let transactionRead = false;
+  let conflictRead = false;
 
   await withStubbedSyncService(
     {
       [syncRepositoryPath]: {
-        getSyncTransactionsByUser: async ({ userId }) => {
-          assert.equal(userId, "mayor-b");
-          return [{ id: "mayor-b-own-transaction", user_id: "mayor-b" }];
+        getSyncTransactionsByMayor: async (args) => {
+          transactionRead = true;
+          assert.deepEqual(args, {
+            syncStatus: null,
+            limit: 100,
+          });
+          return [
+            {
+              id: "mayor-inventory-transaction",
+              entity_type: "INVENTORY_TRANSACTION",
+            },
+          ];
         },
-        getSyncConflictsByUser: async ({ userId }) => {
-          assert.equal(userId, "mayor-b");
-          return [ownedConflict];
+        getSyncConflictsByMayor: async (args) => {
+          conflictRead = true;
+          assert.deepEqual(args, {
+            status: null,
+            limit: 100,
+          });
+          return [
+            {
+              id: "mayor-stock-conflict",
+              entity_type: "INVENTORY_TRANSACTION",
+              conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+              resolution_strategy: "MANUAL_REVIEW",
+              status: "OPEN",
+              created_at: "2026-08-09T02:00:00.000Z",
+            },
+          ];
         },
-        getReviewableManualInventoryConflicts: async () => [
-          peerConflict,
-          duplicateOwnedReviewable,
-        ],
+        getSyncTransactionsByUser: async () => {
+          throw new Error("Mayor history must not use user-scoped transactions");
+        },
+        getSyncConflictsByUser: async () => {
+          throw new Error("Mayor history must not use user-scoped conflicts");
+        },
       },
     },
     async ({ getSyncHistory }) => {
@@ -4995,16 +5002,17 @@ test("BRG-SC-04B peer Mayor discovers eligible stock-drift conflict without fore
         },
         syncStatus: null,
         conflictStatus: null,
+        barangayId: "should-not-be-used",
         limit: 100,
       });
 
       assert.deepEqual(
         history.transactions.map((transaction) => transaction.id),
-        ["mayor-b-own-transaction"],
+        ["mayor-inventory-transaction"],
       );
       assert.deepEqual(
         history.conflicts.map((conflict) => conflict.id),
-        ["peer-conflict", "owned-conflict"],
+        ["mayor-stock-conflict"],
       );
       assert.deepEqual(history.conflicts[0].availableResolutionActions, [
         "MARK_REVIEWED",
@@ -5012,6 +5020,9 @@ test("BRG-SC-04B peer Mayor discovers eligible stock-drift conflict without fore
       ]);
     },
   );
+
+  assert.equal(transactionRead, true);
+  assert.equal(conflictRead, true);
 });
 
 test("BRG-SC-04B non-Mayor history excludes peer review workload", async () => {
@@ -5182,21 +5193,23 @@ test("BRG-SC-EVENT-02 unresolved or deleted event IDs do not fail or expose titl
   );
 });
 
-test("BRG-SC-04B peer Mayor Needs Review count includes eligible conflict once", async () => {
+test("MAYOR Sync Center health summary uses municipality-wide inventory reads", async () => {
   await withStubbedSyncService(
     {
       [syncRepositoryPath]: {
-        countOpenSyncConflictsByUser: async ({ userId }) => {
-          assert.equal(userId, "mayor-b");
-          return 1;
+        countOpenSyncConflictsByMayor: async (args) => {
+          assert.deepEqual(args, {});
+          return 3;
         },
-        countOpenReviewableManualInventoryConflicts: async ({ userId }) => {
-          assert.equal(userId, "mayor-b");
-          return 2;
+        getLastSuccessfulSyncAtForMayor: async (args) => {
+          assert.deepEqual(args, {});
+          return "2026-08-09T02:00:00.000Z";
         },
-        getLastSuccessfulSyncAtByUser: async ({ userId }) => {
-          assert.equal(userId, "mayor-b");
-          return null;
+        countOpenSyncConflictsByUser: async () => {
+          throw new Error("Mayor status must not use user-scoped conflicts");
+        },
+        getLastSuccessfulSyncAtByUser: async () => {
+          throw new Error("Mayor status must not use user-scoped sync time");
         },
       },
     },
@@ -5208,15 +5221,19 @@ test("BRG-SC-04B peer Mayor Needs Review count includes eligible conflict once",
         },
       });
 
-      assert.equal(summary.conflictCount, 3);
+      assert.deepEqual(summary, {
+        conflictCount: 3,
+        lastSuccessfulSyncAt: "2026-08-09T02:00:00.000Z",
+        backendReachable: true,
+      });
     },
   );
 });
 
-test("BRG-SC-04B peer Mayor can view eligible conflict detail but not automatic foreign conflict", async () => {
+test("MAYOR Sync Center detail is municipality-scoped to inventory conflicts", async () => {
   const conflictsById = {
-    "peer-stock-drift": {
-      id: "peer-stock-drift",
+    "mayor-stock-drift": {
+      id: "mayor-stock-drift",
       sync_transaction_id: "sync-1",
       user_id: "mayor-a",
       entity_type: "INVENTORY_TRANSACTION",
@@ -5232,20 +5249,20 @@ test("BRG-SC-04B peer Mayor can view eligible conflict detail but not automatic 
       sync_status: "CONFLICT",
       operation_type: "INVENTORY_ADJUSTMENT",
     },
-    "foreign-automatic": {
-      id: "foreign-automatic",
+    "unrelated-household": {
+      id: "unrelated-household",
       sync_transaction_id: "sync-2",
       user_id: "mayor-a",
-      entity_type: "INVENTORY_TRANSACTION",
+      entity_type: "HOUSEHOLD",
       entity_server_id: null,
-      conflict_type: "DUPLICATE_INVENTORY_BATCH",
+      conflict_type: "HOUSEHOLD_UPDATE_CONFLICT",
       local_payload_json: {},
       server_payload_json: {},
-      resolution_strategy: "FIRST_ACCEPTED",
-      resolved_payload_json: { winner: "SERVER" },
+      resolution_strategy: "LATEST_TIMESTAMP",
+      resolved_payload_json: null,
       resolved_by: null,
-      resolved_at: "2026-08-09T03:00:00.000Z",
-      status: "RESOLVED",
+      resolved_at: null,
+      status: "OPEN",
       sync_status: "CONFLICT",
       operation_type: "CREATE",
     },
@@ -5254,7 +5271,10 @@ test("BRG-SC-04B peer Mayor can view eligible conflict detail but not automatic 
   await withStubbedSyncService(
     {
       [syncRepositoryPath]: {
-        getSyncConflictById: async ({ id }) => conflictsById[id] || null,
+        getSyncConflictByIdForMayor: async ({ id }) => conflictsById[id] || null,
+        getSyncConflictById: async () => {
+          throw new Error("Mayor detail must not use the generic conflict read");
+        },
       },
       [systemLogPath]: {
         logAuditSafely: async () => {},
@@ -5266,15 +5286,15 @@ test("BRG-SC-04B peer Mayor can view eligible conflict detail but not automatic 
       },
     },
     async ({ getSyncConflictDetail }) => {
-      const detail = await getSyncConflictDetail({
+        const detail = await getSyncConflictDetail({
         auth: {
           userId: "mayor-b",
           roleCode: "MAYOR",
         },
-        conflictId: "peer-stock-drift",
-      });
+          conflictId: "mayor-stock-drift",
+        });
 
-      assert.equal(detail.id, "peer-stock-drift");
+      assert.equal(detail.id, "mayor-stock-drift");
       assert.deepEqual(detail.availableResolutionActions, [
         "MARK_REVIEWED",
         "KEEP_SERVER",
@@ -5287,7 +5307,7 @@ test("BRG-SC-04B peer Mayor can view eligible conflict detail but not automatic 
               userId: "mayor-b",
               roleCode: "MAYOR",
             },
-            conflictId: "foreign-automatic",
+            conflictId: "unrelated-household",
           }),
         /Sync conflict not found/,
       );

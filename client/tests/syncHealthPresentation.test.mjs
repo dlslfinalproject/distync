@@ -143,7 +143,10 @@ test("SYNC-HEALTH-P07 Sync Center owns the full status card", async () => {
   assert.match(masterlist, /useLiveQuery\(\(\) => getVisibleSyncQueueEntries\(\), \[\], \[\]\)/);
   assert.doesNotMatch(history, /SyncHealthStatus|useBarangaySyncHealth/);
   assert.match(layout, /isBarangayPortal/);
-  assert.match(layout, /shouldShowSyncStatusBanner = !isBarangayPortal && !isBarangayAnomalyRoute/);
+  assert.match(
+    layout,
+    /shouldShowSyncStatusBanner =\s*!isBarangayPortal && !isBarangayAnomalyRoute && !isMayorAnomalyRoute/,
+  );
   assert.match(layout, /shouldShowSyncStatusBanner/);
   assert.match(layout, /\{shouldShowSyncStatusBanner \? <SyncStatusBanner \/> : null\}/);
   assert.doesNotMatch(component, /updated_at|latest timestamp|client_sync_id|PostgreSQL/i);
