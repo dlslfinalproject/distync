@@ -692,6 +692,91 @@ const updateHouseholdRegistrationTimestamp = async (
   return result.rows[0] || null;
 };
 
+const replaceHouseholdRegistrationAuthority = async (
+  householdId,
+  householdData,
+  dbClient,
+) => {
+  const query = `
+    UPDATE households
+    SET
+      disaster_event_id = $2,
+      barangay_id = $3,
+      evacuation_center_id = $4,
+      residency_status = $5,
+      family_head_first_name = $6,
+      family_head_middle_name = $7,
+      family_head_last_name = $8,
+      family_head_suffix = $9,
+      sex = $10,
+      birth_date = $11,
+      contact_number = $12,
+      current_stay_type = $13,
+      current_address_details = $14,
+      household_size = $15,
+      registered_by = $16,
+      family_head_photo_url = $17,
+      photo_captured_at = $18,
+      photo_captured_by = $19,
+      photo_verification_notes = $20,
+      registered_at = $21::timestamptz,
+      updated_at = NOW()
+    WHERE id = $1
+      AND is_active = TRUE
+    RETURNING
+      id,
+      disaster_event_id,
+      barangay_id,
+      evacuation_center_id,
+      residency_status,
+      family_head_first_name,
+      family_head_middle_name,
+      family_head_last_name,
+      family_head_suffix,
+      sex,
+      birth_date,
+      contact_number,
+      current_stay_type,
+      current_address_details,
+      household_size,
+      is_active,
+      registered_by,
+      family_head_photo_url,
+      photo_captured_at,
+      photo_captured_by,
+      photo_verification_notes,
+      registered_at,
+      updated_at,
+      family_head_evacuee_id
+  `;
+
+  const result = await dbClient.query(query, [
+    householdId,
+    householdData.disaster_event_id,
+    householdData.barangay_id,
+    householdData.evacuation_center_id,
+    householdData.residency_status,
+    householdData.family_head.first_name,
+    householdData.family_head.middle_name,
+    householdData.family_head.last_name,
+    householdData.family_head.suffix,
+    householdData.family_head.sex,
+    householdData.family_head.birth_date ?? null,
+    householdData.contact_number ?? null,
+    householdData.current_stay_type,
+    householdData.current_address_details ?? null,
+    householdData.household_size,
+    householdData.registered_by,
+    householdData.family_head_photo_url || null,
+    householdData.photo_captured_at || null,
+    householdData.photo_captured_by || null,
+    householdData.photo_verification_notes || null,
+    householdData.registered_at,
+  ]);
+
+  return result.rows[0] || null;
+};
+
 const updateHousehold = async (householdId, householdData, dbClient) => {
   const query = `
     UPDATE households
@@ -1813,6 +1898,7 @@ module.exports = {
   findPotentialDuplicatePersonMatches,
   findActiveCrossEventFamilyHeadMatches,
   updateHouseholdRegistrationTimestamp,
+  replaceHouseholdRegistrationAuthority,
   updateHousehold,
   insertEvacuee,
   updateEvacuee,

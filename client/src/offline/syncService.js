@@ -270,6 +270,7 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
         lastErrorCode: result.error_code || null,
         lastErrorStatusCode: result.status_code || null,
         conflict: result.conflict || null,
+        resolutionStatus: result.resolution_status || null,
         processingOwner: null,
         processingUntil: null,
       });

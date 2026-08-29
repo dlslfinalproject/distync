@@ -810,6 +810,13 @@ export const getConflictReasonLabel = (conflict) => {
 };
 
 export const getConflictExplanation = (conflict) => {
+  if (
+    conflict?.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE" &&
+    conflict?.resolved_payload_json?.automatic
+  ) {
+    return "The same household was registered under different Barangays for the same disaster event.";
+  }
+
   if (conflict?.error_message && !isUuidLikeValue(conflict.error_message)) {
     return conflict.error_message;
   }
@@ -819,7 +826,7 @@ export const getConflictExplanation = (conflict) => {
   }
 
   if (conflict?.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE") {
-    return "A similar household registration already exists under another Barangay and requires municipality-level review.";
+    return "The same household was registered under different Barangays for the same disaster event.";
   }
 
   if (conflict?.conflict_type === "DUPLICATE_CLAIM") {
@@ -838,6 +845,13 @@ export const getConflictExplanation = (conflict) => {
 };
 
 export const getResolutionStatusLabel = (conflict) => {
+  if (
+    conflict?.status === "RESOLVED" &&
+    conflict?.resolved_payload_json?.automatic
+  ) {
+    return "Resolved Automatically";
+  }
+
   if (conflict?.status === "RESOLVED") {
     return "Resolved";
   }
@@ -859,6 +873,16 @@ export const getConflictResolutionSummary = (conflict = {}) => {
   const action = normalizeKey(conflict.resolution_action);
   const canResolve = Array.isArray(conflict.availableResolutionActions) &&
     conflict.availableResolutionActions.length > 0;
+
+  if (isResolved && conflict.resolved_payload_json?.automatic) {
+    const retained = conflict.resolved_payload_json.result ===
+      "EARLIER_REGISTRATION_RETAINED";
+    return {
+      result: retained ? "Earlier Registration Retained" : "Resolved as Duplicate",
+      whatHappened:
+        "DISTYNC retained the registration with the earlier valid registration time and automatically resolved the later registration as a duplicate.",
+    };
+  }
 
   if (!isResolved) {
     return {
@@ -938,8 +962,12 @@ const getPayloadComparisonDetails = (payload = {}) => {
   return {
     familyHead: details.familyHeadName,
     stubNumber: details.stubNumber,
-    barangay: details.barangay,
-    disasterEvent: details.disasterEvent,
+    barangay: asDisplayValue(normalizedPayload.barangay_name) !== SYNC_MISSING_VALUE
+      ? asDisplayValue(normalizedPayload.barangay_name)
+      : details.barangay,
+    disasterEvent: asDisplayValue(normalizedPayload.disaster_event_title) !== SYNC_MISSING_VALUE
+      ? asDisplayValue(normalizedPayload.disaster_event_title)
+      : details.disasterEvent,
     status: asDisplayValue(normalizedPayload.status),
     remarks: asDisplayValue(normalizedPayload.remarks),
     item: asDisplayValue(normalizedPayload.item_name),
@@ -951,6 +979,10 @@ const getPayloadComparisonDetails = (payload = {}) => {
     batchNo: asDisplayValue(normalizedPayload.batch_no),
     donorName: asDisplayValue(normalizedPayload.donor_name),
     updatedAt: formatSyncHistoryDateTime(normalizedPayload.updated_at),
+    registeredAt: formatSyncHistoryDateTime(normalizedPayload.registered_at),
+    householdSize: asDisplayValue(normalizedPayload.household_size),
+    address: asDisplayValue(normalizedPayload.current_address_details),
+    result: asDisplayValue(normalizedPayload.result),
     receiptNo: asDisplayValue(
       pickComparisonValue(normalizedPayload, [
         "receipt_no",
@@ -963,6 +995,37 @@ const getPayloadComparisonDetails = (payload = {}) => {
 };
 
 export const getConflictComparisonRows = (conflict = {}) => {
+  if (
+    conflict?.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE" &&
+    conflict?.resolved_payload_json?.automatic
+  ) {
+    const earlier = getPayloadComparisonDetails(
+      conflict.resolved_payload_json.earlier_registration,
+    );
+    const later = getPayloadComparisonDetails(
+      conflict.resolved_payload_json.later_registration,
+    );
+    const fields = [
+      ["Family Head", "familyHead"],
+      ["Barangay", "barangay"],
+      ["Disaster Event", "disasterEvent"],
+      ["Registered At", "registeredAt"],
+      ["Household Size", "householdSize"],
+      ["Address", "address"],
+      ["Result", "result"],
+    ];
+
+    return fields.map(([label, key]) => ({
+      label,
+      localValue: key === "result"
+        ? "Retained"
+        : earlier[key],
+      serverValue: key === "result"
+        ? "Resolved as Duplicate"
+        : later[key],
+    }));
+  }
+
   const localDetails = getPayloadComparisonDetails(conflict.local_payload_json);
   const serverDetails = getPayloadComparisonDetails(conflict.server_payload_json);
   const fields = [
