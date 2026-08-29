@@ -153,11 +153,11 @@ const InventoryItemsTable = ({
 
   useEffect(() => {
     setCurrentPage((previousPage) => {
-      if (totalPages === 0) {
+      if (pagination.totalPages === 0) {
         return 1;
       }
 
-      return Math.min(Math.max(previousPage, 1), totalPages);
+      return Math.min(Math.max(previousPage, 1), pagination.totalPages);
     });
   }, [pagination.totalPages]);
 
