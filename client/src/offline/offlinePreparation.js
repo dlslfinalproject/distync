@@ -2,9 +2,14 @@ import db from "./db.js";
 import { getSyncQueueActorContext } from "./syncQueue.js";
 import { ROLE_CODES } from "../utils/roleSession.js";
 import { fetchBarangayStubDashboard } from "../features/stubs/stubService.js";
-import { upsertOfflineStubSnapshots } from "../features/stubs/stubCache.js";
+import {
+  getCachedStubDetailsByQrValue,
+  getCachedStubSnapshotsForScope,
+  normalizeOfflineStubQrKey,
+  upsertOfflineStubSnapshots,
+} from "../features/stubs/stubCache.js";
 import { fetchMasterlist } from "../features/masterlist/masterlistService.js";
-import { cacheMasterlistRows } from "./masterlistCache.js";
+import { cacheMasterlistRows, getCachedMasterlistRows } from "./masterlistCache.js";
 
 export const OFFLINE_PREPARATION_STATUS = {
   NOT_PREPARED: "NOT_PREPARED",
@@ -16,6 +21,7 @@ export const OFFLINE_PREPARATION_STATUS = {
 export const OFFLINE_CACHE_VERSION = 1;
 
 const jobs = new Map();
+let lastPreparationDiagnostics = null;
 const scopeKey = ({ eventId, barangayId }) => {
   const owner = getSyncQueueActorContext();
   return [owner.accessMode, owner.userId, owner.roleCode, eventId, barangayId].join("|");
@@ -25,6 +31,15 @@ export const getOfflinePreparation = async ({ eventId, barangayId }) => {
   const owner = getSyncQueueActorContext();
   if (!owner.userId || owner.roleCode !== ROLE_CODES.BARANGAY || !eventId || !barangayId) return null;
   return db.offlinePreparation.get(scopeKey({ eventId, barangayId }));
+};
+
+export const getLastOfflinePreparationDiagnostics = () => lastPreparationDiagnostics;
+
+const publishDiagnostics = (diagnostics) => {
+  lastPreparationDiagnostics = diagnostics;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("distync-offline-preparation-updated", { detail: diagnostics }));
+  }
 };
 
 const savePreparation = async (scope, status, details = {}) => {
@@ -42,41 +57,81 @@ const savePreparation = async (scope, status, details = {}) => {
   });
 };
 
-const fetchAllPages = async (fetchPage) => {
+const fetchAllPages = async (fetchPage, onPage = () => {}) => {
   const pageSize = 100;
   const first = await fetchPage(1, pageSize);
   const pages = Number(first?.pagination?.totalPages || 1);
+  const expectedCount = Number(first?.pagination?.totalItems ?? first?.count ?? 0);
   const rows = [...(first?.data || first?.rows || [])];
+  onPage({ page: 1, pages, expectedCount, received: rows.length, pageRows: rows });
   for (let page = 2; page <= pages; page += 1) {
     const next = await fetchPage(page, pageSize);
-    rows.push(...(next?.data || next?.rows || []));
+    const pageRows = next?.data || next?.rows || [];
+    rows.push(...pageRows);
+    onPage({ page, pages, expectedCount, received: pageRows.length, pageRows });
   }
-  return { rows, pages };
+  const idKey = rows[0]?.id !== undefined ? "id" : "household_id";
+  return { rows: [...new Map(rows.map((row) => [row?.[idKey] || JSON.stringify(row), row])).values()], pages, expectedCount };
 };
 
-export const prepareBarangayOfflineData = ({ eventId, barangayId, userId }) => {
+export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, context = {}, targetQrValue = "" }) => {
   const scope = { eventId, barangayId, owner: getSyncQueueActorContext() };
   const key = scopeKey(scope);
   if (jobs.has(key)) return jobs.get(key);
   const job = (async () => {
     if (!eventId || !barangayId || !userId || scope.owner.roleCode !== ROLE_CODES.BARANGAY) return null;
-    await savePreparation(scope, OFFLINE_PREPARATION_STATUS.PREPARING);
+    const previousPreparation = await getOfflinePreparation({ eventId, barangayId });
+    const diagnostics = {
+      scope: { barangayId, disasterEventId: eventId, cacheVersion: OFFLINE_CACHE_VERSION },
+      status: OFFLINE_PREPARATION_STATUS.PREPARING,
+      startedAt: new Date().toISOString(),
+      online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
+      context: { role: scope.owner.roleCode, barangaySource: context.barangaySource || "resolved context", eventSource: context.eventSource || "selected event", eventStatus: context.eventStatus || "" },
+      targetQr: targetQrValue ? { normalized: normalizeOfflineStubQrKey(targetQrValue), included: false } : null,
+      datasets: { stubs: { pagesFetched: 0 }, masterlist: { pagesFetched: 0 } },
+      previousCompleteCache: previousPreparation?.status === OFFLINE_PREPARATION_STATUS.READY,
+    };
+    publishDiagnostics(diagnostics);
+    await savePreparation(scope, OFFLINE_PREPARATION_STATUS.PREPARING, { datasets: diagnostics.datasets });
     try {
       const [stubs, masterlist] = await Promise.all([
-        fetchAllPages((page, pageSize) => fetchBarangayStubDashboard({ userId, disasterEventId: eventId, barangayId, page, pageSize, status: "all", skipOfflineCache: true })),
-        fetchAllPages((page, pageSize) => fetchMasterlist({ disasterEventId: eventId, barangayId, recordStatus: "all", page, pageSize })),
+        fetchAllPages((page, pageSize) => fetchBarangayStubDashboard({ userId, disasterEventId: eventId, barangayId, page, pageSize, status: "all", skipOfflineCache: true }), (info) => {
+          const { pageRows, ...safeInfo } = info;
+          diagnostics.datasets.stubs = { ...diagnostics.datasets.stubs, ...safeInfo, pagesFetched: info.page, pagesExpected: info.pages, recordsByPage: { ...(diagnostics.datasets.stubs.recordsByPage || {}), [info.page]: info.received } };
+          if (diagnostics.targetQr && pageRows?.some((row) => normalizeOfflineStubQrKey(row.qr_code_value) === diagnostics.targetQr.normalized)) diagnostics.targetQr = { ...diagnostics.targetQr, included: true, page: info.page };
+          publishDiagnostics({ ...diagnostics });
+        }),
+        fetchAllPages((page, pageSize) => fetchMasterlist({ disasterEventId: eventId, barangayId, recordStatus: "all", page, pageSize }), (info) => {
+          const { pageRows, ...safeInfo } = info;
+          diagnostics.datasets.masterlist = { ...diagnostics.datasets.masterlist, ...safeInfo, pagesFetched: info.page, pagesExpected: info.pages, recordsByPage: { ...(diagnostics.datasets.masterlist.recordsByPage || {}), [info.page]: info.received } };
+          publishDiagnostics({ ...diagnostics });
+        }),
       ]);
-      await upsertOfflineStubSnapshots(stubs.rows);
+      const persistedStubs = await upsertOfflineStubSnapshots(stubs.rows);
       await cacheMasterlistRows({ rows: masterlist.rows, disasterEventId: eventId, barangayId });
+      const [cachedStubs, cachedMasterlist] = await Promise.all([
+        getCachedStubSnapshotsForScope({ disasterEventId: eventId, currentBarangayId: barangayId }),
+        getCachedMasterlistRows({ disasterEventId: eventId, barangayId }),
+      ]);
+      const qrReadBack = await Promise.all(persistedStubs.map((row) => getCachedStubDetailsByQrValue(row.qr_code_value, { currentBarangayId: barangayId })));
+      const masterlistReadBack = masterlist.rows.every((row) => cachedMasterlist.some((cachedRow) => cachedRow.household_id === row.household_id));
+      if (!qrReadBack.every(Boolean) || !masterlistReadBack || cachedStubs.length < persistedStubs.length) throw new Error("Offline preparation QR read-back verification failed");
+      diagnostics.datasets.stubs = { ...diagnostics.datasets.stubs, collected: stubs.rows.length, persisted: persistedStubs.length, qrSearchable: qrReadBack.filter(Boolean).length, readBack: true, complete: !stubs.expectedCount || stubs.rows.length >= stubs.expectedCount };
+      diagnostics.datasets.masterlist = { ...diagnostics.datasets.masterlist, collected: masterlist.rows.length, persisted: masterlist.rows.length, readBack: true, complete: !masterlist.expectedCount || masterlist.rows.length >= masterlist.expectedCount };
       await savePreparation(scope, OFFLINE_PREPARATION_STATUS.READY, {
         stub_count: stubs.rows.length,
         stub_pages: stubs.pages,
+        stub_expected_count: stubs.expectedCount,
         masterlist_count: masterlist.rows.length,
         masterlist_pages: masterlist.pages,
+        masterlist_expected_count: masterlist.expectedCount,
+        datasets: diagnostics.datasets,
       });
+      publishDiagnostics({ ...diagnostics, status: OFFLINE_PREPARATION_STATUS.READY, completedAt: new Date().toISOString() });
       return { status: OFFLINE_PREPARATION_STATUS.READY, stubCount: stubs.rows.length, masterlistCount: masterlist.rows.length };
     } catch (error) {
-      await savePreparation(scope, OFFLINE_PREPARATION_STATUS.PARTIAL, { error_code: error?.code || "PREPARATION_FAILED" });
+      await savePreparation(scope, OFFLINE_PREPARATION_STATUS.PARTIAL, { error_code: error?.code || "PREPARATION_FAILED", datasets: diagnostics.datasets, previous_complete_cache: diagnostics.previousCompleteCache });
+      publishDiagnostics({ ...diagnostics, status: OFFLINE_PREPARATION_STATUS.PARTIAL, error: "Preparation could not be completed" });
       throw error;
     } finally {
       jobs.delete(key);

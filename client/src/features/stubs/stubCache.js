@@ -6,6 +6,8 @@ import {
 import { ROLE_CODES } from "../../utils/roleSession.js";
 import { extractStubQrValue } from "../../utils/stubQr.js";
 
+export const normalizeOfflineStubQrKey = (value) => extractStubQrValue(value).trim();
+
 const STUB_CLAIM_ACTION_KEY = "STUB_CLAIM";
 const claimTerminalStatuses = new Set([
   LOCAL_SYNC_STATUS.SYNCED,
@@ -87,7 +89,7 @@ export const toOfflineStubSnapshot = (
   const household = serverRow.household || {};
   const disasterEvent = serverRow.disaster_event || {};
   const barangay = serverRow.barangay || {};
-  const qrCodeValue = trimValue(serverRow.qr_code_value);
+  const qrCodeValue = normalizeOfflineStubQrKey(serverRow.qr_code_value);
 
   return {
     id: buildOfflineStubCacheId({ ...ownerContext, stubId }),
@@ -344,10 +346,11 @@ export const getCachedStubDetailsByQrValue = async (
   qrCodeValue,
   { currentBarangayId },
 ) => {
-  const normalizedQrValue = extractStubQrValue(qrCodeValue);
+  const normalizedQrValue = normalizeOfflineStubQrKey(qrCodeValue);
   const ownerContext = getSyncQueueActorContext();
 
   if (!hasCompleteOfflineStubOwnerContext(ownerContext) || !normalizedQrValue) {
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-offline-lookup-diagnostic", { detail: { kind: "stub", found: false, reason: !normalizedQrValue ? "OFFLINE_QR_KEY_MISSING" : "OFFLINE_QR_CONTEXT_MISSING" } }));
     return null;
   }
 
@@ -362,11 +365,14 @@ export const getCachedStubDetailsByQrValue = async (
     .first();
 
   if (!isOfflineStubVisibleForContext(cachedRow, ownerContext, { currentBarangayId })) {
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-offline-lookup-diagnostic", { detail: { kind: "stub", found: false, reason: cachedRow ? "OFFLINE_QR_BARANGAY_SCOPE_MISMATCH" : "OFFLINE_QR_STUB_NOT_CACHED" } }));
     return null;
   }
 
   const syncEntry = await getCachedStubClaimSyncEntry(cachedRow.stubId);
-  return toStubDetailsFromOfflineSnapshot(cachedRow, syncEntry);
+  const details = toStubDetailsFromOfflineSnapshot(cachedRow, syncEntry);
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-offline-lookup-diagnostic", { detail: { kind: "stub", found: Boolean(details), reason: details ? "OFFLINE_QR_READ_BACK_FOUND" : "OFFLINE_QR_SNAPSHOT_INVALID" } }));
+  return details;
 };
 
 export const markCachedStubClaimTerminal = async (
