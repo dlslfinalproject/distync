@@ -460,6 +460,13 @@ test("BRG-SC-CONFLICT-P02 Conflict Review table keeps reason and status concise"
     "Duplicate Household Registration",
   );
   assert.equal(getResolutionStatusLabel({ status: "OPEN" }), "Open");
+  assert.equal(
+    getResolutionStatusLabel({
+      status: "RESOLVED",
+      resolved_payload_json: { automatic: true },
+    }),
+    "Resolved",
+  );
   assert.doesNotMatch(conflictSection, /error_message[\s\S]*getResolutionStrategyLabel/);
   assert.doesNotMatch(conflictSection, /getResolutionStatusLabel\(conflict\)[\s\S]*detailTextStyles/);
   assert.match(conflictSection, /status=\{conflict\.status === "RESOLVED" \? "RESOLVED" : "OPEN"\}/);

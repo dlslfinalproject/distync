@@ -849,7 +849,7 @@ export const getResolutionStatusLabel = (conflict) => {
     conflict?.status === "RESOLVED" &&
     conflict?.resolved_payload_json?.automatic
   ) {
-    return "Resolved Automatically";
+    return "Resolved";
   }
 
   if (conflict?.status === "RESOLVED") {
