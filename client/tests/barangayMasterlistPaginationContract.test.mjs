@@ -70,7 +70,7 @@ test("Barangay Masterlist follows final conditional paginator UI", async () => {
   assert.match(tableSource, /ariaLabel="Masterlist pagination"/);
   assert.match(normalizedCssSource, /\.table-pagination-bar/);
   assert.match(normalizedCssSource, /\.table-pagination-button/);
-  assert.match(normalizedCssSource, /\.table-pagination-controls span/);
+  assert.match(normalizedCssSource, /\.table-pagination-navigation span/);
   assert.doesNotMatch(normalizedCssSource, /masterlist-pagination-/);
 });
 

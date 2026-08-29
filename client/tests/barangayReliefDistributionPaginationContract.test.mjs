@@ -79,7 +79,7 @@ test("Relief Distribution adopts final conditional paginator UI", async () => {
   assert.match(paginationSource, /FiChevronRight/);
   assert.match(paginationSource, /Page \{pagination\.currentPage\} of \{pagination\.totalPages\}/);
   assert.match(tableSource, /className="stub-results-table-scroll"/);
-  assert.match(normalizedCssSource, /\.table-pagination-controls span/);
+  assert.match(normalizedCssSource, /\.table-pagination-navigation span/);
   assert.doesNotMatch(normalizedCssSource, /stub-results-pagination-/);
 });
 

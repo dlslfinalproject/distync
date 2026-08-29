@@ -73,29 +73,31 @@ const TablePagination = ({
             ))}
           </select>
         </label>
-        <button
-          type="button"
-          onClick={() => goToPage(pagination.currentPage - 1)}
-          disabled={disabled || !pagination.hasPreviousPage}
-          aria-label={previousAriaLabel}
-          title="Previous page"
-          className="table-pagination-button"
-        >
-          <FiChevronLeft aria-hidden="true" />
-        </button>
-        <span aria-live="polite">
-          Page {pagination.currentPage} of {pagination.totalPages}
-        </span>
-        <button
-          type="button"
-          onClick={() => goToPage(pagination.currentPage + 1)}
-          disabled={disabled || !pagination.hasNextPage}
-          aria-label={nextAriaLabel}
-          title="Next page"
-          className="table-pagination-button"
-        >
-          <FiChevronRight aria-hidden="true" />
-        </button>
+        <div className="table-pagination-navigation">
+          <button
+            type="button"
+            onClick={() => goToPage(pagination.currentPage - 1)}
+            disabled={disabled || !pagination.hasPreviousPage}
+            aria-label={previousAriaLabel}
+            title="Previous page"
+            className="table-pagination-button"
+          >
+            <FiChevronLeft aria-hidden="true" />
+          </button>
+          <span aria-live="polite">
+            Page {pagination.currentPage} of {pagination.totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={() => goToPage(pagination.currentPage + 1)}
+            disabled={disabled || !pagination.hasNextPage}
+            aria-label={nextAriaLabel}
+            title="Next page"
+            className="table-pagination-button"
+          >
+            <FiChevronRight aria-hidden="true" />
+          </button>
+        </div>
       </div>
     </div>
   );

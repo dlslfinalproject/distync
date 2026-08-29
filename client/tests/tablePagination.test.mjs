@@ -117,6 +117,7 @@ test("all Barangay table surfaces use the shared paginator and Sync Center slice
     historySource,
     anomalySource,
     syncSource,
+    cssSource,
   ] = await Promise.all([
     readSource(["pages", "inventory", "InventoryItemsPage.jsx"]),
     readSource(["components", "inventory-items", "InventoryItemsTable.jsx"]),
@@ -126,6 +127,7 @@ test("all Barangay table surfaces use the shared paginator and Sync Center slice
     readSource(["pages", "DistributionHistoryPage.jsx"]),
     readSource(["pages", "mswdo", "AnomalyTrackingPage.jsx"]),
     readSource(["pages", "SyncManagementPage.jsx"]),
+    readSource(["index.css"]),
   ]);
 
   const normalizedInventoryPageSource = normalizeSource(inventoryPageSource);
@@ -136,6 +138,7 @@ test("all Barangay table surfaces use the shared paginator and Sync Center slice
   const normalizedHistorySource = normalizeSource(historySource);
   const normalizedAnomalySource = normalizeSource(anomalySource);
   const normalizedSyncSource = normalizeSource(syncSource);
+  const normalizedCssSource = normalizeSource(cssSource);
 
   assert.match(
     normalizedPaginationSource,
@@ -144,6 +147,74 @@ test("all Barangay table surfaces use the shared paginator and Sync Center slice
   assert.match(normalizedPaginationSource, /Rows per page/);
   assert.match(normalizedPaginationSource, /FiChevronLeft/);
   assert.match(normalizedPaginationSource, /FiChevronRight/);
+  const paginationNavigationStart = normalizedPaginationSource.indexOf(
+    '<div className="table-pagination-navigation">',
+  );
+  const paginationNavigationEnd = normalizedPaginationSource.indexOf(
+    '</div>',
+    paginationNavigationStart + 1,
+  );
+  assert.ok(paginationNavigationStart >= 0);
+  assert.ok(paginationNavigationEnd > paginationNavigationStart);
+  assertOrdered(
+    normalizedPaginationSource.slice(
+      paginationNavigationStart,
+      paginationNavigationEnd,
+    ),
+    ["<button", '<span aria-live="polite">', "<button"],
+  );
+  assert.ok(
+    normalizedPaginationSource.indexOf(
+      '<label className="table-pagination-size">',
+    ) < paginationNavigationStart,
+  );
+
+  const paginationBaseStart = normalizedCssSource.indexOf(
+    ".table-pagination-bar {",
+  );
+  const paginationMobileBarStart = normalizedCssSource.indexOf(
+    ".table-pagination-bar {",
+    paginationBaseStart + 1,
+  );
+  const paginationMobileMediaStart = normalizedCssSource.lastIndexOf(
+    "@media (max-width: 768px)",
+    paginationMobileBarStart,
+  );
+  const paginationMobileMediaEnd = normalizedCssSource.indexOf(
+    "\n}",
+    paginationMobileMediaStart,
+  );
+  const paginationMobileSource = normalizedCssSource.slice(
+    paginationMobileMediaStart,
+    paginationMobileMediaEnd,
+  );
+  const paginationMobileNavigationStart = paginationMobileSource.indexOf(
+    ".table-pagination-navigation {",
+  );
+  const paginationMobileNavigationEnd = paginationMobileSource.indexOf(
+    "\n  }",
+    paginationMobileNavigationStart,
+  );
+  const paginationMobileNavigationSource = paginationMobileSource.slice(
+    paginationMobileNavigationStart,
+    paginationMobileNavigationEnd,
+  );
+  assert.match(
+    normalizedCssSource,
+    /\.table-pagination-navigation \{[\s\S]*?display: flex;[\s\S]*?flex-direction: row;[\s\S]*?flex-wrap: nowrap;[\s\S]*?white-space: nowrap;/,
+  );
+  assert.match(
+    paginationMobileSource,
+    /\.table-pagination-controls \{[\s\S]*?flex-wrap: wrap;[\s\S]*?justify-content: flex-start;[\s\S]*?width: 100%;/,
+  );
+  assert.match(
+    paginationMobileNavigationSource,
+    /flex: 1 1 100%;[\s\S]*?justify-content: center;[\s\S]*?width: 100%;/,
+  );
+  assert.doesNotMatch(
+    paginationMobileNavigationSource,
+    /flex-direction:\s*column/,
+  );
 
   for (const source of [
     normalizedMasterlistSource,

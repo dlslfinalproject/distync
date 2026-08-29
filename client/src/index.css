@@ -1658,7 +1658,19 @@ img {
   justify-content: flex-end;
 }
 
-.table-pagination-controls span {
+.table-pagination-navigation {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 12px;
+  justify-content: flex-end;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.table-pagination-navigation span {
   color: #5d7188;
   font-size: 13px;
   font-weight: 700;
@@ -2180,13 +2192,20 @@ img {
   }
 
   .table-pagination-controls {
+    gap: 8px;
     flex-wrap: wrap;
-    justify-content: flex-end;
+    justify-content: flex-start;
     width: 100%;
   }
 
   .table-pagination-size {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
+  }
+
+  .table-pagination-navigation {
+    flex: 1 1 100%;
+    justify-content: center;
+    width: 100%;
   }
 
   .table-pagination-button {

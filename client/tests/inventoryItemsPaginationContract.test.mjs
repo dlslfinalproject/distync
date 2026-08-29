@@ -61,7 +61,7 @@ test("Items Record table uses a consistent above-table responsive paginator", as
   );
   assert.match(normalizedCssSource, /\.table-pagination-bar/);
   assert.match(normalizedCssSource, /\.table-pagination-button/);
-  assert.match(normalizedCssSource, /\.table-pagination-controls span/);
+  assert.match(normalizedCssSource, /\.table-pagination-navigation span/);
   assert.doesNotMatch(normalizedCssSource, /inventory-items-pagination-/);
 
   assertOrdered(normalizedPageSource, [
