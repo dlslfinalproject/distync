@@ -20,7 +20,7 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
         return;
       }
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        if (mounted) setReadiness(OFFLINE_PREPARATION_STATUS.PARTIAL);
+        if (mounted) setReadiness(existing?.status === OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH ? OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH : OFFLINE_PREPARATION_STATUS.NOT_READY);
         return;
       }
       if (mounted) setReadiness(OFFLINE_PREPARATION_STATUS.PREPARING);
@@ -28,7 +28,10 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
         const result = await prepareBarangayOfflineData({ ...scope, userId, context });
         if (mounted) setReadiness(result?.status || OFFLINE_PREPARATION_STATUS.READY);
       } catch (_error) {
-        if (mounted) setReadiness(OFFLINE_PREPARATION_STATUS.PARTIAL);
+        if (mounted) {
+          const previousCache = Boolean(existing?.previous_complete_cache || existing?.previousCompleteCache);
+          setReadiness(previousCache ? OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH : OFFLINE_PREPARATION_STATUS.NOT_READY);
+        }
       }
     };
     const update = (event) => { if (mounted) { setDiagnostics(event.detail || null); if (event.detail?.status) setReadiness(event.detail.status); } };
@@ -45,6 +48,15 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
         window.removeEventListener("distync-offline-preparation-updated", update);
       }
     };
-  }, [barangayId, context, enabled, eventId, revision, userId]);
+  }, [
+    barangayId,
+    context?.barangaySource,
+    context?.eventSource,
+    context?.eventStatus,
+    enabled,
+    eventId,
+    revision,
+    userId,
+  ]);
   return { readiness, diagnostics, isReady: readiness === OFFLINE_PREPARATION_STATUS.READY, retry: () => setRevision((value) => value + 1) };
 };
