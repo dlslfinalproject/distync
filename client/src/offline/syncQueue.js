@@ -129,6 +129,10 @@ export const isSyncEntryVisibleForContext = (
     return false;
   }
 
+  if (entry.resolutionStatus === "RESOLVED_AUTOMATICALLY") {
+    return false;
+  }
+
   return true;
 };
 
@@ -305,8 +309,10 @@ export const clearSyncedEntries = async () => {
     .orderBy("updatedAt")
     .filter(
       (entry) =>
-        isSyncEntryVisibleForContext(entry) &&
-        entry.status === LOCAL_SYNC_STATUS.SYNCED,
+        (isSyncEntryVisibleForContext(entry) ||
+          entry.resolutionStatus === "RESOLVED_AUTOMATICALLY") &&
+        (entry.status === LOCAL_SYNC_STATUS.SYNCED ||
+          entry.resolutionStatus === "RESOLVED_AUTOMATICALLY"),
     )
     .toArray();
 

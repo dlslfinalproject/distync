@@ -5624,9 +5624,7 @@ test("RC1 cross-Barangay household registration remains an open review conflict"
   );
 });
 
-test("RC1 MSWDO different-household review accepts the competing registration once", async () => {
-  let registrationCalls = 0;
-  let updatePayload = null;
+test("RC1 cross-Barangay conflicts no longer expose manual MSWDO resolution", async () => {
   const conflict = {
     id: "cross-conflict-2",
     sync_transaction_id: "sync-cross-2",
@@ -5647,41 +5645,25 @@ test("RC1 MSWDO different-household review accepts the competing registration on
       [syncRepositoryPath]: {
         withSyncProcessingTransaction: async (callback) => callback({}),
         lockSyncConflictById: async () => conflict,
-        updateSyncTransaction: async (_id, payload) => {
-          updatePayload = payload;
-          return payload;
-        },
-        markSyncConflictResolved: async (payload) => ({
-          ...conflict,
-          status: "RESOLVED",
-          resolution_action: payload.resolutionAction,
-        }),
+        updateSyncTransaction: async (_id, payload) => payload,
       },
       [householdRegistrationServicePath]: {
-        registerHousehold: async (payload) => {
-          registrationCalls += 1;
-          assert.equal(payload.allow_reviewed_cross_barangay_duplicate, true);
-          assert.equal(payload.barangay_id, "44444444-4444-4444-8444-444444444444");
-          return { household: { id: "accepted-household-2" } };
-        },
+        registerHousehold: async () => ({ household: { id: "accepted-household-2" } }),
       },
       [systemLogPath]: { logAuditSafely: async () => {}, logErrorSafely: async () => {}, pickDefined: () => ({}) },
       [systemLogRepositoryPath]: { insertAuditLog: async () => ({}) },
       [notificationServicePath]: { ensureSyncNotificationIntent: async () => null, processNotificationOutboxEventById: async () => {} },
     },
     async ({ resolveSyncConflict }) => {
-      const result = await resolveSyncConflict({
-        auth: { userId: "mswdo-user", roleCode: "MSWDO" },
-        conflictId: conflict.id,
-        action: "APPLY_LOCAL",
-        reason: "The household composition and address are materially different.",
-      });
-
-      assert.equal(registrationCalls, 1);
-      assert.equal(updatePayload.sync_status, "SYNCED");
-      assert.equal(updatePayload.entity_server_id, "accepted-household-2");
-      assert.equal(result.status, "RESOLVED");
-      assert.equal(result.sync_status, "SYNCED");
+      await assert.rejects(
+        () => resolveSyncConflict({
+          auth: { userId: "mswdo-user", roleCode: "MSWDO" },
+          conflictId: conflict.id,
+          action: "APPLY_LOCAL",
+          reason: "Manual cross-Barangay actions are retired.",
+        }),
+        /not allowed/,
+      );
     },
   );
 });

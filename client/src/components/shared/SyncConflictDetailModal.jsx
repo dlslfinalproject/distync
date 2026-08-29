@@ -8,6 +8,7 @@ import {
   getConflictExplanation,
   getConflictReasonLabel,
   getConflictResolutionSummary,
+  getResolutionStatusLabel,
   getSyncRecordDetails,
   SYNC_MISSING_VALUE,
 } from "../../features/sync/syncManagementHelpers";
@@ -144,13 +145,7 @@ const ACTION_LABELS = {
   APPLY_LOCAL: "Use This Device Record",
 };
 
-const getActionLabel = (action, conflict) => {
-  if (conflict?.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE") {
-    if (action === "KEEP_SERVER") return "Duplicate Household";
-    if (action === "APPLY_LOCAL") return "Different Household";
-    if (action === "MARK_REVIEWED") return "Transfer/Reassignment Required";
-  }
-
+const getActionLabel = (action) => {
   return ACTION_LABELS[action] || action;
 };
 
@@ -211,6 +206,9 @@ const SyncConflictDetailModal = ({
   const conflictReason = conflict.conflict_reason || getConflictReasonLabel(conflict);
   const resolutionSummary = getConflictResolutionSummary(conflict);
   const comparisonRows = getConflictComparisonRows(conflict);
+  const isAutomaticCrossBarangayDuplicate =
+    conflict.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE" &&
+    conflict.resolved_payload_json?.automatic;
   const formattedResolvedAt = formatSyncHistoryDateTime(conflict.resolved_at);
   const resolvedBy = getResolvedByDisplay(conflict);
   const requiresReason = availableActions.some((action) =>
@@ -238,7 +236,7 @@ const SyncConflictDetailModal = ({
           }
           disabled={isResolving}
         >
-          {getActionLabel(action, conflict)}
+          {getActionLabel(action)}
         </button>
       ))}
     </>
@@ -263,7 +261,10 @@ const SyncConflictDetailModal = ({
         <div style={modalStyles.sectionTitle}>Conflict</div>
         <div style={modalStyles.conflictHeader}>
           <strong style={modalStyles.reasonTitle}>{conflictReason}</strong>
-          <SyncStatusBadge status={isResolved ? "RESOLVED" : "OPEN"} />
+          <SyncStatusBadge
+            status={isResolved ? "RESOLVED" : "OPEN"}
+            label={getResolutionStatusLabel(conflict)}
+          />
         </div>
       </div>
 
@@ -362,12 +363,16 @@ const SyncConflictDetailModal = ({
             </h4>
             <div style={modalStyles.comparisonGrid}>
               {renderComparisonPanel(
-                "This Device Record",
+                isAutomaticCrossBarangayDuplicate
+                  ? "Earlier Registration"
+                  : "This Device Record",
                 comparisonRows,
                 "localValue",
               )}
               {renderComparisonPanel(
-                "Saved DISTYNC Record",
+                isAutomaticCrossBarangayDuplicate
+                  ? "Later Registration"
+                  : "Saved DISTYNC Record",
                 comparisonRows,
                 "serverValue",
               )}

@@ -145,7 +145,7 @@ test("SYNC-HEALTH-P07 Sync Center owns the full status card", async () => {
   assert.match(layout, /isBarangayPortal/);
   assert.match(
     layout,
-    /shouldShowSyncStatusBanner =\s*!isBarangayPortal && !isBarangayAnomalyRoute && !isMayorAnomalyRoute/,
+    /shouldShowSyncStatusBanner =\s*!isBarangayPortal[\s\S]*?isMayorAnomalyRoute[\s\S]*?isSyncRoute/,
   );
   assert.match(layout, /shouldShowSyncStatusBanner/);
   assert.match(layout, /\{shouldShowSyncStatusBanner \? <SyncStatusBanner \/> : null\}/);

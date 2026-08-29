@@ -816,6 +816,45 @@ const getSyncConflictsByUser = async ({ userId, status = null, limit = 50 }) => 
   return result.rows;
 };
 
+const findHouseholdRegistrationSyncTransaction = async ({
+  householdId,
+  disasterEventId,
+  excludeSyncTransactionId = null,
+}, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      SELECT *
+      FROM sync_transactions
+      WHERE entity_type = 'HOUSEHOLD'
+        AND operation_type = 'CREATE'
+        AND entity_server_id = $1
+        AND payload_json->>'action_key' IN ('HOUSEHOLD_REGISTER', 'HOUSEHOLD_RE_ADMISSION')
+        AND ($2::uuid IS NULL OR id <> $2::uuid)
+        AND ($3::uuid IS NULL OR payload_json->'payload'->>'disaster_event_id' = $3::text)
+      ORDER BY client_timestamp ASC NULLS LAST, created_at ASC, id ASC
+      LIMIT 1
+    `,
+    [householdId, excludeSyncTransactionId, disasterEventId || null],
+  );
+  return result.rows[0] || null;
+};
+
+const getBarangayNamesByIds = async (barangayIds, dbClient = pool) => {
+  const ids = [...new Set((barangayIds || []).filter(Boolean))];
+  if (ids.length === 0) {
+    return {};
+  }
+
+  const result = await dbClient.query(
+    `SELECT id, name FROM barangays WHERE id = ANY($1::uuid[])`,
+    [ids],
+  );
+  return result.rows.reduce((lookup, row) => {
+    lookup[row.id] = row.name;
+    return lookup;
+  }, {});
+};
+
 const getSyncConflictByIdForUser = async ({ id, userId }, dbClient = pool) => {
   const query = `
     SELECT
@@ -1081,6 +1120,9 @@ const recordConflictAndUpdateSyncTransaction = async ({
   }
 };
 
+const recordSyncConflictOnly = async (conflictPayload, dbClient = pool) =>
+  insertSyncConflict(conflictPayload, dbClient);
+
 const recordSyncFailureAndNotificationIntent = async ({
   syncTransactionId,
   transactionPayload,
@@ -1136,12 +1178,15 @@ module.exports = {
   getSyncConflictById,
   getConflictForSyncTransaction,
   recordConflictAndUpdateSyncTransaction,
+  recordSyncConflictOnly,
   recordSyncFailureAndNotificationIntent,
   getSyncTransactionsByUser,
   getSyncTransactionsByMunicipality,
   getSyncTransactionsByMayor,
   getDisasterEventTitlesByIds,
   getSyncConflictsByUser,
+  findHouseholdRegistrationSyncTransaction,
+  getBarangayNamesByIds,
   getSyncConflictsByMunicipality,
   getSyncConflictsByMayor,
   getReviewableManualInventoryConflicts,

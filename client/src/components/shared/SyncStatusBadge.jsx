@@ -1,7 +1,7 @@
 import React from "react";
 import { getSyncBadgePalette, getSyncLabel } from "../../offline/syncStatus";
 
-const SyncStatusBadge = ({ status = "SYNCED", compact = false }) => {
+const SyncStatusBadge = ({ status = "SYNCED", compact = false, label = null }) => {
   const palette = getSyncBadgePalette(status);
 
   return (
@@ -21,7 +21,7 @@ const SyncStatusBadge = ({ status = "SYNCED", compact = false }) => {
         whiteSpace: "nowrap",
       }}
     >
-      {getSyncLabel(status)}
+      {label || getSyncLabel(status)}
     </span>
   );
 };

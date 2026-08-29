@@ -710,24 +710,6 @@ const getResolutionCapability = (conflict, auth) => {
     };
   }
 
-  if (conflict.conflict_type === POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE) {
-    const mayResolve = auth?.roleCode === ROLE_CODES.MSWDO;
-
-    return {
-      availableResolutionActions: mayResolve
-        ? [
-            RESOLUTION_ACTION.KEEP_SERVER,
-            RESOLUTION_ACTION.APPLY_LOCAL,
-            RESOLUTION_ACTION.MARK_REVIEWED,
-          ]
-        : [],
-      canResolve: mayResolve,
-      domainOwner: ROLE_CODES.MSWDO,
-      basis:
-        "MSWDO must decide whether the registrations are a duplicate or a different household.",
-    };
-  }
-
   return {
     availableResolutionActions: [],
     canResolve: false,
@@ -761,6 +743,23 @@ const getSafeConflictServerSummary = (conflict) => ({
   entity_server_id: conflict.entity_server_id || null,
   conflict_type: conflict.conflict_type,
   authoritative_payload: conflict.server_payload_json || {},
+});
+
+const getSafeAutomaticCrossBarangayPayload = (payload = {}) => ({
+  family_head: payload.family_head
+    ? {
+        first_name: payload.family_head.first_name || null,
+        middle_name: payload.family_head.middle_name || null,
+        last_name: payload.family_head.last_name || null,
+        suffix: payload.family_head.suffix || null,
+      }
+    : null,
+  barangay_name: payload.barangay_name || null,
+  disaster_event_title: payload.disaster_event_title || null,
+  registered_at: payload.registered_at || null,
+  household_size: payload.household_size || null,
+  current_address_details: payload.current_address_details || null,
+  result: payload.result || null,
 });
 
 const isInsufficientInventoryStockError = (error) =>
@@ -955,6 +954,228 @@ const processCommittedDomainSideEffectsSafely = async ({
   }
 
   return syncResult;
+};
+
+const getValidRegistrationTimestamp = (value) => {
+  const time = new Date(value || "").getTime();
+  return Number.isFinite(time) ? time : null;
+};
+
+const buildAutomaticCrossBarangayResolution = ({
+  incomingPayload,
+  existingPayload,
+  existingSummary,
+  incomingTimestamp,
+  existingTimestamp,
+  resolvedAt,
+}) => {
+  const incomingTime = getValidRegistrationTimestamp(incomingTimestamp);
+  const existingTime = getValidRegistrationTimestamp(existingTimestamp);
+
+  if (incomingTime === null || existingTime === null) {
+    return null;
+  }
+
+  const incomingIsEarlier = incomingTime < existingTime;
+  const earlierPayload = incomingIsEarlier ? incomingPayload : existingPayload;
+  const laterPayload = incomingIsEarlier ? existingPayload : incomingPayload;
+
+  return {
+    automatic: true,
+    resolution_status: "RESOLVED_AUTOMATICALLY",
+    winner: incomingIsEarlier ? "INCOMING" : "EXISTING",
+    result: incomingIsEarlier
+      ? "EARLIER_REGISTRATION_RETAINED"
+      : "LATER_REGISTRATION_RESOLVED_AS_DUPLICATE",
+    earlier_registration: {
+      ...earlierPayload,
+      barangay_name:
+        earlierPayload?.barangay_name ||
+        (incomingIsEarlier ? null : existingSummary?.barangay_name) ||
+        null,
+      registered_at: incomingIsEarlier ? incomingTimestamp : existingTimestamp,
+      result: "RETAINED",
+    },
+    later_registration: {
+      ...laterPayload,
+      barangay_name:
+        laterPayload?.barangay_name ||
+        (!incomingIsEarlier ? null : existingSummary?.barangay_name) ||
+        null,
+      registered_at: incomingIsEarlier ? existingTimestamp : incomingTimestamp,
+      result: "RESOLVED_AS_DUPLICATE",
+    },
+    authoritative_payload: earlierPayload,
+    resolved_at: resolvedAt,
+    tie_breaker: incomingTime === existingTime
+      ? "EXISTING_SERVER_ACCEPTANCE_ORDER"
+      : null,
+  };
+};
+
+const tryAutoResolveCrossBarangayDuplicate = async ({
+  error,
+  entry,
+  auth,
+  actionConfig,
+  syncTransaction,
+  dbClient,
+}) => {
+  if (error.code !== POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE) {
+    return null;
+  }
+
+  if (
+    typeof syncRepository.findHouseholdRegistrationSyncTransaction !==
+      "function" ||
+    typeof syncRepository.getBarangayNamesByIds !== "function"
+  ) {
+    return null;
+  }
+
+  const duplicate = error.duplicateRegistration || {};
+  const existingTimestamp = error.serverPayload?.registered_at;
+  const resolvedAt = new Date().toISOString();
+  const existingSyncTransaction =
+    await syncRepository.findHouseholdRegistrationSyncTransaction({
+      householdId: error.entityServerId,
+      disasterEventId: duplicate.registration_data?.disaster_event_id,
+      excludeSyncTransactionId: syncTransaction.id,
+    }, dbClient);
+  const existingPayload =
+    existingSyncTransaction?.payload_json?.payload ||
+    existingSyncTransaction?.payload_json ||
+    {};
+  const barangayNames = await syncRepository.getBarangayNamesByIds([
+    entry.payload?.barangay_id,
+    existingPayload?.barangay_id,
+    error.serverPayload?.barangay_id,
+  ], dbClient);
+  const incomingComparisonPayload = {
+    ...entry.payload,
+    barangay_name:
+      entry.payload?.barangay_name ||
+      barangayNames[entry.payload?.barangay_id] ||
+      null,
+  };
+  const existingComparisonPayload = {
+    ...existingPayload,
+    barangay_name:
+      existingPayload?.barangay_name ||
+      error.serverPayload?.barangay_name ||
+      barangayNames[existingPayload?.barangay_id] ||
+      barangayNames[error.serverPayload?.barangay_id] ||
+      null,
+    disaster_event_title:
+      existingPayload?.disaster_event_title ||
+      error.serverPayload?.disaster_event_title ||
+      null,
+  };
+  const resolution = buildAutomaticCrossBarangayResolution({
+    incomingPayload: incomingComparisonPayload,
+    existingPayload: existingComparisonPayload,
+    existingSummary: error.serverPayload,
+    incomingTimestamp: entry.client_timestamp,
+    existingTimestamp,
+    resolvedAt,
+  });
+
+  if (!resolution) {
+    return null;
+  }
+
+  resolution.duplicate_group_key = [
+    duplicate.registration_data?.disaster_event_id || "unknown-event",
+    error.entityServerId || "unknown-household",
+    [
+      incomingComparisonPayload.barangay_id,
+      existingComparisonPayload.barangay_id || error.serverPayload?.barangay_id,
+    ]
+      .filter(Boolean)
+      .map(String)
+      .sort()
+      .join(":"),
+  ].join(":");
+
+  const incomingIsEarlier = resolution.winner === "INCOMING";
+  let authoritativeData = null;
+
+  if (incomingIsEarlier) {
+    authoritativeData =
+      await householdRegistrationService.reconcileCrossBarangayDuplicateWithEarlierRegistration({
+        householdId: error.entityServerId,
+        registrationData: duplicate.registration_data,
+        dbClient,
+      });
+
+    if (!authoritativeData) {
+      return null;
+    }
+  }
+
+  const currentConflictPayload = {
+    sync_transaction_id: syncTransaction.id,
+    entity_type: actionConfig.entityType,
+    entity_server_id: error.entityServerId || null,
+    conflict_type: POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE,
+    local_payload_json: entry.payload,
+    server_payload_json: incomingIsEarlier
+      ? existingPayload
+      : error.serverPayload || {},
+    resolution_strategy: RESOLUTION_STRATEGY.FIRST_ACCEPTED,
+    resolution_reason: "Automatically resolved using the earliest valid original registration timestamp.",
+    resolved_payload_json: resolution,
+    resolved_by: null,
+    resolved_at: resolvedAt,
+    status: CONFLICT_STATUS.RESOLVED,
+  };
+  const current = await syncRepository.recordConflictAndUpdateSyncTransaction({
+    syncTransactionId: syncTransaction.id,
+    transactionPayload: {
+      entity_server_id: incomingIsEarlier ? error.entityServerId : null,
+      server_timestamp: resolvedAt,
+      sync_status: incomingIsEarlier ? SYNC_STATUS.SYNCED : SYNC_STATUS.CONFLICT,
+      error_message: incomingIsEarlier
+        ? null
+        : "Resolved automatically as a duplicate; the earlier registration was retained.",
+    },
+    conflictPayload: currentConflictPayload,
+    dbClient,
+  });
+
+  if (existingSyncTransaction?.id) {
+    const existingWasWinner = !incomingIsEarlier;
+    if (!existingWasWinner) {
+      await syncRepository.updateSyncTransaction(existingSyncTransaction.id, {
+        entity_server_id: error.entityServerId,
+        server_timestamp: resolvedAt,
+        sync_status: SYNC_STATUS.CONFLICT,
+        error_message: "Resolved automatically as a duplicate; an earlier registration was retained.",
+      }, dbClient);
+    }
+
+    await syncRepository.recordSyncConflictOnly({
+      sync_transaction_id: existingSyncTransaction.id,
+      entity_type: actionConfig.entityType,
+      entity_server_id: error.entityServerId || null,
+      conflict_type: POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE,
+      local_payload_json: existingPayload,
+      server_payload_json: entry.payload,
+      resolution_strategy: RESOLUTION_STRATEGY.FIRST_ACCEPTED,
+      resolution_reason: "Automatically resolved using the earliest valid original registration timestamp.",
+      resolved_payload_json: resolution,
+      resolved_by: null,
+      resolved_at: resolvedAt,
+      status: CONFLICT_STATUS.RESOLVED,
+    }, dbClient);
+  }
+
+  return {
+    ...current,
+    resolution,
+    authoritativeData,
+    existingSyncTransaction,
+  };
 };
 
 const processSingleSyncEntry = async (entry, auth) => {
@@ -1229,6 +1450,41 @@ const processSingleSyncEntry = async (entry, auth) => {
       const isSystemResolvedDuplicate =
         isInventoryItrDuplicate || error.code === DUPLICATE_INVENTORY_BATCH;
 
+      if (isCrossBarangayDuplicateConflict) {
+        const automaticResolution = await tryAutoResolveCrossBarangayDuplicate({
+          error,
+          entry,
+          auth,
+          actionConfig,
+          syncTransaction,
+          dbClient,
+        });
+
+        if (automaticResolution) {
+          if (automaticResolution.notificationOutboxEvent?.id) {
+            notificationOutboxEventIds.push(
+              automaticResolution.notificationOutboxEvent.id,
+            );
+          }
+
+          return {
+            client_sync_id: entry.client_sync_id,
+            sync_transaction_id: syncTransaction.id,
+            sync_status: automaticResolution.syncTransaction.sync_status,
+            resolution_status: "RESOLVED_AUTOMATICALLY",
+            message:
+              automaticResolution.resolution.result ===
+              "EARLIER_REGISTRATION_RETAINED"
+                ? "Earlier registration retained automatically."
+                : "Later registration resolved automatically as a duplicate.",
+            data:
+              automaticResolution.authoritativeData ||
+              automaticResolution.syncTransaction,
+            conflict: automaticResolution.conflictRecord,
+          };
+        }
+      }
+
       try {
         const {
           syncTransaction: conflictTransaction,
@@ -1485,7 +1741,25 @@ const getSyncHistory = async ({
     auth,
   });
 
-  const sortedConflicts = sortConflictsByCreatedAtDesc(conflicts).slice(
+  const sortedConflicts = sortConflictsByCreatedAtDesc(conflicts).reduce(
+    (uniqueConflicts, conflict) => {
+      if (
+        auth.roleCode === ROLE_CODES.MSWDO &&
+        conflict?.resolved_payload_json?.duplicate_group_key
+      ) {
+        const groupKey = conflict.resolved_payload_json.duplicate_group_key;
+        if (uniqueConflicts.some(
+          (candidate) =>
+            candidate?.resolved_payload_json?.duplicate_group_key === groupKey,
+        )) {
+          return uniqueConflicts;
+        }
+      }
+      uniqueConflicts.push(conflict);
+      return uniqueConflicts;
+    },
+    [],
+  ).slice(
     0,
     effectiveLimit,
   );
@@ -1595,8 +1869,24 @@ const getSyncConflictDetail = async ({ auth, conflictId }) => {
 
   const isCrossBarangayConflict =
     conflict?.conflict_type === POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE;
+  const isAutomaticCrossBarangayConflict =
+    isCrossBarangayConflict && conflict?.resolved_payload_json?.automatic;
   const safeConflict =
-    isCrossBarangayConflict && auth.roleCode === ROLE_CODES.BARANGAY
+    isAutomaticCrossBarangayConflict && auth.roleCode === ROLE_CODES.BARANGAY
+      ? {
+          ...conflict,
+          server_payload_json: {},
+          resolved_payload_json: {
+            ...conflict.resolved_payload_json,
+            earlier_registration: getSafeAutomaticCrossBarangayPayload(
+              conflict.resolved_payload_json.earlier_registration,
+            ),
+            later_registration: getSafeAutomaticCrossBarangayPayload(
+              conflict.resolved_payload_json.later_registration,
+            ),
+          },
+        }
+      : isCrossBarangayConflict && auth.roleCode === ROLE_CODES.BARANGAY
       ? {
           ...conflict,
           server_payload_json: {
@@ -1664,70 +1954,6 @@ const resolveSyncConflict = async ({ auth, conflictId, action, reason = null }) 
         resolution_action: action,
         reviewer_role_code: auth.roleCode,
       };
-
-      if (action === RESOLUTION_ACTION.APPLY_LOCAL) {
-        if (conflict.conflict_type !== POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE) {
-          throw createResolutionActionNotAllowedError();
-        }
-
-        const localPayload =
-          conflict.local_payload_json?.payload || conflict.local_payload_json || {};
-        const acceptedPayload = {
-          ...localPayload,
-          registered_by: conflict.user_id || localPayload.registered_by,
-          synced_client_timestamp: conflict.client_timestamp,
-          enforce_sync_duplicate_guard: true,
-          allow_reviewed_cross_barangay_duplicate: true,
-        };
-        const acceptedHousehold = await householdRegistrationService.registerHousehold(
-          acceptedPayload,
-          { dbClient },
-        );
-        const acceptedHouseholdId =
-          acceptedHousehold?.household?.id || acceptedHousehold?.id || null;
-
-        await syncRepository.updateSyncTransaction(
-          conflict.sync_transaction_id,
-          {
-            entity_server_id: acceptedHouseholdId,
-            server_timestamp: new Date().toISOString(),
-            sync_status: "SYNCED",
-            error_message: null,
-          },
-          dbClient,
-        );
-
-        resolvedPayload.accepted_household_id = acceptedHouseholdId;
-      } else if (
-        action === RESOLUTION_ACTION.KEEP_SERVER &&
-        conflict.conflict_type === POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE
-      ) {
-        await syncRepository.updateSyncTransaction(
-          conflict.sync_transaction_id,
-          {
-            entity_server_id: null,
-            server_timestamp: new Date().toISOString(),
-            sync_status: "CONFLICT",
-            error_message: "Resolved — Duplicate Household",
-          },
-          dbClient,
-        );
-      } else if (
-        action === RESOLUTION_ACTION.MARK_REVIEWED &&
-        conflict.conflict_type === POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE
-      ) {
-        resolvedPayload.transfer_reassignment_required = true;
-        await syncRepository.updateSyncTransaction(
-          conflict.sync_transaction_id,
-          {
-            entity_server_id: null,
-            server_timestamp: new Date().toISOString(),
-            sync_status: "CONFLICT",
-            error_message: "Transfer/Reassignment Required",
-          },
-          dbClient,
-        );
-      }
 
       const updatedConflict = await syncRepository.markSyncConflictResolved(
         {
