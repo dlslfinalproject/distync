@@ -28,10 +28,10 @@ test("Mayor sidebar groups all proven monitoring surfaces in the required order"
   assert.ok(monitoringIndex >= 0, "Mayor Monitoring section is present");
 
   const expectedMonitoringItems = [
+    ["Inventory Tracking Management", "/inventory/transactions"],
     ["Audit Trail", "/inventory/system-logs"],
     ["Sync Center", "/inventory/sync"],
     ["Anomaly Tracking", "/inventory/anomalies"],
-    ["Inventory Tracking Management", "/inventory/transactions"],
   ];
 
   let previousIndex = monitoringIndex;
