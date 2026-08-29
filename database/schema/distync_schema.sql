@@ -608,6 +608,9 @@ CREATE TABLE public.relief_pack_templates (
   CONSTRAINT relief_pack_templates_sector_id_fkey FOREIGN KEY (sector_id) REFERENCES public.sectors(id)
 );
 
+CREATE UNIQUE INDEX relief_pack_templates_name_normalized_unique
+ON public.relief_pack_templates (LOWER(BTRIM(name)));
+
 CREATE TABLE public.relief_pack_template_items (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   template_id uuid NOT NULL,
@@ -628,6 +631,18 @@ CREATE TABLE public.relief_pack_template_disaster_types (
   CONSTRAINT relief_pack_template_disaster_types_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.relief_pack_templates(id) ON DELETE CASCADE,
   CONSTRAINT relief_pack_template_disaster_types_unique UNIQUE (template_id, disaster_type)
 );
+
+CREATE TABLE public.distribution_transaction_relief_pack_templates (
+  distribution_transaction_id uuid NOT NULL,
+  relief_pack_template_id uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT distribution_transaction_relief_pack_templates_pkey PRIMARY KEY (distribution_transaction_id, relief_pack_template_id),
+  CONSTRAINT distribution_transaction_relief_pack_templates_transaction_id_fkey FOREIGN KEY (distribution_transaction_id) REFERENCES public.distribution_transactions(id) ON DELETE CASCADE,
+  CONSTRAINT distribution_transaction_relief_pack_templates_template_id_fkey FOREIGN KEY (relief_pack_template_id) REFERENCES public.relief_pack_templates(id)
+);
+
+CREATE INDEX idx_distribution_transaction_relief_pack_templates_template_id
+ON public.distribution_transaction_relief_pack_templates (relief_pack_template_id);
 
 -- =========================================================
 -- 6) DONATIONS & DONOR MANAGEMENT

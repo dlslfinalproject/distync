@@ -14,6 +14,7 @@ import {
   createDonationItemForm,
 } from "./donationUi";
 import { normalizeDonorType } from "./donationFormatters";
+import { isReliefPackDonationItemRemark } from "./donationType";
 import {
   createInventoryItem,
   lookupInventoryItemByBarcode,
@@ -389,7 +390,7 @@ const inferDonationEntryType = (items = []) => {
     normalizedItems.length > 0 &&
     normalizedItems.every((item) =>
       item?.entry_type === "RELIEF_PACK" ||
-      String(item?.remarks || "").startsWith("Relief Pack:"),
+      isReliefPackDonationItemRemark(item?.remarks),
     )
   ) {
     return "RELIEF_PACK";

@@ -33,6 +33,11 @@ const mapInventoryBatch = (batch) => {
     batch_no: batch.batch_no,
     supplier_id: batch.supplier_id,
     source_type: batch.source_type,
+    source_donation_type: batch.source_donation_type || null,
+    source_donation_disaster_event_id:
+      batch.source_donation_disaster_event_id || null,
+    source_donation_status: batch.source_donation_status || null,
+    source_donation_item_id: batch.source_donation_item_id || null,
     quantity_received: batch.quantity_received,
     quantity_available: batch.quantity_available,
     stock_version: batch.stock_version,
@@ -82,6 +87,10 @@ const mapInventoryBatch = (batch) => {
       ? {
           id: batch.source_donation_id,
           donor_name: batch.source_donor_name || null,
+          donation_item_id: batch.source_donation_item_id || null,
+          disaster_event_id: batch.source_donation_disaster_event_id || null,
+          status: batch.source_donation_status || null,
+          donation_type: batch.source_donation_type || null,
         }
       : null,
     creator: batch.created_by

@@ -5,6 +5,7 @@ import { shellStyles } from "../layout/BarangayLayout";
 import { formatOrderedSectorText } from "../../utils/sectorDisplay";
 import SyncStatusIcon from "../shared/SyncStatusIcon";
 import QrCodePanel from "./QrCodePanel";
+import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
 
 const tableStyles = {
   table: {
@@ -280,6 +281,10 @@ const getStatusLabel = (status) => {
     return "Unclaimed";
   }
 
+  if (status === "NOT_PRESENT") {
+    return "Not Present";
+  }
+
   return status || "-";
 };
 
@@ -384,6 +389,7 @@ const StubResultsTable = ({
         (row) =>
           row.status === "ISSUED" &&
           !row.is_local_only &&
+          isCurrentlyPresentStubRow(row) &&
           !isArchivedHouseholdRow(row) &&
           !isRowBlockedByClaimSync(row),
       );
@@ -522,6 +528,7 @@ const StubResultsTable = ({
                 !isClaimReadOnly &&
                 row.status === "ISSUED" &&
                 !row.is_local_only &&
+                isCurrentlyPresentStubRow(row) &&
                 !isArchivedRow &&
                 !isRowBlockedByClaimSync(row);
               const isSelected = safeSelectedStubIds.includes(row.id);
@@ -635,6 +642,13 @@ const StubResultsTable = ({
                       <span style={getStatusChipStyles("PENDING_SYNC")}>
                         Pending Sync
                       </span>
+                    ) : row.status === "ISSUED" && !isCurrentlyPresentStubRow(row) ? (
+                      <span
+                        style={getStatusChipStyles("NOT_PRESENT")}
+                        title="This household is not currently present in the evacuation center"
+                      >
+                        Not Present
+                      </span>
                     ) : isClaimReadOnly && row.status === "ISSUED" ? (
                       <span style={getStatusChipStyles("ISSUED")}>
                         Unclaimed
@@ -643,20 +657,30 @@ const StubResultsTable = ({
                       <button
                         type="button"
                         onClick={() => onClaimStub(row.id)}
-                        disabled={claimingStubId === row.id || isArchivedRow}
+                        disabled={
+                          claimingStubId === row.id ||
+                          isArchivedRow ||
+                          !isCurrentlyPresentStubRow(row)
+                        }
                         title={
                           isArchivedRow
                             ? "Archived households cannot receive a new relief distribution"
+                            : !isCurrentlyPresentStubRow(row)
+                              ? "Only households currently present in the evacuation center can receive a relief distribution"
                             : "Mark as Claimed"
                         }
                         style={{
                           ...tableStyles.statusButton,
                           opacity:
-                            claimingStubId === row.id || isArchivedRow ? 0.55 : 1,
+                            claimingStubId === row.id ||
+                            isArchivedRow ||
+                            !isCurrentlyPresentStubRow(row)
+                              ? 0.55
+                              : 1,
                           cursor:
                             claimingStubId === row.id
                               ? "wait"
-                              : isArchivedRow
+                              : isArchivedRow || !isCurrentlyPresentStubRow(row)
                                 ? "not-allowed"
                                 : "pointer",
                         }}

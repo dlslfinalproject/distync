@@ -1,5 +1,17 @@
 const pool = require("../config/db");
 
+const buildLinkedReliefPackTemplateNamesQuery = (transactionAlias) => `
+  SELECT STRING_AGG(DISTINCT linked_template.name, ', ' ORDER BY linked_template.name) AS names
+  FROM relief_pack_templates linked_template
+  WHERE linked_template.id = ${transactionAlias}.relief_pack_template_id
+    OR EXISTS (
+      SELECT 1
+      FROM distribution_transaction_relief_pack_templates linked_template_row
+      WHERE linked_template_row.distribution_transaction_id = ${transactionAlias}.id
+        AND linked_template_row.relief_pack_template_id = linked_template.id
+    )
+`;
+
 const stubSequenceExpression = `
       (
         SELECT COUNT(*)::int
@@ -241,6 +253,7 @@ const getBarangayStubDashboardRows = async (
       h.photo_verification_notes,
       latest_attendance.time_in AS queue_time_in,
       latest_attendance.status AS latest_attendance_status,
+      latest_attendance.time_out AS latest_attendance_time_out,
       latest_distribution.distribution_date,
       latest_distribution.received_at,
       latest_distribution.receipt_no,
@@ -768,12 +781,16 @@ const getLatestDistributionTransactionByStubId = async (stubId) => {
       dt.qr_reference_value,
       dt.qr_scanned_at,
       dt.relief_pack_template_id,
-      rpt.name AS relief_pack_template_name,
+      linked_template_names.names AS relief_pack_template_name,
+      linked_template_names.names AS relief_pack_template_names,
       dt.created_at,
       dt.updated_at
     FROM distribution_transactions dt
     LEFT JOIN users u ON u.id = dt.verified_by
     LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
+    LEFT JOIN LATERAL (
+      ${buildLinkedReliefPackTemplateNamesQuery("dt")}
+    ) linked_template_names ON TRUE
     WHERE dt.stub_id = $1
     ORDER BY dt.distribution_date DESC, dt.created_at DESC
     LIMIT 1
@@ -925,7 +942,8 @@ const getStubClaimHistory = async ({
         u.middle_name,
         u.last_name
       ) AS recorded_by_name,
-      rpt.name AS relief_pack_template_name,
+      linked_template_names.names AS relief_pack_template_name,
+      linked_template_names.names AS relief_pack_template_names,
       COALESCE(item_summary.total_quantity_released, 0) AS total_quantity_released,
       COALESCE(item_summary.released_items_summary, '') AS released_items_summary
     FROM stubs s
@@ -942,6 +960,9 @@ const getStubClaimHistory = async ({
     ) dt ON TRUE
     LEFT JOIN users u ON u.id = dt.verified_by
     LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
+    LEFT JOIN LATERAL (
+      ${buildLinkedReliefPackTemplateNamesQuery("dt")}
+    ) linked_template_names ON TRUE
     LEFT JOIN LATERAL (
       SELECT
         SUM(dti.quantity_released)::integer AS total_quantity_released,

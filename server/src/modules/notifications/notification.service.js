@@ -61,6 +61,29 @@ const DEFAULT_NOTIFICATION_RULES = NOTIFICATION_RULE_TARGETS.map((rule) => ({
   is_active: rule.isActive,
 }));
 
+const NOTIFICATION_SEVERITY_BY_POLICY_PRIORITY = Object.freeze({
+  CRITICAL: "CRITICAL",
+  WARNING: "WARNING",
+  INFORMATIONAL: "INFO",
+  INFO: "INFO",
+});
+
+const resolveNotificationSeverity = (priority) => {
+  const normalizedPriority = String(priority || "").trim().toUpperCase();
+  const severity = NOTIFICATION_SEVERITY_BY_POLICY_PRIORITY[normalizedPriority];
+
+  if (!severity) {
+    const error = new Error(
+      `Notification policy priority is invalid: ${normalizedPriority || "missing"}.`,
+    );
+    error.code = "INVALID_NOTIFICATION_PRIORITY";
+    error.statusCode = 500;
+    throw error;
+  }
+
+  return severity;
+};
+
 let notificationMaintenanceInterval = null;
 
 const createNotificationPolicyConfigurationError = (roleCode) => {
@@ -586,7 +609,7 @@ const createPersistentNotification = async ({
     throw error;
   }
   // Priority is static for every active rule. Producers supply context only.
-  const severity = priorities[0];
+  const severity = resolveNotificationSeverity(priorities[0]);
 
   const deliveryPlanBuckets = await Promise.all(
     (recipientGroups || []).map((group) =>

@@ -61,6 +61,8 @@ const serverStub = {
   ],
   sectors_text: "Senior Citizen",
   status: "ISSUED",
+  latest_attendance_status: "PRESENT",
+  latest_attendance_time_out: null,
   updated_at: "2026-08-09T01:00:00.000Z",
   audit_records: [{ id: "audit-sensitive" }],
 };
@@ -82,6 +84,8 @@ test("BRG-SC-07-M01 TEST A snapshot sanitizer uses an allowlist and owner stamp"
   assert.equal(snapshot.cached_at, "2026-08-09T02:00:00.000Z");
   assert.equal(snapshot.family_head_name, "Juan Dela Cruz");
   assert.equal(snapshot.household_is_active, true);
+  assert.equal(snapshot.latest_attendance_status, "PRESENT");
+  assert.equal(snapshot.latest_attendance_time_out, null);
   assert.equal(snapshot.assigned_relief_packs[0].name, "Family Pack");
 
   assert.equal(Object.hasOwn(snapshot, "audit_records"), false);
@@ -159,6 +163,8 @@ test("BRG-SC-07-M01 TEST D cached row and details preserve claim UI fields witho
   assert.equal(pendingRow.id, "stub-1");
   assert.equal(pendingRow.sync_status, "PENDING");
   assert.equal(pendingRow.is_claim_pending, true);
+  assert.equal(pendingRow.latest_attendance_status, "PRESENT");
+  assert.equal(pendingRow.latest_attendance_time_out, null);
   assert.equal(pendingRow.household.family_head_name, "Juan Dela Cruz");
   assert.equal(details.household.members.length, 0);
   assert.equal(details.household.family_head_photo_url, "");
@@ -433,12 +439,12 @@ test("BRG-SC-07-M01 TEST T online server flow remains authoritative", async () =
   assert.match(source, /stubDetails = await fetchStubDetails\(resolvedStubId/);
 });
 
-test("BRG-SC-07-M01 TEST U DistributionTransactionPage remains a distinct distribution workflow", async () => {
+test("BRG-SC-07-M01 TEST U DistributionTransactionPage uses the shared assignment-driven workflow", async () => {
   const source = await readSource("../src/pages/barangay/DistributionTransactionPage.jsx");
 
-  assert.match(source, /recordDistributionTransaction\(\{/);
-  assert.match(source, /fetchInventoryItems\(\)/);
-  assert.doesNotMatch(source, /claimStub\(|STUB_CLAIM/);
+  assert.match(source, /claimStub\(\{/);
+  assert.match(source, /StubClaimConfirmModal/);
+  assert.doesNotMatch(source, /fetchInventoryItems|fetchInventoryBatches|inventory_batch_id/);
 });
 
 test("BRG-SC-07-M01 TEST V server critical path files were not edited by this task", async () => {

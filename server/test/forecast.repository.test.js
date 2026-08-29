@@ -15,6 +15,44 @@ const createCapturingDbClient = (rows = []) => {
   };
 };
 
+test("getInventoryForecastItems totals only eligible LGU stock and event-scoped donated stock", async () => {
+  const dbClient = createCapturingDbClient([
+    {
+      id: "item-1",
+      current_available_stock: "25",
+      current_lgu_available_stock: "15",
+      current_donated_available_stock: "10",
+    },
+  ]);
+
+  const rows = await forecastRepository.getInventoryForecastItems(
+    "event-1",
+    dbClient,
+  );
+
+  assert.equal(rows.length, 1);
+  assert.equal(dbClient.calls.length, 1);
+
+  const { sql, values } = dbClient.calls[0];
+
+  assert.match(sql, /COALESCE\(SUM\(ib\.quantity_available\), 0\) AS current_available_stock/);
+  assert.match(sql, /ib\.status IN \('AVAILABLE', 'LOW_STOCK'\)/);
+  assert.match(sql, /COALESCE\(ib\.quantity_available, 0\) > 0/);
+  assert.match(
+    sql,
+    /ib\.expiration_date IS NULL\s+OR ib\.expiration_date > \(CURRENT_DATE \+ INTERVAL '30 days'\)/,
+  );
+  assert.match(sql, /ib\.source_type = 'LGU'/);
+  assert.match(sql, /ib\.source_type = 'DONATED'/);
+  assert.match(sql, /relief_pack_donation_items\.inventory_batch_id = ib\.id/);
+  assert.match(sql, /relief_pack_donation_items\.remarks.*ILIKE 'Relief Pack:%'/);
+  assert.match(sql, /d\.disaster_event_id = \$1/);
+  assert.match(sql, /d\.status <> 'CANCELLED'/);
+  assert.match(sql, /current_lgu_available_stock/);
+  assert.match(sql, /current_donated_available_stock/);
+  assert.deepEqual(values, ["event-1"]);
+});
+
 test("getReliefPackDemandByEvent forecasts only present unclaimed evacuation-center households with assigned packs", async () => {
   const dbClient = createCapturingDbClient([
     {

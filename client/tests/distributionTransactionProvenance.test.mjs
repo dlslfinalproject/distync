@@ -98,38 +98,37 @@ test("BRG-SC-08-H01 TEST H network failure alone cannot promote route targets", 
   assert.doesNotMatch(source, /navigator\.onLine[\s\S]*markDistributionTargetAsServerVerified/);
 });
 
-test("BRG-SC-08-H01 TEST I direct submit boundary checks trusted provenance", async () => {
+test("BRG-SC-08-H01 TEST I direct confirmation boundary checks trusted provenance", async () => {
   const source = await readSource("../src/pages/barangay/DistributionTransactionPage.jsx");
 
-  assert.match(source, /const handleSubmit = async \(\) => \{/);
+  assert.match(source, /const handleConfirmDistribution = async \(\) => \{/);
   assert.match(source, /if \(!isServerVerifiedDistributionTarget\(stubContext\)\) \{/);
-  assert.match(source, /return;\s*\}\s*const validationMessage = validateForm/);
+  assert.match(source, /return;\s*\}\s*if \(!verifiedStubDetails/);
 });
 
-test("BRG-SC-08-H01 TEST J recordDistributionTransaction is unreachable for unverified targets", async () => {
+test("BRG-SC-08-H01 TEST J claimStub is unreachable for unverified targets", async () => {
   const source = await readSource("../src/pages/barangay/DistributionTransactionPage.jsx");
   const guardIndex = source.indexOf("if (!isServerVerifiedDistributionTarget(stubContext))");
-  const mutationIndex = source.indexOf("recordDistributionTransaction({");
+  const mutationIndex = source.indexOf("claimStub({");
 
   assert.notEqual(guardIndex, -1);
   assert.notEqual(mutationIndex, -1);
   assert.equal(guardIndex < mutationIndex, true);
 });
 
-test("BRG-SC-08-H01 TEST K validateForm also rejects untrusted context", async () => {
+test("BRG-SC-08-H01 TEST K confirmation modal is limited to trusted issued targets", async () => {
   const source = await readSource("../src/pages/barangay/DistributionTransactionPage.jsx");
 
-  assert.match(source, /const validateForm = \(\) => \{/);
-  assert.match(source, /return UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE;/);
+  assert.match(source, /hasTrustedStubContext/);
+  assert.match(source, /verifiedStubDetails\?\.status === "ISSUED"/);
 });
 
-test("BRG-SC-08-H01 TEST L submit button reflects unverified target state", async () => {
+test("BRG-SC-08-H01 TEST L confirmation modal reflects the verified target state", async () => {
   const pageSource = await readSource("../src/pages/barangay/DistributionTransactionPage.jsx");
-  const formSource = await readSource("../src/components/distribution/DistributionForm.jsx");
 
-  assert.match(pageSource, /isSubmitDisabled=\{!hasTrustedStubContext\}/);
-  assert.match(formSource, /isSubmitDisabled = false/);
-  assert.match(formSource, /disabled=\{isLoadingData \|\| isSubmitting \|\| isSubmitDisabled\}/);
+  assert.match(pageSource, /<StubClaimConfirmModal/);
+  assert.match(pageSource, /isSubmitting=\{isSubmitting\}/);
+  assert.match(pageSource, /onConfirm=\{handleConfirmDistribution\}/);
 });
 
 test("BRG-SC-08-H01 TEST M user-facing untrusted message does not leak internals", () => {
@@ -184,33 +183,32 @@ test("BRG-SC-08-H01 TEST R no new sync action is introduced", async () => {
   const serviceSource = await readSource("../src/features/distribution/distributionService.js");
   const pageSource = await readSource("../src/pages/barangay/DistributionTransactionPage.jsx");
 
-  assert.match(serviceSource, /actionKey:\s*"DISTRIBUTION_CREATE"/);
+  assert.doesNotMatch(serviceSource, /actionKey:\s*"DISTRIBUTION_CREATE"/);
+  assert.match(pageSource, /claimStub\(/);
   assert.doesNotMatch(pageSource, /DISTRIBUTION_CREATE_VERIFIED|OFFLINE_DISTRIBUTION_CREATE|SAFE_DISTRIBUTION_CREATE|ROUTE_DISTRIBUTION_CREATE/);
 });
 
-test("BRG-SC-08-H01 TEST S STUB_CLAIM workflow remains separate", async () => {
+test("BRG-SC-08-H01 TEST S STUB_CLAIM workflow is shared", async () => {
   const pageSource = await readSource("../src/pages/barangay/DistributionTransactionPage.jsx");
   const stubServiceSource = await readSource("../src/features/stubs/stubService.js");
 
-  assert.doesNotMatch(pageSource, /claimStub\(|STUB_CLAIM/);
+  assert.match(pageSource, /claimStub\(/);
   assert.match(stubServiceSource, /actionKey:\s*"STUB_CLAIM"/);
 });
 
-test("BRG-SC-08-H01 TEST T offline route-only cannot create pending sync through this page", async () => {
+test("BRG-SC-08-H01 TEST T offline confirmation uses the shared stub claim queue", async () => {
   const pageSource = await readSource("../src/pages/barangay/DistributionTransactionPage.jsx");
-  const distributionServiceSource = await readSource(
-    "../src/features/distribution/distributionService.js",
-  );
+  const stubServiceSource = await readSource("../src/features/stubs/stubService.js");
 
   assert.match(pageSource, /UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE/);
-  assert.match(distributionServiceSource, /buildOfflineQueuedResponse/);
-  assert.match(distributionServiceSource, /Pending sync once connection is restored/);
+  assert.match(pageSource, /response\?\.queued_offline/);
+  assert.match(stubServiceSource, /buildOfflineQueuedResponse/);
 });
 
 test("BRG-SC-08-H01 TEST U server and database implementation remain untouched by the client guard", async () => {
   const pageSource = await readSource("../src/pages/barangay/DistributionTransactionPage.jsx");
 
-  assert.match(pageSource, /recordDistributionTransaction\(\{/);
-  assert.match(pageSource, /fetchInventoryItems\(\)/);
+  assert.match(pageSource, /claimStub\(\{/);
+  assert.doesNotMatch(pageSource, /fetchInventoryItems|fetchInventoryBatches|inventory_batch_id/);
   assert.doesNotMatch(pageSource, /\/api\/v1\/stubs\/offline|\/api\/v1\/distribution-transactions\/verified/);
 });

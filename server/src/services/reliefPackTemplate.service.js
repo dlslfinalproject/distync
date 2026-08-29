@@ -3,14 +3,46 @@ const disasterEventRepository = require("../repositories/disasterEvent.repositor
 const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate.repository");
 const { logAuditSafely } = require("../utils/systemLog");
 
+const RELIEF_PACK_TEMPLATE_NAME_UNIQUE_CONSTRAINTS = new Set([
+  "relief_pack_templates_name_key",
+  "relief_pack_templates_name_normalized_unique",
+]);
+
+const RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED_CODE =
+  "RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED";
+const RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED_MESSAGE =
+  "This relief pack cannot be deactivated while an event is active or a distribution is ongoing.";
+
+const createDuplicateTemplateNameError = () => {
+  const error = new Error(
+    "A relief pack template with this name already exists. Choose a different name.",
+  );
+  error.code = "RELIEF_PACK_TEMPLATE_NAME_DUPLICATE";
+  error.statusCode = 409;
+  return error;
+};
+
+const isReliefPackTemplateNameUniqueViolation = (error) =>
+  error?.code === "23505" &&
+  RELIEF_PACK_TEMPLATE_NAME_UNIQUE_CONSTRAINTS.has(error?.constraint);
+
+const createReliefPackTemplateDeactivationBlockedError = () => {
+  const error = new Error(RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED_MESSAGE);
+  error.statusCode = 409;
+  error.code = RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED_CODE;
+  return error;
+};
+
+const hasReliefPackTemplateDeactivationBlocker = (blockers) =>
+  Number(blockers?.active_event_distribution_count || 0) > 0 ||
+  Number(blockers?.unsynced_distribution_count || 0) > 0;
+
 const ensureUniqueTemplateName = async (name, currentTemplateId = null) => {
   const existingTemplate =
     await reliefPackTemplateRepository.getReliefPackTemplateByName(name);
 
   if (existingTemplate && existingTemplate.id !== currentTemplateId) {
-    const error = new Error("Relief pack template name already exists");
-    error.statusCode = 409;
-    throw error;
+    throw createDuplicateTemplateNameError();
   }
 };
 
@@ -35,6 +67,14 @@ const validateTemplateItems = async (items) => {
     if (!inventoryItem) {
       const error = new Error(
         `inventory_item_id does not refer to an existing inventory item: ${item.inventory_item_id}`,
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (inventoryItem.is_active === false) {
+      const error = new Error(
+        `The inventory item is disabled and cannot be added to a relief pack: ${item.inventory_item_id}`,
       );
       error.statusCode = 400;
       throw error;
@@ -415,16 +455,17 @@ const getReliefPackTemplateById = async (id) => {
 };
 
 const createReliefPackTemplate = async (templateData, actor = null) => {
-  await ensureUniqueTemplateName(templateData.name);
+  const inactiveTemplate =
+    await reliefPackTemplateRepository.getInactiveReliefPackTemplateByName(
+      templateData.name,
+    );
+
+  await ensureUniqueTemplateName(templateData.name, inactiveTemplate?.id || null);
 
   if (templateData.items.length > 0) {
     await validateTemplateItems(templateData.items);
   }
 
-  const inactiveTemplate =
-    await reliefPackTemplateRepository.getInactiveReliefPackTemplateByName(
-      templateData.name,
-    );
   const persistencePayload = buildTemplatePersistencePayload(templateData);
 
   const client = await pool.connect();
@@ -437,7 +478,7 @@ const createReliefPackTemplate = async (templateData, actor = null) => {
           inactiveTemplate.id,
           {
             ...persistencePayload,
-            is_active: true,
+            is_active: persistencePayload.is_active,
           },
           client,
         )
@@ -514,6 +555,11 @@ const createReliefPackTemplate = async (templateData, actor = null) => {
     };
   } catch (error) {
     await client.query("ROLLBACK");
+
+    if (isReliefPackTemplateNameUniqueViolation(error)) {
+      throw createDuplicateTemplateNameError();
+    }
+
     throw error;
   } finally {
     client.release();
@@ -615,6 +661,11 @@ const updateReliefPackTemplate = async (id, templateData, actor = null) => {
     return updatedTemplateDetails;
   } catch (error) {
     await client.query("ROLLBACK");
+
+    if (isReliefPackTemplateNameUniqueViolation(error)) {
+      throw createDuplicateTemplateNameError();
+    }
+
     throw error;
   } finally {
     client.release();
@@ -690,10 +741,102 @@ const replaceReliefPackTemplateItems = async (id, itemsPayload, actor = null) =>
   }
 };
 
+const setReliefPackTemplateStatus = async (
+  id,
+  isActive,
+  actor = null,
+) => {
+  const existingTemplate =
+    await reliefPackTemplateRepository.getReliefPackTemplateById(id);
+
+  if (!existingTemplate) {
+    const error = new Error("Relief pack template not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const currentStatus = existingTemplate.is_active !== false;
+
+  if (currentStatus === isActive) {
+    return getReliefPackTemplateById(id);
+  }
+
+  if (isActive) {
+    const items =
+      await reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId(
+        id,
+      );
+
+    if (!Array.isArray(items) || items.length === 0) {
+      const error = new Error(
+        "Add at least one inventory item before activating this relief pack.",
+      );
+      error.statusCode = 409;
+      error.code = "RELIEF_PACK_TEMPLATE_EMPTY";
+      throw error;
+    }
+
+    await validateTemplateItems(items);
+  }
+
+  const previousTemplateDetails = await getReliefPackTemplateById(id);
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    if (!isActive) {
+      const deactivationBlockers =
+        await reliefPackTemplateRepository.getReliefPackTemplateDeactivationBlockersByTemplateId(
+          id,
+          client,
+        );
+
+      if (hasReliefPackTemplateDeactivationBlocker(deactivationBlockers)) {
+        throw createReliefPackTemplateDeactivationBlockedError();
+      }
+    }
+
+    const updatedTemplate =
+      await reliefPackTemplateRepository.updateReliefPackTemplateStatus(
+        id,
+        isActive,
+        client,
+      );
+
+    if (!updatedTemplate) {
+      const error = new Error("Relief pack template not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    await client.query("COMMIT");
+
+    const updatedTemplateDetails = await getReliefPackTemplateById(id);
+
+    await logAuditSafely({
+      actor,
+      action: "RELIEF_PACK_TEMPLATE_UPDATE",
+      entityType: "RELIEF_PACK_TEMPLATE",
+      entityId: id,
+      oldValues: buildTemplateAuditValues(previousTemplateDetails),
+      newValues: buildTemplateAuditValues(updatedTemplateDetails),
+    });
+
+    return updatedTemplateDetails;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   getReliefPackTemplates,
   getReliefPackTemplateById,
   createReliefPackTemplate,
   updateReliefPackTemplate,
+  setReliefPackTemplateStatus,
   replaceReliefPackTemplateItems,
 };

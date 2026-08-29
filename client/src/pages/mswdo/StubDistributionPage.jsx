@@ -39,6 +39,7 @@ import {
 } from "../../features/stubs/stubQrScanErrors";
 import { readOperationalDisasterEventScope } from "../../features/disaster-events/operationalDisasterEventSelection";
 import { ROLE_CODES } from "../../utils/roleSession";
+import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
@@ -111,6 +112,11 @@ const stubStatusOptions = [
   { value: STATUS_FILTERS.CLAIMED, label: "Claimed" },
   { value: STATUS_FILTERS.UNCLAIMED, label: "For Claim" },
 ];
+
+const isSelectableClaimStubRow = (row) =>
+  row?.status === "ISSUED" &&
+  !row?.is_local_only &&
+  isCurrentlyPresentStubRow(row);
 
 const getStubSortTime = (row) => {
   const timestamp =
@@ -380,7 +386,11 @@ const StubDistributionPage = () => {
   }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
-    const visibleStubIds = new Set(displayedRowsWithSyncStatus.map((row) => row.id));
+    const visibleStubIds = new Set(
+      displayedRowsWithSyncStatus
+        .filter((row) => isSelectableClaimStubRow(row))
+        .map((row) => row.id),
+    );
     setSelectedStubIds((currentValues) =>
       currentValues.filter((stubId) => visibleStubIds.has(stubId)),
     );
@@ -453,6 +463,14 @@ const StubDistributionPage = () => {
       return;
     }
 
+    const selectedRow = displayedRowsWithSyncStatus.find(
+      (row) => row.id === stubId,
+    );
+
+    if (!isSelectableClaimStubRow(selectedRow)) {
+      return;
+    }
+
     setSelectedStubIds((currentValues) =>
       currentValues.includes(stubId)
         ? currentValues.filter((id) => id !== stubId)
@@ -467,7 +485,7 @@ const StubDistributionPage = () => {
     }
 
     const selectableStubIds = displayedRowsWithSyncStatus
-      .filter((row) => row.status === "ISSUED")
+      .filter((row) => isSelectableClaimStubRow(row))
       .map((row) => row.id);
 
     const areAllSelected =
@@ -495,6 +513,17 @@ const StubDistributionPage = () => {
 
   const handleOpenClaimConfirmation = (stubId) => {
     if (isEndedView || claimingStubId) {
+      return;
+    }
+
+    const selectedRow = displayedRowsWithSyncStatus.find(
+      (row) => row.id === stubId,
+    );
+
+    if (!isSelectableClaimStubRow(selectedRow)) {
+      setClaimErrorMessage(
+        "This household is not currently present in the evacuation center.",
+      );
       return;
     }
 
@@ -560,14 +589,25 @@ const StubDistributionPage = () => {
     setClaimErrorMessage("");
 
     if (isBulkClaimConfirmOpen && selectedStubIds.length > 0) {
+      const selectedRows = selectedStubIds.map((stubId) =>
+        displayedRowsWithSyncStatus.find((row) => row.id === stubId),
+      );
+
+      if (selectedRows.some((row) => !isSelectableClaimStubRow(row))) {
+        setClaimErrorMessage(
+          "Only households currently present in the evacuation center can receive a relief distribution.",
+        );
+        return;
+      }
+
       setClaimingStubId("bulk");
 
       try {
         await Promise.all(
           selectedStubIds.map((stubId) => {
-            const row =
-              filteredRows.find((candidate) => candidate.id === stubId) ||
-              stubRows.find((candidate) => candidate.id === stubId);
+            const row = displayedRowsWithSyncStatus.find(
+              (candidate) => candidate.id === stubId,
+            );
 
             return claimStub({
               stubId,
@@ -606,14 +646,18 @@ const StubDistributionPage = () => {
         barangayId: selectedBarangayId,
         disasterEventId:
           pendingClaimStubDetails?.disaster_event?.id ||
-          stubRows.find((row) => row.id === pendingClaimStubId)?.disaster_event?.id ||
-          stubRows.find((row) => row.id === pendingClaimStubId)?.disaster_event_id ||
+          displayedRowsWithSyncStatus.find((row) => row.id === pendingClaimStubId)
+            ?.disaster_event?.id ||
+          displayedRowsWithSyncStatus.find((row) => row.id === pendingClaimStubId)
+            ?.disaster_event_id ||
           "",
         disasterEventTitle:
           pendingClaimStubDetails?.disaster_event?.title ||
           pendingClaimStubDetails?.disaster_event?.name ||
-          stubRows.find((row) => row.id === pendingClaimStubId)?.disaster_event?.title ||
-          stubRows.find((row) => row.id === pendingClaimStubId)?.disaster_event?.name ||
+          displayedRowsWithSyncStatus.find((row) => row.id === pendingClaimStubId)
+            ?.disaster_event?.title ||
+          displayedRowsWithSyncStatus.find((row) => row.id === pendingClaimStubId)
+            ?.disaster_event?.name ||
           "",
       });
       reloadDashboard();

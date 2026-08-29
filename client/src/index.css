@@ -105,7 +105,7 @@ body {
   min-width: 140px;
 }
 
-.mayor-relief-pack-template-available-cell {
+.mayor-relief-pack-template-status-cell {
   min-width: 88px;
   white-space: nowrap;
 }
@@ -753,20 +753,12 @@ body {
   }
 
   .mayor-relief-pack-search-wrap,
-  .mayor-relief-pack-type-filter,
   .mayor-relief-pack-filter-button-wrap,
   .mayor-relief-pack-action-group {
     flex: 1 1 100% !important;
     width: 100%;
   }
 
-  .mayor-relief-pack-type-filter {
-    align-items: stretch !important;
-    flex-direction: column;
-    gap: 6px !important;
-  }
-
-  .mayor-relief-pack-type-filter select,
   .mayor-relief-pack-filter-button-wrap button,
   .mayor-relief-pack-action-group button {
     width: 100%;

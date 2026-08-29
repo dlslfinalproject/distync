@@ -9,6 +9,8 @@ import {
 import SearchBar from "../../components/shared/SearchBar";
 import ResponsiveFilterPopover from "../../components/shared/ResponsiveFilterPopover";
 import ReliefPackTemplateFormModal from "../../components/relief-pack-templates/ReliefPackTemplateFormModal";
+import ReliefPackTemplateStatusConfirmModal from "../../components/relief-pack-templates/ReliefPackTemplateStatusConfirmModal";
+import ReliefPackTemplateDeactivationBlockedModal from "../../components/relief-pack-templates/ReliefPackTemplateDeactivationBlockedModal";
 import TableActionsMenu from "../../components/shared/TableActionsMenu";
 import StatusPill from "../../components/shared/StatusPill";
 import DetailsModalShell from "../../components/shared/DetailsModalShell";
@@ -18,6 +20,7 @@ import {
   fetchReliefPackTemplateById,
   fetchReliefPackTemplates,
   updateReliefPackTemplate,
+  updateReliefPackTemplateStatus,
 } from "../../features/relief-pack-templates/reliefPackTemplateService";
 import {
   fetchActiveDisasterEvents,
@@ -27,6 +30,9 @@ import { fetchInventoryBatches } from "../../features/inventory-batches/inventor
 import { fetchSectors } from "../../features/household-registration/householdRegistrationService";
 import { fetchConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
+import { isHouseholdEligibleForReliefPackDemand } from "../../features/relief-pack-templates/reliefPackDemand";
+import { allocateSharedReliefPackInventory } from "../../features/relief-pack-templates/reliefPackAvailability";
+import { isReliefPackInventoryBatchEligible } from "../../features/relief-pack-templates/reliefPackInventory";
 import { useAuth } from "../../context/AuthContext";
 import {
   FiChevronDown,
@@ -34,8 +40,14 @@ import {
   FiEye,
   FiFilter,
   FiPlus,
+  FiPower,
   FiShoppingBag,
 } from "react-icons/fi";
+
+const RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED_CODE =
+  "RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED";
+const RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED_MESSAGE =
+  "This relief pack cannot be deactivated while an event is active or a distribution is ongoing.";
 
 const getTabStyle = (isActive) => ({
   padding: "12px 24px",
@@ -114,6 +126,11 @@ const helperTextStyle = {
 };
 
 const packTypeFilterOptions = ["All", "Standard Pack", "Additional Pack"];
+const statusFilterOptions = [
+  { value: "all", label: "All statuses" },
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+];
 const availabilityFilterOptions = [
   "Available",
   "No available packs",
@@ -163,13 +180,35 @@ const reliefPackPageStyles = {
     boxShadow: "0 8px 20px rgba(47, 100, 153, 0.10)",
     overflow: "hidden",
   },
+  reliefPackCardInactive: {
+    backgroundColor: "#f7f9fb",
+    borderColor: "#dfe6ed",
+    boxShadow: "0 5px 14px rgba(47, 100, 153, 0.05)",
+  },
+  inactiveCardTitle: {
+    color: "#6e8193",
+  },
+  inactiveCardPackTypePill: {
+    backgroundColor: "#eef1f4",
+    color: "#6e8193",
+    border: "1px solid #dfe6ed",
+  },
   reliefPackCardHeader: {
     display: "flex",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     gap: "12px",
     flexWrap: "wrap",
     marginBottom: "20px",
+  },
+  reliefPackCardIdentity: {
+    flex: "1 1 auto",
+    minWidth: 0,
+  },
+  reliefPackCardPackType: {
+    display: "flex",
+    justifyContent: "flex-start",
+    marginTop: "10px",
   },
   reliefPackCardActions: {
     display: "inline-flex",
@@ -190,6 +229,21 @@ const reliefPackPageStyles = {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
+  },
+  inactiveSummaryBox: {
+    backgroundColor: "#f0f3f6",
+    borderColor: "#dfe6ed",
+  },
+  inactiveMetricLabel: {
+    color: "#657789",
+  },
+  inactiveMetricValue: {
+    margin: 0,
+    color: "#6b8298",
+    fontSize: "19px",
+    fontWeight: 800,
+    lineHeight: 1.2,
+    textAlign: "right",
   },
   metricHeader: {
     display: "flex",
@@ -278,31 +332,6 @@ const reliefPackPageStyles = {
     flex: "1 1 520px",
     flexWrap: "wrap",
     minWidth: 0,
-  },
-  inlineSelectWrap: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    flex: "0 0 auto",
-    minWidth: 0,
-  },
-  inlineSelectLabel: {
-    color: "#17324d",
-    fontSize: "14px",
-    fontWeight: 700,
-  },
-  inlineSelect: {
-    minWidth: "150px",
-    border: "1px solid #c7d6e5",
-    borderRadius: "12px",
-    padding: "10px 12px",
-    background: "#ffffff",
-    color: "#17324d",
-    fontSize: "14px",
-    fontWeight: 600,
-    outline: "none",
-    boxSizing: "border-box",
-    appearance: "auto",
   },
   filterPanel: {
     position: "fixed",
@@ -559,7 +588,7 @@ const tableStyles = {
   applicabilityCell: {
     width: "140px",
   },
-  availableCell: {
+  statusCell: {
     width: "88px",
     whiteSpace: "nowrap",
   },
@@ -677,32 +706,6 @@ const reliefPackDetailModalStyles = {
 const STANDARD_DISASTER_TYPES = DISASTER_TYPE_OPTIONS.filter(
   (disasterType) => disasterType !== "Other",
 );
-
-const isHouseholdStillNeedingReliefPack = (household) => {
-  const stubStatus = String(household?.stub?.status || "").toUpperCase();
-  const stayType = String(household?.current_stay_type || "").toUpperCase();
-  const latestAttendanceStatus = String(
-    household?.latest_attendance?.status || "",
-  ).toUpperCase();
-
-  if (stubStatus === "CLAIMED") {
-    return false;
-  }
-
-  if (stayType !== "EVAC_CENTER") {
-    return false;
-  }
-
-  if (household?.is_active === false || household?.latest_attendance?.time_out) {
-    return false;
-  }
-
-  return (
-    latestAttendanceStatus === "PRESENT" ||
-    latestAttendanceStatus === "ARRIVED" ||
-    Boolean(household?.latest_attendance?.time_in)
-  );
-};
 
 const isOtherDisasterType = (disasterType) => {
   const normalizedDisasterType = String(disasterType || "").trim();
@@ -880,38 +883,17 @@ const getTemplateItemRequiredQuantity = (templateItem) => {
     : 0;
 };
 
-const NEAR_EXPIRY_DAYS = 30;
-
-const isBatchNearExpiry = (expirationDate) => {
-  if (!expirationDate) {
-    return false;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const thresholdDate = new Date(today);
-  thresholdDate.setDate(thresholdDate.getDate() + NEAR_EXPIRY_DAYS);
-
-  const parsedExpirationDate = new Date(expirationDate);
-  parsedExpirationDate.setHours(0, 0, 0, 0);
-
-  return (
-    !Number.isNaN(parsedExpirationDate.getTime()) &&
-    parsedExpirationDate >= today &&
-    parsedExpirationDate <= thresholdDate
-  );
-};
-
-const buildAvailabilityByItemId = (inventoryBatches) => {
+const buildAvailabilityByItemId = (
+  inventoryBatches,
+  activeDisasterEventIds = [],
+) => {
   const availabilityByItemId = new Map();
 
   (inventoryBatches || []).forEach((batch) => {
     if (
-      !batch?.inventory_item_id ||
-      !["AVAILABLE", "LOW_STOCK"].includes(batch.status) ||
-      isBatchNearExpiry(batch.expiration_date) ||
-      Number(batch.quantity_available || 0) <= 0
+      !isReliefPackInventoryBatchEligible(batch, new Date(), {
+        activeDisasterEventIds,
+      })
     ) {
       return;
     }
@@ -928,54 +910,60 @@ const buildAvailabilityByItemId = (inventoryBatches) => {
   return availabilityByItemId;
 };
 
-const computeTemplateMetrics = ({
-  template,
+const buildTemplateMetrics = ({ template, demand, allocation }) => {
+  if (template?.is_active === false) {
+    return {
+      packsWeCanCreate: 0,
+      neededPacks: 0,
+      perBarangayDemand: [],
+      perEventDemand: [],
+      shortageItems: [],
+      availableStockByItemId: new Map(),
+    };
+  }
+
+  return {
+    packsWeCanCreate: Number.isFinite(allocation?.packsWeCanCreate)
+      ? allocation.packsWeCanCreate
+      : 0,
+    neededPacks: demand?.neededPacks || 0,
+    perBarangayDemand: (demand?.perBarangayDemand || []).slice(0, 6),
+    perEventDemand: (demand?.perEventDemand || []).slice(0, 6),
+    shortageItems: allocation?.shortageItems || [],
+    availableStockByItemId:
+      allocation?.availableStockByItemId || new Map(),
+  };
+};
+
+const buildSharedTemplateCards = ({
+  templates,
   availabilityByItemId,
   households,
 }) => {
-  const items = template.items || [];
-  const applicableHouseholds = getTemplateApplicableHouseholds(template, households);
-  const demand = buildTemplateDemand(template, applicableHouseholds);
+  const demandByTemplateId = new Map(
+    (templates || []).map((template) => [
+      template.id,
+      buildTemplateDemand(
+        template,
+        getTemplateApplicableHouseholds(template, households),
+      ),
+    ]),
+  );
+  const { allocationByTemplateId } = allocateSharedReliefPackInventory({
+    templates,
+    availabilityByItemId,
+    demandByTemplateId,
+    getItemRequiredQuantity: getTemplateItemRequiredQuantity,
+  });
 
-  const packsWeCanCreate = items.length
-    ? Math.min(
-        ...items.map((item) => {
-          const availableQuantity =
-            availabilityByItemId.get(item.inventory_item_id) || 0;
-          const requiredQuantity = getTemplateItemRequiredQuantity(item);
-
-          if (!requiredQuantity) {
-            return 0;
-          }
-
-          return Math.floor(availableQuantity / requiredQuantity);
-        }),
-      )
-    : 0;
-
-  const shortageItems = items
-    .map((item) => {
-      const availableQuantity = availabilityByItemId.get(item.inventory_item_id) || 0;
-      const requiredQuantity = getTemplateItemRequiredQuantity(item);
-      const totalRequired = demand.neededPacks * requiredQuantity;
-      const shortageQuantity = Math.max(totalRequired - availableQuantity, 0);
-
-      return {
-        inventory_item_id: item.inventory_item_id,
-        item_name: item.inventory_item?.item_name || "Unknown item",
-        shortage_quantity: shortageQuantity,
-      };
-    })
-    .filter((item) => item.shortage_quantity > 0)
-    .sort((leftItem, rightItem) => rightItem.shortage_quantity - leftItem.shortage_quantity);
-
-  return {
-    packsWeCanCreate: Number.isFinite(packsWeCanCreate) ? packsWeCanCreate : 0,
-    neededPacks: demand.neededPacks,
-    perBarangayDemand: demand.perBarangayDemand.slice(0, 6),
-    perEventDemand: demand.perEventDemand.slice(0, 6),
-    shortageItems,
-  };
+  return (templates || []).map((template) => ({
+    ...template,
+    metrics: buildTemplateMetrics({
+      template,
+      demand: demandByTemplateId.get(template.id),
+      allocation: allocationByTemplateId.get(template.id),
+    }),
+  }));
 };
 
 const getDemandHouseholdBarangayId = (household) =>
@@ -1013,6 +1001,17 @@ const formatTemplateItemQuantity = (item) => {
   return `${quantityRequired} pc${quantityRequired === 1 ? "" : "s"}`;
 };
 
+const hasAllDisasterTypesSelected = (template) => {
+  const disasterTypes = new Set(
+    (Array.isArray(template?.disaster_types) ? template.disaster_types : [])
+      .map((disasterType) => String(disasterType || "").trim()),
+  );
+
+  return DISASTER_TYPE_OPTIONS.every((disasterType) =>
+    disasterTypes.has(disasterType),
+  );
+};
+
 const getTemplateDisasterApplicabilityLabels = (template) => {
   if (template?.applies_to_all_disasters !== false) {
     return ["All disaster types"];
@@ -1021,6 +1020,10 @@ const getTemplateDisasterApplicabilityLabels = (template) => {
   const disasterTypes = Array.isArray(template?.disaster_types)
     ? template.disaster_types
     : [];
+
+  if (hasAllDisasterTypesSelected(template)) {
+    return ["All disaster types"];
+  }
 
   return disasterTypes.length > 0 ? disasterTypes : ["--"];
 };
@@ -1120,6 +1123,20 @@ const sortTemplatesOldestFirst = (templateList) => {
   });
 };
 
+const compareTemplateNames = (leftTemplate, rightTemplate) => {
+  const nameComparison = String(leftTemplate?.name || "").localeCompare(
+    String(rightTemplate?.name || ""),
+  );
+
+  if (nameComparison !== 0) {
+    return nameComparison;
+  }
+
+  return String(leftTemplate?.id || "").localeCompare(
+    String(rightTemplate?.id || ""),
+  );
+};
+
 const getTemplateSortableTimestamp = (template) => {
   const timestamp = new Date(
     template?.created_at || template?.updated_at || 0,
@@ -1128,38 +1145,72 @@ const getTemplateSortableTimestamp = (template) => {
   return Number.isFinite(timestamp) ? timestamp : 0;
 };
 
-const sortTemplateCards = (templateList, sortOrder) => {
+const getTemplateNeededPacks = (template) => {
+  const neededPacks = Number(template?.metrics?.neededPacks);
+
+  return Number.isFinite(neededPacks) && neededPacks > 0 ? neededPacks : 0;
+};
+
+const sortTemplateCards = (
+  templateList,
+  sortOrder,
+  { prioritizeDemand = false } = {},
+) => {
   const sortedTemplates = [...(templateList || [])];
 
-  if (sortOrder === "newest") {
-    return sortedTemplates.sort(
-      (leftTemplate, rightTemplate) =>
+  return sortedTemplates.sort((leftTemplate, rightTemplate) => {
+    const leftIsInactive = leftTemplate?.is_active === false;
+    const rightIsInactive = rightTemplate?.is_active === false;
+
+    if (prioritizeDemand) {
+      if (leftIsInactive !== rightIsInactive) {
+        return leftIsInactive ? 1 : -1;
+      }
+
+      const leftIsAdditional = Boolean(leftTemplate?.is_additional_pack);
+      const rightIsAdditional = Boolean(rightTemplate?.is_additional_pack);
+
+      if (leftIsAdditional !== rightIsAdditional) {
+        return leftIsAdditional ? 1 : -1;
+      }
+
+      if (!leftIsInactive && !rightIsInactive) {
+        const neededPacksDifference =
+          getTemplateNeededPacks(rightTemplate) -
+          getTemplateNeededPacks(leftTemplate);
+
+        if (neededPacksDifference !== 0) {
+          return neededPacksDifference;
+        }
+      }
+    }
+
+    if (sortOrder === "newest") {
+      const timestampDifference =
         getTemplateSortableTimestamp(rightTemplate) -
-        getTemplateSortableTimestamp(leftTemplate),
-    );
-  }
+        getTemplateSortableTimestamp(leftTemplate);
 
-  if (sortOrder === "az") {
-    return sortedTemplates.sort((leftTemplate, rightTemplate) =>
-      String(leftTemplate?.name || "").localeCompare(
-        String(rightTemplate?.name || ""),
-      ),
-    );
-  }
+      if (timestampDifference !== 0) {
+        return timestampDifference;
+      }
+    } else if (sortOrder === "az" || sortOrder === "za") {
+      const nameComparison = compareTemplateNames(leftTemplate, rightTemplate);
 
-  if (sortOrder === "za") {
-    return sortedTemplates.sort((leftTemplate, rightTemplate) =>
-      String(rightTemplate?.name || "").localeCompare(
-        String(leftTemplate?.name || ""),
-      ),
-    );
-  }
+      if (nameComparison !== 0) {
+        return sortOrder === "za" ? -nameComparison : nameComparison;
+      }
+    } else {
+      const timestampDifference =
+        getTemplateSortableTimestamp(leftTemplate) -
+        getTemplateSortableTimestamp(rightTemplate);
 
-  return sortedTemplates.sort(
-    (leftTemplate, rightTemplate) =>
-      getTemplateSortableTimestamp(leftTemplate) -
-      getTemplateSortableTimestamp(rightTemplate),
-  );
+      if (timestampDifference !== 0) {
+        return timestampDifference;
+      }
+    }
+
+    return compareTemplateNames(leftTemplate, rightTemplate);
+  });
 };
 
 const matchesTemplatePackTypeFilter = (template, packTypeFilter) => {
@@ -1178,9 +1229,49 @@ const matchesTemplatePackTypeFilter = (template, packTypeFilter) => {
   return true;
 };
 
+const matchesTemplateStatusFilter = (template, statusFilter) => {
+  if (!statusFilter || statusFilter === "all") {
+    return true;
+  }
+
+  if (statusFilter === "active") {
+    return template?.is_active !== false;
+  }
+
+  if (statusFilter === "inactive") {
+    return template?.is_active === false;
+  }
+
+  return true;
+};
+
+const matchesTemplateDisasterEventScope = (
+  template,
+  selectedEventId,
+  activeEvents,
+) => {
+  const disasterEvents = Array.isArray(activeEvents) ? activeEvents : [];
+
+  if (!selectedEventId || disasterEvents.length === 0) {
+    return true;
+  }
+
+  const scopedEvents = disasterEvents.filter(
+    (event) => event?.id === selectedEventId,
+  );
+
+  return scopedEvents.some((event) =>
+    isTemplateApplicableToDisasterType(template, event?.disaster_type),
+  );
+};
+
 const matchesTemplateAvailabilityFilter = (template, availabilityFilters) => {
   if (!Array.isArray(availabilityFilters) || availabilityFilters.length === 0) {
     return true;
+  }
+
+  if (template?.is_active === false) {
+    return false;
   }
 
   return availabilityFilters.some((filterValue) => {
@@ -1332,37 +1423,9 @@ const getAffectedBarangayIds = (event) => {
     .filter(Boolean);
 };
 
-const getTemplateSourceTypes = (template, inventoryBatches) => {
-  const templateItemIds = new Set(
-    (template?.items || [])
-      .map((item) => item.inventory_item_id)
-      .filter(Boolean),
-  );
-
-  if (templateItemIds.size === 0) {
-    return [];
-  }
-
-  return Array.from(
-    new Set(
-      (inventoryBatches || [])
-        .filter((batch) => templateItemIds.has(batch.inventory_item_id))
-        .map((batch) => String(batch.source_type || "").toUpperCase())
-        .filter(Boolean),
-    ),
-  );
-};
-
-const isDonatedReliefPackTemplate = (template, inventoryBatches) => {
-  const sourceTypes = getTemplateSourceTypes(template, inventoryBatches);
-
-  return sourceTypes.length > 0 && sourceTypes.every((sourceType) => sourceType === "DONATED");
-};
-
 const ReliefPackTemplateDetailModal = ({
   isOpen,
   template,
-  availabilityByItemId,
   isLoadingDemand,
   sectorOptions,
   viewContext = "relief-packs",
@@ -1377,8 +1440,13 @@ const ReliefPackTemplateDetailModal = ({
     neededPacks: 0,
     perBarangayDemand: [],
     shortageItems: [],
+    availableStockByItemId: new Map(),
   };
   const items = Array.isArray(template?.items) ? template.items : [];
+  const availableStockByItemId =
+    metrics.availableStockByItemId instanceof Map
+      ? metrics.availableStockByItemId
+      : new Map();
   const shortageByItemId = new Map(
     (metrics.shortageItems || []).map((item) => [
       item.inventory_item_id,
@@ -1390,6 +1458,7 @@ const ReliefPackTemplateDetailModal = ({
   const disasterApplicabilityLabels =
     getTemplateDisasterApplicabilityDetailLabels(template);
   const familySizeCoverage = getTemplateFamilySizeCoverage(template);
+  const isTemplateInactive = template?.is_active === false;
 
   return (
     <DetailsModalShell
@@ -1438,20 +1507,34 @@ const ReliefPackTemplateDetailModal = ({
                 </p>
               </div>
               <div>
-                <p style={reliefPackDetailModalStyles.label}>Packs Available</p>
-                <p style={reliefPackDetailModalStyles.metricValue}>
-                  {metrics.packsWeCanCreate.toLocaleString()}
+                <p style={reliefPackDetailModalStyles.label}>Status</p>
+                <p style={reliefPackDetailModalStyles.value}>
+                  {isTemplateInactive ? "Inactive" : "Active"}
                 </p>
               </div>
               {isCustomizationView ? null : (
                 <div>
                   <p style={reliefPackDetailModalStyles.label}>Packs Needed</p>
                   <p style={reliefPackDetailModalStyles.metricValue}>
-                    {metrics.neededPacks.toLocaleString()}
+                    {isTemplateInactive
+                      ? "—"
+                      : metrics.neededPacks.toLocaleString()}
                   </p>
                 </div>
               )}
             </div>
+            {isTemplateInactive ? (
+              <p
+                style={{
+                  ...shellStyles.mutedText,
+                  margin: "16px 0 0",
+                  lineHeight: 1.5,
+                }}
+              >
+                This pack is inactive. Availability, demand, and distribution
+                calculations are paused until it is activated.
+              </p>
+            ) : null}
           </section>
 
           {isCustomizationView ? (
@@ -1545,7 +1628,7 @@ const ReliefPackTemplateDetailModal = ({
                     {items.map((item) => {
                       const quantityPerPack = getTemplateItemRequiredQuantity(item);
                       const availableQuantity =
-                        availabilityByItemId.get(item.inventory_item_id) || 0;
+                        availableStockByItemId.get(item.inventory_item_id) || 0;
                       const neededQuantity = metrics.neededPacks * quantityPerPack;
                       const shortageQuantity =
                         shortageByItemId.get(item.inventory_item_id) || 0;
@@ -1564,7 +1647,9 @@ const ReliefPackTemplateDetailModal = ({
                                 {availableQuantity.toLocaleString()} pcs
                               </td>
                               <td style={reliefPackDetailModalStyles.td}>
-                                {neededQuantity.toLocaleString()} pcs
+                                {isTemplateInactive
+                                  ? "Not calculated"
+                                  : `${neededQuantity.toLocaleString()} pcs`}
                               </td>
                               <td style={reliefPackDetailModalStyles.td}>
                                 <span
@@ -1574,7 +1659,9 @@ const ReliefPackTemplateDetailModal = ({
                                       : reliefPackDetailModalStyles.healthyText
                                   }
                                 >
-                                  {shortageQuantity > 0
+                                  {isTemplateInactive
+                                    ? "Not calculated"
+                                    : shortageQuantity > 0
                                     ? `${shortageQuantity.toLocaleString()} pcs`
                                     : "None"}
                                 </span>
@@ -1599,7 +1686,11 @@ const ReliefPackTemplateDetailModal = ({
               Packs Needed per Barangay
             </h3>
 
-            {isLoadingDemand ? (
+            {isTemplateInactive ? (
+              <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
+                Demand is paused while this pack is inactive.
+              </p>
+            ) : isLoadingDemand ? (
               <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
                 Loading demand...
               </p>
@@ -1663,6 +1754,7 @@ const ReliefPackTemplatesPage = () => {
   const [filters, setFilters] = useState({
     search: "",
     packType: "All",
+    status: "all",
     availability: [],
     disasterTypes: [],
     sortOrder: "oldest",
@@ -1681,6 +1773,7 @@ const ReliefPackTemplatesPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingDemand, setIsLoadingDemand] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [statusErrorMessage, setStatusErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("create");
@@ -1689,12 +1782,17 @@ const ReliefPackTemplatesPage = () => {
   const [detailTemplateId, setDetailTemplateId] = useState(null);
   const [detailViewContext, setDetailViewContext] = useState("relief-packs");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [statusTemplate, setStatusTemplate] = useState(null);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [deactivationBlockedMessage, setDeactivationBlockedMessage] =
+    useState("");
   const selectedAvailabilityFilters = Array.isArray(filters.availability)
     ? filters.availability
     : [];
   const selectedDisasterTypeFilters = Array.isArray(filters.disasterTypes)
     ? filters.disasterTypes
     : [];
+  const selectedStatusFilter = filters.status || "all";
   const selectedSortOrder = filters.sortOrder || "oldest";
   const selectedAdvancedFilters =
     activeTab === "customization"
@@ -1717,7 +1815,7 @@ const ReliefPackTemplatesPage = () => {
         barangayResponse,
         sectorResponse,
       ] = await Promise.all([
-        fetchReliefPackTemplates({ is_active: "true" }),
+        fetchReliefPackTemplates({ is_active: "" }),
         fetchInventoryItems(),
         fetchInventoryBatches(),
         fetchActiveDisasterEvents(),
@@ -1828,7 +1926,7 @@ const ReliefPackTemplatesPage = () => {
       try {
         const [templateResponse, inventoryItemResponse, inventoryBatchResponse] =
           await Promise.all([
-            fetchReliefPackTemplates({ is_active: "true" }),
+            fetchReliefPackTemplates({ is_active: "" }),
             fetchInventoryItems(),
             fetchInventoryBatches(),
           ]);
@@ -1913,7 +2011,7 @@ const ReliefPackTemplatesPage = () => {
           const activeHouseholds = (Array.isArray(masterlist?.data)
             ? masterlist.data
             : [])
-            .filter(isHouseholdStillNeedingReliefPack)
+            .filter(isHouseholdEligibleForReliefPackDemand)
             .map((household) => ({
               ...household,
               __reliefPackDemandDisasterEventId:
@@ -1946,8 +2044,12 @@ const ReliefPackTemplatesPage = () => {
   }, [scopedDisasterEvents]);
 
   const availabilityByItemId = useMemo(
-    () => buildAvailabilityByItemId(inventoryBatches),
-    [inventoryBatches],
+    () =>
+      buildAvailabilityByItemId(
+        inventoryBatches,
+        activeDisasterEvents.map((event) => event.id),
+      ),
+    [activeDisasterEvents, inventoryBatches],
   );
 
   const scopedDemandHouseholds = useMemo(
@@ -1963,32 +2065,41 @@ const ReliefPackTemplatesPage = () => {
   );
 
   const fullDemandTemplateCards = useMemo(() => {
-    return templates.map((template) => ({
-      ...template,
-      metrics: computeTemplateMetrics({
-        template,
-        availabilityByItemId,
-        households: aggregatedDemand.households,
-      }),
-    }));
+    return buildSharedTemplateCards({
+      templates,
+      availabilityByItemId,
+      households: aggregatedDemand.households,
+    });
   }, [aggregatedDemand.households, availabilityByItemId, templates]);
 
   const templateCards = useMemo(() => {
-    return templates.map((template) => ({
-      ...template,
-      metrics: computeTemplateMetrics({
-        template,
-        availabilityByItemId,
-        households: scopedDemandHouseholds,
-      }),
-    }));
+    return buildSharedTemplateCards({
+      templates,
+      availabilityByItemId,
+      households: scopedDemandHouseholds,
+    });
   }, [availabilityByItemId, scopedDemandHouseholds, templates]);
 
   const filteredTemplateCards = useMemo(() => {
     const normalizedSearch = filters.search.trim().toLowerCase();
 
     const filteredTemplates = templateCards.filter((template) => {
+      if (
+        activeTab === "relief-packs" &&
+        !matchesTemplateDisasterEventScope(
+          template,
+          selectedDisasterEventId,
+          scopedDisasterEvents,
+        )
+      ) {
+        return false;
+      }
+
       if (!matchesTemplatePackTypeFilter(template, filters.packType)) {
+        return false;
+      }
+
+      if (!matchesTemplateStatusFilter(template, selectedStatusFilter)) {
         return false;
       }
 
@@ -2035,39 +2146,38 @@ const ReliefPackTemplatesPage = () => {
       );
     });
 
-    return sortTemplateCards(filteredTemplates, selectedSortOrder);
+    return sortTemplateCards(filteredTemplates, selectedSortOrder, {
+      prioritizeDemand: activeTab === "relief-packs",
+    });
   }, [
     activeTab,
     filters.packType,
     filters.search,
     sectorOptions,
     selectedAvailabilityFilters,
+    selectedDisasterEventId,
     selectedDisasterTypeFilters,
+    selectedStatusFilter,
     selectedSortOrder,
+    scopedDisasterEvents,
     templateCards,
   ]);
-
-  const templateAccessMap = useMemo(() => {
-    return new Map(
-      templates.map((template) => [
-        template.id,
-        {
-          isDonatedTemplate: isDonatedReliefPackTemplate(template, inventoryBatches),
-        },
-      ]),
-    );
-  }, [templates, inventoryBatches]);
 
   const detailTemplate = useMemo(() => {
     if (!detailTemplateId) {
       return null;
     }
 
+    const detailCards =
+      detailViewContext === "customization"
+        ? fullDemandTemplateCards
+        : templateCards;
+
     return (
-      fullDemandTemplateCards.find((template) => template.id === detailTemplateId) ||
+      detailCards.find((template) => template.id === detailTemplateId) ||
       null
     );
-  }, [detailTemplateId, fullDemandTemplateCards]);
+  }, [detailTemplateId, detailViewContext, fullDemandTemplateCards, templateCards]);
 
   const handleOpenCreateModal = () => {
     setModalMode("create");
@@ -2089,6 +2199,67 @@ const ReliefPackTemplatesPage = () => {
     } catch (error) {
       setErrorMessage(error.message);
     }
+  };
+
+  const handleOpenStatusConfirmation = (template) => {
+    setStatusTemplate(template || null);
+    setStatusErrorMessage("");
+    setDeactivationBlockedMessage("");
+    setErrorMessage("");
+    setSuccessMessage("");
+  };
+
+  const handleCloseStatusConfirmation = () => {
+    if (!isUpdatingStatus) {
+      setStatusTemplate(null);
+      setStatusErrorMessage("");
+    }
+  };
+
+  const handleConfirmStatusChange = async () => {
+    if (!statusTemplate?.id || isUpdatingStatus) {
+      return;
+    }
+
+    const nextIsActive = statusTemplate.is_active === false;
+    setIsUpdatingStatus(true);
+    setStatusErrorMessage("");
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const response = await updateReliefPackTemplateStatus(
+        statusTemplate.id,
+        nextIsActive,
+      );
+
+      setStatusTemplate(null);
+      setSuccessMessage(
+        response?.message ||
+          `Relief pack ${nextIsActive ? "activated" : "deactivated"} successfully.`,
+      );
+      await loadReliefPackPage();
+    } catch (error) {
+      if (
+        !nextIsActive &&
+        (error?.code === RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED_CODE ||
+          error?.statusCode === 409)
+      ) {
+        setStatusTemplate(null);
+        setStatusErrorMessage("");
+        setDeactivationBlockedMessage(
+          error.message || RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED_MESSAGE,
+        );
+      } else {
+        setStatusErrorMessage(error.message);
+      }
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  const handleCloseDeactivationBlockedModal = () => {
+    setDeactivationBlockedMessage("");
   };
 
   const handleCloseModal = () => {
@@ -2125,11 +2296,12 @@ const ReliefPackTemplatesPage = () => {
   };
 
   const handleClearAdvancedFilters = () => {
-    handleFilterChange("sortOrder", "oldest");
-    handleFilterChange(
-      activeTab === "customization" ? "disasterTypes" : "availability",
-      [],
-    );
+    setFilters((currentFilters) => ({
+      ...currentFilters,
+      availability: [],
+      disasterTypes: [],
+      sortOrder: "oldest",
+    }));
   };
 
   const handleOpenDetailModal = (template, viewContext = "relief-packs") => {
@@ -2196,73 +2368,144 @@ const ReliefPackTemplatesPage = () => {
     <div className="mayor-relief-pack-templates-page" style={reliefPackPageStyles.pageStack}>
       <PageHeader title="RELIEF PACK TEMPLATES MANAGEMENT" actions={[]} />
 
-      {activeTab === "relief-packs" ? (
-        <section
-          className="mayor-relief-pack-scope-card"
-          style={{ ...shellStyles.card, boxSizing: "border-box" }}
+      <section
+        className="mayor-relief-pack-scope-card"
+        style={{ ...shellStyles.card, boxSizing: "border-box" }}
+      >
+        <div
+          className="mayor-relief-pack-scope-grid"
+          style={{
+            ...pageSpacingStyles.filterGrid,
+            gridTemplateColumns:
+              activeTab === "relief-packs"
+                ? "repeat(4, minmax(0, 1fr))"
+                : "repeat(2, minmax(0, 1fr))",
+          }}
         >
-          <div
-            className="mayor-relief-pack-scope-grid"
-            style={pageSpacingStyles.filterGrid}
-          >
-            <div>
-              <label
-                htmlFor="relief-pack-management-event"
-                style={filterStyles.label}
-              >
-                Disaster Event
-              </label>
-              <div style={filterStyles.selectWrap}>
-                <select
-                  id="relief-pack-management-event"
-                  value={selectedDisasterEventId}
-                  onChange={(event) => setSelectedDisasterEventId(event.target.value)}
-                  disabled={isLoading}
-                  style={filterStyles.field}
+          {activeTab === "relief-packs" ? (
+            <>
+              <div>
+                <label
+                  htmlFor="relief-pack-management-event"
+                  style={filterStyles.label}
                 >
-                  <option value="">All active disaster events</option>
-                  {scopedDisasterEvents.map((event) => (
-                    <option key={event.id} value={event.id}>
-                      {formatDisasterEventOptionLabel(event)}
-                    </option>
-                  ))}
-                </select>
-                <span style={filterStyles.selectIcon}>
-                  <FiChevronDown size={16} />
-                </span>
+                  Disaster Event
+                </label>
+                <div style={filterStyles.selectWrap}>
+                  <select
+                    id="relief-pack-management-event"
+                    value={selectedDisasterEventId}
+                    onChange={(event) =>
+                      setSelectedDisasterEventId(event.target.value)
+                    }
+                    disabled={isLoading}
+                    style={filterStyles.field}
+                  >
+                    <option value="">All relief packs</option>
+                    {scopedDisasterEvents.map((event) => (
+                      <option key={event.id} value={event.id}>
+                        {formatDisasterEventOptionLabel(event)}
+                      </option>
+                    ))}
+                  </select>
+                  <span style={filterStyles.selectIcon}>
+                    <FiChevronDown size={16} />
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div>
-              <label
-                htmlFor="relief-pack-management-barangay"
-                style={filterStyles.label}
-              >
-                Barangay
-              </label>
-              <div style={filterStyles.selectWrap}>
-                <select
-                  id="relief-pack-management-barangay"
-                  value={selectedBarangayId}
-                  onChange={(event) => setSelectedBarangayId(event.target.value)}
-                  disabled={isLoading}
-                  style={filterStyles.field}
+              <div>
+                <label
+                  htmlFor="relief-pack-management-barangay"
+                  style={filterStyles.label}
                 >
-                  <option value="">All barangays</option>
-                  {selectableBarangayOptions.map((barangay) => (
-                    <option key={barangay.id} value={barangay.id}>
-                      {barangay.name}
+                  Barangay
+                </label>
+                <div style={filterStyles.selectWrap}>
+                  <select
+                    id="relief-pack-management-barangay"
+                    value={selectedBarangayId}
+                    onChange={(event) => setSelectedBarangayId(event.target.value)}
+                    disabled={isLoading}
+                    style={filterStyles.field}
+                  >
+                    <option value="">All barangays</option>
+                    {selectableBarangayOptions.map((barangay) => (
+                      <option key={barangay.id} value={barangay.id}>
+                        {barangay.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span style={filterStyles.selectIcon}>
+                    <FiChevronDown size={16} />
+                  </span>
+                </div>
+              </div>
+            </>
+          ) : null}
+
+          <div>
+            <label
+              htmlFor="relief-pack-management-pack-type"
+              style={filterStyles.label}
+            >
+              Pack Type
+            </label>
+            <div style={filterStyles.selectWrap}>
+              <select
+                id="relief-pack-management-pack-type"
+                value={filters.packType}
+                onChange={(event) =>
+                  handleFilterChange("packType", event.target.value)
+                }
+                disabled={isLoading}
+                style={filterStyles.field}
+              >
+                <option value="All">All pack types</option>
+                {packTypeFilterOptions
+                  .filter((packType) => packType !== "All")
+                  .map((packType) => (
+                    <option key={packType} value={packType}>
+                      {packType}
                     </option>
                   ))}
-                </select>
-                <span style={filterStyles.selectIcon}>
-                  <FiChevronDown size={16} />
-                </span>
-              </div>
+              </select>
+              <span style={filterStyles.selectIcon}>
+                <FiChevronDown size={16} />
+              </span>
             </div>
           </div>
-        </section>
-      ) : null}
+
+          <div>
+            <label
+              htmlFor="relief-pack-management-status"
+              style={filterStyles.label}
+            >
+              Status
+            </label>
+            <div style={filterStyles.selectWrap}>
+              <select
+                id="relief-pack-management-status"
+                value={selectedStatusFilter}
+                onChange={(event) =>
+                  handleFilterChange("status", event.target.value)
+                }
+                disabled={isLoading}
+                style={filterStyles.field}
+              >
+                {statusFilterOptions.map((statusOption) => (
+                  <option key={statusOption.value} value={statusOption.value}>
+                    {statusOption.label}
+                  </option>
+                ))}
+              </select>
+              <span style={filterStyles.selectIcon}>
+                <FiChevronDown size={16} />
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div
         className="mayor-relief-pack-toolbar"
@@ -2287,55 +2530,32 @@ const ReliefPackTemplatesPage = () => {
             />
           </div>
 
-          <div
-            className="mayor-relief-pack-type-filter"
-            style={reliefPackPageStyles.inlineSelectWrap}
-          >
-            <label
-              htmlFor="relief-pack-type-filter"
-              style={reliefPackPageStyles.inlineSelectLabel}
-            >
-              Pack
-            </label>
-            <select
-              id="relief-pack-type-filter"
-              value={filters.packType}
-              onChange={(event) =>
-                handleFilterChange("packType", event.target.value)
-              }
-              style={reliefPackPageStyles.inlineSelect}
-            >
-              {packTypeFilterOptions.map((packType) => (
-                <option key={packType} value={packType}>
-                  {packType}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="mayor-relief-pack-filter-button-wrap">
-            <ResponsiveFilterPopover
-              isOpen={isFilterOpen}
-              onOpenChange={setIsFilterOpen}
-              title="Filter Records"
-              scopeKey={activeTab}
-              trigger={({ ref, ...triggerProps }) => (
-                <button
-                  ref={ref}
-                  type="button"
-                  style={{
-                    ...pageHeaderStyles.secondaryButton,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                  }}
-                  {...triggerProps}
-                >
-                  <FiFilter size={16} />
-                  {activeFilterCount > 0 ? `Filter (${activeFilterCount})` : "Filter"}
-                </button>
-              )}
-            >
+          {activeTab === "customization" ? (
+            <div className="mayor-relief-pack-filter-button-wrap">
+              <ResponsiveFilterPopover
+                isOpen={isFilterOpen}
+                onOpenChange={setIsFilterOpen}
+                title="Filter Records"
+                scopeKey={activeTab}
+                trigger={({ ref, ...triggerProps }) => (
+                  <button
+                    ref={ref}
+                    type="button"
+                    style={{
+                      ...pageHeaderStyles.secondaryButton,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                    {...triggerProps}
+                  >
+                    <FiFilter size={16} />
+                    {activeFilterCount > 0
+                      ? `Filter (${activeFilterCount})`
+                      : "Filter"}
+                  </button>
+                )}
+              >
                 <h3 style={reliefPackPageStyles.filterTitle}>Filter Records</h3>
 
                 <label style={reliefPackPageStyles.filterField}>
@@ -2412,8 +2632,9 @@ const ReliefPackTemplatesPage = () => {
                     Clear
                   </button>
                 </div>
-            </ResponsiveFilterPopover>
-          </div>
+              </ResponsiveFilterPopover>
+            </div>
+          ) : null}
         </div>
 
         <div
@@ -2463,7 +2684,7 @@ const ReliefPackTemplatesPage = () => {
           {isLoading ? (
             <p style={helperTextStyle}>Loading relief packs...</p>
           ) : filteredTemplateCards.length === 0 ? (
-            <p style={helperTextStyle}>No active relief packs are available yet.</p>
+            <p style={helperTextStyle}>No relief packs match the current filters.</p>
           ) : (
             <div
               className="mayor-relief-pack-card-grid"
@@ -2471,6 +2692,7 @@ const ReliefPackTemplatesPage = () => {
             >
               {filteredTemplateCards.map((template) => {
                 const shortageItems = template.metrics.shortageItems;
+                const isTemplateInactive = template.is_active === false;
                 const packTypeStatus = template.is_additional_pack
                   ? "ACTIVE"
                   : "ENDED";
@@ -2481,17 +2703,41 @@ const ReliefPackTemplatesPage = () => {
                 return (
                   <div
                     key={template.id}
-                    style={reliefPackPageStyles.reliefPackCard}
+                    style={{
+                      ...reliefPackPageStyles.reliefPackCard,
+                      ...(isTemplateInactive
+                        ? reliefPackPageStyles.reliefPackCardInactive
+                        : null),
+                    }}
                   >
                     <div style={reliefPackPageStyles.reliefPackCardHeader}>
-                      <h2 className="mayor-relief-pack-card-title" style={cardTitleStyle}>
-                        {template.name.toUpperCase()}
-                      </h2>
+                      <div style={reliefPackPageStyles.reliefPackCardIdentity}>
+                        <h2
+                          className="mayor-relief-pack-card-title"
+                          style={{
+                            ...cardTitleStyle,
+                            ...(isTemplateInactive
+                              ? reliefPackPageStyles.inactiveCardTitle
+                              : null),
+                          }}
+                        >
+                          {template.name.toUpperCase()}
+                        </h2>
+                        <div
+                          style={reliefPackPageStyles.reliefPackCardPackType}
+                        >
+                          <StatusPill
+                            status={packTypeStatus}
+                            label={getTemplatePackTypeLabel(template)}
+                            style={
+                              isTemplateInactive
+                                ? reliefPackPageStyles.inactiveCardPackTypePill
+                                : undefined
+                            }
+                          />
+                        </div>
+                      </div>
                       <div style={reliefPackPageStyles.reliefPackCardActions}>
-                        <StatusPill
-                          status={packTypeStatus}
-                          label={getTemplatePackTypeLabel(template)}
-                        />
                         <button
                           type="button"
                           style={reliefPackPageStyles.viewDetailsIconButton}
@@ -2504,28 +2750,39 @@ const ReliefPackTemplatesPage = () => {
                       </div>
                     </div>
 
-                    <div style={summaryBoxStyle}>
+                    <div
+                      style={{
+                        ...summaryBoxStyle,
+                        ...(isTemplateInactive
+                          ? reliefPackPageStyles.inactiveSummaryBox
+                          : null),
+                      }}
+                    >
                       <div style={reliefPackPageStyles.metricHeader}>
-                        <p style={reliefPackPageStyles.metricLabel}>
-                          Packs Available
-                        </p>
-                        <p style={reliefPackPageStyles.metricValue}>
-                          {template.metrics.packsWeCanCreate.toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div style={summaryBoxStyle}>
-                      <div style={reliefPackPageStyles.metricHeader}>
-                        <p style={reliefPackPageStyles.metricLabel}>
+                        <p
+                          style={{
+                            ...reliefPackPageStyles.metricLabel,
+                            ...(isTemplateInactive
+                              ? reliefPackPageStyles.inactiveMetricLabel
+                              : null),
+                          }}
+                        >
                           Packs Needed
                         </p>
-                        <p style={reliefPackPageStyles.metricValue}>
-                          {template.metrics.neededPacks.toLocaleString()}
+                        <p
+                          style={
+                            isTemplateInactive
+                              ? reliefPackPageStyles.inactiveMetricValue
+                              : reliefPackPageStyles.metricValue
+                          }
+                        >
+                          {isTemplateInactive
+                            ? "—"
+                            : template.metrics.neededPacks.toLocaleString()}
                         </p>
                       </div>
 
-                      {isLoadingDemand ? (
+                      {isTemplateInactive ? null : isLoadingDemand ? (
                         <p style={{ fontSize: "12px", margin: "12px 0 0" }}>
                           Loading demand...
                         </p>
@@ -2601,7 +2858,7 @@ const ReliefPackTemplatesPage = () => {
             {isLoading ? (
               <p style={helperTextStyle}>Loading pack customization...</p>
             ) : filteredTemplateCards.length === 0 ? (
-              <p style={helperTextStyle}>No active relief packs are available yet.</p>
+            <p style={helperTextStyle}>No relief packs match the current filters.</p>
             ) : (
               <div
                 className="mayor-relief-pack-template-table-scroll"
@@ -2666,13 +2923,13 @@ const ReliefPackTemplatesPage = () => {
                         Applies To
                       </th>
                       <th
-                        className="mayor-relief-pack-template-available-cell"
+                        className="mayor-relief-pack-template-status-cell"
                         style={{
                           ...tableStyles.headerCell,
-                          ...tableStyles.availableCell,
+                          ...tableStyles.statusCell,
                         }}
                       >
-                        Available
+                        Status
                       </th>
                       <th
                         className="mayor-relief-pack-template-actions-cell"
@@ -2687,9 +2944,7 @@ const ReliefPackTemplatesPage = () => {
                   </thead>
                   <tbody>
                     {filteredTemplateCards.map((template) => {
-                      const templateAccess = templateAccessMap.get(template.id) || {
-                        isDonatedTemplate: false,
-                      };
+                      const isTemplateInactive = template.is_active === false;
 
                       return (
                         <tr key={template.id}>
@@ -2703,9 +2958,6 @@ const ReliefPackTemplatesPage = () => {
                           <div className="mayor-relief-pack-template-name">
                             {template.name}
                           </div>
-                          {templateAccess.isDonatedTemplate ? (
-                            <span style={tableStyles.helperText}>Donated relief pack</span>
-                          ) : null}
                         </td>
                         <td
                           style={{
@@ -2812,13 +3064,15 @@ const ReliefPackTemplatesPage = () => {
                           </div>
                         </td>
                         <td
-                          className="mayor-relief-pack-template-available-cell"
+                          className="mayor-relief-pack-template-status-cell"
                           style={{
                             ...tableStyles.bodyCell,
-                            ...tableStyles.availableCell,
+                            ...tableStyles.statusCell,
                           }}
                         >
-                          {template.metrics.packsWeCanCreate.toLocaleString()}
+                          <span>
+                            {isTemplateInactive ? "Inactive" : "Active"}
+                          </span>
                         </td>
                         <td
                           className="mayor-relief-pack-template-actions-cell"
@@ -2833,7 +3087,7 @@ const ReliefPackTemplatesPage = () => {
                             buttonTitle="Actions"
                             buttonAriaLabel="Actions"
                             dataPrefix="relief-pack-template-action"
-                            menuWidth={116}
+                            menuWidth={168}
                             variant="icon-grid"
                             items={[
                               {
@@ -2843,17 +3097,22 @@ const ReliefPackTemplatesPage = () => {
                                 onClick: (selectedRow) =>
                                   handleOpenDetailModal(selectedRow, "customization"),
                               },
-                              ...(!templateAccess.isDonatedTemplate
-                                ? [
-                                    {
-                                      key: "edit",
-                                      label: "Edit Relief Pack Template",
-                                      icon: <FiEdit2 size={18} />,
-                                      onClick: (selectedRow) =>
-                                        handleOpenEditModal(selectedRow.id),
-                                    },
-                                  ]
-                                : []),
+                              {
+                                key: "edit",
+                                label: "Edit Relief Pack Template",
+                                icon: <FiEdit2 size={18} />,
+                                onClick: (selectedRow) =>
+                                  handleOpenEditModal(selectedRow.id),
+                              },
+                              {
+                                key: "status",
+                                label: isTemplateInactive
+                                  ? "Activate Relief Pack"
+                                  : "Deactivate Relief Pack",
+                                icon: <FiPower size={18} />,
+                                onClick: (selectedRow) =>
+                                  handleOpenStatusConfirmation(selectedRow),
+                              },
                             ]}
                           />
                         </td>
@@ -2885,11 +3144,26 @@ const ReliefPackTemplatesPage = () => {
       <ReliefPackTemplateDetailModal
         isOpen={Boolean(detailTemplateId)}
         template={detailTemplate}
-        availabilityByItemId={availabilityByItemId}
         isLoadingDemand={isLoadingDemand}
         sectorOptions={sectorOptions}
         viewContext={detailViewContext}
         onClose={handleCloseDetailModal}
+      />
+
+      <ReliefPackTemplateStatusConfirmModal
+        isOpen={Boolean(statusTemplate)}
+        template={statusTemplate}
+        isSubmitting={isUpdatingStatus}
+        applicabilityLabels={getTemplateDisasterApplicabilityLabels(statusTemplate)}
+        errorMessage={statusErrorMessage}
+        onCancel={handleCloseStatusConfirmation}
+        onConfirm={handleConfirmStatusChange}
+      />
+
+      <ReliefPackTemplateDeactivationBlockedModal
+        isOpen={Boolean(deactivationBlockedMessage)}
+        message={deactivationBlockedMessage}
+        onClose={handleCloseDeactivationBlockedModal}
       />
 
       <ReliefPackTemplateFormModal
@@ -2898,6 +3172,7 @@ const ReliefPackTemplatesPage = () => {
         templateData={selectedTemplate}
         inventoryItems={inventoryItems}
         sectorOptions={sectorOptions}
+        existingTemplates={templates}
         errorMessage={modalErrorMessage}
         onClose={handleCloseModal}
         onSubmit={handleSubmitModal}

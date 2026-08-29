@@ -139,6 +139,17 @@ export const toOfflineStubSnapshot = (
     assigned_relief_packs: sanitizeAssignedReliefPacks(serverRow),
     sectors_text: trimValue(serverRow.sectors_text) || "-",
     status: trimValue(serverRow.status) || "ISSUED",
+    latest_attendance_status: trimValue(
+      getFirstValue(
+        serverRow.latest_attendance_status,
+        serverRow.latest_attendance?.status,
+      ),
+    ),
+    latest_attendance_time_out:
+      getFirstValue(
+        serverRow.latest_attendance_time_out,
+        serverRow.latest_attendance?.time_out,
+      ) ?? null,
     server_updated_at: trimValue(
       getFirstValue(serverRow.updated_at, serverRow.qr_generated_at, serverRow.issued_at),
     ),
@@ -175,6 +186,8 @@ export const toStubRowFromOfflineSnapshot = (snapshot, syncEntry = null) => {
     assigned_relief_packs: snapshot.assigned_relief_packs || [],
     sectors_text: snapshot.sectors_text || "-",
     status: snapshot.status || "ISSUED",
+    latest_attendance_status: snapshot.latest_attendance_status || "",
+    latest_attendance_time_out: snapshot.latest_attendance_time_out || null,
     sync_status: syncStatus,
     is_cached_offline: true,
     is_claim_pending: syncStatus === LOCAL_SYNC_STATUS.PENDING,

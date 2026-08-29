@@ -49,7 +49,17 @@ const baseSelectQuery = `
     s.has_moa AS supplier_has_moa,
     s.notes AS supplier_notes,
     source_donation.donation_id AS source_donation_id,
-    source_donation.donor_name AS source_donor_name
+    source_donation.donation_item_id AS source_donation_item_id,
+    source_donation.donor_name AS source_donor_name,
+    source_donation.disaster_event_id AS source_donation_disaster_event_id,
+    source_donation.donation_status AS source_donation_status,
+    CASE
+      WHEN source_donation.item_remarks ILIKE 'Relief Pack:%'
+        THEN 'RELIEF_PACK'
+      WHEN source_donation.donation_id IS NOT NULL
+        THEN 'LOOSE_ITEM'
+      ELSE NULL
+    END AS source_donation_type
   FROM inventory_batches ib
   INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
   LEFT JOIN inventory_item_stock_forms stock_forms
@@ -58,8 +68,12 @@ const baseSelectQuery = `
   LEFT JOIN suppliers s ON s.id = ib.supplier_id
   LEFT JOIN LATERAL (
     SELECT
+      source_di.id AS donation_item_id,
       source_di.donation_id,
-      source_d.donor_name
+      source_d.donor_name,
+      source_d.disaster_event_id,
+      source_d.status AS donation_status,
+      source_di.remarks AS item_remarks
     FROM donation_items source_di
     INNER JOIN donations source_d
       ON source_d.id = source_di.donation_id

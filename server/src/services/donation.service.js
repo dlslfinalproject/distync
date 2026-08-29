@@ -18,6 +18,10 @@ const {
   normalizeActor,
 } = require("../utils/systemLog");
 const systemLogRepository = require("../repositories/systemLog.repository");
+const {
+  getDonationTypeKey: resolveDonationTypeKey,
+  isReliefPackDonationItemRemark,
+} = require("../utils/donationType");
 
 const buildFullName = (firstName, lastName) => {
   return [firstName, lastName].filter(Boolean).join(" ");
@@ -73,9 +77,6 @@ const normalizeDonationDonorName = (value) => String(value || "").trim().toLower
 const buildPerFamilyAllocationRemark = (quantity) =>
   `Per Family Allocation: ${Number(quantity || 0)}`;
 
-const isReliefPackDonationRemark = (remarks) =>
-  String(remarks || "").trim().toLowerCase().startsWith("relief pack:");
-
 const parsePerFamilyAllocationRemark = (remarks) => {
   const matchedRemark = String(remarks || "")
     .trim()
@@ -90,7 +91,7 @@ const neededItemSourceMeta = {
     description:
       "These recommendations are generated from DISTYNC's inventory forecasting using the latest available disaster response and inventory data.",
     notice:
-      "Forecasted quantities are estimates and may change after new updates.",
+      "Forecasted donation requests reflect the estimated shortfall after eligible LGU and donated stock are considered.",
   },
   DEFAULT_EMERGENCY: {
     title: "Emergency Donation Needs",
@@ -642,9 +643,14 @@ const resolvePublicNeededItems = ({
   defaultEmergencyNeeds,
 }) => {
   const forecastSuggestions = combinePublicForecastSuggestions(latestForecasts);
+  const hasForecast = (latestForecasts || []).some(Boolean);
 
   if (forecastSuggestions.length > 0) {
     return buildNeededItemsPayload("FORECAST", forecastSuggestions);
+  }
+
+  if (hasForecast) {
+    return buildNeededItemsPayload("FORECAST", []);
   }
 
   const defaultEmergencySuggestions =
@@ -2073,7 +2079,7 @@ const reassignLeftoverDonationStock = async (
       throw error;
     }
 
-    if (isReliefPackDonationRemark(sourceDonationItem.remarks)) {
+    if (isReliefPackDonationItemRemark(sourceDonationItem.remarks)) {
       const error = new Error(
         "Relief pack stock cannot be reassigned as loose leftover stock.",
       );
@@ -2426,15 +2432,7 @@ const formatReportDonorType = (donorType, donorTypeOther) => {
 
 const getDonationTypeKey = (donation) => {
   const items = Array.isArray(donation?.items) ? donation.items : [];
-
-  if (
-    items.length > 0 &&
-    items.every((item) => String(item?.remarks || "").startsWith("Relief Pack:"))
-  ) {
-    return "RELIEF_PACK";
-  }
-
-  return "LOOSE_ITEM";
+  return resolveDonationTypeKey(items);
 };
 
 const getDonationReportItems = (donation) => {

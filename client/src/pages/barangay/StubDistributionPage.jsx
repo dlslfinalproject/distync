@@ -48,6 +48,7 @@ import {
   getCachedStubDetailsByQrValue,
   upsertOfflineStubSnapshots,
 } from "../../features/stubs/stubCache";
+import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
@@ -187,6 +188,7 @@ const isArchivedStubHousehold = (stubLike) =>
 const isSelectableClaimStubRow = (row) =>
   row?.status === "ISSUED" &&
   !row?.is_local_only &&
+  isCurrentlyPresentStubRow(row) &&
   !row?.is_claim_pending &&
   row?.sync_status !== "PENDING" &&
   row?.sync_status !== "CONFLICT" &&
@@ -585,6 +587,8 @@ const StubDistributionPage = () => {
       setClaimErrorMessage(
         isArchivedStubHousehold(selectedRow)
           ? "This household is archived and cannot receive a new relief distribution."
+          : !isCurrentlyPresentStubRow(selectedRow)
+            ? "This household is not currently present in the evacuation center."
           : "Only active unclaimed stubs can be marked as claimed.",
       );
       return;

@@ -191,6 +191,34 @@ test("public portal uses forecast suggestions before default emergency donation 
   );
 });
 
+test("public portal does not show preparedness defaults when a current forecast has no stock shortfall", async () => {
+  await withStubbedDonationService(
+    {
+      donationRepositoryOverrides: {
+        getDefaultEmergencyDonationNeeds: async () => [
+          {
+            inventory_item_id: "default-water",
+            item_name: "Bottled Water",
+            unit_of_measure: "bottles",
+            suggested_quantity: 50,
+            priority_level: "HIGH",
+          },
+        ],
+      },
+      forecastServiceOverrides: {
+        getLatestInventoryForecast: async () => ({ id: "event-forecast" }),
+        buildPublicForecastSuggestions: () => [],
+      },
+    },
+    async ({ getPublicDonationPortal }) => {
+      const payload = await getPublicDonationPortal();
+
+      assert.equal(payload.needed_items.source_type, "FORECAST");
+      assert.deepEqual(payload.needed_items.suggestions, []);
+    },
+  );
+});
+
 test("public portal uses default emergency needs when no forecast exists", async () => {
   await withStubbedDonationService(
     {

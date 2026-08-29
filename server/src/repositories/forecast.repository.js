@@ -28,7 +28,10 @@ const getDisasterEventById = async (id, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
-const getInventoryForecastItems = async (dbClient = pool) => {
+const getInventoryForecastItems = async (
+  disasterEventId = null,
+  dbClient = pool,
+) => {
   const result = await dbClient.query(
     `
       SELECT
@@ -38,13 +41,61 @@ const getInventoryForecastItems = async (dbClient = pool) => {
         ii.category,
         ii.unit_of_measure,
         ii.reorder_level,
-        COALESCE(SUM(ib.quantity_available), 0) AS current_available_stock
+        COALESCE(SUM(ib.quantity_available), 0) AS current_available_stock,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN ib.source_type = 'LGU' THEN ib.quantity_available
+              ELSE 0
+            END
+          ),
+          0
+        ) AS current_lgu_available_stock,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN ib.source_type = 'DONATED' THEN ib.quantity_available
+              ELSE 0
+            END
+          ),
+          0
+        ) AS current_donated_available_stock
       FROM inventory_items ii
-      LEFT JOIN inventory_batches ib ON ib.inventory_item_id = ii.id
+      LEFT JOIN inventory_batches ib
+        ON ib.inventory_item_id = ii.id
+        AND COALESCE(ib.quantity_available, 0) > 0
+        AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
+        AND (
+          ib.expiration_date IS NULL
+          OR ib.expiration_date > (CURRENT_DATE + INTERVAL '30 days')
+        )
+        AND (
+          (
+            ib.source_type = 'LGU'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM donation_items relief_pack_donation_items
+              WHERE relief_pack_donation_items.inventory_batch_id = ib.id
+                AND COALESCE(relief_pack_donation_items.remarks, '') ILIKE 'Relief Pack:%'
+            )
+          )
+          OR (
+            ib.source_type = 'DONATED'
+            AND EXISTS (
+              SELECT 1
+              FROM donation_items di
+              INNER JOIN donations d ON d.id = di.donation_id
+              WHERE di.inventory_batch_id = ib.id
+                AND d.disaster_event_id = $1
+                AND d.status <> 'CANCELLED'
+            )
+          )
+        )
       WHERE ii.is_active = TRUE
       GROUP BY ii.id, ii.item_code, ii.item_name, ii.category, ii.unit_of_measure, ii.reorder_level
       ORDER BY ii.item_name ASC
     `,
+    [disasterEventId],
   );
 
   return result.rows;
