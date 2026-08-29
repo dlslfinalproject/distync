@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from "react";
-import {
-  FiAlertCircle,
-  FiChevronLeft,
-  FiChevronRight,
-  FiEdit2,
-  FiEye,
-} from "react-icons/fi";
+import { FiAlertCircle, FiEdit2, FiEye } from "react-icons/fi";
 import { formatNumericValue } from "../../features/inventory-items/inventoryItemFormatting";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 import TableActionsMenu from "../shared/TableActionsMenu";
 import StatusPill from "../shared/StatusPill";
+import TablePagination from "../shared/TablePagination";
 
 const styles = {
   tableWrap: {
@@ -125,9 +125,6 @@ const centeredHeaders = new Set([
   "Actions",
 ]);
 
-const INVENTORY_ITEMS_PAGE_SIZE_OPTIONS = [25, 50, 100];
-const DEFAULT_INVENTORY_ITEMS_PAGE_SIZE = 25;
-
 const InventoryItemsTable = ({
   rows,
   isLoading,
@@ -138,15 +135,16 @@ const InventoryItemsTable = ({
 }) => {
   const safeRows = Array.isArray(rows) ? rows : [];
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_INVENTORY_ITEMS_PAGE_SIZE);
-  const paginationTotalItems = safeRows.length;
-  const totalPages =
-    paginationTotalItems > 0 ? Math.ceil(paginationTotalItems / pageSize) : 0;
-  const safeCurrentPage =
-    totalPages > 0 ? Math.min(currentPage, totalPages) : 1;
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const pagination = getTablePaginationState({
+    totalItems: safeRows.length,
+    currentPage,
+    pageSize,
+    pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+  });
   const paginatedRows = safeRows.slice(
-    (safeCurrentPage - 1) * pageSize,
-    safeCurrentPage * pageSize,
+    (pagination.currentPage - 1) * pagination.pageSize,
+    pagination.currentPage * pagination.pageSize,
   );
 
   useEffect(() => {
@@ -155,18 +153,18 @@ const InventoryItemsTable = ({
 
   useEffect(() => {
     setCurrentPage((previousPage) => {
-      if (totalPages === 0) {
+      if (pagination.totalPages === 0) {
         return 1;
       }
 
-      return Math.min(Math.max(previousPage, 1), totalPages);
+      return Math.min(Math.max(previousPage, 1), pagination.totalPages);
     });
-  }, [totalPages]);
+  }, [pagination.totalPages]);
 
-  const handlePageSizeChange = (event) => {
-    const nextPageSize = Number(event.target.value);
+  const handlePageSizeChange = (value) => {
+    const nextPageSize = Number(value);
 
-    if (!INVENTORY_ITEMS_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
       return;
     }
 
@@ -175,55 +173,21 @@ const InventoryItemsTable = ({
   };
 
   const showPagination =
-    !isLoading && !errorMessage && paginationTotalItems > 0;
-  const paginationBar = showPagination ? (
-    <div
-      className="inventory-items-pagination-bar"
-      role="navigation"
-      aria-label="Inventory items pagination"
-    >
-      <p className="inventory-items-pagination-range" aria-live="polite">
-        Showing {paginationTotalItems} loaded entries
-      </p>
-      <div className="inventory-items-pagination-controls">
-        <label className="inventory-items-pagination-size">
-          <span>Rows per page</span>
-          <select value={pageSize} onChange={handlePageSizeChange}>
-            {INVENTORY_ITEMS_PAGE_SIZE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
-          disabled={safeCurrentPage <= 1}
-          aria-label="Go to previous inventory items page"
-          title="Previous page"
-          className="inventory-items-pagination-button"
-        >
-          <FiChevronLeft aria-hidden="true" />
-        </button>
-        <span aria-live="polite">
-          Page {safeCurrentPage} of {totalPages}
-        </span>
-        <button
-          type="button"
-          onClick={() =>
-            setCurrentPage((page) => Math.min(page + 1, totalPages))
-          }
-          disabled={safeCurrentPage >= totalPages}
-          aria-label="Go to next inventory items page"
-          title="Next page"
-          className="inventory-items-pagination-button"
-        >
-          <FiChevronRight aria-hidden="true" />
-        </button>
-      </div>
-    </div>
-  ) : null;
+    !isLoading && !errorMessage && pagination.totalItems > 0;
+  const paginationBar = (
+    <TablePagination
+      totalItems={pagination.totalItems}
+      currentPage={pagination.currentPage}
+      pageSize={pagination.pageSize}
+      pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+      onPageChange={setCurrentPage}
+      onPageSizeChange={handlePageSizeChange}
+      isVisible={showPagination}
+      ariaLabel="Inventory items pagination"
+      previousAriaLabel="Go to previous inventory items page"
+      nextAriaLabel="Go to next inventory items page"
+    />
+  );
 
   return (
     <>

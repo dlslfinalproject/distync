@@ -22,6 +22,9 @@ test("MSWDO Disaster Events Summary exposes scoped responsive hooks", async () =
   assert.match(pageSource, /className="disaster-summary-records-card"/);
   assert.match(pageSource, /className="disaster-summary-table-scroll"/);
   assert.match(pageSource, /className="disaster-summary-table"/);
+  assert.match(pageSource, /import TablePagination/);
+  assert.match(pageSource, /paginateRows/);
+  assert.match(pageSource, /ariaLabel="Disaster events summary pagination"/);
   assert.match(pageSource, /className="disaster-summary-modal-backdrop"/);
   assert.match(pageSource, /className="disaster-summary-export-modal"/);
   assert.match(pageSource, /className="disaster-summary-export-grid"/);
@@ -90,4 +93,22 @@ test("MSWDO Disaster Events Summary preserves presentation-only scope", async ()
   assert.match(pageSource, /exportDisasterEventReportSummary\(\{[\s\S]*?event_selection: selectedExportEventSelection/);
   assert.match(serviceSource, /\/api\/v1\/disaster-events\/reports\/summary/);
   assert.match(routeSource, /requireRoles\(ROLE_CODES\.MSWDO\)/);
+});
+
+test("MSWDO Disaster Events Summary paginates the record collection only", async () => {
+  const source = (await readSource(["pages", "mswdo", "DisasterEventReportsPage.jsx"]))
+    .replace(/\r\n/g, "\n");
+  const recordsCardStart = source.indexOf(
+    '<section className="disaster-summary-records-card"',
+  );
+  assert.notEqual(recordsCardStart, -1);
+  const recordsCardSource = source.slice(recordsCardStart);
+
+  assert.match(
+    recordsCardSource,
+    /<h3[\s\S]*>Disaster Events Record<\/h3>[\s\S]*<TablePagination/,
+  );
+  assert.match(recordsCardSource, /<TablePagination[\s\S]*paginatedRows\.map/);
+  assert.match(source, /setPage\(1\)/);
+  assert.match(source, /totalItems: displayedRows\.length/);
 });

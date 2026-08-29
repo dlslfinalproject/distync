@@ -30,6 +30,7 @@ const {
   RESOLUTION_STRATEGY,
   RESOLUTION_ACTION,
   INVENTORY_STOCK_STATE_DRIFT,
+  POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE,
   getSyncConflictReviewCapability,
 } = require("../utils/syncConflictReviewPolicy");
 
@@ -646,6 +647,24 @@ const getResolutionCapability = (conflict, auth) => {
     };
   }
 
+  if (conflict.conflict_type === POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE) {
+    const mayResolve = auth?.roleCode === ROLE_CODES.MSWDO;
+
+    return {
+      availableResolutionActions: mayResolve
+        ? [
+            RESOLUTION_ACTION.KEEP_SERVER,
+            RESOLUTION_ACTION.APPLY_LOCAL,
+            RESOLUTION_ACTION.MARK_REVIEWED,
+          ]
+        : [],
+      canResolve: mayResolve,
+      domainOwner: ROLE_CODES.MSWDO,
+      basis:
+        "MSWDO must decide whether the registrations are a duplicate or a different household.",
+    };
+  }
+
   return {
     availableResolutionActions: [],
     canResolve: false,
@@ -1126,7 +1145,10 @@ const processSingleSyncEntry = async (entry, auth) => {
         throw error;
       }
 
+    const isCrossBarangayDuplicateConflict =
+      error.code === POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE;
     const isDuplicateConflict =
+      isCrossBarangayDuplicateConflict ||
       error.code === "DUPLICATE_HOUSEHOLD_REGISTRATION" ||
       error.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" ||
       error.code === "STUB_ALREADY_CLAIMED" ||
@@ -1135,7 +1157,10 @@ const processSingleSyncEntry = async (entry, auth) => {
 
     if (isDuplicateConflict) {
       const serverTimestamp = new Date().toISOString();
-      const entityServerId = entry.entity_server_id || error.entityServerId || null;
+      const entityServerId = isCrossBarangayDuplicateConflict
+      ? null
+      : entry.entity_server_id || error.entityServerId || null;
+      const conflictEntityServerId = error.entityServerId || entityServerId;
       const isInventoryItrDuplicate =
         error.code === DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO;
       const isSystemResolvedDuplicate =
@@ -1159,19 +1184,31 @@ const processSingleSyncEntry = async (entry, auth) => {
             conflictPayload: {
               sync_transaction_id: syncTransaction.id,
               entity_type: actionConfig.entityType,
-              entity_server_id: entityServerId,
+              entity_server_id: conflictEntityServerId,
               conflict_type: error.code,
               local_payload_json: entry.payload,
               server_payload_json: error.serverPayload || {},
-              resolution_strategy: RESOLUTION_STRATEGY.FIRST_ACCEPTED,
-              resolved_payload_json: {
-                winner: "SERVER",
-                reason: error.message,
-                authoritative_payload: error.serverPayload || {},
-              },
-              resolved_by: isSystemResolvedDuplicate ? null : auth.userId,
-              resolved_at: serverTimestamp,
-              status: CONFLICT_STATUS.RESOLVED,
+              resolution_strategy: isCrossBarangayDuplicateConflict
+                ? RESOLUTION_STRATEGY.MANUAL_REVIEW
+                : RESOLUTION_STRATEGY.FIRST_ACCEPTED,
+              resolved_payload_json: isCrossBarangayDuplicateConflict
+                ? null
+                : {
+                    winner: "SERVER",
+                    reason: error.message,
+                    authoritative_payload: error.serverPayload || {},
+                  },
+              resolved_by: isCrossBarangayDuplicateConflict
+                ? null
+                : isSystemResolvedDuplicate
+                  ? null
+                  : auth.userId,
+              resolved_at: isCrossBarangayDuplicateConflict
+                ? null
+                : serverTimestamp,
+              status: isCrossBarangayDuplicateConflict
+                ? CONFLICT_STATUS.OPEN
+                : CONFLICT_STATUS.RESOLVED,
             },
             dbClient,
           });
@@ -1492,11 +1529,25 @@ const getSyncConflictDetail = async ({ auth, conflictId }) => {
     },
   });
 
+  const isCrossBarangayConflict =
+    conflict?.conflict_type === POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE;
+  const safeConflict =
+    isCrossBarangayConflict && auth.roleCode === ROLE_CODES.BARANGAY
+      ? {
+          ...conflict,
+          server_payload_json: {
+            visibility: "restricted",
+            review_message:
+              "A similar household registration exists under another Barangay. Municipality-level review is required.",
+          },
+        }
+      : conflict;
+
   return {
-    ...conflict,
+    ...safeConflict,
     availableResolutionActions:
       getResolutionCapability(conflict, auth).availableResolutionActions,
-    local_payload_summary: pickDefined(conflict.local_payload_json?.payload || conflict.local_payload_json, [
+    local_payload_summary: pickDefined(safeConflict.local_payload_json?.payload || safeConflict.local_payload_json, [
       "disaster_event_id",
       "household_id",
       "stub_id",
@@ -1507,7 +1558,7 @@ const getSyncConflictDetail = async ({ auth, conflictId }) => {
       "batch_no",
       "donor_name",
     ]),
-    server_payload_summary: pickDefined(conflict.server_payload_json, [
+    server_payload_summary: pickDefined(safeConflict.server_payload_json, [
       "id",
       "updated_at",
       "status",
@@ -1544,15 +1595,75 @@ const resolveSyncConflict = async ({ auth, conflictId, action, reason = null }) 
         throw createResolutionActionNotAllowedError();
       }
 
-      if (action === RESOLUTION_ACTION.APPLY_LOCAL) {
-        throw createResolutionActionNotAllowedError();
-      }
-
       const resolvedPayload = {
         ...getSafeConflictServerSummary(conflict),
         resolution_action: action,
         reviewer_role_code: auth.roleCode,
       };
+
+      if (action === RESOLUTION_ACTION.APPLY_LOCAL) {
+        if (conflict.conflict_type !== POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE) {
+          throw createResolutionActionNotAllowedError();
+        }
+
+        const localPayload =
+          conflict.local_payload_json?.payload || conflict.local_payload_json || {};
+        const acceptedPayload = {
+          ...localPayload,
+          registered_by: conflict.user_id || localPayload.registered_by,
+          synced_client_timestamp: conflict.client_timestamp,
+          enforce_sync_duplicate_guard: true,
+          allow_reviewed_cross_barangay_duplicate: true,
+        };
+        const acceptedHousehold = await householdRegistrationService.registerHousehold(
+          acceptedPayload,
+          { dbClient },
+        );
+        const acceptedHouseholdId =
+          acceptedHousehold?.household?.id || acceptedHousehold?.id || null;
+
+        await syncRepository.updateSyncTransaction(
+          conflict.sync_transaction_id,
+          {
+            entity_server_id: acceptedHouseholdId,
+            server_timestamp: new Date().toISOString(),
+            sync_status: "SYNCED",
+            error_message: null,
+          },
+          dbClient,
+        );
+
+        resolvedPayload.accepted_household_id = acceptedHouseholdId;
+      } else if (
+        action === RESOLUTION_ACTION.KEEP_SERVER &&
+        conflict.conflict_type === POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE
+      ) {
+        await syncRepository.updateSyncTransaction(
+          conflict.sync_transaction_id,
+          {
+            entity_server_id: null,
+            server_timestamp: new Date().toISOString(),
+            sync_status: "CONFLICT",
+            error_message: "Resolved — Duplicate Household",
+          },
+          dbClient,
+        );
+      } else if (
+        action === RESOLUTION_ACTION.MARK_REVIEWED &&
+        conflict.conflict_type === POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE
+      ) {
+        resolvedPayload.transfer_reassignment_required = true;
+        await syncRepository.updateSyncTransaction(
+          conflict.sync_transaction_id,
+          {
+            entity_server_id: null,
+            server_timestamp: new Date().toISOString(),
+            sync_status: "CONFLICT",
+            error_message: "Transfer/Reassignment Required",
+          },
+          dbClient,
+        );
+      }
 
       const updatedConflict = await syncRepository.markSyncConflictResolved(
         {
@@ -1615,7 +1726,10 @@ const resolveSyncConflict = async ({ auth, conflictId, action, reason = null }) 
       resolvedConflict = {
         ...conflict,
         ...updatedConflict,
-        sync_status: conflict.sync_status,
+        sync_status:
+          action === RESOLUTION_ACTION.APPLY_LOCAL
+            ? SYNC_STATUS.SYNCED
+            : conflict.sync_status,
         user_id: conflict.user_id,
         client_timestamp: conflict.client_timestamp,
         server_timestamp: conflict.server_timestamp,

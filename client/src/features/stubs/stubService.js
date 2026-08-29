@@ -136,6 +136,17 @@ export const fetchBarangayStubDashboard = async ({
     "Failed to fetch stub dashboard",
   );
 
+  // Dashboard rows inherit event/barangay context from the response envelope.
+  // Copy it onto each cached row so automatic preparation has the same shape
+  // as the manual fetchStubDetails path used by offline QR validation.
+  responseData.data = (Array.isArray(responseData.data) ? responseData.data : []).map((row) => ({
+    ...row,
+    disaster_event_id: row.disaster_event_id || responseData.disaster_event?.id || disasterEventId,
+    disaster_event: row.disaster_event || responseData.disaster_event || { id: disasterEventId },
+    barangay_id: row.barangay_id || responseData.assigned_barangay?.id || barangayId || "",
+    barangay: row.barangay || responseData.assigned_barangay || null,
+  }));
+
   if (!skipOfflineCache) {
     await upsertOfflineStubSnapshots(responseData?.data || []);
   }

@@ -70,5 +70,5 @@ test("BRG-ANOM-L05 lifecycle table preserves the semantic responsive and paginat
   assert.match(source, /overflowX: "auto", width: "100%", minWidth: 0/);
   assert.match(source, /const barangayAnomalyTableMinWidth = "1040px"/);
   assert.match(source, /tableLayout: "auto"/);
-  assert.match(source, /\{paginationControls\}/);
+  assert.match(source, /<TablePagination[\s\S]*ariaLabel="Anomaly tracking pagination"/);
 });

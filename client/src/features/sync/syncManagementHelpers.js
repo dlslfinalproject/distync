@@ -677,6 +677,10 @@ export const buildPayloadSummary = (payload) => {
 };
 
 export const getConflictReasonLabel = (conflict) => {
+  if (conflict?.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE") {
+    return "Possible Cross-Barangay Duplicate";
+  }
+
   if (conflict?.conflict_type === "UPDATED_AT_MISMATCH") {
     return "Record Changed in Two Places";
   }
@@ -699,6 +703,10 @@ export const getConflictExplanation = (conflict) => {
 
   if (conflict?.conflict_type === "DUPLICATE_HOUSEHOLD_REGISTRATION") {
     return "A household with matching information was already recorded for this disaster event.";
+  }
+
+  if (conflict?.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE") {
+    return "A similar household registration already exists under another Barangay and requires municipality-level review.";
   }
 
   if (conflict?.conflict_type === "DUPLICATE_CLAIM") {

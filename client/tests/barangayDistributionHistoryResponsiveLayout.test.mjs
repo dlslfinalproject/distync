@@ -64,36 +64,105 @@ test("Distribution History mobile toolbar controls fill available width without 
   );
 });
 
-test("Distribution History pagination footer is compact and adapts on narrow screens", async () => {
-  const cssSource = await readSource(["index.css"]);
+test("Distribution History canonical pagination bar is compact and adapts on narrow screens", async () => {
+  const [paginationSource, cssSource] = await Promise.all([
+    readSource(["components", "shared", "TablePagination.jsx"]),
+    readSource(["index.css"]),
+  ]);
+  const normalizedPaginationSource = paginationSource.replace(/\r\n/g, "\n");
+  const normalizedCssSource = cssSource.replace(/\r\n/g, "\n");
 
   assert.match(
-    cssSource,
-    /\.distribution-history-records-title-group \{[\s\S]*?justify-content: space-between;[\s\S]*?flex-wrap: wrap;/,
+    normalizedCssSource,
+    /\.table-pagination-bar \{[\s\S]*?justify-content: space-between;[\s\S]*?margin-bottom: 14px;/,
   );
   assert.match(
-    cssSource,
-    /\.distribution-history-pagination-navigation \{[\s\S]*?justify-content: flex-end;[\s\S]*?margin-top: 14px;[\s\S]*?padding-top: 12px;[\s\S]*?border-top: 1px solid #edf3f8;/,
+    normalizedCssSource,
+    /\.table-pagination-size select \{[\s\S]*?min-height: 36px;[\s\S]*?padding: 7px 10px;/,
   );
   assert.match(
-    cssSource,
-    /\.distribution-history-page-size select \{[\s\S]*?width: 78px;[\s\S]*?min-height: 40px;/,
+    normalizedCssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.table-pagination-bar \{[\s\S]*?flex-direction: column;[\s\S]*?gap: 8px;/,
   );
   assert.match(
-    cssSource,
-    /@media \(max-width: 768px\)[\s\S]*?\.distribution-history-records-title-group \{[\s\S]*?align-items: stretch;/,
+    normalizedCssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.table-pagination-controls \{[\s\S]*?flex-wrap: wrap;[\s\S]*?width: 100%;/,
   );
   assert.match(
-    cssSource,
-    /@media \(max-width: 480px\)[\s\S]*?\.distribution-history-pagination-range \{[\s\S]*?order: 2;/,
+    normalizedCssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.table-pagination-button \{[\s\S]*?flex: 0 0 44px;/,
+  );
+
+  const navigationStart = normalizedPaginationSource.indexOf(
+    '<div className="table-pagination-navigation">',
+  );
+  const navigationEnd = normalizedPaginationSource.indexOf(
+    "</div>",
+    navigationStart + 1,
+  );
+  assert.ok(navigationStart >= 0);
+  assert.ok(navigationEnd > navigationStart);
+  const navigationSource = normalizedPaginationSource.slice(
+    navigationStart,
+    navigationEnd,
   );
   assert.match(
-    cssSource,
-    /@media \(max-width: 480px\)[\s\S]*?\.distribution-history-page-indicator \{[\s\S]*?order: 1;/,
+    navigationSource,
+    /<button[\s\S]*?<span aria-live="polite">[\s\S]*?<button/,
   );
   assert.match(
-    cssSource,
-    /@media \(max-width: 480px\)[\s\S]*?\.distribution-history-pagination-controls button \{[\s\S]*?flex: 1 1 0;[\s\S]*?order: 2;/,
+    normalizedPaginationSource,
+    /getLoadedEntriesLabel\(pagination\.totalItems\)/,
+  );
+  assert.ok(
+    normalizedPaginationSource.indexOf(
+      '<label className="table-pagination-size">',
+    ) < navigationStart,
+  );
+
+  const basePaginationStart = normalizedCssSource.indexOf(
+    ".table-pagination-bar {",
+  );
+  const mobilePaginationBarStart = normalizedCssSource.indexOf(
+    ".table-pagination-bar {",
+    basePaginationStart + 1,
+  );
+  const mobileMediaStart = normalizedCssSource.lastIndexOf(
+    "@media (max-width: 768px)",
+    mobilePaginationBarStart,
+  );
+  const mobileMediaEnd = normalizedCssSource.indexOf("\n}", mobileMediaStart);
+  const mobilePaginationSource = normalizedCssSource.slice(
+    mobileMediaStart,
+    mobileMediaEnd,
+  );
+  const mobileNavigationStart = mobilePaginationSource.indexOf(
+    ".table-pagination-navigation {",
+  );
+  const mobileNavigationEnd = mobilePaginationSource.indexOf(
+    "\n  }",
+    mobileNavigationStart,
+  );
+  const mobileNavigationSource = mobilePaginationSource.slice(
+    mobileNavigationStart,
+    mobileNavigationEnd,
+  );
+  assert.match(
+    normalizedCssSource,
+    /\.table-pagination-navigation \{[\s\S]*?display: flex;[\s\S]*?flex-direction: row;[\s\S]*?flex-wrap: nowrap;/,
+  );
+  assert.match(
+    mobileNavigationSource,
+    /flex: 1 1 100%;[\s\S]*?justify-content: center;[\s\S]*?width: 100%;/,
+  );
+  assert.doesNotMatch(mobileNavigationSource, /flex-direction:\s*column/);
+  assert.match(
+    mobilePaginationSource,
+    /\.table-pagination-size \{[\s\S]*?flex: 0 0 auto;/,
+  );
+  assert.match(
+    mobilePaginationSource,
+    /\.table-pagination-controls \{[\s\S]*?row-gap: 6px;/,
   );
 });
 

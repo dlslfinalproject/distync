@@ -144,6 +144,16 @@ const ACTION_LABELS = {
   APPLY_LOCAL: "Use This Device Record",
 };
 
+const getActionLabel = (action, conflict) => {
+  if (conflict?.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE") {
+    if (action === "KEEP_SERVER") return "Duplicate Household";
+    if (action === "APPLY_LOCAL") return "Different Household";
+    if (action === "MARK_REVIEWED") return "Transfer/Reassignment Required";
+  }
+
+  return ACTION_LABELS[action] || action;
+};
+
 const isUuidLikeValue = (value) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     String(value || "").trim(),
@@ -228,7 +238,7 @@ const SyncConflictDetailModal = ({
           }
           disabled={isResolving}
         >
-          {ACTION_LABELS[action] || action}
+          {getActionLabel(action, conflict)}
         </button>
       ))}
     </>

@@ -1,12 +1,18 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import StatusPill from "../shared/StatusPill";
 import TableActionsMenu from "../shared/TableActionsMenu";
+import TablePagination from "../shared/TablePagination";
 import { FiEdit2, FiFileText } from "react-icons/fi";
 import {
   formatDisasterEventDate,
   getAffectedBarangayDisplayItems,
 } from "../../features/disaster-events/disasterEventFormatters";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 
 const tableStyles = {
   table: {
@@ -84,6 +90,45 @@ const DisasterEventsTable = ({
   onExportEvent,
   validBarangayCount = 0,
 }) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const pagination = getTablePaginationState({
+    totalItems: safeRows.length,
+    currentPage,
+    pageSize,
+    pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+  });
+  const paginatedRows = safeRows.slice(
+    (pagination.currentPage - 1) * pagination.pageSize,
+    pagination.currentPage * pagination.pageSize,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [rows]);
+
+  useEffect(() => {
+    setCurrentPage((previousPage) => {
+      if (pagination.totalPages === 0) {
+        return 1;
+      }
+
+      return Math.min(Math.max(previousPage, 1), pagination.totalPages);
+    });
+  }, [pagination.totalPages]);
+
+  const handlePageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+      return;
+    }
+
+    setPageSize(nextPageSize);
+    setCurrentPage(1);
+  };
+
   if (isLoading) {
     return (
       <div style={{ width: "100%" }}>
@@ -112,7 +157,7 @@ const DisasterEventsTable = ({
     );
   }
 
-  if (rows.length === 0) {
+  if (safeRows.length === 0) {
     return (
       <div style={{ width: "100%" }}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Disaster Events</h3>
@@ -128,6 +173,19 @@ const DisasterEventsTable = ({
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Disaster Events</h3>
       </div>
+
+      <TablePagination
+        totalItems={pagination.totalItems}
+        currentPage={pagination.currentPage}
+        pageSize={pagination.pageSize}
+        pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={handlePageSizeChange}
+        isVisible={!isLoading && !errorMessage && pagination.totalItems > 0}
+        ariaLabel="Disaster event management pagination"
+        previousAriaLabel="Go to previous disaster event page"
+        nextAriaLabel="Go to next disaster event page"
+      />
 
       <div className="disaster-events-table-scroll" style={{ width: "100%", minWidth: 0 }}>
         <table className="disaster-events-table" style={tableStyles.table}>
@@ -182,7 +240,7 @@ const DisasterEventsTable = ({
           </thead>
 
           <tbody>
-            {rows.map((row) => {
+            {paginatedRows.map((row) => {
               const isEndedRow = row.status !== "ACTIVE";
               const affectedBarangayDisplayItems =
                 getAffectedBarangayDisplayItems(

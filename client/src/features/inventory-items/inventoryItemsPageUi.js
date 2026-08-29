@@ -59,13 +59,6 @@ export const inventoryPageStyles = {
     gap: "8px",
     flexWrap: "wrap",
   },
-  sectionTitle: {
-    margin: "0 0 16px 0",
-    fontWeight: 700,
-    fontSize: "20px",
-    color: "#17324d",
-    lineHeight: 1.2,
-  },
   addItemIconWrap: {
     position: "relative",
     width: "18px",

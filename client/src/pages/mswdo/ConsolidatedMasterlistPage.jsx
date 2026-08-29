@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
 import ActiveCrossEventInformationModal from "../../components/masterlist/ActiveCrossEventInformationModal";
 import PageHeader from "../../components/layout/PageHeader";
@@ -14,6 +14,12 @@ import MswdoMasterlistEventSummary from "../../components/mswdo-masterlist/Mswdo
 import MswdoMasterlistScopeSection from "../../components/mswdo-masterlist/MswdoMasterlistScopeSection";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
 import FeedbackToast from "../../components/shared/FeedbackToast";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  paginateRows,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 import { useAuth } from "../../context/AuthContext";
 import { useMswdoMasterlistPage } from "../../features/mswdo-masterlist/useMswdoMasterlistPage";
 
@@ -146,6 +152,54 @@ const ConsolidatedEvacueeMasterlist = () => {
     sectors: "",
     barangays: "",
   });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+
+  const pagination = useMemo(
+    () =>
+      getTablePaginationState({
+        totalItems: displayedRows.length,
+        currentPage,
+        pageSize,
+        pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+      }),
+    [currentPage, displayedRows.length, pageSize],
+  );
+  const paginatedRows = useMemo(
+    () => paginateRows(displayedRows, pagination.currentPage, pagination.pageSize),
+    [displayedRows, pagination.currentPage, pagination.pageSize],
+  );
+
+  useEffect(() => {
+    setCurrentPage((previousPage) =>
+      previousPage === pagination.currentPage
+        ? previousPage
+        : pagination.currentPage,
+    );
+  }, [pagination.currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    activeTab,
+    searchTerm,
+    selectedBarangayId,
+    selectedDisasterEventId,
+    selectedRecordStatus,
+    selectedSectorIds,
+    selectedSortOrder,
+  ]);
+
+  const handlePageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+      return;
+    }
+
+    setPageSize(nextPageSize);
+    setCurrentPage(1);
+  };
 
   useEffect(() => {
     if (!isExportModalOpen) {
@@ -273,7 +327,7 @@ const ConsolidatedEvacueeMasterlist = () => {
       />
 
       <MasterlistTable
-        rows={displayedRows}
+        rows={paginatedRows}
         hasSelectedEvent={Boolean(selectedDisasterEventId)}
         isLoading={isLoadingFilters || isLoadingMasterlist}
         errorMessage={errorMessage}
@@ -287,6 +341,15 @@ const ConsolidatedEvacueeMasterlist = () => {
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}
         showAddressColumn={!selectedBarangayId}
+        pagination={{
+          page: pagination.currentPage,
+          pageSize: pagination.pageSize,
+          totalItems: pagination.totalItems,
+        }}
+        pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={handlePageSizeChange}
+        totalItems={pagination.totalItems}
       />
 
       <MasterlistDepartureConfirmModal

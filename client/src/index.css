@@ -1596,172 +1596,15 @@ img {
   flex-shrink: 0;
 }
 
-.distribution-history-records-header {
-  min-width: 0;
-}
-
-.distribution-history-records-title-group {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px 16px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.distribution-history-records-title-group > h3 {
-  order: 1;
-}
-
-.distribution-history-pagination-metadata {
-  display: contents;
-}
-
-.distribution-history-pagination-range {
-  order: 3;
-  flex: 1 1 100%;
-  color: #526d87;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.distribution-history-pagination-navigation {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid #edf3f8;
-  min-width: 0;
-}
-
-.distribution-history-pagination-controls {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px 10px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.distribution-history-page-size {
-  display: inline-flex;
-  align-items: center;
-  order: 2;
-  gap: 8px;
-  color: #526d87;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.distribution-history-page-size select {
-  width: 78px;
-  min-height: 40px;
-  border: 1px solid #c6d8ea;
-  border-radius: 10px;
-  background: #ffffff;
-  color: #24496e;
-  padding: 8px 10px;
-}
-
-.distribution-history-pagination-controls button {
-  min-height: 40px;
-  border: 1px solid #c6d8ea;
-  border-radius: 10px;
-  background: #f7fbfe;
-  color: #24496e;
-  padding: 8px 14px;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.distribution-history-pagination-controls button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.stub-results-pagination-metadata,
-.stub-results-pagination-navigation {
-  width: 100%;
-}
-
-.masterlist-pagination-metadata {
-  align-items: center;
-  display: flex;
-  gap: 14px;
-  justify-content: space-between;
-  margin-top: 8px;
-}
-
-.masterlist-pagination-range {
-  color: #5d7188;
-  font-size: 13px;
-  font-weight: 700;
-  margin: 0;
-}
-
-.masterlist-pagination-size {
-  align-items: center;
-  color: #55718b;
-  display: inline-flex;
-  font-size: 13px;
-  font-weight: 700;
-  gap: 8px;
-}
-
-.masterlist-pagination-size select {
-  background-color: #ffffff;
-  border: 1px solid #c7d6e5;
-  border-radius: 10px;
+.table-card-title {
   color: #17324d;
-  font-size: 13px;
+  font-size: 20px;
   font-weight: 700;
-  min-height: 36px;
-  padding: 7px 10px;
+  line-height: 1.2;
+  margin: 0 0 16px;
 }
 
-.masterlist-pagination-navigation {
-  border-top: 1px solid #edf3f8;
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 14px;
-  padding-top: 12px;
-}
-
-.masterlist-pagination-controls {
-  align-items: center;
-  display: flex;
-  gap: 12px;
-}
-
-.masterlist-pagination-controls span {
-  color: #5d7188;
-  font-size: 13px;
-  font-weight: 700;
-  min-width: 92px;
-  text-align: center;
-}
-
-.masterlist-pagination-controls button {
-  background-color: #f8fbfe;
-  border: 1px solid #c6d8ea;
-  border-radius: 10px;
-  color: #2a4c6f;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 800;
-  min-height: 38px;
-  padding: 8px 14px;
-}
-
-.masterlist-pagination-controls button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.inventory-items-pagination-bar {
+.table-pagination-bar {
   align-items: center;
   display: flex;
   gap: 14px;
@@ -1770,15 +1613,16 @@ img {
   width: 100%;
 }
 
-.inventory-items-pagination-range {
+.table-pagination-range {
   color: #5d7188;
   flex: 1 1 auto;
   font-size: 16px;
   font-weight: 700;
   margin: 0;
+  text-align: left;
 }
 
-.inventory-items-pagination-size {
+.table-pagination-size {
   align-items: center;
   color: #55718b;
   display: inline-flex;
@@ -1789,7 +1633,7 @@ img {
   white-space: nowrap;
 }
 
-.inventory-items-pagination-size select {
+.table-pagination-size select {
   background-color: #ffffff;
   border: 1px solid #c7d6e5;
   border-radius: 10px;
@@ -1800,14 +1644,26 @@ img {
   padding: 7px 10px;
 }
 
-.inventory-items-pagination-controls {
+.table-pagination-controls {
   align-items: center;
   display: flex;
   gap: 12px;
   justify-content: flex-end;
 }
 
-.inventory-items-pagination-controls span {
+.table-pagination-navigation {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 12px;
+  justify-content: flex-end;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.table-pagination-navigation span {
   color: #5d7188;
   font-size: 13px;
   font-weight: 700;
@@ -1815,7 +1671,7 @@ img {
   text-align: center;
 }
 
-.inventory-items-pagination-button {
+.table-pagination-button {
   align-items: center;
   background-color: #f8fbfe;
   border: 1px solid #c6d8ea;
@@ -1830,21 +1686,14 @@ img {
   width: 44px;
 }
 
-.inventory-items-pagination-button svg {
+.table-pagination-button svg {
   height: 18px;
   width: 18px;
 }
 
-.inventory-items-pagination-button:disabled {
+.table-pagination-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
-}
-
-.distribution-history-page-indicator {
-  color: #24496e;
-  font-size: 13px;
-  font-weight: 700;
-  white-space: nowrap;
 }
 
 .distync-shell {
@@ -2325,85 +2174,35 @@ img {
     width: 100%;
   }
 
-  .distribution-history-records-title-group {
-    align-items: stretch;
-  }
-
-  .distribution-history-pagination-range {
-    flex: 1 1 100%;
-  }
-
-  .distribution-history-pagination-controls {
-    flex: 1 1 100%;
-  }
-
-  .distribution-history-pagination-controls {
-    justify-content: space-between;
-  }
-
-  .distribution-history-page-size {
-    flex: 0 1 auto;
-  }
-
-  .stub-results-pagination-metadata {
-    align-items: flex-start !important;
-    flex-direction: column;
-  }
-
-  .stub-results-pagination-navigation {
-    justify-content: center !important;
-  }
-
-  .masterlist-pagination-metadata {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .masterlist-pagination-navigation {
-    justify-content: center;
-  }
-
-  .masterlist-pagination-controls {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    width: 100%;
-  }
-
-  .masterlist-pagination-controls span {
-    grid-column: 1 / -1;
-    min-width: 0;
-    order: 1;
-    width: 100%;
-  }
-
-  .masterlist-pagination-controls button {
-    min-width: 0;
-    order: 2;
-    width: 100%;
-  }
-
-  .inventory-items-pagination-bar {
+  .table-pagination-bar {
     align-items: stretch;
     flex-direction: column;
     gap: 8px;
   }
 
-  .inventory-items-pagination-range {
+  .table-pagination-range {
     width: 100%;
   }
 
-  .inventory-items-pagination-controls {
+  .table-pagination-controls {
+    column-gap: 8px;
     flex-wrap: wrap;
-    justify-content: flex-end;
+    justify-content: flex-start;
+    row-gap: 6px;
     width: 100%;
   }
 
-  .inventory-items-pagination-size {
-    flex: 1 1 auto;
+  .table-pagination-size {
+    flex: 0 0 auto;
   }
 
-  .inventory-items-pagination-button {
+  .table-pagination-navigation {
+    flex: 1 1 100%;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .table-pagination-button {
     flex: 0 0 44px;
   }
 
@@ -2748,58 +2547,6 @@ img {
 
   .distribution-history-export-button {
     justify-content: center;
-  }
-
-  .distribution-history-records-title-group {
-    gap: 8px;
-  }
-
-  .distribution-history-pagination-range {
-    order: 2;
-  }
-
-  .distribution-history-page-size,
-  .distribution-history-page-indicator {
-    flex: 1 1 100%;
-    justify-content: center;
-    text-align: center;
-  }
-
-  .distribution-history-page-size {
-    order: 3;
-  }
-
-  .distribution-history-page-indicator {
-    order: 1;
-  }
-
-  .distribution-history-pagination-controls button {
-    flex: 1 1 0;
-    justify-content: center;
-    order: 2;
-    text-align: center;
-  }
-
-  .distribution-history-page-size select {
-    flex: 0 0 78px;
-  }
-
-  .stub-results-pagination-controls {
-    display: grid !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: 100%;
-  }
-
-  .stub-results-pagination-controls span {
-    grid-column: 1 / -1;
-    order: 1;
-    text-align: center;
-  }
-
-  .stub-results-pagination-controls button {
-    justify-content: center;
-    order: 2;
-    text-align: center;
   }
 
   .stub-claim-confirm-family-head {

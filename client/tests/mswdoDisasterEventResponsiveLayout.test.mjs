@@ -24,6 +24,9 @@ test("MSWDO Disaster Event page exposes scoped responsive hooks", async () => {
   assert.match(pageSource, /className="disaster-events-list-card"/);
   assert.match(tableSource, /className="disaster-events-table-scroll"/);
   assert.match(tableSource, /className="disaster-events-table"/);
+  assert.match(tableSource, /import TablePagination/);
+  assert.match(tableSource, /getTablePaginationState/);
+  assert.match(tableSource, /ariaLabel="Disaster event management pagination"/);
   assert.match(
     cssSource,
     /\.disaster-events-tabs,[\s\S]*?\.disaster-event-detail-barangay-grid \{[\s\S]*?min-width: 0;/,
@@ -48,6 +51,23 @@ test("MSWDO Disaster Event table overflow is locally contained without fixed lay
   assert.match(cssSource, /\.disaster-events-table \{[\s\S]*?table-layout: auto !important;/);
   assert.doesNotMatch(cssSource, /html,[\s\S]*?body,[\s\S]*?#root\s*\{[\s\S]*?overflow-x:\s*hidden/);
   assert.doesNotMatch(cssSource, /\.disaster-events-table\s*\{[\s\S]*?min-width:\s*(?:900|960|1024|1100|1200)px/);
+});
+
+test("MSWDO Disaster Event table keeps canonical pagination above its headers", async () => {
+  const source = await readSource(["components", "disaster-events", "DisasterEventsTable.jsx"]);
+
+  const normalizedSource = source.replace(/\r\n/g, "\n");
+  const populatedStart = normalizedSource.indexOf(
+    'return (\n    <div style={{ width: "100%" }}>',
+  );
+  assert.notEqual(populatedStart, -1);
+  const populatedSource = normalizedSource.slice(populatedStart);
+
+  assert.match(populatedSource, /<h3[\s\S]*>Disaster Events<\/h3>[\s\S]*<TablePagination/);
+  assert.match(populatedSource, /<TablePagination[\s\S]*paginatedRows\.map/);
+  assert.match(populatedSource, /TABLE_PAGE_SIZE_OPTIONS/);
+  assert.match(source, /setCurrentPage\(1\)/);
+  assert.match(source, /pagination\.totalPages/);
 });
 
 test("MSWDO Disaster Event modals expose phone-safe layout hooks", async () => {
