@@ -1,14 +1,10 @@
 import { useEffect, useState } from "react";
-import {
-  getOfflinePreparation,
-  OFFLINE_PREPARATION_STATUS,
-  prepareBarangayOfflineData,
-} from "../../offline/offlinePreparation.js";
+import { getOfflinePreparation, OFFLINE_PREPARATION_STATUS, prepareBarangayOfflineData } from "../../offline/offlinePreparation.js";
 
 export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eventId = "", barangayId = "", context = {} }) => {
   const [readiness, setReadiness] = useState(OFFLINE_PREPARATION_STATUS.NOT_PREPARED);
-  const [onlineRevision, setOnlineRevision] = useState(0);
   const [diagnostics, setDiagnostics] = useState(null);
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
     if (!enabled || !userId || !eventId || !barangayId) {
       setReadiness(OFFLINE_PREPARATION_STATUS.NOT_PREPARED);
@@ -16,10 +12,10 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
     }
     let mounted = true;
     const scope = { eventId, barangayId };
-    const prepare = async () => {
-      const entry = await getOfflinePreparation(scope);
-      if (mounted && entry) setDiagnostics(entry);
-      if (entry?.status === OFFLINE_PREPARATION_STATUS.READY) {
+    const run = async () => {
+      const existing = await getOfflinePreparation(scope);
+      if (mounted && existing) setDiagnostics(existing);
+      if (existing?.status === OFFLINE_PREPARATION_STATUS.READY) {
         if (mounted) setReadiness(OFFLINE_PREPARATION_STATUS.READY);
         return;
       }
@@ -28,30 +24,27 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
         return;
       }
       if (mounted) setReadiness(OFFLINE_PREPARATION_STATUS.PREPARING);
-      prepareBarangayOfflineData({ ...scope, userId, context })
-        .then((result) => { if (mounted) setReadiness(result?.status || OFFLINE_PREPARATION_STATUS.READY); })
-        .catch(() => { if (mounted) setReadiness(OFFLINE_PREPARATION_STATUS.PARTIAL); });
-    };
-    prepare();
-    const handleOnline = () => setOnlineRevision((revision) => revision + 1);
-    const handlePreparationUpdate = (event) => {
-      if (mounted) {
-        setDiagnostics(event.detail || null);
-        if (event.detail?.status) setReadiness(event.detail.status);
+      try {
+        const result = await prepareBarangayOfflineData({ ...scope, userId, context });
+        if (mounted) setReadiness(result?.status || OFFLINE_PREPARATION_STATUS.READY);
+      } catch (_error) {
+        if (mounted) setReadiness(OFFLINE_PREPARATION_STATUS.PARTIAL);
       }
     };
-    if (typeof window !== "undefined") window.addEventListener("online", handleOnline);
-    if (typeof window !== "undefined") window.addEventListener("distync-offline-preparation-updated", handlePreparationUpdate);
+    const update = (event) => { if (mounted) { setDiagnostics(event.detail || null); if (event.detail?.status) setReadiness(event.detail.status); } };
+    const online = () => setRevision((value) => value + 1);
+    run();
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", online);
+      window.addEventListener("distync-offline-preparation-updated", update);
+    }
     return () => {
       mounted = false;
-      if (typeof window !== "undefined") window.removeEventListener("online", handleOnline);
-      if (typeof window !== "undefined") window.removeEventListener("distync-offline-preparation-updated", handlePreparationUpdate);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("online", online);
+        window.removeEventListener("distync-offline-preparation-updated", update);
+      }
     };
-  }, [barangayId, context, enabled, eventId, onlineRevision, userId]);
-  return {
-    readiness,
-    diagnostics,
-    isReady: readiness === OFFLINE_PREPARATION_STATUS.READY,
-    retry: () => setOnlineRevision((revision) => revision + 1),
-  };
+  }, [barangayId, context, enabled, eventId, revision, userId]);
+  return { readiness, diagnostics, isReady: readiness === OFFLINE_PREPARATION_STATUS.READY, retry: () => setRevision((value) => value + 1) };
 };

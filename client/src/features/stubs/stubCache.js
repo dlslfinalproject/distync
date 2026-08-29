@@ -6,8 +6,7 @@ import {
 import { ROLE_CODES } from "../../utils/roleSession.js";
 import { extractStubQrValue } from "../../utils/stubQr.js";
 
-export const normalizeOfflineStubQrKey = (value) =>
-  extractStubQrValue(value).trim();
+export const normalizeOfflineStubQrKey = (value) => extractStubQrValue(value).trim();
 
 const STUB_CLAIM_ACTION_KEY = "STUB_CLAIM";
 const claimTerminalStatuses = new Set([
@@ -351,7 +350,7 @@ export const getCachedStubDetailsByQrValue = async (
   const ownerContext = getSyncQueueActorContext();
 
   if (!hasCompleteOfflineStubOwnerContext(ownerContext) || !normalizedQrValue) {
-    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-offline-lookup-diagnostic", { detail: { kind: "stub", found: false, reason: !normalizedQrValue ? "QR_KEY_MISSING" : "ACTOR_SCOPE_MISSING" } }));
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-offline-lookup-diagnostic", { detail: { kind: "stub", found: false, reason: !normalizedQrValue ? "OFFLINE_QR_KEY_MISSING" : "OFFLINE_QR_CONTEXT_MISSING" } }));
     return null;
   }
 
@@ -366,13 +365,13 @@ export const getCachedStubDetailsByQrValue = async (
     .first();
 
   if (!isOfflineStubVisibleForContext(cachedRow, ownerContext, { currentBarangayId })) {
-    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-offline-lookup-diagnostic", { detail: { kind: "stub", found: false, reason: cachedRow ? "BARANGAY_SCOPE_MISMATCH" : "QR_NOT_PERSISTED" } }));
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-offline-lookup-diagnostic", { detail: { kind: "stub", found: false, reason: cachedRow ? "OFFLINE_QR_BARANGAY_SCOPE_MISMATCH" : "OFFLINE_QR_STUB_NOT_CACHED" } }));
     return null;
   }
 
   const syncEntry = await getCachedStubClaimSyncEntry(cachedRow.stubId);
   const details = toStubDetailsFromOfflineSnapshot(cachedRow, syncEntry);
-  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-offline-lookup-diagnostic", { detail: { kind: "stub", found: Boolean(details), reason: details ? "READ_BACK_FOUND" : "SNAPSHOT_INVALID" } }));
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-offline-lookup-diagnostic", { detail: { kind: "stub", found: Boolean(details), reason: details ? "OFFLINE_QR_READ_BACK_FOUND" : "OFFLINE_QR_SNAPSHOT_INVALID" } }));
   return details;
 };
 

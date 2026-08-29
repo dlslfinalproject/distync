@@ -3,14 +3,13 @@ import { getSyncQueueActorContext } from "./syncQueue.js";
 import { ROLE_CODES } from "../utils/roleSession.js";
 import { fetchBarangayStubDashboard } from "../features/stubs/stubService.js";
 import {
-  getCachedStubSnapshotById,
+  getCachedStubDetailsByQrValue,
   getCachedStubSnapshotsForScope,
-  upsertOfflineStubSnapshots,
   normalizeOfflineStubQrKey,
+  upsertOfflineStubSnapshots,
 } from "../features/stubs/stubCache.js";
 import { fetchMasterlist } from "../features/masterlist/masterlistService.js";
-import { cacheMasterlistRows } from "./masterlistCache.js";
-import { getCachedMasterlistRows } from "./masterlistCache.js";
+import { cacheMasterlistRows, getCachedMasterlistRows } from "./masterlistCache.js";
 
 export const OFFLINE_PREPARATION_STATUS = {
   NOT_PREPARED: "NOT_PREPARED",
@@ -127,7 +126,7 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
           (pageInfo) => {
             diagnostics.datasets.masterlist = {
               ...diagnostics.datasets.masterlist,
-              ...pageInfo,
+              ...safePageInfo,
               pagesFetched: pageInfo.page,
               pagesExpected: pageInfo.pages,
               recordsByPage: {
@@ -145,17 +144,17 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
         getCachedStubSnapshotsForScope({ disasterEventId: eventId, currentBarangayId: barangayId }),
         getCachedMasterlistRows({ disasterEventId: eventId, barangayId }),
       ]);
-      const stubReadBack = await Promise.all(
-        persistedStubs.map((row) => getCachedStubSnapshotById(row.stubId, { currentBarangayId: barangayId })),
+      const qrReadBack = await Promise.all(
+        persistedStubs.map((row) => getCachedStubDetailsByQrValue(row.qr_code_value, { currentBarangayId: barangayId })),
       );
-      const readBackSucceeded = stubReadBack.every(Boolean);
-      const masterlistReadBackSucceeded = masterlist.rows.every((row) =>
+      const masterlistReadBack = masterlist.rows.every((row) =>
         masterlistRowsAfterWrite.some((cachedRow) => cachedRow.household_id === row.household_id),
       );
-      if (!readBackSucceeded || !masterlistReadBackSucceeded || stubRowsAfterWrite.length < persistedStubs.length) {
+      const masterlistReadBackSucceeded = masterlistReadBack;
+      if (!qrReadBack.every(Boolean) || !masterlistReadBack || stubRowsAfterWrite.length < persistedStubs.length) {
         throw new Error("Offline preparation read-back verification failed");
       }
-      diagnostics.datasets.stubs = { ...diagnostics.datasets.stubs, collected: stubs.rows.length, persisted: persistedStubs.length, readBack: true, complete: stubs.pages > 0 && (!stubs.expectedCount || stubs.rows.length >= stubs.expectedCount) };
+      diagnostics.datasets.stubs = { ...diagnostics.datasets.stubs, collected: stubs.rows.length, persisted: persistedStubs.length, qrSearchable: qrReadBack.filter(Boolean).length, readBack: true, complete: stubs.pages > 0 && (!stubs.expectedCount || stubs.rows.length >= stubs.expectedCount) };
       diagnostics.datasets.masterlist = { ...diagnostics.datasets.masterlist, collected: masterlist.rows.length, persisted: masterlist.rows.length, readBack: true, complete: masterlist.pages > 0 && (!masterlist.expectedCount || masterlist.rows.length >= masterlist.expectedCount) };
       await savePreparation(scope, OFFLINE_PREPARATION_STATUS.READY, {
         stub_count: stubs.rows.length,
@@ -166,7 +165,7 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
         masterlist_expected_count: masterlist.expectedCount,
         datasets: diagnostics.datasets,
       });
-      publishDiagnostics({ ...diagnostics, status: OFFLINE_PREPARATION_STATUS.READY, completedAt: new Date().toISOString(), targetQr: diagnostics.targetQr ? { ...diagnostics.targetQr, persisted: diagnostics.targetQr.included && stubReadBack.some((row) => normalizeOfflineStubQrKey(row?.qr_code_value) === diagnostics.targetQr.normalized), readBack: diagnostics.targetQr.included } : null });
+      publishDiagnostics({ ...diagnostics, status: OFFLINE_PREPARATION_STATUS.READY, completedAt: new Date().toISOString(), targetQr: diagnostics.targetQr ? { ...diagnostics.targetQr, persisted: diagnostics.targetQr.included && qrReadBack.some(Boolean), readBack: diagnostics.targetQr.included && qrReadBack.some(Boolean) } : null });
       return { status: OFFLINE_PREPARATION_STATUS.READY, stubCount: stubs.rows.length, masterlistCount: masterlist.rows.length };
     } catch (error) {
       await savePreparation(scope, OFFLINE_PREPARATION_STATUS.PARTIAL, { error_code: error?.code || "PREPARATION_FAILED", datasets: diagnostics.datasets, previous_complete_cache: diagnostics.previousCompleteCache });
