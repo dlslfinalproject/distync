@@ -9,6 +9,7 @@ import {
   SYNC_ERROR_CODES,
   SYNC_PRESENTATION_MESSAGES,
 } from "./syncStatus.js";
+import { getOfflineDeviceId } from "./deviceIdentity.js";
 
 const unsupportedOfflineActionKeys = new Set([
   "DONATION_NEED_CREATE",
@@ -85,6 +86,7 @@ export const getSyncQueueActorContext = () => {
     userId: authenticatedUser?.id || null,
     roleCode: getCurrentRole() || null,
     barangayId: authenticatedUser?.default_barangay_id || null,
+    deviceId: getOfflineDeviceId(),
   };
 };
 
@@ -97,6 +99,7 @@ export const buildStoredSyncEntry = (
     accessMode: actorContext.accessMode,
     userId: actorContext.userId,
     roleCode: actorContext.roleCode,
+    deviceId: entry?.deviceId || actorContext.deviceId || null,
     barangayId: getQueueBarangayId({
       payload: entry?.payload,
       barangayId: entry?.barangayId || actorContext.barangayId,
@@ -118,6 +121,17 @@ export const isSyncEntryVisibleForContext = (
   }
 
   if (!entry.roleCode || !actorContext.roleCode || entry.roleCode !== actorContext.roleCode) {
+    return false;
+  }
+
+  // IndexedDB is device-local, but retain the device identity on every new
+  // row so copied profiles and future shared-storage adapters cannot surface
+  // another device's work. Legacy rows without a device id remain visible.
+  if (
+    entry.deviceId &&
+    actorContext.deviceId &&
+    entry.deviceId !== actorContext.deviceId
+  ) {
     return false;
   }
 

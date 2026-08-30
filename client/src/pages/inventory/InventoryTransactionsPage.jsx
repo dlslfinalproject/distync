@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import { useAuth } from "../../context/AuthContext";
 import { FiFileText, FiFilter } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { pageSpacingStyles, shellStyles } from "../../components/layout/BarangayLayout";
@@ -24,6 +25,14 @@ import db from "../../offline/db.js";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
+import {
+  canUseMayorInventoryCacheAfterError,
+  getMayorInventoryCacheSnapshot,
+} from "../../offline/mayorInventoryCache";
+import { useMayorInventoryOfflinePreparation } from "../../features/offline/useMayorInventoryOfflinePreparation";
+import { mergeInventoryBatchesWithSyncStatus } from "../../offline/mayorInventoryOfflineModel";
+import OfflineDataReadiness from "../../components/layout/OfflineDataReadiness";
+import { ROLE_CODES } from "../../utils/roleSession";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
@@ -354,8 +363,9 @@ const buildBatchInflowRows = (inventoryBatches, transactionRows) => {
     performed_at: batch.received_at || batch.created_at,
     reference_type: batch.source_type || "MANUAL",
     remarks: "",
-    sync_status: "synced",
-    is_local_only: false,
+    sync_status: batch.sync_status || "SYNCED",
+    is_local_only: Boolean(batch.is_local_only),
+    client_sync_id: batch.client_sync_id || null,
     inventory_item: batch.inventory_item || null,
     creator: batch.creator || null,
     source_label: getBatchSourceLabel(batch),
@@ -571,6 +581,8 @@ const SummaryCard = ({ label, value, helper }) => (
 );
 
 const InventoryTransactionsPage = () => {
+  const { currentRole, authenticatedUser } = useAuth();
+  const isMayorPortal = currentRole === ROLE_CODES.MAYOR;
   const [filters, setFilters] = useState({
     inventory_item_id: "",
     inventory_batch_id: "",
@@ -584,6 +596,10 @@ const InventoryTransactionsPage = () => {
   const [inventoryBatches, setInventoryBatches] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [dataSourceNotice, setDataSourceNotice] = useState("");
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine !== false,
+  );
   const [isExporting, setIsExporting] = useState("");
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
@@ -601,14 +617,53 @@ const InventoryTransactionsPage = () => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
+  const mayorOfflinePreparation = useMayorInventoryOfflinePreparation({
+    enabled: isMayorPortal,
+    userId: authenticatedUser?.id || "",
+    roleCode: currentRole,
+  });
 
   const downloadFile = (file) => {
     downloadExportFile(file);
   };
 
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
   const loadPageData = async (activeFilters = filters) => {
     setIsLoading(true);
     setErrorMessage("");
+    setDataSourceNotice("");
+
+    if (!isOnline && isMayorPortal) {
+      const cacheRow = await getMayorInventoryCacheSnapshot();
+
+      if (cacheRow) {
+        setInventoryTransactions(cacheRow.transactions || []);
+        setInventoryItems(cacheRow.items || []);
+        setInventoryBatches(cacheRow.batches || []);
+        setDataSourceNotice(
+          "You are offline. Showing inventory transaction history saved on this device. This page is view-only while offline.",
+        );
+      } else {
+        setErrorMessage(
+          "Inventory transaction history is not prepared on this device yet. Connect to DISTYNC to view it.",
+        );
+      }
+
+      setIsLoading(false);
+      return;
+    }
 
     try {
       const [transactionResponse, itemResponse, batchResponse] = await Promise.all([
@@ -621,7 +676,21 @@ const InventoryTransactionsPage = () => {
       setInventoryItems(itemResponse || []);
       setInventoryBatches(batchResponse || []);
     } catch (error) {
-      setErrorMessage(error.message);
+      if (isMayorPortal && canUseMayorInventoryCacheAfterError(error)) {
+        const cacheRow = await getMayorInventoryCacheSnapshot();
+        if (cacheRow) {
+          setInventoryTransactions(cacheRow.transactions || []);
+          setInventoryItems(cacheRow.items || []);
+          setInventoryBatches(cacheRow.batches || []);
+          setDataSourceNotice(
+            "Live inventory history could not be reached. Showing the transaction history saved on this device.",
+          );
+        } else {
+          setErrorMessage(error.message || "Failed to load inventory transactions.");
+        }
+      } else {
+        setErrorMessage(error.message || "Failed to load inventory transactions.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -647,23 +716,33 @@ const InventoryTransactionsPage = () => {
     );
   }, [inventoryItems]);
 
+  const inventoryBatchesForDisplay = useMemo(
+    () =>
+      mergeInventoryBatchesWithSyncStatus({
+        inventoryBatches,
+        inventoryItems,
+        syncQueueEntries,
+      }),
+    [inventoryBatches, inventoryItems, syncQueueEntries],
+  );
+
   const inventoryBatchOptions = useMemo(() => {
     if (!filters.inventory_item_id) {
       return [];
     }
 
-    return inventoryBatches
+    return inventoryBatchesForDisplay
       .filter(
         (batch) =>
           String(batch.inventory_item_id || batch.inventory_item?.id || "") ===
           String(filters.inventory_item_id),
       )
       .sort((left, right) => String(left.batch_no || "").localeCompare(String(right.batch_no || "")));
-  }, [filters.inventory_item_id, inventoryBatches]);
+  }, [filters.inventory_item_id, inventoryBatchesForDisplay]);
 
   const batchById = useMemo(() => {
     return new Map(
-      inventoryBatches.map((batch) => [
+      inventoryBatchesForDisplay.map((batch) => [
         batch.id,
         {
           id: batch.id,
@@ -687,7 +766,7 @@ const InventoryTransactionsPage = () => {
         },
       ]),
     );
-  }, [inventoryBatches]);
+  }, [inventoryBatchesForDisplay]);
 
   const inventoryTransactionsWithSyncStatus = useMemo(() => {
     const syncedRows = inventoryTransactions.map((transaction) => {
@@ -728,7 +807,10 @@ const InventoryTransactionsPage = () => {
         );
       })
       .map((entry) => {
-        const queuedRow = buildQueuedInventoryTransaction(entry, inventoryBatches);
+        const queuedRow = buildQueuedInventoryTransaction(
+          entry,
+          inventoryBatchesForDisplay,
+        );
         const linkedBatch = batchById.get(queuedRow.inventory_batch_id);
 
         return {
@@ -740,11 +822,16 @@ const InventoryTransactionsPage = () => {
       });
 
     return [...optimisticRows, ...syncedRows];
-  }, [batchById, inventoryBatches, inventoryTransactions, syncQueueEntries]);
+  }, [
+    batchById,
+    inventoryBatchesForDisplay,
+    inventoryTransactions,
+    syncQueueEntries,
+  ]);
 
   const mergedTransactionRows = useMemo(() => {
     const batchInflowRows = buildBatchInflowRows(
-      inventoryBatches,
+      inventoryBatchesForDisplay,
       inventoryTransactionsWithSyncStatus,
     );
 
@@ -805,7 +892,7 @@ const InventoryTransactionsPage = () => {
       );
   }, [
     batchById,
-    inventoryBatches,
+    inventoryBatchesForDisplay,
     inventoryTransactionsWithSyncStatus,
   ]);
 
@@ -936,10 +1023,14 @@ const InventoryTransactionsPage = () => {
   const trackingMap = useMemo(() => {
     return buildInventoryTrackingMap(
       inventoryItems,
-      inventoryBatches,
+      inventoryBatchesForDisplay,
       inventoryTransactionsWithSyncStatus,
     );
-  }, [inventoryBatches, inventoryItems, inventoryTransactionsWithSyncStatus]);
+  }, [
+    inventoryBatchesForDisplay,
+    inventoryItems,
+    inventoryTransactionsWithSyncStatus,
+  ]);
 
   const summaryMetrics = useMemo(() => {
     const totalInflow = mergedTransactionRows.reduce((sum, row) => {
@@ -1019,7 +1110,12 @@ const InventoryTransactionsPage = () => {
       lowStockItems,
       expiredItems,
     };
-  }, [inventoryBatches, inventoryItems, mergedTransactionRows, trackingMap]);
+  }, [
+    inventoryBatchesForDisplay,
+    inventoryItems,
+    mergedTransactionRows,
+    trackingMap,
+  ]);
 
   const handleExport = async (format) => {
     setErrorMessage("");
@@ -1109,6 +1205,29 @@ const InventoryTransactionsPage = () => {
   return (
     <div className="inventory-tracking-page" style={pageStackStyles}>
       <PageHeader title="INVENTORY TRACKING MANAGEMENT" />
+
+      <OfflineDataReadiness
+        {...mayorOfflinePreparation}
+        variant="mayor-inventory"
+      />
+
+      {dataSourceNotice ? (
+        <section
+          aria-live="polite"
+          role="status"
+          style={{
+            ...shellStyles.card,
+            padding: "14px 18px",
+            borderColor: "#c8dff0",
+            backgroundColor: "#f4f9fd",
+            color: "#2b587d",
+            fontSize: "14px",
+            lineHeight: 1.5,
+          }}
+        >
+          {dataSourceNotice}
+        </section>
+      ) : null}
 
       <section
         className="inventory-tracking-filter-card"

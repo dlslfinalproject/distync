@@ -2,6 +2,7 @@ import {
   buildOfflineQueuedResponse,
   performSyncableMutation,
 } from "../../offline/syncService";
+import { getMayorInventoryCacheSnapshot } from "../../offline/mayorInventoryCache.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -10,7 +11,9 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   const responseData = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(responseData?.message || fallbackMessage);
+    const error = new Error(responseData?.message || fallbackMessage);
+    error.statusCode = response.status;
+    throw error;
   }
 
   return responseData;
@@ -120,6 +123,7 @@ export const createInventoryBatch = async (payload) => {
     entityLocalId: payload?.batch_no || null,
     payload,
     requiredFields: ["inventory_item_id", "batch_no", "quantity_received"],
+    canQueueOffline: async () => Boolean(await getMayorInventoryCacheSnapshot()),
     request: async () => {
       const response = await fetch(`${API_BASE_URL}/api/v1/inventory-batches`, {
         method: "POST",

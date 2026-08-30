@@ -1,5 +1,5 @@
 import React from "react";
-import { getSyncBadgePalette, getSyncLabel } from "../../offline/syncStatus";
+import { getSyncBadgePalette, getSyncLabel } from "../../offline/syncStatus.js";
 
 const SyncStatusBadge = ({ status = "SYNCED", compact = false, label = null }) => {
   const palette = getSyncBadgePalette(status);

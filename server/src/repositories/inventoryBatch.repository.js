@@ -223,6 +223,8 @@ const getInventoryBatchByItemIdAndBatchNo = async (
 };
 
 const insertInventoryBatch = async (batchData, dbClient = pool) => {
+  const hasReceivedAt =
+    batchData.received_at !== undefined && batchData.received_at !== null;
   const query = `
     INSERT INTO inventory_batches (
       inventory_item_id,
@@ -241,7 +243,7 @@ const insertInventoryBatch = async (batchData, dbClient = pool) => {
       updated_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, $11, NOW(), NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, ${hasReceivedAt ? "$12::timestamptz" : "NOW()"}, $9, $10, $11, NOW(), NOW()
     )
     ON CONFLICT ON CONSTRAINT ${INVENTORY_BATCH_IDENTITY_CONSTRAINT}
     DO NOTHING
@@ -277,6 +279,10 @@ const insertInventoryBatch = async (batchData, dbClient = pool) => {
     batchData.status,
     batchData.created_by,
   ];
+
+  if (hasReceivedAt) {
+    values.push(batchData.received_at);
+  }
 
   const result = await dbClient.query(query, values);
   return result.rows[0];

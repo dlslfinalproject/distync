@@ -371,8 +371,11 @@ const ACTION_HANDLERS = {
     entityType: "INVENTORY_ITEM",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth, dbClient }) =>
-      inventoryItemService.createInventoryItem(payload, auth, { dbClient }),
+    execute: async ({ payload, auth, clientTimestamp, dbClient }) =>
+      inventoryItemService.createInventoryItem(payload, auth, {
+        clientTimestamp,
+        dbClient,
+      }),
   },
   INVENTORY_ITEM_UPDATE: {
     entityType: "INVENTORY_ITEM",
@@ -389,10 +392,13 @@ const ACTION_HANDLERS = {
     entityType: "INVENTORY_BATCH",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth, dbClient }) =>
+    execute: async ({ payload, auth, clientTimestamp, dbClient }) =>
       inventoryBatchService.createInventoryBatch({
         ...payload,
         created_by: auth.userId,
+        // Preserve the time the Mayor captured stock-in while keeping the
+        // server-created audit timestamps authoritative for synchronization.
+        received_at: clientTimestamp,
         dbClient,
       }),
   },

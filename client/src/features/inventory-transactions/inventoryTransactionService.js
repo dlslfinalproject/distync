@@ -1,7 +1,4 @@
-import {
-  buildOfflineQueuedResponse,
-  performSyncableMutation,
-} from "../../offline/syncService";
+import { performOnlineOnlyMutation } from "../../offline/syncService";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -10,7 +7,9 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   const responseData = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(responseData?.message || fallbackMessage);
+    const error = new Error(responseData?.message || fallbackMessage);
+    error.statusCode = response.status;
+    throw error;
   }
 
   return responseData;
@@ -114,11 +113,7 @@ export const createInventoryTransaction = async (payload) => {
     ...normalizedPayload
   } = payload || {};
 
-  return performSyncableMutation({
-    moduleName: "mayor-inventory",
-    actionKey: "INVENTORY_TRANSACTION_CREATE",
-    entityType: "INVENTORY_TRANSACTION",
-    entityLocalId: normalizedPayload?.client_transaction_id || null,
+  return performOnlineOnlyMutation({
     payload: normalizedPayload,
     requiredFields: [
       "transaction_type",
@@ -135,19 +130,8 @@ export const createInventoryTransaction = async (payload) => {
 
       return handleJsonResponse(response, "Failed to record inventory transaction");
     },
-    buildQueuedResponse: ({ clientSyncId, entityLocalId, clientTimestamp }) =>
-      buildOfflineQueuedResponse({
-        message:
-          "Inventory transaction saved offline. Pending sync once connection is restored.",
-        data: {
-          transaction_id: entityLocalId,
-          inventory_transaction_reference_no: null,
-          performed_at: clientTimestamp,
-        },
-        clientSyncId,
-        entityLocalId,
-        clientTimestamp,
-      }),
+    offlineMessage:
+      "Status changes require a connection. Reconnect before recording a status log.",
   });
 };
 

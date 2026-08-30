@@ -432,6 +432,9 @@ const getUserById = async (id) => {
 };
 
 const insertInventoryTransaction = async (transactionData, dbClient) => {
+  const hasPerformedAt =
+    transactionData.performed_at !== undefined &&
+    transactionData.performed_at !== null;
   const query = `
     INSERT INTO inventory_transactions (
       disaster_event_id,
@@ -448,7 +451,7 @@ const insertInventoryTransaction = async (transactionData, dbClient) => {
       created_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, ${hasPerformedAt ? "$11::timestamptz" : "NOW()"}, $9, $10, NOW()
     )
     ON CONFLICT DO NOTHING
     RETURNING
@@ -479,6 +482,10 @@ const insertInventoryTransaction = async (transactionData, dbClient) => {
     transactionData.remarks,
     transactionData.other_status || null,
   ];
+
+  if (hasPerformedAt) {
+    values.push(transactionData.performed_at);
+  }
 
   const result = await dbClient.query(query, values);
   return result.rows[0];

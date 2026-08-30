@@ -1009,6 +1009,9 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
           reorderLevel: createdItem.reorder_level,
         }),
         created_by: actor?.userId || null,
+        ...(options.clientTimestamp
+          ? { received_at: options.clientTimestamp }
+          : {}),
       },
       client,
     );
@@ -1024,6 +1027,9 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
           reference_id: createdItem.id,
           performed_by: actor?.userId || null,
           remarks: "Opening stock recorded during inventory item creation",
+          ...(options.clientTimestamp
+            ? { performed_at: options.clientTimestamp }
+            : {}),
         },
         client,
       );

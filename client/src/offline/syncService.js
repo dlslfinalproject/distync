@@ -40,7 +40,28 @@ const generateLocalId = () => {
     return crypto.randomUUID();
   }
 
-  return `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const randomHex = (length) => {
+    let value = "";
+
+    while (value.length < length) {
+      value += Math.floor(Math.random() * 0x100000000)
+        .toString(16)
+        .padStart(8, "0");
+    }
+
+    return value.slice(0, length);
+  };
+  const value = randomHex(32).split("");
+  value[12] = "4";
+  value[16] = (8 + (Number.parseInt(value[16], 16) % 4)).toString(16);
+
+  return [
+    value.slice(0, 8).join(""),
+    value.slice(8, 12).join(""),
+    value.slice(12, 16).join(""),
+    value.slice(16, 20).join(""),
+    value.slice(20, 32).join(""),
+  ].join("-");
 };
 
 const isNetworkFailure = (error) => {
@@ -163,6 +184,7 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
   const nonRetryableIds = [];
   const conflictIds = [];
   const pendingIds = [];
+  let entriesToSync = [];
 
   try {
     const claimedEntries = await claimSyncEntries(queuedEntries, processingOwner);
@@ -178,7 +200,7 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
       };
     }
 
-    const entriesToSync = claimedEntries;
+    entriesToSync = claimedEntries;
     attemptedIds.push(...entriesToSync.map((entry) => entry.id));
 
     const response = await fetch(SYNC_ENDPOINT, {
@@ -401,6 +423,23 @@ export const initializeSyncService = () => {
   }
 };
 
+const assertOfflineQueueAllowed = async (canQueueOffline) => {
+  if (typeof canQueueOffline !== "function") {
+    return;
+  }
+
+  const allowed = await canQueueOffline();
+  if (allowed !== false) {
+    return;
+  }
+
+  const error = new Error(
+    "This change cannot be saved offline until the required reference data is prepared on this device.",
+  );
+  error.code = "OFFLINE_PREPARATION_REQUIRED";
+  throw error;
+};
+
 export const performSyncableMutation = async ({
   moduleName,
   actionKey,
@@ -414,6 +453,7 @@ export const performSyncableMutation = async ({
   allowOffline = true,
   buildQueuedResponse,
   queueDisplayContext = null,
+  canQueueOffline = null,
 }) => {
   validateRequiredFields(payload, requiredFields);
   // Delete/deactivate operations require online connection to avoid unsafe
@@ -426,6 +466,7 @@ export const performSyncableMutation = async ({
   const queueGroupKey = `${actionKey}:${entityServerId || effectiveEntityLocalId}`;
 
   if (typeof navigator !== "undefined" && !navigator.onLine && allowOffline) {
+    await assertOfflineQueueAllowed(canQueueOffline);
     await persistOfflineMutation({
       id: clientSyncId,
       queueGroupKey,
@@ -460,6 +501,7 @@ export const performSyncableMutation = async ({
       throw error;
     }
 
+    await assertOfflineQueueAllowed(canQueueOffline);
     await persistOfflineMutation({
       id: clientSyncId,
       queueGroupKey,
@@ -508,7 +550,22 @@ export const performOnlineOnlyMutation = async ({
     throw new Error(message);
   }
 
-  return request();
+  try {
+    return await request();
+  } catch (error) {
+    if (!isNetworkFailure(error)) {
+      throw error;
+    }
+
+    const message =
+      offlineMessage || "An internet connection is required to complete this action.";
+    emitSyncFeedbackEvent({
+      type: "failed",
+      message,
+    });
+
+    throw new Error(message);
+  }
 };
 
 export const buildOfflineQueuedResponse = ({
