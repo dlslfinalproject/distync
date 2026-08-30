@@ -161,3 +161,55 @@ test("validateGetSyncHistory rejects a malformed Barangay filter", () => {
   assert.equal(res.statusCode, 400);
   assert.match(res.payload.message, /barangay_id must be a valid UUID/i);
 });
+
+test("validateProcessSyncEntries preserves the deployed device_id wire field and legacy missing values", () => {
+  const deviceUuid = "66666666-6666-4666-8666-666666666666";
+  const req = {
+    body: {
+      entries: [
+        {
+          ...baseEntry,
+          device_id: deviceUuid,
+        },
+        {
+          ...baseEntry,
+          client_sync_id: "legacy-entry-without-device-id",
+          device_id: undefined,
+        },
+      ],
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateProcessSyncEntries(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(req.validatedBody.entries[0].device_id, deviceUuid);
+  assert.equal(req.validatedBody.entries[1].device_id, null);
+});
+
+test("validateProcessSyncEntries rejects a malformed persistent device UUID", () => {
+  const req = {
+    body: {
+      entries: [
+        {
+          ...baseEntry,
+          device_id: "browser-device-identity",
+        },
+      ],
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateProcessSyncEntries(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.payload.message, /device_id must be a valid UUID/i);
+});

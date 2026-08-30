@@ -1,4 +1,5 @@
 const syncRepository = require("../repositories/sync.repository");
+const deviceService = require("./device.service");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const supplierRepository = require("../repositories/supplier.repository");
@@ -144,6 +145,7 @@ const getRequesterForSync = (auth) => ({
   userId: auth.userId,
   roleCode: auth.roleCode,
   defaultBarangayId: auth.defaultBarangayId || null,
+  deviceId: auth.deviceId || null,
 });
 
 const canUseMswdoMunicipalitySyncRead = (auth) =>
@@ -347,9 +349,10 @@ const ACTION_HANDLERS = {
     entityType: "DISTRIBUTION_TRANSACTION",
     operationType: "CREATE",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth, dbClient }) =>
+    execute: async ({ payload, auth, dbClient, canonicalDeviceId }) =>
       distributionTransactionService.createDistributionTransaction({
         ...payload,
+        device_id: canonicalDeviceId || null,
         verified_by: auth.userId,
         requester: getRequesterForSync(auth),
         dbClient,
@@ -428,6 +431,7 @@ const ACTION_HANDLERS = {
       dbClient,
       entry,
       syncTransaction,
+      canonicalDeviceId,
       deferDomainSideEffect,
     }) =>
       inventoryTransactionService.createInventoryTransaction({
@@ -439,7 +443,7 @@ const ACTION_HANDLERS = {
         auditActor: {
           userId: auth.userId,
           roleCode: auth.roleCode,
-          deviceId: entry.device_id || null,
+          deviceId: canonicalDeviceId || null,
         },
         deferDomainSideEffect,
         dbClient,
@@ -528,6 +532,39 @@ const ensureActionAccess = (actionConfig, auth) => {
   if (!actionConfig.roles.includes(auth.roleCode)) {
     throw createPermissionError();
   }
+};
+
+const normalizeSyncPayloadDeviceReferences = (payload, canonicalDeviceId) => {
+  if (
+    !canonicalDeviceId ||
+    !payload ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return payload;
+  }
+
+  const normalizedPayload = { ...payload };
+
+  if (Object.prototype.hasOwnProperty.call(normalizedPayload, "device_id")) {
+    normalizedPayload.device_id = canonicalDeviceId;
+  }
+
+  const privacyAcknowledgment = normalizedPayload.privacy_acknowledgment;
+
+  if (
+    privacyAcknowledgment &&
+    typeof privacyAcknowledgment === "object" &&
+    !Array.isArray(privacyAcknowledgment) &&
+    Object.prototype.hasOwnProperty.call(privacyAcknowledgment, "device_id")
+  ) {
+    normalizedPayload.privacy_acknowledgment = {
+      ...privacyAcknowledgment,
+      device_id: canonicalDeviceId,
+    };
+  }
+
+  return normalizedPayload;
 };
 
 const maybeResolveTimestampConflict = async ({
@@ -1197,23 +1234,6 @@ const processSingleSyncEntry = async (entry, auth) => {
 
   ensureActionAccess(actionConfig, auth);
 
-  const claimPayload = {
-    client_sync_id: entry.client_sync_id,
-    device_id: entry.device_id,
-    user_id: auth.userId,
-    entity_type: actionConfig.entityType,
-    entity_local_id: entry.entity_local_id,
-    entity_server_id: entry.entity_server_id,
-    operation_type: actionConfig.operationType,
-    payload_json: {
-      action_key: entry.action_key,
-      payload: entry.payload,
-    },
-    client_timestamp: entry.client_timestamp,
-    sync_status: SYNC_STATUS.PENDING,
-    error_message: null,
-  };
-
   const runSyncProcessingTransaction =
     syncRepository.withSyncProcessingTransaction ||
     (async (callback) => callback(undefined));
@@ -1221,6 +1241,36 @@ const processSingleSyncEntry = async (entry, auth) => {
   const domainSideEffects = [];
 
   const syncResult = await runSyncProcessingTransaction(async (dbClient) => {
+    const clientDeviceUuid = entry.device_id || null;
+    const canonicalDeviceId =
+      await deviceService.resolveCanonicalDeviceId({
+        clientDeviceUuid,
+        dbClient,
+      });
+    const syncAuth = canonicalDeviceId
+      ? { ...auth, deviceId: canonicalDeviceId }
+      : auth;
+    const payloadForAction = normalizeSyncPayloadDeviceReferences(
+      entry.payload,
+      canonicalDeviceId,
+    );
+    const claimPayload = {
+      client_sync_id: entry.client_sync_id,
+      device_id: canonicalDeviceId,
+      user_id: syncAuth.userId,
+      entity_type: actionConfig.entityType,
+      entity_local_id: entry.entity_local_id,
+      entity_server_id: entry.entity_server_id,
+      operation_type: actionConfig.operationType,
+      payload_json: {
+        action_key: entry.action_key,
+        payload: entry.payload,
+      },
+      client_timestamp: entry.client_timestamp,
+      sync_status: SYNC_STATUS.PENDING,
+      error_message: null,
+    };
+
     const claim = await syncRepository.claimSyncTransaction(claimPayload, dbClient);
 
     if (claim.decision === "REUSE_MISMATCH") {
@@ -1262,7 +1312,7 @@ const processSingleSyncEntry = async (entry, auth) => {
 
       const conflictState = await maybeResolveTimestampConflict({
         entry,
-        auth,
+        auth: syncAuth,
         actionConfig,
         syncTransaction,
         dbClient,
@@ -1276,7 +1326,7 @@ const processSingleSyncEntry = async (entry, auth) => {
         notificationOutboxEvent,
       } =
         await recordConflictAndUpdateSyncTransactionSafely({
-          auth,
+          auth: syncAuth,
           actionConfig,
           entry,
           syncTransactionId: syncTransaction.id,
@@ -1316,12 +1366,13 @@ const processSingleSyncEntry = async (entry, auth) => {
     const result = await actionConfig.execute({
       entityServerId: entry.entity_server_id,
       entityLocalId: entry.entity_local_id,
-      payload: entry.payload,
-      auth,
+      payload: payloadForAction,
+      auth: syncAuth,
       clientTimestamp: entry.client_timestamp,
       dbClient,
       entry,
       syncTransaction,
+      canonicalDeviceId,
       deferDomainSideEffect: (sideEffect) => {
         if (typeof sideEffect === "function") {
           domainSideEffects.push(sideEffect);
@@ -1349,7 +1400,7 @@ const processSingleSyncEntry = async (entry, auth) => {
     if (conflictState.hasConflict) {
       try {
         const recordedConflict = await recordConflictAndUpdateSyncTransactionSafely({
-          auth,
+          auth: syncAuth,
           actionConfig,
           entry,
           syncTransactionId: syncTransaction.id,
@@ -1413,7 +1464,7 @@ const processSingleSyncEntry = async (entry, auth) => {
           await dbClient.query(`ROLLBACK TO SAVEPOINT ${syncBusinessSavepoint}`);
         } catch (rollbackError) {
           await logErrorSafely({
-            actor: auth,
+            actor: syncAuth,
             moduleName: "sync",
             errorCode: "SYNC_SAVEPOINT_ROLLBACK_FAILED",
             errorMessage:
@@ -1425,7 +1476,7 @@ const processSingleSyncEntry = async (entry, auth) => {
 
       if (businessEffectApplied || error.rollbackSyncTransaction) {
         await logErrorSafely({
-          actor: auth,
+          actor: syncAuth,
           moduleName: "sync",
           errorCode: "SYNC_POST_EFFECT_BOOKKEEPING_FAILED",
           errorMessage: `Sync terminal bookkeeping failed after business processing for ${entry.action_key}`,
@@ -1460,7 +1511,7 @@ const processSingleSyncEntry = async (entry, auth) => {
         const automaticResolution = await tryAutoResolveCrossBarangayDuplicate({
           error,
           entry,
-          auth,
+          auth: syncAuth,
           actionConfig,
           syncTransaction,
           dbClient,
@@ -1527,7 +1578,7 @@ const processSingleSyncEntry = async (entry, auth) => {
                 ? null
                 : isSystemResolvedDuplicate
                   ? null
-                  : auth.userId,
+                  : syncAuth.userId,
               resolved_at: isCrossBarangayDuplicateConflict
                 ? null
                 : serverTimestamp,
@@ -1551,7 +1602,7 @@ const processSingleSyncEntry = async (entry, auth) => {
         };
       } catch (conflictError) {
         await logErrorSafely({
-          actor: auth,
+          actor: syncAuth,
           moduleName: "sync",
           errorCode: "SYNC_DUPLICATE_CONFLICT_RECORD_FAILED",
           errorMessage: `Failed to record duplicate conflict for ${entry.action_key}`,
@@ -1563,7 +1614,7 @@ const processSingleSyncEntry = async (entry, auth) => {
             await dbClient.query(`ROLLBACK TO SAVEPOINT ${syncBusinessSavepoint}`);
           } catch (rollbackError) {
             await logErrorSafely({
-              actor: auth,
+              actor: syncAuth,
               moduleName: "sync",
               errorCode: "SYNC_CONFLICT_SAVEPOINT_ROLLBACK_FAILED",
               errorMessage:
@@ -1605,7 +1656,7 @@ const processSingleSyncEntry = async (entry, auth) => {
       await maybeRecordInventoryStockStateDriftConflict({
         error,
         entry,
-        auth,
+        auth: syncAuth,
         actionConfig,
         syncTransaction,
         dbClient,
@@ -1660,7 +1711,7 @@ const processSingleSyncEntry = async (entry, auth) => {
     }
 
     await logErrorSafely({
-      actor: auth,
+      actor: syncAuth,
       moduleName: "sync",
       errorCode: "SYNC_PROCESS_FAILED",
       errorMessage: `Sync failed for ${entry.action_key}: ${error.message || "Unknown error"}`,

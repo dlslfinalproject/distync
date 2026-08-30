@@ -5,6 +5,7 @@ const path = require("node:path");
 
 const servicePath = require.resolve("../src/services/sync.service");
 const syncRepositoryPath = require.resolve("../src/repositories/sync.repository");
+const deviceServicePath = require.resolve("../src/services/device.service");
 const householdRegistrationRepositoryPath = require.resolve(
   "../src/repositories/householdRegistration.repository",
 );
@@ -28,13 +29,21 @@ const systemLogPath = require.resolve("../src/utils/systemLog");
 const systemLogRepositoryPath = require.resolve(
   "../src/repositories/systemLog.repository",
 );
+const { validateProcessSyncEntries } = require("../src/validators/sync.validator");
 const notificationServicePath = require.resolve(
   "../src/modules/notifications/notification.service",
 );
 const inventoryStateBasisPath = require.resolve("../src/utils/inventoryStateBasis");
 
 const withStubbedSyncService = async (stubs, runTest) => {
-  const dependencyPaths = Object.keys(stubs);
+  const effectiveStubs = {
+    [deviceServicePath]: {
+      resolveCanonicalDeviceId: async ({ clientDeviceUuid }) =>
+        clientDeviceUuid || null,
+    },
+    ...stubs,
+  };
+  const dependencyPaths = Object.keys(effectiveStubs);
   const originalEntries = new Map(
     dependencyPaths.map((modulePath) => [modulePath, require.cache[modulePath]]),
   );
@@ -48,7 +57,7 @@ const withStubbedSyncService = async (stubs, runTest) => {
         id: modulePath,
         filename: modulePath,
         loaded: true,
-        exports: stubs[modulePath],
+        exports: effectiveStubs[modulePath],
       };
     });
 
@@ -5666,4 +5675,192 @@ test("RC1 cross-Barangay conflicts no longer expose manual MSWDO resolution", as
       );
     },
   );
+});
+
+test("MAYOR-OFFLINE-DEVICE-01 processes the real client queue shape with a canonical device id and preserves retry identity", async () => {
+  const clientDeviceUuid = "66666666-6666-4666-8666-666666666666";
+  const canonicalDeviceId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const clientSyncId = "mayor-offline-stock-in-20260830-1";
+  const clientTimestamp = "2026-08-30T01:02:03.000Z";
+  const request = {
+    body: {
+      entries: [
+        {
+          client_sync_id: clientSyncId,
+          action_key: "INVENTORY_BATCH_CREATE",
+          entity_type: "INVENTORY_BATCH",
+          entity_local_id: "RICE-BATCH-004",
+          entity_server_id: null,
+          device_id: clientDeviceUuid,
+          client_timestamp: clientTimestamp,
+          client_updated_at: clientTimestamp,
+          payload: {
+            inventory_item_id: "item-1",
+            inventory_item_stock_form_id: "stock-form-1",
+            batch_no: "RICE-BATCH-004",
+            quantity_received: 100,
+            source_type: "LGU",
+            expiration_date: null,
+          },
+        },
+      ],
+    },
+  };
+  const validationResponse = {
+    statusCode: null,
+    payload: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      this.payload = payload;
+      return this;
+    },
+  };
+  let validatorNextCalled = false;
+
+  validateProcessSyncEntries(request, validationResponse, () => {
+    validatorNextCalled = true;
+  });
+
+  assert.equal(validatorNextCalled, true);
+  assert.equal(validationResponse.statusCode, null);
+
+  const fakeDbClient = { query: async () => ({ rows: [] }) };
+  const deviceResolutionCalls = [];
+  const claimPayloads = [];
+  const batchPayloads = [];
+  let claimCount = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => callback(fakeDbClient),
+        claimSyncTransaction: async (payload) => {
+          claimPayloads.push(payload);
+          claimCount += 1;
+
+          if (claimCount === 1) {
+            return {
+              decision: "CLAIMED_NEW",
+              transaction: {
+                id: "sync-mayor-device-1",
+                ...payload,
+              },
+            };
+          }
+
+          return {
+            decision: "REPLAY_TERMINAL",
+            transaction: {
+              id: "sync-mayor-device-1",
+              ...payload,
+              sync_status: "SYNCED",
+              entity_server_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+              error_message: null,
+            },
+            conflictRecord: null,
+          };
+        },
+      }),
+      [deviceServicePath]: {
+        resolveCanonicalDeviceId: async (args) => {
+          deviceResolutionCalls.push(args);
+          return canonicalDeviceId;
+        },
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          batchPayloads.push(payload);
+          return {
+            id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+            ...payload,
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const firstResult = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: request.validatedBody.entries,
+      });
+      const replayResult = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: request.validatedBody.entries,
+      });
+
+      assert.equal(firstResult[0].sync_status, "SYNCED");
+      assert.equal(replayResult[0].replayed, true);
+      assert.equal(replayResult[0].client_sync_id, clientSyncId);
+    },
+  );
+
+  assert.equal(deviceResolutionCalls.length, 2);
+  assert.ok(
+    deviceResolutionCalls.every(
+      ({ clientDeviceUuid: resolvedClientDeviceUuid, dbClient }) =>
+        resolvedClientDeviceUuid === clientDeviceUuid && dbClient === fakeDbClient,
+    ),
+  );
+  assert.equal(claimPayloads.length, 2);
+  assert.ok(claimPayloads.every((payload) => payload.device_id === canonicalDeviceId));
+  assert.ok(claimPayloads.every((payload) => payload.client_sync_id === clientSyncId));
+  assert.deepEqual(
+    claimPayloads[0].payload_json.payload,
+    request.validatedBody.entries[0].payload,
+  );
+  assert.equal(batchPayloads.length, 1);
+  assert.equal(batchPayloads[0].created_by, baseAuth.userId);
+  assert.equal(batchPayloads[0].received_at, clientTimestamp);
+});
+
+test("device resolution does not bypass shared sync action authorization", async () => {
+  let deviceResolutionCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [deviceServicePath]: {
+        resolveCanonicalDeviceId: async () => {
+          deviceResolutionCalls += 1;
+          return "ffffffff-ffff-4fff-8fff-ffffffffffff";
+        },
+      },
+    },
+    async ({ processSyncEntries }) => {
+      await assert.rejects(
+        () =>
+          processSyncEntries({
+            auth: { ...baseAuth, roleCode: "BARANGAY" },
+            entries: [
+              {
+                client_sync_id: "mayor-action-auth-check-1",
+                action_key: "INVENTORY_BATCH_CREATE",
+                entity_type: "INVENTORY_BATCH",
+                entity_local_id: "batch-auth-check",
+                device_id: "66666666-6666-4666-8666-666666666666",
+                client_timestamp: "2026-08-30T01:02:03.000Z",
+                payload: {
+                  inventory_item_id: "item-1",
+                  batch_no: "BATCH-AUTH-CHECK",
+                  quantity_received: 1,
+                },
+              },
+            ],
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 403);
+          assert.match(error.message, /permission/i);
+          return true;
+        },
+      );
+    },
+  );
+
+  assert.equal(deviceResolutionCalls, 0);
 });
