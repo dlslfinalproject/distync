@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useLocation } from "react-router-dom";
 import db, { LOCAL_SYNC_STATUS } from "../../offline/db.js";
@@ -13,6 +13,7 @@ import {
   isNonRetryableSyncEntry,
   isUnsupportedOfflineActionKey,
 } from "../../offline/syncQueue";
+import { isMayorInventoryOfflineAction } from "../../offline/mayorInventoryOfflineModel.js";
 
 const badgeStylesByStatus = {
   [LOCAL_SYNC_STATUS.SYNCED]: {
@@ -59,18 +60,29 @@ const chipBaseStyles = {
   whiteSpace: "nowrap",
 };
 
-const SyncStatusBanner = () => {
+const SyncStatusBanner = ({ scope = "global" }) => {
   const location = useLocation();
+  const isMayorInventoryContext = scope === "mayor-inventory";
   const [isOnline, setIsOnline] = useState(
-    typeof navigator === "undefined" ? true : navigator.onLine,
+    typeof navigator === "undefined" ? true : navigator.onLine !== false,
   );
   const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [hasProcessedOnlineSync, setHasProcessedOnlineSync] = useState(false);
+  const previousPendingCount = useRef(0);
   const isSettingsRoute = location.pathname.endsWith("/settings");
 
   const syncEntries = useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
+  const scopedSyncEntries = useMemo(
+    () =>
+      isMayorInventoryContext
+        ? syncEntries.filter(isMayorInventoryOfflineAction)
+        : syncEntries,
+    [isMayorInventoryContext, syncEntries],
+  );
 
   const counts = useMemo(() => {
-    return syncEntries.reduce(
+    return scopedSyncEntries.reduce(
       (summary, entry) => {
         summary[entry.status] = (summary[entry.status] || 0) + 1;
         return summary;
@@ -81,11 +93,11 @@ const SyncStatusBanner = () => {
         [LOCAL_SYNC_STATUS.CONFLICT]: 0,
       },
     );
-  }, [syncEntries]);
+  }, [scopedSyncEntries]);
 
   const retryableQueueCount = useMemo(
     () =>
-      syncEntries.filter(
+      scopedSyncEntries.filter(
         (entry) =>
           [LOCAL_SYNC_STATUS.PENDING, LOCAL_SYNC_STATUS.FAILED].includes(
             entry.status,
@@ -93,8 +105,21 @@ const SyncStatusBanner = () => {
           !isUnsupportedOfflineActionKey(entry.actionKey) &&
           !isNonRetryableSyncEntry(entry),
       ).length,
-    [syncEntries],
+    [scopedSyncEntries],
   );
+
+  useEffect(() => {
+    if (
+      isMayorInventoryContext &&
+      isOnline &&
+      counts[LOCAL_SYNC_STATUS.PENDING] > previousPendingCount.current &&
+      !isSyncing
+    ) {
+      setHasProcessedOnlineSync(false);
+    }
+
+    previousPendingCount.current = counts[LOCAL_SYNC_STATUS.PENDING];
+  }, [counts, isMayorInventoryContext, isOnline, isSyncing]);
 
   const healthPresentation = useMemo(
     () =>
@@ -102,8 +127,9 @@ const SyncStatusBanner = () => {
         pending: counts[LOCAL_SYNC_STATUS.PENDING],
         failed: counts[LOCAL_SYNC_STATUS.FAILED],
         conflicts: counts[LOCAL_SYNC_STATUS.CONFLICT],
+        hasError: isMayorInventoryContext && !isOnline,
       }),
-    [counts],
+    [counts, isMayorInventoryContext, isOnline],
   );
 
   const statusChips = useMemo(() => {
@@ -119,13 +145,36 @@ const SyncStatusBanner = () => {
   useEffect(() => {
     initializeSyncService();
 
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    const unsubscribe = subscribeToSyncUpdates(() => {});
+    const handleOnline = () => {
+      setIsOnline(true);
+      setHasProcessedOnlineSync(false);
+      setFeedbackMessage("");
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      setHasProcessedOnlineSync(false);
+      setIsSyncing(false);
+      setFeedbackMessage("");
+    };
+    const unsubscribe = subscribeToSyncUpdates((event = {}) => {
+      if (event.type === "started") {
+        setIsSyncing(true);
+      }
+
+      if (event.type === "finished") {
+        setIsSyncing(false);
+        if (event.source === "automatic") {
+          setHasProcessedOnlineSync(true);
+        }
+      }
+    });
     const handleFeedback = (event) => {
+      if (isMayorInventoryContext) {
+        return;
+      }
+
       setFeedbackMessage(event.detail?.message || "");
     };
-
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
     window.addEventListener("distync-sync-feedback", handleFeedback);
@@ -136,16 +185,18 @@ const SyncStatusBanner = () => {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("distync-sync-feedback", handleFeedback);
     };
-  }, []);
+  }, [isMayorInventoryContext]);
 
-  if (
-    isSettingsRoute ||
-    isOnline &&
-    counts[LOCAL_SYNC_STATUS.PENDING] === 0 &&
-    counts[LOCAL_SYNC_STATUS.FAILED] === 0 &&
-    counts[LOCAL_SYNC_STATUS.CONFLICT] === 0 &&
-    !feedbackMessage
-  ) {
+  const shouldShowBanner = isMayorInventoryContext
+    ? !isOnline || isSyncing || (counts[LOCAL_SYNC_STATUS.PENDING] > 0 && !hasProcessedOnlineSync)
+    : isOnline
+      ? counts[LOCAL_SYNC_STATUS.PENDING] > 0 ||
+        counts[LOCAL_SYNC_STATUS.FAILED] > 0 ||
+        counts[LOCAL_SYNC_STATUS.CONFLICT] > 0 ||
+        Boolean(feedbackMessage)
+      : true;
+
+  if (isSettingsRoute || !shouldShowBanner) {
     return null;
   }
 
@@ -172,10 +223,10 @@ const SyncStatusBanner = () => {
           </p>
         </div>
 
-        {isOnline && retryableQueueCount > 0 ? (
+        {!isMayorInventoryContext && isOnline && retryableQueueCount > 0 ? (
           <button
             type="button"
-            onClick={() => void flushPendingSyncEntries()}
+            onClick={() => void flushPendingSyncEntries({ source: "manual" })}
             style={{
               border: "1px solid #c6d8ea",
               borderRadius: "12px",

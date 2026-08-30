@@ -40,6 +40,68 @@ export const getInventoryBatchIdentity = (batch = {}) =>
 
 export { buildQueuedInventoryItem };
 
+const getInventoryItemIdForTransaction = (transaction = {}) =>
+  normalizeId(
+    transaction?.inventory_item_id ||
+      transaction?.inventory_item?.id ||
+      transaction?.inventory_batch?.inventory_item_id ||
+      transaction?.inventory_batch?.inventory_item?.id,
+  );
+
+/**
+ * Build the same item-detail shape used by the live detail endpoint from the
+ * verified Mayor inventory graph. The modal currently needs the item,
+ * stock-form, and related-batch portions of that response; optional live-only
+ * sections remain explicit empty values instead of triggering a network read.
+ */
+export const buildMayorInventoryItemDetailFromLocalGraph = ({
+  inventoryItemId,
+  inventoryItems = [],
+  inventoryBatches = [],
+  inventoryTransactions = [],
+} = {}) => {
+  const normalizedItemId = normalizeId(inventoryItemId);
+  if (!normalizedItemId) {
+    return null;
+  }
+
+  const item = (Array.isArray(inventoryItems) ? inventoryItems : []).find(
+    (candidate) => normalizeId(candidate?.id) === normalizedItemId,
+  );
+
+  if (!item) {
+    return null;
+  }
+
+  const relatedBatches = (Array.isArray(inventoryBatches) ? inventoryBatches : []).filter(
+    (batch) => getInventoryItemIdForBatch(batch) === normalizedItemId,
+  );
+  const relatedTransactions = (
+    Array.isArray(inventoryTransactions) ? inventoryTransactions : []
+  ).filter(
+    (transaction) =>
+      getInventoryItemIdForTransaction(transaction) === normalizedItemId,
+  );
+  const currentStock = relatedBatches.reduce(
+    (total, batch) => total + Number(batch?.quantity_available || 0),
+    0,
+  );
+
+  return {
+    item: {
+      ...item,
+      current_stock: currentStock,
+      low_stock_threshold:
+        item?.low_stock_threshold ?? item?.reorder_level ?? null,
+    },
+    stock_forms: Array.isArray(item?.stock_forms) ? item.stock_forms : [],
+    related_batches: relatedBatches,
+    related_transactions: relatedTransactions,
+    forecast_summary: null,
+    audit_history: [],
+  };
+};
+
 export const buildQueuedInventoryBatch = (
   entry = {},
   inventoryItems = [],

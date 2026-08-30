@@ -3,6 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import OfflineDataReadiness from "../../components/layout/OfflineDataReadiness";
+import SyncStatusBanner from "../../components/layout/SyncStatusBanner";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
 import InventoryItemDetailModal from "../../components/inventory-items/InventoryItemDetailModal";
 import InventoryItemStatusLogModal from "../../components/inventory-items/InventoryItemStatusLogModal";
@@ -50,6 +51,7 @@ import {
 import {
   buildNextInventoryBatchNumber as buildScannedInventoryBatchNumber,
   buildReservedBatchRows,
+  buildMayorInventoryItemDetailFromLocalGraph,
   findMayorInventoryItemByBarcode,
   mergeInventoryBatchesWithSyncStatus,
 } from "../../offline/mayorInventoryOfflineModel";
@@ -387,7 +389,7 @@ const InventoryItemsPage = () => {
   const [inventorySuppliers, setInventorySuppliers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
-  const [dataSourceNotice, setDataSourceNotice] = useState("");
+  const [inventoryActionNotice, setInventoryActionNotice] = useState("");
   const [reservedBatchNumbers, setReservedBatchNumbers] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("create");
@@ -456,7 +458,7 @@ const InventoryItemsPage = () => {
     return true;
   };
 
-  const restoreMayorInventoryCache = async (notice) => {
+  const restoreMayorInventoryCache = async () => {
     if (!isMayorPortal) {
       return false;
     }
@@ -467,10 +469,6 @@ const InventoryItemsPage = () => {
     }
 
     applyCachedInventoryData(cacheRow);
-    setDataSourceNotice(
-      notice ||
-        "Showing complete inventory information saved on this device. New stock-in entries will remain visible as pending until they sync.",
-    );
     return true;
   };
 
@@ -485,16 +483,12 @@ const InventoryItemsPage = () => {
       setErrorMessage("");
     }
 
-    setDataSourceNotice("");
-
     if (
       typeof navigator !== "undefined" &&
       navigator.onLine === false &&
       isMayorPortal
     ) {
-      const restored = await restoreMayorInventoryCache(
-        "You are offline. Showing complete inventory information saved on this device.",
-      );
+      const restored = await restoreMayorInventoryCache();
 
       if (!restored) {
         setErrorMessage(
@@ -546,17 +540,14 @@ const InventoryItemsPage = () => {
             ...liveInventoryDatasets,
           });
         } catch (_cacheError) {
-          setDataSourceNotice(
-            "Inventory is available online, but this device could not save the complete offline copy. Check browser storage before working offline.",
-          );
+          // The live response remains usable. Offline-cache readiness owns
+          // the user-facing preparation state for this page.
         }
       }
     } catch (error) {
       const restored =
         isMayorPortal && canUseMayorInventoryCacheAfterError(error)
-          ? await restoreMayorInventoryCache(
-              "Live inventory data could not be reached. Showing the complete inventory copy saved on this device.",
-            )
+          ? await restoreMayorInventoryCache()
           : false;
 
       if (!restored && clearError) {
@@ -1156,17 +1147,69 @@ const InventoryItemsPage = () => {
     setIsScanModalOpen(true);
   };
 
+  const getLocalMayorItemDetail = async (inventoryItemId) => {
+    const cacheRow = await getMayorInventoryCacheSnapshot();
+    const localItems =
+      inventoryItemsForInventoryManagement.length > 0
+        ? inventoryItemsForInventoryManagement
+        : cacheRow?.items || [];
+    const localBatches =
+      inventoryBatchesForInventoryManagement.length > 0
+        ? inventoryBatchesForInventoryManagement
+        : cacheRow?.batches || [];
+    const localTransactions =
+      inventoryTransactions.length > 0
+        ? inventoryTransactions
+        : cacheRow?.transactions || [];
+
+    return buildMayorInventoryItemDetailFromLocalGraph({
+      inventoryItemId,
+      inventoryItems: localItems,
+      inventoryBatches: localBatches,
+      inventoryTransactions: localTransactions,
+    });
+  };
+
   const handleOpenItemDetail = async (inventoryItemId) => {
     setIsDetailModalOpen(true);
     setIsDetailLoading(true);
     setDetailErrorMessage("");
     setSelectedItemDetail(null);
 
+    const browserIsOffline =
+      typeof navigator !== "undefined" && navigator.onLine === false;
+
+    if (isMayorPortal && (!isOnline || browserIsOffline)) {
+      const localDetail = await getLocalMayorItemDetail(inventoryItemId);
+
+      if (localDetail) {
+        setSelectedItemDetail(localDetail);
+      } else {
+        setDetailErrorMessage(
+          "This item is not saved on this device for offline details. Reconnect to view the current item information.",
+        );
+      }
+
+      setIsDetailLoading(false);
+      return;
+    }
+
     try {
       const response = await fetchInventoryItemDetail(inventoryItemId);
       setSelectedItemDetail(response?.data || null);
     } catch (error) {
-      setDetailErrorMessage(error.message || "Failed to load inventory item detail.");
+      const localDetail =
+        isMayorPortal && canUseMayorInventoryCacheAfterError(error)
+          ? await getLocalMayorItemDetail(inventoryItemId)
+          : null;
+
+      if (localDetail) {
+        setSelectedItemDetail(localDetail);
+      } else {
+        setDetailErrorMessage(
+          "Item details could not be loaded. Reconnect to DISTYNC and try again.",
+        );
+      }
     } finally {
       setIsDetailLoading(false);
     }
@@ -1183,7 +1226,7 @@ const InventoryItemsPage = () => {
 
   const handleOpenStatusLogModal = (itemRow) => {
     if (!isOnline) {
-      setDataSourceNotice(
+      setInventoryActionNotice(
         "Status changes require a connection. Reconnect before recording a status log.",
       );
       return;
@@ -1491,28 +1534,12 @@ const InventoryItemsPage = () => {
         title="INVENTORY ITEMS MANAGEMENT"
       />
 
+      {isMayorPortal ? <SyncStatusBanner scope="mayor-inventory" /> : null}
+
       <OfflineDataReadiness
         {...mayorOfflinePreparation}
         variant="mayor-inventory"
       />
-
-      {dataSourceNotice ? (
-        <section
-          aria-live="polite"
-          role="status"
-          style={{
-            ...shellStyles.card,
-            padding: "14px 18px",
-            borderColor: "#c8dff0",
-            backgroundColor: "#f4f9fd",
-            color: "#2b587d",
-            fontSize: "14px",
-            lineHeight: 1.5,
-          }}
-        >
-          {dataSourceNotice}
-        </section>
-      ) : null}
 
       <div className="inventory-items-page-top-actions" style={inventoryPageStyles.pageTopActions}>
         <InventoryPageActions
@@ -1647,6 +1674,12 @@ const InventoryItemsPage = () => {
         type={exportFeedback.type}
         message={exportFeedback.message}
         onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
+
+      <FeedbackToast
+        type="info"
+        message={inventoryActionNotice}
+        onClose={() => setInventoryActionNotice("")}
       />
 
       <InventoryItemDetailModal

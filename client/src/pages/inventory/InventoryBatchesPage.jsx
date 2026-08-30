@@ -5,7 +5,6 @@ import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
-import OfflineDataReadiness from "../../components/layout/OfflineDataReadiness";
 import ExportModal from "../../components/shared/ExportModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import SearchBar from "../../components/shared/SearchBar";
@@ -131,7 +130,6 @@ const InventoryBatchesPage = () => {
   const [suppliers, setSuppliers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
-  const [dataSourceNotice, setDataSourceNotice] = useState("");
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine !== false,
   );
@@ -181,7 +179,6 @@ const InventoryBatchesPage = () => {
   const loadPageData = async (activeFilters = filters) => {
     setIsLoading(true);
     setErrorMessage("");
-    setDataSourceNotice("");
 
     if (!isOnline && isMayorPortal) {
       const cacheRow = await getMayorInventoryCacheSnapshot();
@@ -190,9 +187,6 @@ const InventoryBatchesPage = () => {
         setInventoryBatches(filterCachedBatches(cacheRow.batches, activeFilters));
         setInventoryItems(cacheRow.items || []);
         setSuppliers(cacheRow.suppliers || []);
-        setDataSourceNotice(
-          "You are offline. Showing inventory batches saved on this device; newly saved stock-in entries remain marked Pending Sync.",
-        );
       } else {
         setErrorMessage(
           "Inventory batches are not prepared on this device yet. Connect to DISTYNC before using offline stock-in.",
@@ -220,9 +214,6 @@ const InventoryBatchesPage = () => {
           setInventoryBatches(filterCachedBatches(cacheRow.batches, activeFilters));
           setInventoryItems(cacheRow.items || []);
           setSuppliers(cacheRow.suppliers || []);
-          setDataSourceNotice(
-            "Live inventory batches could not be reached. Showing the complete batch information saved on this device.",
-          );
         } else {
           setErrorMessage(error.message || "Failed to load inventory batches.");
         }
@@ -467,29 +458,6 @@ const InventoryBatchesPage = () => {
           },
         ]}
       />
-
-      <OfflineDataReadiness
-        {...mayorOfflinePreparation}
-        variant="mayor-inventory"
-      />
-
-      {dataSourceNotice ? (
-        <section
-          aria-live="polite"
-          role="status"
-          style={{
-            ...shellStyles.card,
-            padding: "14px 18px",
-            borderColor: "#c8dff0",
-            backgroundColor: "#f4f9fd",
-            color: "#2b587d",
-            fontSize: "14px",
-            lineHeight: 1.5,
-          }}
-        >
-          {dataSourceNotice}
-        </section>
-      ) : null}
 
       <section style={shellStyles.card}>
         <div

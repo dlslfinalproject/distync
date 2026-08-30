@@ -150,10 +150,12 @@ const BarangayLayout = () => {
   });
   const isSettingsRoute = location.pathname.endsWith("/settings");
   const isSyncRoute = location.pathname.endsWith("/sync");
+  const isMayorPortal = currentRole === ROLE_CODES.MAYOR;
   const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
   const isMayorAnomalyRoute = location.pathname.startsWith("/inventory/anomalies");
   const shouldShowSyncStatusBanner =
     !isBarangayPortal &&
+    !isMayorPortal &&
     !isBarangayAnomalyRoute &&
     !isMayorAnomalyRoute &&
     !(currentRole === ROLE_CODES.MSWDO && isSyncRoute);

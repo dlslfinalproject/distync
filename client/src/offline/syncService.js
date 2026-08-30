@@ -28,6 +28,9 @@ const NETWORK_ERROR_MESSAGES = [
   "timeout",
   "timed out",
 ];
+const TRANSPORT_FAILURE_MESSAGES = NETWORK_ERROR_MESSAGES.filter(
+  (fragment) => !["timeout", "timed out"].includes(fragment),
+);
 const SYNC_ENDPOINT = `${API_BASE_URL}/api/v1/sync/process`;
 const syncListeners = new Set();
 let isInitialized = false;
@@ -74,6 +77,21 @@ const isNetworkFailure = (error) => {
   );
 };
 
+// A transport failure has no server status: the browser could not establish
+// or keep the request connection. It is not evidence that the queued action
+// was rejected. Keep the local row pending so reconnect recovery can retry it.
+const isTransportFailure = (error) => {
+  const statusCode = Number(
+    error?.statusCode || error?.status || error?.response?.status || 0,
+  );
+  const message = String(error?.message || "").toLowerCase();
+
+  return (
+    !statusCode &&
+    TRANSPORT_FAILURE_MESSAGES.some((fragment) => message.includes(fragment))
+  );
+};
+
 const validateRequiredFields = (payload, requiredFields = []) => {
   for (const fieldName of requiredFields) {
     const value = payload?.[fieldName];
@@ -88,10 +106,10 @@ const validateRequiredFields = (payload, requiredFields = []) => {
   }
 };
 
-const notifySyncListeners = () => {
+const notifySyncListeners = (event = {}) => {
   syncListeners.forEach((listener) => {
     try {
-      listener();
+      listener(event);
     } catch (_error) {
       // Listener failures should not block sync state changes.
     }
@@ -128,17 +146,20 @@ export const subscribeToSyncUpdates = (listener) => {
   return () => syncListeners.delete(listener);
 };
 
-export const flushPendingSyncEntries = async () => {
+export const flushPendingSyncEntries = async ({ source = "automatic" } = {}) => {
   const queuedEntries = await getRetryableSyncEntries();
-  return flushSelectedSyncEntries(queuedEntries);
+  return flushSelectedSyncEntries(queuedEntries, { source });
 };
 
 export const retryFailedSyncEntries = async (entryIds = []) => {
   const failedEntries = await getFailedSyncEntries(entryIds);
-  return flushSelectedSyncEntries(failedEntries);
+  return flushSelectedSyncEntries(failedEntries, { source: "manual" });
 };
 
-const flushSelectedSyncEntries = async (queuedEntries = []) => {
+const flushSelectedSyncEntries = async (
+  queuedEntries = [],
+  { source = "automatic" } = {},
+) => {
   const requestedIds = queuedEntries.map((entry) => entry.id).filter(Boolean);
 
   if (isSyncInFlight) {
@@ -175,7 +196,11 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
   }
 
   isSyncInFlight = true;
-  notifySyncListeners();
+  notifySyncListeners({
+    type: "started",
+    source,
+    entryIds: requestedIds,
+  });
 
   const processingOwner = generateLocalId();
   const attemptedIds = [];
@@ -340,12 +365,18 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
       pendingIds,
     };
   } catch (error) {
+    const transportFailure = isTransportFailure(error);
+
     for (const entry of entriesToSync) {
       if (syncedIds.includes(entry.id) || conflictIds.includes(entry.id)) {
         continue;
       }
 
-      if (!failedIds.includes(entry.id)) {
+      if (transportFailure) {
+        if (!pendingIds.includes(entry.id)) {
+          pendingIds.push(entry.id);
+        }
+      } else if (!failedIds.includes(entry.id)) {
         failedIds.push(entry.id);
       }
 
@@ -355,11 +386,17 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
 
       try {
         await updateSyncEntryStatus(entry.id, {
-          status: LOCAL_SYNC_STATUS.FAILED,
-          lastError: getSafeSyncErrorMessage(error, "Sync failed."),
-          serverMessage: getSafeSyncErrorMessage(error, "Sync failed."),
-          lastErrorCode: error.code || null,
-          lastErrorStatusCode: error.statusCode || null,
+          status: transportFailure
+            ? LOCAL_SYNC_STATUS.PENDING
+            : LOCAL_SYNC_STATUS.FAILED,
+          lastError: transportFailure
+            ? null
+            : getSafeSyncErrorMessage(error, "Sync failed."),
+          serverMessage: transportFailure
+            ? null
+            : getSafeSyncErrorMessage(error, "Sync failed."),
+          lastErrorCode: transportFailure ? null : error.code || null,
+          lastErrorStatusCode: transportFailure ? null : error.statusCode || null,
           processingOwner: null,
           processingUntil: null,
         });
@@ -369,13 +406,15 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
       }
     }
 
-    emitSyncFeedbackEvent({
-      type: "failed",
-      message: getSafeSyncErrorMessage(
-        error,
-        SYNC_PRESENTATION_MESSAGES.SERVER,
-      ),
-    });
+    if (!transportFailure) {
+      emitSyncFeedbackEvent({
+        type: "failed",
+        message: getSafeSyncErrorMessage(
+          error,
+          SYNC_PRESENTATION_MESSAGES.SERVER,
+        ),
+      });
+    }
 
     const failureResult = {
       attemptedIds,
@@ -399,7 +438,7 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
     };
   } finally {
     isSyncInFlight = false;
-    notifySyncListeners();
+    notifySyncListeners({ type: "finished", source });
   }
 };
 
@@ -410,16 +449,18 @@ export const initializeSyncService = () => {
 
   isInitialized = true;
 
-  window.addEventListener("online", () => {
-    void flushPendingSyncEntries();
-  });
+  const handleOnline = () => {
+    void flushPendingSyncEntries({ source: "automatic" });
+  };
+
+  window.addEventListener("online", handleOnline);
 
   window.setInterval(() => {
-    void flushPendingSyncEntries();
+    void flushPendingSyncEntries({ source: "automatic" });
   }, 30000);
 
   if (navigator.onLine) {
-    void flushPendingSyncEntries();
+    void flushPendingSyncEntries({ source: "automatic" });
   }
 };
 

@@ -29,9 +29,7 @@ import {
   canUseMayorInventoryCacheAfterError,
   getMayorInventoryCacheSnapshot,
 } from "../../offline/mayorInventoryCache";
-import { useMayorInventoryOfflinePreparation } from "../../features/offline/useMayorInventoryOfflinePreparation";
 import { mergeInventoryBatchesWithSyncStatus } from "../../offline/mayorInventoryOfflineModel";
-import OfflineDataReadiness from "../../components/layout/OfflineDataReadiness";
 import { ROLE_CODES } from "../../utils/roleSession";
 import {
   buildExportSuccessMessage,
@@ -581,7 +579,7 @@ const SummaryCard = ({ label, value, helper }) => (
 );
 
 const InventoryTransactionsPage = () => {
-  const { currentRole, authenticatedUser } = useAuth();
+  const { currentRole } = useAuth();
   const isMayorPortal = currentRole === ROLE_CODES.MAYOR;
   const [filters, setFilters] = useState({
     inventory_item_id: "",
@@ -596,7 +594,6 @@ const InventoryTransactionsPage = () => {
   const [inventoryBatches, setInventoryBatches] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
-  const [dataSourceNotice, setDataSourceNotice] = useState("");
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine !== false,
   );
@@ -617,12 +614,6 @@ const InventoryTransactionsPage = () => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
-  const mayorOfflinePreparation = useMayorInventoryOfflinePreparation({
-    enabled: isMayorPortal,
-    userId: authenticatedUser?.id || "",
-    roleCode: currentRole,
-  });
-
   const downloadFile = (file) => {
     downloadExportFile(file);
   };
@@ -643,7 +634,6 @@ const InventoryTransactionsPage = () => {
   const loadPageData = async (activeFilters = filters) => {
     setIsLoading(true);
     setErrorMessage("");
-    setDataSourceNotice("");
 
     if (!isOnline && isMayorPortal) {
       const cacheRow = await getMayorInventoryCacheSnapshot();
@@ -652,9 +642,6 @@ const InventoryTransactionsPage = () => {
         setInventoryTransactions(cacheRow.transactions || []);
         setInventoryItems(cacheRow.items || []);
         setInventoryBatches(cacheRow.batches || []);
-        setDataSourceNotice(
-          "You are offline. Showing inventory transaction history saved on this device. This page is view-only while offline.",
-        );
       } else {
         setErrorMessage(
           "Inventory transaction history is not prepared on this device yet. Connect to DISTYNC to view it.",
@@ -682,9 +669,6 @@ const InventoryTransactionsPage = () => {
           setInventoryTransactions(cacheRow.transactions || []);
           setInventoryItems(cacheRow.items || []);
           setInventoryBatches(cacheRow.batches || []);
-          setDataSourceNotice(
-            "Live inventory history could not be reached. Showing the transaction history saved on this device.",
-          );
         } else {
           setErrorMessage(error.message || "Failed to load inventory transactions.");
         }
@@ -1205,29 +1189,6 @@ const InventoryTransactionsPage = () => {
   return (
     <div className="inventory-tracking-page" style={pageStackStyles}>
       <PageHeader title="INVENTORY TRACKING MANAGEMENT" />
-
-      <OfflineDataReadiness
-        {...mayorOfflinePreparation}
-        variant="mayor-inventory"
-      />
-
-      {dataSourceNotice ? (
-        <section
-          aria-live="polite"
-          role="status"
-          style={{
-            ...shellStyles.card,
-            padding: "14px 18px",
-            borderColor: "#c8dff0",
-            backgroundColor: "#f4f9fd",
-            color: "#2b587d",
-            fontSize: "14px",
-            lineHeight: 1.5,
-          }}
-        >
-          {dataSourceNotice}
-        </section>
-      ) : null}
 
       <section
         className="inventory-tracking-filter-card"
