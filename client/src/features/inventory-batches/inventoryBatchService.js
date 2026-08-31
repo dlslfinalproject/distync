@@ -34,18 +34,6 @@ const downloadResponseAsFile = async (response, fallbackMessage) => {
   };
 };
 
-export const normalizeCurrentInventoryBatchPayload = (payload) => {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return payload;
-  }
-
-  const currentPayload = { ...payload };
-  delete currentPayload.supplier_id;
-  delete currentPayload.supplierId;
-  delete currentPayload.supplier;
-  return currentPayload;
-};
-
 export const fetchInventoryBatches = async (filters = {}) => {
   const searchParams = new URLSearchParams();
 
@@ -120,14 +108,12 @@ export const exportInventoryBatches = async (format = "csv", filters = {}) => {
 };
 
 export const createInventoryBatch = async (payload) => {
-  const currentPayload = normalizeCurrentInventoryBatchPayload(payload);
-
   return performSyncableMutation({
     moduleName: "mayor-inventory",
     actionKey: "INVENTORY_BATCH_CREATE",
     entityType: "INVENTORY_BATCH",
-    entityLocalId: currentPayload?.batch_no || null,
-    payload: currentPayload,
+    entityLocalId: payload?.batch_no || null,
+    payload,
     requiredFields: ["inventory_item_id", "batch_no", "quantity_received"],
     canQueueOffline: async () => Boolean(await getMayorInventoryCacheSnapshot()),
     request: async () => {
@@ -136,7 +122,7 @@ export const createInventoryBatch = async (payload) => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(currentPayload),
+        body: JSON.stringify(payload),
       });
 
       return handleJsonResponse(response, "Failed to create inventory batch");
@@ -147,7 +133,7 @@ export const createInventoryBatch = async (payload) => {
           "Inventory batch saved offline. Pending sync once connection is restored.",
         data: {
           id: entityLocalId,
-          batch_no: currentPayload?.batch_no || entityLocalId,
+          batch_no: payload?.batch_no || entityLocalId,
           updated_at: clientTimestamp,
         },
         clientSyncId,
@@ -161,7 +147,6 @@ export const updateInventoryBatchExpiry = async (
   inventoryBatchId,
   payload,
 ) => {
-  const currentPayload = normalizeCurrentInventoryBatchPayload(payload);
   const response = await fetch(
     `${API_BASE_URL}/api/v1/inventory-batches/${inventoryBatchId}/expiry`,
     {
@@ -169,7 +154,7 @@ export const updateInventoryBatchExpiry = async (
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(currentPayload),
+      body: JSON.stringify(payload),
     },
   );
 

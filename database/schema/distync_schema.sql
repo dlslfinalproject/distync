@@ -384,19 +384,6 @@ CREATE TABLE public.distribution_transaction_items (
 -- 5) INVENTORY MANAGEMENT
 -- =========================================================
 
-CREATE TABLE public.suppliers (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  name character varying NOT NULL UNIQUE,
-  contact_person character varying,
-  contact_number character varying,
-  address text,
-  has_moa boolean NOT NULL DEFAULT false,
-  notes text,
-  created_at timestamp with time zone NOT NULL DEFAULT now(),
-  updated_at timestamp with time zone NOT NULL DEFAULT now(),
-  CONSTRAINT suppliers_pkey PRIMARY KEY (id)
-);
-
 CREATE TABLE public.inventory_items (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   item_code character varying NOT NULL UNIQUE,
@@ -447,7 +434,6 @@ CREATE TABLE public.inventory_batches (
   inventory_item_id uuid NOT NULL,
   inventory_item_stock_form_id uuid,
   batch_no character varying NOT NULL,
-  supplier_id uuid,
   source_type character varying NOT NULL DEFAULT 'LGU'::character varying CHECK (source_type::text = ANY (ARRAY['PURCHASED'::character varying, 'DONATED'::character varying, 'DSWD'::character varying, 'LGU'::character varying, 'OTHER'::character varying]::text[])),
   quantity_received integer NOT NULL CHECK (quantity_received >= 0),
   quantity_available integer NOT NULL CHECK (quantity_available >= 0),
@@ -463,7 +449,6 @@ CREATE TABLE public.inventory_batches (
   CONSTRAINT inventory_batches_inventory_item_id_batch_no_unique UNIQUE (inventory_item_id, batch_no),
   CONSTRAINT inventory_batches_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
   CONSTRAINT inventory_batches_inventory_item_stock_form_id_fkey FOREIGN KEY (inventory_item_stock_form_id) REFERENCES public.inventory_item_stock_forms(id),
-  CONSTRAINT inventory_batches_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.suppliers(id),
   CONSTRAINT inventory_batches_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
 );
 

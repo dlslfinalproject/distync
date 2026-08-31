@@ -59,7 +59,6 @@ const validateGetInventoryBatches = (req, res, next) => {
   try {
     const {
       inventory_item_id,
-      supplier_id,
       source_type,
       status,
       is_expiring,
@@ -70,12 +69,6 @@ const validateGetInventoryBatches = (req, res, next) => {
     if (inventory_item_id !== undefined && !isValidUuid(inventory_item_id)) {
       return res.status(400).json({
         message: "inventory_item_id must be a valid UUID when provided",
-      });
-    }
-
-    if (supplier_id !== undefined && !isValidUuid(supplier_id)) {
-      return res.status(400).json({
-        message: "supplier_id must be a valid UUID when provided",
       });
     }
 
@@ -96,7 +89,6 @@ const validateGetInventoryBatches = (req, res, next) => {
 
     req.validatedQuery = {
       inventory_item_id: inventory_item_id || null,
-      supplier_id: supplier_id || null,
       source_type: typeof source_type === "string" && source_type.trim() ? source_type.trim() : null,
       status: typeof status === "string" && status.trim() ? status.trim() : null,
       is_expiring: parsedIsExpiring.isProvided ? parsedIsExpiring.value : null,
@@ -124,7 +116,6 @@ const validateCreateInventoryBatch = (req, res, next) => {
       stock_form_unit_of_measure,
       stock_form_unit_of_measure_value,
       batch_no,
-      supplier_id,
       source_type,
       quantity_received,
       inventory_item_reorder_level,
@@ -222,12 +213,6 @@ const validateCreateInventoryBatch = (req, res, next) => {
       });
     }
 
-    if (supplier_id !== undefined && supplier_id !== null && !isValidUuid(supplier_id)) {
-      return res.status(400).json({
-        message: "supplier_id must be a valid UUID or null",
-      });
-    }
-
     if (!allowedSourceTypes.includes(source_type)) {
       return res.status(400).json({
         message: "source_type must be one of: PURCHASED, DONATED, DSWD, LGU, OTHER",
@@ -295,7 +280,6 @@ const validateCreateInventoryBatch = (req, res, next) => {
       stock_form_unit_of_measure_value:
         stock_form_unit_of_measure_value ?? null,
       batch_no: batch_no.trim(),
-      supplier_id: supplier_id ?? null,
       source_type,
       quantity_received,
       inventory_item_reorder_level:

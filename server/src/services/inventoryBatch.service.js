@@ -31,7 +31,6 @@ const mapInventoryBatch = (batch) => {
     inventory_item_id: batch.inventory_item_id,
     inventory_item_stock_form_id: batch.inventory_item_stock_form_id,
     batch_no: batch.batch_no,
-    supplier_id: batch.supplier_id,
     source_type: batch.source_type,
     source_donation_type: batch.source_donation_type || null,
     source_donation_disaster_event_id:
@@ -72,17 +71,6 @@ const mapInventoryBatch = (batch) => {
           is_active: batch.stock_form_is_active,
         }
       : null,
-    supplier: batch.supplier_id
-      ? {
-          id: batch.supplier_id,
-          name: batch.supplier_name,
-          contact_person: batch.supplier_contact_person,
-          contact_number: batch.supplier_contact_number,
-          address: batch.supplier_address,
-          has_moa: batch.supplier_has_moa,
-          notes: batch.supplier_notes,
-        }
-      : null,
     donation: batch.source_donation_id
       ? {
           id: batch.source_donation_id,
@@ -111,7 +99,6 @@ const summarizeInventoryBatch = (batch) =>
     "inventory_item_id",
     "inventory_item_stock_form_id",
     "batch_no",
-    "supplier_id",
     "source_type",
     "quantity_received",
     "quantity_available",
@@ -462,25 +449,6 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
     throw error;
   }
 
-  let supplierId = batchData.supplier_id ?? null;
-
-  if (supplierId) {
-    const supplier = await inventoryBatchRepository.getSupplierById(
-      supplierId,
-      dbClient || undefined,
-    );
-
-    if (!supplier) {
-      if (batchData.legacySupplierCompatibility === true) {
-        supplierId = null;
-      } else {
-        const error = new Error("supplier_id does not refer to an existing supplier");
-        error.statusCode = 400;
-        throw error;
-      }
-    }
-  }
-
   let resolvedStockFormId = batchData.inventory_item_stock_form_id || null;
   let barcodeAssignmentTarget = null;
 
@@ -717,18 +685,27 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
   const reorderLevel =
     batchData.inventory_item_reorder_level ?? inventoryItem.reorder_level;
 
-  const createdBatch = await inventoryBatchRepository.insertInventoryBatch({
-    ...batchData,
-    inventory_item_stock_form_id: resolvedStockFormId,
-    supplier_id: supplierId,
-    quantity_available: batchData.quantity_received,
-    status: getInventoryBatchStatus({
-      quantityAvailable: batchData.quantity_received,
-      totalQuantityAvailable: nextItemStock,
-      expirationDate: batchData.expiration_date,
-      reorderLevel,
-    }),
-  }, dbClient || undefined);
+  const createdBatch = await inventoryBatchRepository.insertInventoryBatch(
+    {
+      inventory_item_id: batchData.inventory_item_id,
+      inventory_item_stock_form_id: resolvedStockFormId,
+      batch_no: batchData.batch_no,
+      source_type: batchData.source_type,
+      quantity_received: batchData.quantity_received,
+      quantity_available: batchData.quantity_received,
+      expiration_date: batchData.expiration_date,
+      received_at: batchData.received_at,
+      storage_location: batchData.storage_location,
+      status: getInventoryBatchStatus({
+        quantityAvailable: batchData.quantity_received,
+        totalQuantityAvailable: nextItemStock,
+        expirationDate: batchData.expiration_date,
+        reorderLevel,
+      }),
+      created_by: batchData.created_by,
+    },
+    dbClient || undefined,
+  );
 
   if (!createdBatch) {
     const authoritativeBatch =

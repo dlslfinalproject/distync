@@ -996,7 +996,6 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
         inventory_item_id: createdItem.id,
         inventory_item_stock_form_id: createdStockForm.id,
         batch_no: buildOpeningBatchNumber(createdItem.item_code),
-        supplier_id: null,
         source_type: "LGU",
         quantity_received: totalInitialQuantity,
         quantity_available: totalInitialQuantity,

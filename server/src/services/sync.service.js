@@ -2,12 +2,10 @@ const syncRepository = require("../repositories/sync.repository");
 const deviceService = require("./device.service");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
-const supplierRepository = require("../repositories/supplier.repository");
 const householdRegistrationService = require("./householdRegistration.service");
 const distributionTransactionService = require("./distributionTransaction.service");
 const inventoryItemService = require("./inventoryItem.service");
 const inventoryBatchService = require("./inventoryBatch.service");
-const supplierService = require("./supplier.service");
 const inventoryTransactionService = require("./inventoryTransaction.service");
 const stubService = require("./stub.service");
 const notificationService = require("../modules/notifications/notification.service");
@@ -61,7 +59,6 @@ const MAYOR_MUNICIPAL_SYNC_ENTITY_TYPES = new Set([
   "INVENTORY_ITEM",
   "INVENTORY_BATCH",
   "INVENTORY_TRANSACTION",
-  "SUPPLIER",
 ]);
 
 const createConflictPersistenceError = (message) => {
@@ -395,42 +392,15 @@ const ACTION_HANDLERS = {
     entityType: "INVENTORY_BATCH",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth, clientTimestamp, dbClient }) => {
-      const hasLegacySupplierReference =
-        Object.prototype.hasOwnProperty.call(payload || {}, "supplier_id") ||
-        Object.prototype.hasOwnProperty.call(payload || {}, "supplierId");
-
-      return inventoryBatchService.createInventoryBatch({
+    execute: async ({ payload, auth, clientTimestamp, dbClient }) =>
+      inventoryBatchService.createInventoryBatch({
         ...payload,
-        ...(hasLegacySupplierReference
-          ? {
-              supplier_id: payload.supplier_id ?? payload.supplierId ?? null,
-              legacySupplierCompatibility: true,
-            }
-          : {}),
         created_by: auth.userId,
         // Preserve the time the Mayor captured stock-in while keeping the
         // server-created audit timestamps authoritative for synchronization.
         received_at: clientTimestamp,
         dbClient,
-      });
-    },
-  },
-  SUPPLIER_CREATE: {
-    entityType: "SUPPLIER",
-    operationType: "CREATE",
-    roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, dbClient }) =>
-      supplierService.createSupplier(payload, { dbClient }),
-  },
-  SUPPLIER_UPDATE: {
-    entityType: "SUPPLIER",
-    operationType: "UPDATE",
-    roles: [ROLE_CODES.MAYOR],
-    getCurrentRecord: async ({ entityServerId, dbClient }) =>
-      supplierRepository.getSupplierById(entityServerId, dbClient),
-    execute: async ({ entityServerId, payload, dbClient }) =>
-      supplierService.updateSupplier(entityServerId, payload, { dbClient }),
+      }),
   },
   INVENTORY_TRANSACTION_CREATE: {
     entityType: "INVENTORY_TRANSACTION",

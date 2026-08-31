@@ -163,10 +163,6 @@ const AppRoutes = () => {
             { path: "sync", element: <SyncManagementPage /> },
             { path: "anomalies", element: <MayorAnomalyTrackingPage /> },
             {
-              path: "suppliers",
-              element: <Navigate to="/inventory/items" replace />,
-            },
-            {
               path: "relief-pack-templates",
               element: <ReliefPackTemplatesPage />,
             },

@@ -389,7 +389,7 @@ const SYNC_MSWDO_ENTITY_SCOPE = `
 // inventory domain. Keep this allowlist explicit: a municipality-wide read must
 // not accidentally expose Barangay/MSWDO evacuee or distribution operations.
 const SYNC_MAYOR_ENTITY_SCOPE = `
-  st.entity_type IN ('INVENTORY_ITEM', 'INVENTORY_BATCH', 'INVENTORY_TRANSACTION', 'SUPPLIER')
+  st.entity_type IN ('INVENTORY_ITEM', 'INVENTORY_BATCH', 'INVENTORY_TRANSACTION')
 `;
 
 const SYNC_BARANGAY_ATTRIBUTION_CTE = `

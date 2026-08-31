@@ -684,7 +684,6 @@ const insertInventoryBatch = async (payload, dbClient) => {
       INSERT INTO inventory_batches (
         inventory_item_id,
         batch_no,
-        supplier_id,
         source_type,
         quantity_received,
         quantity_available,
@@ -696,7 +695,7 @@ const insertInventoryBatch = async (payload, dbClient) => {
         created_at,
         updated_at
       )
-      VALUES ($1, $2, NULL, $3, $4, $5, $6, COALESCE($7, NOW()), $8, $9, $10, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, NOW()), $8, $9, $10, NOW(), NOW())
       RETURNING id
     `,
     [

@@ -16,7 +16,7 @@ test("Mayor offline stock-in preserves client occurrence timestamps without chan
   const syncService = read("server/src/services/sync.service.js");
 
   assert.match(batchRepository, /hasReceivedAt/);
-  assert.match(batchRepository, /\$12::timestamptz/);
+  assert.match(batchRepository, /\$11::timestamptz/);
   assert.match(batchRepository, /values\.push\(batchData\.received_at\)/);
   assert.match(transactionRepository, /hasPerformedAt/);
   assert.match(transactionRepository, /\$11::timestamptz/);

@@ -41,8 +41,6 @@ const RECORD_TYPE_LABELS = {
   INVENTORY_TRANSACTIONS: "Inventory",
   INVENTORY_BATCH: "Inventory",
   INVENTORY_BATCHES: "Inventory",
-  SUPPLIER: "Legacy Supplier Records",
-  SUPPLIERS: "Legacy Supplier Records",
 };
 
 const ACTION_LABELS = {
@@ -64,8 +62,6 @@ const ACTION_LABELS = {
   INVENTORY_ITEM_CREATE: "Add Inventory Item",
   INVENTORY_ITEM_UPDATE: "Edit Inventory Item",
   INVENTORY_BATCH_CREATE: "Add Inventory Batch",
-  SUPPLIER_CREATE: "Legacy Supplier Record",
-  SUPPLIER_UPDATE: "Legacy Supplier Update",
   INVENTORY_TRANSACTION_CREATE: "Inventory Movement",
 };
 
@@ -80,8 +76,6 @@ const OPERATION_LABELS = {
   INVENTORY_ITEM_CREATE: "Create",
   INVENTORY_ITEM_UPDATE: "Update",
   INVENTORY_BATCH_CREATE: "Create",
-  SUPPLIER_CREATE: "Create",
-  SUPPLIER_UPDATE: "Update",
   INVENTORY_TRANSACTION_CREATE: "Create",
 };
 
@@ -104,8 +98,6 @@ const ACTION_SUBJECT_FALLBACKS = {
   INVENTORY_ITEM_CREATE: "Inventory item record",
   INVENTORY_ITEM_UPDATE: "Inventory item update",
   INVENTORY_BATCH_CREATE: "Inventory batch record",
-  SUPPLIER_CREATE: "Legacy supplier record",
-  SUPPLIER_UPDATE: "Legacy supplier update",
   INVENTORY_TRANSACTION_CREATE: "Inventory movement record",
 };
 
@@ -113,19 +105,16 @@ const MAYOR_SYNC_ENTITY_TYPES = new Set([
   "INVENTORY_ITEM",
   "INVENTORY_BATCH",
   "INVENTORY_TRANSACTION",
-  "SUPPLIER",
 ]);
 
 const MAYOR_SYNC_ACTION_KEYS = new Set([
   "INVENTORY_ITEM_CREATE",
   "INVENTORY_ITEM_UPDATE",
   "INVENTORY_BATCH_CREATE",
-  "SUPPLIER_CREATE",
-  "SUPPLIER_UPDATE",
   "INVENTORY_TRANSACTION_CREATE",
 ]);
 
-const MAYOR_SYNC_MODULE_NAMES = new Set(["MAYOR-INVENTORY", "MAYOR-SUPPLIERS"]);
+const MAYOR_SYNC_MODULE_NAMES = new Set(["MAYOR-INVENTORY"]);
 
 const getStoredActionKey = (record = {}) =>
   normalizeKey(
@@ -444,11 +433,6 @@ export const getSyncRecordDetails = (record = {}) => {
     payload.inventoryTransactionReferenceNo,
     payload.transaction_reference_no,
   );
-  const supplierName = getFirstValue(
-    payload.supplier_name,
-    payload.supplier?.name,
-    payload.supplier?.supplier_name,
-  );
   const barcode = getFirstValue(
     payload.barcode,
     payload.item_barcode,
@@ -513,7 +497,6 @@ export const getSyncRecordDetails = (record = {}) => {
     affectedPersonName,
     stubNumber,
     inventoryItemName,
-    supplierName,
     inventoryBatchNo,
     inventoryTransactionReferenceNo,
     payload.title,
@@ -555,7 +538,7 @@ export const getSyncRecordDetails = (record = {}) => {
     entityType,
     familyHeadName: asDisplayValue(familyHeadName),
     notes: asDisplayValue(
-      getUnsupportedOfflineActionMessage(actionKey, record) ||
+      getUnsupportedOfflineActionMessage(actionKey) ||
         getSafeSyncErrorMessage(record, "") ||
         payload.remarks ||
         "",
@@ -583,7 +566,7 @@ export const getSyncQueueNotes = (record = {}) => {
 
   if (isNonRetryableSyncEntry(record) || isUnsupportedOfflineActionKey(actionKey)) {
     return (
-      getUnsupportedOfflineActionMessage(actionKey, record) ||
+      getUnsupportedOfflineActionMessage(actionKey) ||
       SYNC_PRESENTATION_MESSAGES.UNSUPPORTED
     );
   }
@@ -644,7 +627,7 @@ export const getSyncHistoryNotes = (record = {}) => {
   ].map(normalizeDisplayText);
 
   const candidateNotes = [
-    getUnsupportedOfflineActionMessage(getActionKey(record), record),
+    getUnsupportedOfflineActionMessage(getActionKey(record)),
     getSafeSyncErrorMessage(record, ""),
     payload.remarks,
     payload.status &&
@@ -728,7 +711,7 @@ export const matchesRecordTypeFilter = (record = {}, filterValue = "ALL") => {
   }
 
   if (normalizedFilter === "INVENTORY") {
-    return recordType === "Inventory" || entityType.startsWith("INVENTORY") || entityType === "SUPPLIER";
+    return recordType === "Inventory" || entityType.startsWith("INVENTORY");
   }
 
   if (normalizedFilter === "INVENTORY_ITEM") {
@@ -741,10 +724,6 @@ export const matchesRecordTypeFilter = (record = {}, filterValue = "ALL") => {
 
   if (normalizedFilter === "INVENTORY_TRANSACTION") {
     return entityType === "INVENTORY_TRANSACTION";
-  }
-
-  if (normalizedFilter === "SUPPLIER") {
-    return entityType === "SUPPLIER";
   }
 
   return true;

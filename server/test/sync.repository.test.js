@@ -500,7 +500,7 @@ test("MAYOR municipality sync queries are limited to inventory-owned records", a
   for (const { query } of captured) {
     assert.match(
       query,
-      /st\.entity_type IN \('INVENTORY_ITEM', 'INVENTORY_BATCH', 'INVENTORY_TRANSACTION', 'SUPPLIER'\)/,
+      /st\.entity_type IN \('INVENTORY_ITEM', 'INVENTORY_BATCH', 'INVENTORY_TRANSACTION'\)/,
     );
   }
 });

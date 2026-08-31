@@ -84,8 +84,6 @@ test("MAYOR-OFFLINE-02 pending stock-in projects with explicit quantity and stab
   assert.equal(projected.is_local_only, true);
   assert.equal(projected.received_at, entry.clientTimestamp);
   assert.equal(projected.client_sync_id, entry.id);
-  assert.equal(projected.supplier_id, undefined);
-  assert.equal(projected.supplier, undefined);
   assert.equal(
     getInventoryBatchIdentity(projected),
     "item-1|RICE-BATCH-004",
@@ -122,7 +120,6 @@ test("MAYOR-OFFLINE-03 cache requires complete datasets and scopes records to th
   });
 
   assert.equal(isCompleteMayorInventoryCache(cache), true);
-  assert.equal(cache.suppliers, undefined);
   assert.equal(isMayorInventoryCacheVisible(cache, scope), true);
   assert.equal(
     isMayorInventoryCacheVisible(cache, {
@@ -138,7 +135,6 @@ test("MAYOR-OFFLINE-03 cache requires complete datasets and scopes records to th
     }),
     false,
   );
-  assert.equal(isCompleteMayorInventoryCache({ ...cache, suppliers: [] }), true);
   assert.equal(canUseMayorInventoryCacheAfterError({ statusCode: 408 }), true);
   assert.equal(canUseMayorInventoryCacheAfterError({ statusCode: 429 }), true);
   assert.equal(canUseMayorInventoryCacheAfterError({ statusCode: 503 }), true);
@@ -166,8 +162,6 @@ test("MAYOR-OFFLINE-04 page and queue contracts use durable restoration and safe
   assert.match(preparationSource, /fetchInventoryItems\(\{ search: "" \}\)/);
   assert.match(preparationSource, /fetchInventoryBatches\(\)/);
   assert.match(preparationSource, /fetchInventoryTransactions\(\)/);
-  assert.doesNotMatch(preparationSource, /fetchSuppliers/);
-  assert.doesNotMatch(cacheSource, /MAYOR_INVENTORY_CACHE_DATASETS[\s\S]*suppliers/);
   assert.match(cacheSource, /LEGACY_MAYOR_INVENTORY_CACHE_VERSION = 1/);
   assert.match(cacheSource, /migrateLegacyMayorInventoryCache/);
   assert.doesNotMatch(cacheSource, /syncQueue\.(clear|bulkDelete|delete)/);
@@ -226,6 +220,6 @@ test("MAYOR-OFFLINE-06 fallback identifiers remain valid UUIDs and client timest
   );
   assert.match(itemServiceSource, /received_at: options\.clientTimestamp/);
   assert.match(itemServiceSource, /performed_at: options\.clientTimestamp/);
-  assert.match(batchRepositorySource, /\$12::timestamptz/);
+  assert.match(batchRepositorySource, /\$11::timestamptz/);
   assert.match(transactionRepositorySource, /\$11::timestamptz/);
 });

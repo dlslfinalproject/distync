@@ -17,7 +17,6 @@ const baseSelectQuery = `
     it.created_at,
     ib.batch_no,
     ib.inventory_item_stock_form_id,
-    ib.supplier_id,
     ib.source_type,
     ib.status AS batch_status,
     ib.quantity_available,
@@ -30,7 +29,6 @@ const baseSelectQuery = `
     d.donor_name,
     source_donation.donation_id AS source_donation_id,
     source_donation.donor_name AS source_donor_name,
-    s.name AS supplier_name,
     stock_forms.barcode AS stock_form_barcode,
     stock_forms.packaging AS stock_form_packaging,
     stock_forms.units_per_packaging AS stock_form_units_per_packaging,
@@ -57,7 +55,6 @@ const baseSelectQuery = `
     ORDER BY source_di.created_at ASC
     LIMIT 1
   ) source_donation ON TRUE
-  LEFT JOIN suppliers s ON s.id = ib.supplier_id
   LEFT JOIN inventory_item_stock_forms stock_forms
     ON stock_forms.id = ib.inventory_item_stock_form_id
   LEFT JOIN users u ON u.id = it.performed_by
