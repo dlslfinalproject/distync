@@ -41,8 +41,8 @@ const RECORD_TYPE_LABELS = {
   INVENTORY_TRANSACTIONS: "Inventory",
   INVENTORY_BATCH: "Inventory",
   INVENTORY_BATCHES: "Inventory",
-  SUPPLIER: "Inventory",
-  SUPPLIERS: "Inventory",
+  SUPPLIER: "Legacy Supplier Records",
+  SUPPLIERS: "Legacy Supplier Records",
 };
 
 const ACTION_LABELS = {
@@ -64,8 +64,8 @@ const ACTION_LABELS = {
   INVENTORY_ITEM_CREATE: "Add Inventory Item",
   INVENTORY_ITEM_UPDATE: "Edit Inventory Item",
   INVENTORY_BATCH_CREATE: "Add Inventory Batch",
-  SUPPLIER_CREATE: "Add Supplier",
-  SUPPLIER_UPDATE: "Edit Supplier",
+  SUPPLIER_CREATE: "Legacy Supplier Record",
+  SUPPLIER_UPDATE: "Legacy Supplier Update",
   INVENTORY_TRANSACTION_CREATE: "Inventory Movement",
 };
 
@@ -104,8 +104,8 @@ const ACTION_SUBJECT_FALLBACKS = {
   INVENTORY_ITEM_CREATE: "Inventory item record",
   INVENTORY_ITEM_UPDATE: "Inventory item update",
   INVENTORY_BATCH_CREATE: "Inventory batch record",
-  SUPPLIER_CREATE: "Supplier record",
-  SUPPLIER_UPDATE: "Supplier update",
+  SUPPLIER_CREATE: "Legacy supplier record",
+  SUPPLIER_UPDATE: "Legacy supplier update",
   INVENTORY_TRANSACTION_CREATE: "Inventory movement record",
 };
 
@@ -555,7 +555,7 @@ export const getSyncRecordDetails = (record = {}) => {
     entityType,
     familyHeadName: asDisplayValue(familyHeadName),
     notes: asDisplayValue(
-      getUnsupportedOfflineActionMessage(actionKey) ||
+      getUnsupportedOfflineActionMessage(actionKey, record) ||
         getSafeSyncErrorMessage(record, "") ||
         payload.remarks ||
         "",
@@ -583,7 +583,7 @@ export const getSyncQueueNotes = (record = {}) => {
 
   if (isNonRetryableSyncEntry(record) || isUnsupportedOfflineActionKey(actionKey)) {
     return (
-      getUnsupportedOfflineActionMessage(actionKey) ||
+      getUnsupportedOfflineActionMessage(actionKey, record) ||
       SYNC_PRESENTATION_MESSAGES.UNSUPPORTED
     );
   }
@@ -644,7 +644,7 @@ export const getSyncHistoryNotes = (record = {}) => {
   ].map(normalizeDisplayText);
 
   const candidateNotes = [
-    getUnsupportedOfflineActionMessage(getActionKey(record)),
+    getUnsupportedOfflineActionMessage(getActionKey(record), record),
     getSafeSyncErrorMessage(record, ""),
     payload.remarks,
     payload.status &&

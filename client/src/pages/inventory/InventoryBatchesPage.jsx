@@ -17,7 +17,6 @@ import {
   fetchInventoryBatchDetail,
   fetchInventoryBatches,
   fetchInventoryItems,
-  fetchSuppliers,
 } from "../../features/inventory-batches/inventoryBatchService";
 import db from "../../offline/db.js";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
@@ -57,17 +56,14 @@ const statusOptions = [
   "DAMAGED",
 ];
 
-const buildQueuedBatch = (entry, inventoryItems, suppliers) => {
+const buildQueuedBatch = (entry, inventoryItems) => {
   return {
     id: `local-inventory-batch:${entry.id || entry.entityLocalId}`,
     batch_no: entry.payload?.batch_no || entry.entityLocalId || "Pending batch",
     inventory_item_id: entry.payload?.inventory_item_id || "",
-    supplier_id: entry.payload?.supplier_id || "",
     inventory_item:
       inventoryItems.find((item) => item.id === entry.payload?.inventory_item_id) ||
       null,
-    supplier:
-      suppliers.find((supplier) => supplier.id === entry.payload?.supplier_id) || null,
     source_type: entry.payload?.source_type || "OTHER",
     quantity_received: entry.payload?.quantity_received || 0,
     quantity_available: entry.payload?.quantity_available || entry.payload?.quantity_received || 0,
@@ -97,9 +93,6 @@ const filterCachedBatches = (batches, filters = {}) => {
     const matchesItem =
       !filters.inventory_item_id ||
       String(batch?.inventory_item_id || "") === String(filters.inventory_item_id);
-    const matchesSupplier =
-      !filters.supplier_id ||
-      String(batch?.supplier_id || "") === String(filters.supplier_id);
     const matchesSource =
       !filters.source_type || batch?.source_type === filters.source_type;
     const matchesStatus = !filters.status || batch?.status === filters.status;
@@ -107,7 +100,6 @@ const filterCachedBatches = (batches, filters = {}) => {
     return (
       matchesSearch &&
       matchesItem &&
-      matchesSupplier &&
       matchesSource &&
       matchesStatus
     );
@@ -121,13 +113,11 @@ const InventoryBatchesPage = () => {
   const [filters, setFilters] = useState({
     search: "",
     inventory_item_id: "",
-    supplier_id: "",
     source_type: "",
     status: "",
   });
   const [inventoryBatches, setInventoryBatches] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
-  const [suppliers, setSuppliers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [isOnline, setIsOnline] = useState(() =>
@@ -186,7 +176,6 @@ const InventoryBatchesPage = () => {
       if (cacheRow) {
         setInventoryBatches(filterCachedBatches(cacheRow.batches, activeFilters));
         setInventoryItems(cacheRow.items || []);
-        setSuppliers(cacheRow.suppliers || []);
       } else {
         setErrorMessage(
           "Inventory batches are not prepared on this device yet. Connect to DISTYNC before using offline stock-in.",
@@ -198,22 +187,19 @@ const InventoryBatchesPage = () => {
     }
 
     try {
-      const [batchResponse, itemResponse, supplierResponse] = await Promise.all([
+      const [batchResponse, itemResponse] = await Promise.all([
         fetchInventoryBatches(activeFilters),
         fetchInventoryItems(),
-        fetchSuppliers(),
       ]);
 
       setInventoryBatches(batchResponse || []);
       setInventoryItems(itemResponse || []);
-      setSuppliers(supplierResponse || []);
     } catch (error) {
       if (isMayorPortal && canUseMayorInventoryCacheAfterError(error)) {
         const cacheRow = await getMayorInventoryCacheSnapshot();
         if (cacheRow) {
           setInventoryBatches(filterCachedBatches(cacheRow.batches, activeFilters));
           setInventoryItems(cacheRow.items || []);
-          setSuppliers(cacheRow.suppliers || []);
         } else {
           setErrorMessage(error.message || "Failed to load inventory batches.");
         }
@@ -280,7 +266,6 @@ const InventoryBatchesPage = () => {
   }, [filters]);
 
   const itemOptions = useMemo(() => inventoryItems, [inventoryItems]);
-  const supplierOptions = useMemo(() => suppliers, [suppliers]);
   const inventoryBatchesWithSyncStatus = useMemo(() => {
     const syncedRows = inventoryBatches.map((batch) => {
       const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
@@ -317,10 +302,10 @@ const InventoryBatchesPage = () => {
           )
         );
       })
-      .map((entry) => buildQueuedBatch(entry, inventoryItems, suppliers));
+      .map((entry) => buildQueuedBatch(entry, inventoryItems));
 
     return filterCachedBatches([...optimisticRows, ...syncedRows], filters);
-  }, [filters, inventoryBatches, inventoryItems, suppliers, syncQueueEntries]);
+  }, [filters, inventoryBatches, inventoryItems, syncQueueEntries]);
 
   const handleFilterChange = (fieldName, value) => {
     setFilters((currentFilters) => ({
@@ -450,7 +435,7 @@ const InventoryBatchesPage = () => {
       <PageHeader
         eyebrow="Inventory Workspace"
         title="INVENTORY BATCHES"
-        description="Track batch-level stock intake records with item, supplier, quantity, expiration, and availability details."
+        description="Track batch-level stock intake records with item, quantity, expiration, and availability details."
         actions={[
           {
             label: "Create Batch",
@@ -494,21 +479,6 @@ const InventoryBatchesPage = () => {
               {itemOptions.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.item_name}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={filters.supplier_id}
-              onChange={(event) =>
-                handleFilterChange("supplier_id", event.target.value)
-              }
-              style={selectStyles}
-            >
-              <option value="">All Suppliers</option>
-              {supplierOptions.map((supplier) => (
-                <option key={supplier.id} value={supplier.id}>
-                  {supplier.name}
                 </option>
               ))}
             </select>
@@ -621,7 +591,6 @@ const InventoryBatchesPage = () => {
       <InventoryBatchFormModal
         isOpen={isModalOpen}
         inventoryItems={inventoryItems}
-        suppliers={suppliers}
         initialInventoryItemId={initialInventoryItemId}
         isSubmitting={isSubmitting}
         errorMessage={modalErrorMessage}

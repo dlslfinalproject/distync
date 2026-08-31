@@ -462,16 +462,22 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
     throw error;
   }
 
-  if (batchData.supplier_id) {
+  let supplierId = batchData.supplier_id ?? null;
+
+  if (supplierId) {
     const supplier = await inventoryBatchRepository.getSupplierById(
-      batchData.supplier_id,
+      supplierId,
       dbClient || undefined,
     );
 
     if (!supplier) {
-      const error = new Error("supplier_id does not refer to an existing supplier");
-      error.statusCode = 400;
-      throw error;
+      if (batchData.legacySupplierCompatibility === true) {
+        supplierId = null;
+      } else {
+        const error = new Error("supplier_id does not refer to an existing supplier");
+        error.statusCode = 400;
+        throw error;
+      }
     }
   }
 
@@ -714,6 +720,7 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
   const createdBatch = await inventoryBatchRepository.insertInventoryBatch({
     ...batchData,
     inventory_item_stock_form_id: resolvedStockFormId,
+    supplier_id: supplierId,
     quantity_available: batchData.quantity_received,
     status: getInventoryBatchStatus({
       quantityAvailable: batchData.quantity_received,
@@ -857,7 +864,6 @@ const exportInventoryBatches = async (filters, format) => {
     quantity_available: batch.quantity_available ?? 0,
     expiration_date: mayorReportExport.formatDateOnly(batch.expiration_date),
     status: batch.status || "--",
-    supplier: batch.supplier?.name || "--",
     received_at: mayorReportExport.formatDateTime(batch.received_at),
   }));
 
@@ -877,7 +883,6 @@ const exportInventoryBatches = async (filters, format) => {
       { key: "quantity_available", label: "Quantity Available", width: 20, pdfWidth: 70 },
       { key: "expiration_date", label: "Expiration Date", width: 20, pdfWidth: 88 },
       { key: "status", label: "Status", width: 18, pdfWidth: 70 },
-      { key: "supplier", label: "Supplier", width: 26, pdfWidth: 130 },
       { key: "received_at", label: "Received At", width: 22, pdfWidth: 109 },
     ],
     rows,

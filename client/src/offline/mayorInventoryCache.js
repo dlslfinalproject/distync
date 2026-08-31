@@ -7,8 +7,9 @@ export const MAYOR_INVENTORY_CACHE_DATASETS = Object.freeze([
   "items",
   "batches",
   "transactions",
-  "suppliers",
 ]);
+
+const LEGACY_MAYOR_INVENTORY_CACHE_VERSION = 1;
 
 const trim = (value) => String(value || "").trim();
 const getIsoNow = () => new Date().toISOString();
@@ -118,14 +119,12 @@ export const buildMayorInventoryCacheRecord = ({
   items,
   batches,
   transactions,
-  suppliers,
   cachedAt = getIsoNow(),
 }) => {
   const normalizedRows = {
     items: normalizeRows(items),
     batches: normalizeRows(batches),
     transactions: normalizeRows(transactions),
-    suppliers: normalizeRows(suppliers),
   };
 
   return {
@@ -149,6 +148,45 @@ export const buildMayorInventoryCacheRecord = ({
     },
     ...normalizedRows,
   };
+};
+
+const isMigratableLegacyMayorInventoryCache = (cacheRow) =>
+  Boolean(
+    cacheRow?.status === "READY" &&
+      cacheRow?.cache_version === LEGACY_MAYOR_INVENTORY_CACHE_VERSION &&
+      isRecordArray(cacheRow?.items) &&
+      isRecordArray(cacheRow?.batches) &&
+      isRecordArray(cacheRow?.transactions) &&
+      cacheRow?.coverage?.complete === true,
+  );
+
+const migrateLegacyMayorInventoryCache = async (cacheRow, scope) => {
+  if (!isMigratableLegacyMayorInventoryCache(cacheRow)) {
+    return null;
+  }
+
+  const migratedCacheRow = buildMayorInventoryCacheRecord({
+    scope,
+    items: cacheRow.items,
+    batches: cacheRow.batches,
+    transactions: cacheRow.transactions,
+    cachedAt: cacheRow.cached_at || getIsoNow(),
+  });
+
+  try {
+    let didMigrate = false;
+    await db.transaction("rw", db.offlineInventoryCache, async () => {
+      const currentRow = await db.offlineInventoryCache.get(migratedCacheRow.id);
+
+      if (currentRow?.cache_version === LEGACY_MAYOR_INVENTORY_CACHE_VERSION) {
+        await db.offlineInventoryCache.put(migratedCacheRow);
+        didMigrate = true;
+      }
+    });
+    return didMigrate ? migratedCacheRow : null;
+  } catch (_error) {
+    return null;
+  }
 };
 
 const publishCacheUpdate = (detail) => {
@@ -182,14 +220,17 @@ export const getMayorInventoryCacheSnapshot = async (
     return null;
   }
 
-  return isCompleteMayorInventoryCache(cacheRow) ? cacheRow : null;
+  if (isCompleteMayorInventoryCache(cacheRow)) {
+    return cacheRow;
+  }
+
+  return migrateLegacyMayorInventoryCache(cacheRow, scope);
 };
 
 export const persistMayorInventoryCacheSnapshot = async ({
   items,
   batches,
   transactions,
-  suppliers,
   ownerContext = getSyncQueueActorContext(),
 }) => {
   const scope = getMayorInventoryCacheScope(ownerContext);
@@ -198,7 +239,7 @@ export const persistMayorInventoryCacheSnapshot = async ({
     throw new Error("Mayor inventory cache requires an authenticated Mayor context.");
   }
 
-  const datasetRows = { items, batches, transactions, suppliers };
+  const datasetRows = { items, batches, transactions };
 
   for (const dataset of MAYOR_INVENTORY_CACHE_DATASETS) {
     if (!isRecordArray(datasetRows[dataset])) {
@@ -211,7 +252,6 @@ export const persistMayorInventoryCacheSnapshot = async ({
     items,
     batches,
     transactions,
-    suppliers,
   });
 
   try {

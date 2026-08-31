@@ -40,7 +40,7 @@ export default function OfflineDataReadiness({
           : "Offline Data Not Ready";
   const message = preparing
     ? isMayorInventory
-      ? "DISTYNC is saving the complete inventory, batch, transaction, supplier, and barcode reference data needed for offline stock-in. Keep this device online until preparation is complete."
+      ? "DISTYNC is saving the complete inventory, batch, transaction, and barcode reference data needed for offline stock-in. Keep this device online until preparation is complete."
       : "DISTYNC is preparing the information needed for offline use. Keep this device online until preparation is complete."
     : ready
       ? isMayorInventory

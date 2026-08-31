@@ -71,12 +71,14 @@ test("Mayor Sync Center is a scoped view of the shared queue and tab contract", 
     pageSource,
     /INVENTORY_ITEM[\s\S]*INVENTORY_BATCH[\s\S]*INVENTORY_TRANSACTION[\s\S]*SUPPLIER/,
   );
+  assert.match(pageSource, /SUPPLIER", label: "Legacy Supplier Records"/);
   assert.match(pageSource, /const isMayorPortal = currentRole === ROLE_CODES\.MAYOR/);
   assert.match(pageSource, /syncQueueEntries\.filter\(\(entry\) => isMayorOwnedSyncRecord\(entry\)\)/);
   assert.match(helperSource, /MAYOR_SYNC_ENTITY_TYPES/);
   assert.match(helperSource, /export const isMayorOwnedSyncRecord/);
   assert.match(helperSource, /INVENTORY_ITEM_CREATE/);
   assert.match(helperSource, /INVENTORY_TRANSACTION_CREATE/);
+  assert.match(helperSource, /SUPPLIER_CREATE: "Legacy Supplier Record"/);
 
   assert.match(
     pageSource,

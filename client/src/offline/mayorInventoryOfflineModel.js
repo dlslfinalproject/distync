@@ -2,7 +2,7 @@ import { LOCAL_SYNC_STATUS } from "./syncStatusConstants.js";
 import { normalizeInventoryBarcode } from "../features/inventory-items/inventoryBarcode.js";
 import { buildQueuedInventoryItem } from "../features/inventory-items/inventoryItemSync.js";
 
-export const MAYOR_INVENTORY_CACHE_VERSION = 1;
+export const MAYOR_INVENTORY_CACHE_VERSION = 2;
 
 export const MAYOR_INVENTORY_OFFLINE_ACTIONS = Object.freeze([
   "INVENTORY_ITEM_CREATE",
@@ -102,21 +102,12 @@ export const buildMayorInventoryItemDetailFromLocalGraph = ({
   };
 };
 
-export const buildQueuedInventoryBatch = (
-  entry = {},
-  inventoryItems = [],
-  suppliers = [],
-) => {
+export const buildQueuedInventoryBatch = (entry = {}, inventoryItems = []) => {
   const payload = entry.payload || {};
   const availableItems = Array.isArray(inventoryItems) ? inventoryItems : [];
-  const availableSuppliers = Array.isArray(suppliers) ? suppliers : [];
   const inventoryItemId = normalizeId(payload.inventory_item_id);
   const inventoryItem =
     availableItems.find((item) => normalizeId(item?.id) === inventoryItemId) ||
-    null;
-  const supplierId = normalizeId(payload.supplier_id);
-  const supplier =
-    availableSuppliers.find((candidate) => normalizeId(candidate?.id) === supplierId) ||
     null;
   const quantityReceived = normalizePositiveQuantity(payload.quantity_received);
   const stockForm = inventoryItem
@@ -133,9 +124,7 @@ export const buildQueuedInventoryBatch = (
     inventory_item_id: inventoryItemId,
     inventory_item_stock_form_id:
       payload.inventory_item_stock_form_id || stockForm?.id || null,
-    supplier_id: supplierId || null,
     inventory_item: inventoryItem,
-    supplier,
     inventory_item_stock_form: stockForm,
     source_type: payload.source_type || "OTHER",
     quantity_received: quantityReceived,
@@ -155,7 +144,6 @@ export const buildQueuedInventoryBatch = (
 export const mergeInventoryBatchesWithSyncStatus = ({
   inventoryBatches = [],
   inventoryItems = [],
-  suppliers = [],
   syncQueueEntries = [],
 } = {}) => {
   const serverRows = (Array.isArray(inventoryBatches) ? inventoryBatches : []).map(
@@ -191,7 +179,7 @@ export const mergeInventoryBatchesWithSyncStatus = ({
         entry?.actionKey === "INVENTORY_BATCH_CREATE" &&
         isOutstandingMayorInventoryQueueEntry(entry),
     )
-    .map((entry) => buildQueuedInventoryBatch(entry, inventoryItems, suppliers))
+    .map((entry) => buildQueuedInventoryBatch(entry, inventoryItems))
     .filter((batch) => !serverIdentities.has(getInventoryBatchIdentity(batch)));
 
   return [...optimisticRows, ...serverRows];

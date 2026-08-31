@@ -68,7 +68,7 @@ const MAYOR_RECORD_TYPE_OPTIONS = [
   { value: "INVENTORY_ITEM", label: "Inventory Items" },
   { value: "INVENTORY_BATCH", label: "Inventory Batches" },
   { value: "INVENTORY_TRANSACTION", label: "Inventory Movements" },
-  { value: "SUPPLIER", label: "Suppliers" },
+  { value: "SUPPLIER", label: "Legacy Supplier Records" },
 ];
 
 const QUEUE_STATUS_OPTIONS = [

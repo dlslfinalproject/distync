@@ -327,6 +327,48 @@ test("createInventoryBatch restock path passes created_by through corrected batc
   });
 });
 
+test("legacy supplier-linked batches preserve valid suppliers and null obsolete references", async () => {
+  const insertedBatchPayloads = [];
+  const existingSupplierId = "22222222-2222-4222-8222-222222222222";
+
+  await withStubbedInventoryBatchService(
+    {
+      ...baseStubs({
+        getSupplierById: async (id) =>
+          id === existingSupplierId ? { id, name: "Historical supplier" } : null,
+        insertInventoryBatch: async (batchData) => {
+          insertedBatchPayloads.push(batchData);
+          return {
+            id: `batch-${insertedBatchPayloads.length}`,
+            ...batchData,
+          };
+        },
+      }),
+    },
+    async ({ createInventoryBatch }) => {
+      await createInventoryBatch({
+        inventory_item_id: "item-1",
+        batch_no: "LEGACY-SUPPLIER-VALID",
+        supplier_id: existingSupplierId,
+        source_type: "PURCHASED",
+        quantity_received: 10,
+      });
+
+      await createInventoryBatch({
+        inventory_item_id: "item-1",
+        batch_no: "LEGACY-SUPPLIER-OBSOLETE",
+        supplier_id: "33333333-3333-4333-8333-333333333333",
+        source_type: "PURCHASED",
+        quantity_received: 10,
+        legacySupplierCompatibility: true,
+      });
+    },
+  );
+
+  assert.equal(insertedBatchPayloads[0].supplier_id, existingSupplierId);
+  assert.equal(insertedBatchPayloads[1].supplier_id, null);
+});
+
 test("createInventoryBatch updates a missing reorder level in the same transaction as restock", async () => {
   const transactionEvents = [];
   const actions = [];

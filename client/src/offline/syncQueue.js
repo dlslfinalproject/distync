@@ -23,6 +23,10 @@ const unsupportedOfflineActionKeys = new Set([
   "DISASTER_EVENT_EXTEND",
   "DISASTER_EVENT_END",
 ]);
+const legacySupplierActionKeys = new Set([
+  "SUPPLIER_CREATE",
+  "SUPPLIER_UPDATE",
+]);
 
 const getIsoNow = () => new Date().toISOString();
 const SYNC_PROCESSING_LEASE_MS = 60 * 1000;
@@ -41,6 +45,13 @@ const getQueueBarangayId = ({ payload = {}, barangayId = null, user = null } = {
 
 export const isUnsupportedOfflineActionKey = (actionKey) =>
   unsupportedOfflineActionKeys.has(String(actionKey || "").trim().toUpperCase());
+
+const isLegacySupplierActionKey = (actionKey) =>
+  legacySupplierActionKeys.has(String(actionKey || "").trim().toUpperCase());
+
+export const isLegacySupplierSyncEntry = (entry = {}) =>
+  String(entry?.entityType || "").trim().toUpperCase() === "SUPPLIER" &&
+  isLegacySupplierActionKey(entry?.actionKey);
 
 export const isMalformedSyncEntry = (entry = {}) => {
   if (!entry || typeof entry !== "object") {
@@ -68,11 +79,27 @@ export const isMalformedSyncEntry = (entry = {}) => {
 export const isNonRetryableSyncEntry = (entry = {}) =>
   isUnsupportedOfflineActionKey(entry.actionKey) ||
   isMalformedSyncEntry(entry) ||
-  isSyncIdempotencyMismatch(entry);
+  isSyncIdempotencyMismatch(entry) ||
+  // Supplier CRUD is retained only for stale queue compatibility. A server
+  // result of FAILED is final for that legacy action so reconnect processing
+  // cannot retry it forever; transport failures remain PENDING and retryable.
+  (isLegacySupplierSyncEntry(entry) && entry.status === LOCAL_SYNC_STATUS.FAILED);
 
-export const getUnsupportedOfflineActionMessage = (actionKey) => {
+export const getUnsupportedOfflineActionMessage = (actionKey, entry = {}) => {
   if (isUnsupportedOfflineActionKey(actionKey)) {
     return "This operation is no longer supported for offline synchronization. Please complete the action while online.";
+  }
+
+  if (isLegacySupplierActionKey(actionKey)) {
+    const status = String(entry?.status || entry?.sync_status || "")
+      .trim()
+      .toUpperCase();
+
+    if (status && status !== LOCAL_SYNC_STATUS.FAILED) {
+      return "";
+    }
+
+    return "This legacy supplier synchronization result is retained for review and will not be retried automatically.";
   }
 
   return "";

@@ -8,10 +8,7 @@ import {
 } from "./mayorInventoryCache.js";
 import { MAYOR_INVENTORY_CACHE_VERSION } from "./mayorInventoryOfflineModel.js";
 import { fetchInventoryItems } from "../features/inventory-items/inventoryItemService.js";
-import {
-  fetchInventoryBatches,
-  fetchSuppliers,
-} from "../features/inventory-batches/inventoryBatchService.js";
+import { fetchInventoryBatches } from "../features/inventory-batches/inventoryBatchService.js";
 import { fetchInventoryTransactions } from "../features/inventory-transactions/inventoryTransactionService.js";
 
 export const MAYOR_INVENTORY_PREPARATION_ID_PREFIX = "MAYOR_INVENTORY|";
@@ -134,7 +131,6 @@ export const prepareMayorInventoryOfflineData = ({ userId } = {}) => {
         items: { complete: false, count: 0 },
         batches: { complete: false, count: 0 },
         transactions: { complete: false, count: 0 },
-        suppliers: { complete: false, count: 0 },
       },
       stage: "FETCHING_FULL_INVENTORY_GRAPH",
     };
@@ -167,17 +163,16 @@ export const prepareMayorInventoryOfflineData = ({ userId } = {}) => {
         return { status: offlineStatus, diagnostics: saved };
       }
 
-      const [items, batches, transactions, suppliers] = await withTimeout(
+      const [items, batches, transactions] = await withTimeout(
         Promise.all([
           fetchInventoryItems({ search: "" }),
           fetchInventoryBatches(),
           fetchInventoryTransactions(),
-          fetchSuppliers(),
         ]),
         "Mayor inventory preparation",
       );
 
-      const datasets = { items, batches, transactions, suppliers };
+      const datasets = { items, batches, transactions };
       Object.keys(diagnostics.datasets).forEach((dataset) => {
         diagnostics.datasets[dataset] = {
           complete: Array.isArray(datasets[dataset]),
@@ -197,7 +192,6 @@ export const prepareMayorInventoryOfflineData = ({ userId } = {}) => {
         items,
         batches,
         transactions,
-        suppliers,
         ownerContext,
       });
 
@@ -214,7 +208,6 @@ export const prepareMayorInventoryOfflineData = ({ userId } = {}) => {
         items_count: items.length,
         batches_count: batches.length,
         transactions_count: transactions.length,
-        suppliers_count: suppliers.length,
         cached_at: readBack.cached_at,
       });
       publishPreparationUpdate({

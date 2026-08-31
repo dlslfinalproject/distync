@@ -26,7 +26,6 @@ import {
 import {
   createInventoryBatch,
   fetchInventoryBatches,
-  fetchSuppliers,
   updateInventoryBatchExpiry,
 } from "../../features/inventory-batches/inventoryBatchService";
 import {
@@ -386,7 +385,6 @@ const InventoryItemsPage = () => {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryBatches, setInventoryBatches] = useState([]);
   const [inventoryTransactions, setInventoryTransactions] = useState([]);
-  const [inventorySuppliers, setInventorySuppliers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [inventoryActionNotice, setInventoryActionNotice] = useState("");
@@ -454,7 +452,6 @@ const InventoryItemsPage = () => {
     setInventoryItems(cacheRow.items || []);
     setInventoryBatches(cacheRow.batches || []);
     setInventoryTransactions(cacheRow.transactions || []);
-    setInventorySuppliers(cacheRow.suppliers || []);
     return true;
   };
 
@@ -501,19 +498,17 @@ const InventoryItemsPage = () => {
     }
 
     try {
-      const [itemResponse, batchResponse, transactionResponse, supplierResponse] =
+      const [itemResponse, batchResponse, transactionResponse] =
         await Promise.all([
           fetchInventoryItems({ search: "" }),
           fetchInventoryBatches(),
           fetchInventoryTransactions(),
-          fetchSuppliers(),
         ]);
 
       const liveInventoryDatasets = {
         items: itemResponse,
         batches: batchResponse,
         transactions: transactionResponse,
-        suppliers: supplierResponse,
       };
 
       if (
@@ -532,7 +527,6 @@ const InventoryItemsPage = () => {
       setInventoryItems(itemResponse || []);
       setInventoryBatches(batchResponse || []);
       setInventoryTransactions(transactionResponse || []);
-      setInventorySuppliers(supplierResponse || []);
 
       if (isMayorPortal) {
         try {
@@ -610,13 +604,11 @@ const InventoryItemsPage = () => {
       mergeInventoryBatchesWithSyncStatus({
         inventoryBatches,
         inventoryItems: inventoryItemsWithSyncStatus,
-        suppliers: inventorySuppliers,
         syncQueueEntries,
       }),
     [
       inventoryBatches,
       inventoryItemsWithSyncStatus,
-      inventorySuppliers,
       syncQueueEntries,
     ],
   );

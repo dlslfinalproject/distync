@@ -395,15 +395,26 @@ const ACTION_HANDLERS = {
     entityType: "INVENTORY_BATCH",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth, clientTimestamp, dbClient }) =>
-      inventoryBatchService.createInventoryBatch({
+    execute: async ({ payload, auth, clientTimestamp, dbClient }) => {
+      const hasLegacySupplierReference =
+        Object.prototype.hasOwnProperty.call(payload || {}, "supplier_id") ||
+        Object.prototype.hasOwnProperty.call(payload || {}, "supplierId");
+
+      return inventoryBatchService.createInventoryBatch({
         ...payload,
+        ...(hasLegacySupplierReference
+          ? {
+              supplier_id: payload.supplier_id ?? payload.supplierId ?? null,
+              legacySupplierCompatibility: true,
+            }
+          : {}),
         created_by: auth.userId,
         // Preserve the time the Mayor captured stock-in while keeping the
         // server-created audit timestamps authoritative for synchronization.
         received_at: clientTimestamp,
         dbClient,
-      }),
+      });
+    },
   },
   SUPPLIER_CREATE: {
     entityType: "SUPPLIER",
