@@ -162,7 +162,7 @@ const BarangayMasterlistPage = () => {
   const selectedSectorIds = selectedSectorIdsByScope[eventScope] || [];
   const selectedSortOrder = sortOrderByScope[eventScope] || "newest";
 
-  const { data, isLoading, errorMessage, reloadMasterlist } = useMasterlist({
+  const { data, isLoading, errorMessage, infoMessage: masterlistInfoMessage, reloadMasterlist } = useMasterlist({
     disasterEventId: selectedEvent?.id || "",
     barangayId: assignedBarangay?.id || "",
     recordStatus,
@@ -1040,7 +1040,7 @@ const BarangayMasterlistPage = () => {
 
       <MasterlistStatusMessages
         successMessage={registrationSuccessMessage}
-        infoMessage={attendanceActionMessage}
+        infoMessage={attendanceActionMessage || masterlistInfoMessage}
         errorMessage={editHouseholdErrorMessage}
       />
 

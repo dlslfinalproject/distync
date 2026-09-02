@@ -23,9 +23,18 @@ test("offline Masterlist reads durable rows and keeps the effective table scope"
   assert.match(hookSource, /const cachedMasterlistRows = await getCachedMasterlistRows/);
   assert.match(hookSource, /const cachedData = buildCachedMasterlistResult/);
   assert.match(hookSource, /Offline mode: showing the last saved Masterlist/);
+  assert.match(hookSource, /setErrorMessage\(""\);\s*setInfoMessage\(/);
   assert.match(uiSource, /resolveEffectiveMasterlistRows/);
   assert.match(uiSource, /HOUSEHOLD_REGISTER/);
   assert.match(uiSource, /Pending local address/);
+});
+
+test("cached Masterlist fallback remains renderable while offline status is informational", async () => {
+  const hookSource = await readSource("src", "features", "masterlist", "masterlistHooks.js");
+  const pageSource = await readSource("src", "pages", "barangay", "BarangayMasterlistPage.jsx");
+
+  assert.match(hookSource, /infoMessage/);
+  assert.match(pageSource, /infoMessage=\{attendanceActionMessage \|\| masterlistInfoMessage\}/);
 });
 
 test("Offline Data Ready requires the persisted Masterlist read-back", async () => {
