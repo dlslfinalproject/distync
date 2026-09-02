@@ -1246,14 +1246,6 @@ export const useDonationManagementModals = ({
         }
 
         if (
-          !isPiecePackaging(packItem.packaging) &&
-          parsePositiveNumber(packItem.units_per_packaging) <= 0
-        ) {
-          nextErrors[`relief_pack_item_${packItemKey}_units_per_packaging`] =
-            "Units per packaging is required.";
-        }
-
-        if (
           isPerishableCategory(packItem.category) &&
           !String(packItem.expiration_date || "").trim()
         ) {
@@ -1477,7 +1469,24 @@ export const useDonationManagementModals = ({
     setDonationFieldErrors({});
 
     try {
-      const itemsForSubmission = donationForm.items;
+      let itemsForSubmission = donationForm.items;
+
+      // A new relief pack is staged by adding its items; include the pack in
+      // the donation submission without requiring a second confirmation step.
+      if (!donationForm.id && donationItemDraft.entry_type === "RELIEF_PACK") {
+        const nextItemFieldErrors = validateDonationItemDraft();
+
+        if (Object.keys(nextItemFieldErrors).length > 0) {
+          setDonationItemFieldErrors(nextItemFieldErrors);
+          setIsDonationSubmitting(false);
+          return;
+        }
+
+        itemsForSubmission = [
+          ...itemsForSubmission,
+          buildReliefPackDraft(donationItemDraft),
+        ];
+      }
 
       const nextFieldErrors = validateDonationForm({ itemsForSubmission });
 
@@ -1622,13 +1631,6 @@ export const useDonationManagementModals = ({
     }
 
     if (
-      !isPiecePackaging(donationItemDraft.new_item_packaging) &&
-      parsePositiveNumber(donationItemDraft.units_per_packaging) <= 0
-    ) {
-      nextFieldErrors.units_per_packaging = "Units per packaging is required.";
-    }
-
-    if (
       isPerishableCategory(donationItemDraft.new_item_category) &&
       !donationItemDraft.expiration_date
     ) {
@@ -1676,11 +1678,7 @@ export const useDonationManagementModals = ({
                       ? Number(currentDraft.new_item_unit_of_measure_value)
                       : null,
                   packaging: currentDraft.new_item_packaging,
-                  units_per_packaging: isPiecePackaging(
-                    currentDraft.new_item_packaging,
-                  )
-                    ? 1
-                    : Number(currentDraft.units_per_packaging || 0) || 0,
+                  units_per_packaging: 1,
                   barcode: currentDraft.barcode || null,
                   expiration_date: currentDraft.expiration_date || null,
                   quantity_required: quantityRequired,
@@ -1703,9 +1701,7 @@ export const useDonationManagementModals = ({
                   ? Number(currentDraft.new_item_unit_of_measure_value)
                   : null,
               packaging: currentDraft.new_item_packaging,
-              units_per_packaging: isPiecePackaging(currentDraft.new_item_packaging)
-                ? 1
-                : Number(currentDraft.units_per_packaging || 0) || 0,
+              units_per_packaging: 1,
               barcode: currentDraft.barcode || null,
               expiration_date: currentDraft.expiration_date || null,
               quantity_required: quantityRequired,

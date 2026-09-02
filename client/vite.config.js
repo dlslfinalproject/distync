@@ -1,6 +1,6 @@
 import { defineConfig, loadEnv } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
-import packageJson from "./package.json";
+import { readFileSync } from "node:fs";
 import {
   validateBuildTargetAccessMode,
 } from "./scripts/buildTargetConfig.cjs";
@@ -9,6 +9,10 @@ import {
   getModeCacheNameForAccessMode,
   getModePrecacheCacheId,
 } from "./src/pwa/cacheNames.js";
+
+const packageJson = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+);
 
 const validateConfiguredAccessMode = (value) => {
   const normalizedValue = typeof value === "string" ? value.trim() : "";
