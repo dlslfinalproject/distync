@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import {
   fetchMasterlist,
-  getCachedMasterlistSnapshot,
+  buildCachedMasterlistResult,
+  sortMasterlistRows,
 } from "./masterlistService";
+import { getCachedMasterlistRows } from "../../offline/masterlistCache.js";
 
 const emptyData = {
   disasterEvent: null,
@@ -65,7 +67,12 @@ export const useMasterlist = ({
         if (isMounted) {
           const isOffline =
             typeof navigator !== "undefined" && navigator.onLine === false;
-          const cachedData = getCachedMasterlistSnapshot({
+          const cachedMasterlistRows = await getCachedMasterlistRows({
+            disasterEventId,
+            barangayId,
+          });
+          const cachedData = buildCachedMasterlistResult({
+            cachedRows: cachedMasterlistRows,
             disasterEventId,
             barangayId,
             recordStatus,
@@ -75,6 +82,9 @@ export const useMasterlist = ({
             sectorIds,
             sortOrder,
           });
+          if (cachedData) {
+            cachedData.rows = sortMasterlistRows(cachedData.rows, sortOrder);
+          }
           const fallbackData =
             cachedData || lastSuccessfulDataRef.current || null;
 

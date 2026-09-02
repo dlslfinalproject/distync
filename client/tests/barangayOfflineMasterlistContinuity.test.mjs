@@ -1,0 +1,44 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const testDirectory = path.dirname(fileURLToPath(import.meta.url));
+const readSource = async (...segments) =>
+  fs.readFile(path.join(testDirectory, "..", ...segments), "utf8");
+
+test("Barangay Masterlist cache helper is imported and writes successful results", async () => {
+  const source = await readSource("src", "features", "masterlist", "masterlistService.js");
+
+  assert.match(source, /import \{[\s\S]*cacheMasterlistRows[\s\S]*getCachedMasterlistRows[\s\S]*\} from .*offline\/masterlistCache\.js/);
+  assert.match(source, /await cacheMasterlistRows\(\{ rows, disasterEventId, barangayId \}\)/);
+  assert.match(source, /export const getCachedMasterlistResult = async/);
+});
+
+test("offline Masterlist reads durable rows and keeps the effective table scope", async () => {
+  const hookSource = await readSource("src", "features", "masterlist", "masterlistHooks.js");
+  const uiSource = await readSource("src", "features", "masterlist", "barangayMasterlistUi.js");
+
+  assert.match(hookSource, /const cachedMasterlistRows = await getCachedMasterlistRows/);
+  assert.match(hookSource, /const cachedData = buildCachedMasterlistResult/);
+  assert.match(hookSource, /Offline mode: showing the last saved Masterlist/);
+  assert.match(uiSource, /resolveEffectiveMasterlistRows/);
+  assert.match(uiSource, /HOUSEHOLD_REGISTER/);
+  assert.match(uiSource, /Pending local address/);
+});
+
+test("Offline Data Ready requires the persisted Masterlist read-back", async () => {
+  const source = await readSource("src", "features", "offline", "useBarangayOfflinePreparation.js");
+
+  assert.match(source, /getCachedMasterlistRows/);
+  assert.match(source, /hasRequiredMasterlistCache/);
+  assert.match(source, /expectedMasterlistCount === 0 \|\| cachedMasterlistRows\.length > 0/);
+});
+
+test("new offline household occurrences do not derive local IDs from names", async () => {
+  const source = await readSource("src", "features", "household-registration", "householdRegistrationService.js");
+
+  assert.match(source, /entityLocalId: null/);
+  assert.doesNotMatch(source, /entityLocalId: payload\?\.family_head\?\.first_name/);
+});

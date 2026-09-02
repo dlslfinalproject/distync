@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getOfflinePreparation, OFFLINE_PREPARATION_STATUS, prepareBarangayOfflineData } from "../../offline/offlinePreparation.js";
+import { getCachedMasterlistRows } from "../../offline/masterlistCache.js";
 
 export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eventId = "", barangayId = "", context = {} }) => {
   const [readiness, setReadiness] = useState(OFFLINE_PREPARATION_STATUS.NOT_PREPARED);
@@ -15,7 +16,15 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
     const run = async () => {
       const existing = await getOfflinePreparation(scope);
       if (mounted && existing) setDiagnostics(existing);
-      if (existing?.status === OFFLINE_PREPARATION_STATUS.READY) {
+      const cachedMasterlistRows = await getCachedMasterlistRows({
+        disasterEventId: eventId,
+        barangayId,
+      });
+      const expectedMasterlistCount = Number(existing?.masterlist_count ?? 0);
+      const hasRequiredMasterlistCache =
+        existing?.status === OFFLINE_PREPARATION_STATUS.READY &&
+        (expectedMasterlistCount === 0 || cachedMasterlistRows.length > 0);
+      if (hasRequiredMasterlistCache) {
         if (mounted) setReadiness(OFFLINE_PREPARATION_STATUS.READY);
         return;
       }
