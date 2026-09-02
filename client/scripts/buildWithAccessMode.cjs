@@ -16,7 +16,7 @@ const run = () => {
 
   const result = spawnSync(
     process.execPath,
-    [viteBin, "build", "--mode", targetConfig.modeName],
+    [viteBin, "build", "--mode", targetConfig.modeName, "--configLoader", "native"],
     {
       cwd: clientDir,
       env: {

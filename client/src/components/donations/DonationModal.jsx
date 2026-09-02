@@ -37,6 +37,60 @@ const unitOptions = ["pc", "kg", "g", "L", "mL"];
 const packagingOptions = ["piece", "pack", "box", "case", "carton", "sack", "bottle"];
 const RELIEF_PACK_REMARK_PREFIX = "Relief Pack:";
 
+const preventNumberInputWheelChange = (event) => {
+  event.preventDefault();
+};
+
+const isNumericEditingKey = (key) =>
+  [
+    "Backspace",
+    "Delete",
+    "Tab",
+    "Escape",
+    "Enter",
+    "ArrowLeft",
+    "ArrowRight",
+    "Home",
+    "End",
+  ].includes(key);
+
+const preventInvalidNumericInput = (event) => {
+  if (
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    isNumericEditingKey(event.key)
+  ) {
+    return;
+  }
+
+  const allowDecimal = event.currentTarget.dataset.allowDecimal === "true";
+
+  if (/^[0-9]$/.test(event.key)) {
+    return;
+  }
+
+  if (
+    allowDecimal &&
+    event.key === "." &&
+    !event.currentTarget.value.includes(".")
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+};
+
+const preventInvalidNumericPaste = (event) => {
+  const pastedValue = event.clipboardData.getData("text").trim();
+  const allowDecimal = event.currentTarget.dataset.allowDecimal === "true";
+  const pattern = allowDecimal ? /^\d*\.?\d*$/ : /^\d*$/;
+
+  if (!pattern.test(pastedValue)) {
+    event.preventDefault();
+  }
+};
+
 const getReliefPackItemTotal = (packItem, packQuantity) => {
   const quantityPerReliefPack = Number(packItem?.quantity_required || 0);
   const totalReliefPacks = Number(packQuantity || 0);
@@ -1214,6 +1268,10 @@ const DonationModal = ({
                         min="0.01"
                         step="0.01"
                         value={itemDraft.new_item_unit_of_measure_value}
+                        data-allow-decimal="true"
+                        onKeyDown={preventInvalidNumericInput}
+                        onPaste={preventInvalidNumericPaste}
+                        onWheel={preventNumberInputWheelChange}
                         onChange={(event) =>
                           onItemDraftChange(
                             "new_item_unit_of_measure_value",
@@ -1283,9 +1341,13 @@ const DonationModal = ({
                   </label>
                   <input
                     id="item_quantity"
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     min="1"
                     value={itemDraft.relief_pack_quantity}
+                    onKeyDown={preventInvalidNumericInput}
+                    onPaste={preventInvalidNumericPaste}
+                    onWheel={preventNumberInputWheelChange}
                     onChange={(event) =>
                       onItemDraftChange("relief_pack_quantity", event.target.value)
                     }
@@ -1307,9 +1369,13 @@ const DonationModal = ({
                   </label>
                   <input
                     id="packaging_count"
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     min="1"
                     value={itemDraft.packaging_count}
+                    onKeyDown={preventInvalidNumericInput}
+                    onPaste={preventInvalidNumericPaste}
+                    onWheel={preventNumberInputWheelChange}
                     onChange={(event) =>
                       onItemDraftChange("packaging_count", event.target.value)
                     }
@@ -1330,9 +1396,13 @@ const DonationModal = ({
                   </label>
                   <input
                     id="units_per_packaging"
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     min="1"
                     value={itemDraft.units_per_packaging}
+                    onKeyDown={preventInvalidNumericInput}
+                    onPaste={preventInvalidNumericPaste}
+                    onWheel={preventNumberInputWheelChange}
                     onChange={(event) =>
                       onItemDraftChange("units_per_packaging", event.target.value)
                     }
@@ -1381,6 +1451,9 @@ const DonationModal = ({
                     min="1"
                     step="1"
                     value={itemDraft.per_family_allocation || ""}
+                    onKeyDown={preventInvalidNumericInput}
+                    onPaste={preventInvalidNumericPaste}
+                    onWheel={preventNumberInputWheelChange}
                     onChange={(event) =>
                       onItemDraftChange("per_family_allocation", event.target.value)
                     }
@@ -1556,15 +1629,6 @@ const DonationModal = ({
                                 />
                               </div>
                               <div>
-                                <label style={labelStyles}>Units per Pack</label>
-                                <input
-                                  type="text"
-                                  value={String(packItem.units_per_packaging || 1)}
-                                  readOnly
-                                  style={lockedInputStyles}
-                                />
-                              </div>
-                              <div>
                                 <label style={labelStyles}>Batch Number</label>
                                 <input
                                   type="text"
@@ -1576,9 +1640,13 @@ const DonationModal = ({
                               <div>
                                 <label style={labelStyles}>Quantity per Relief Pack</label>
                                 <input
-                                  type="number"
+                                  type="text"
+                                  inputMode="numeric"
                                   min="1"
                                   value={packItem.quantity_required || ""}
+                                  onKeyDown={preventInvalidNumericInput}
+                                  onPaste={preventInvalidNumericPaste}
+                                  onWheel={preventNumberInputWheelChange}
                                   onChange={(event) =>
                                     onReliefPackDraftItemChange(
                                       packItemKey,
@@ -1861,6 +1929,10 @@ const DonationModal = ({
                         min="0.01"
                         step="0.01"
                         value={itemDraft.new_item_unit_of_measure_value}
+                        data-allow-decimal="true"
+                        onKeyDown={preventInvalidNumericInput}
+                        onPaste={preventInvalidNumericPaste}
+                        onWheel={preventNumberInputWheelChange}
                         onChange={(event) =>
                           onItemDraftChange(
                             "new_item_unit_of_measure_value",
@@ -1916,9 +1988,13 @@ const DonationModal = ({
                     </label>
                     <input
                       id="pack_item_quantity_required"
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
                       min="1"
                       value={itemDraft.pack_item_quantity_required}
+                      onKeyDown={preventInvalidNumericInput}
+                      onPaste={preventInvalidNumericPaste}
+                      onWheel={preventNumberInputWheelChange}
                       onChange={(event) =>
                         onItemDraftChange(
                           "pack_item_quantity_required",
@@ -1935,32 +2011,6 @@ const DonationModal = ({
                       </p>
                     ) : null}
                   </div>
-
-                  {shouldShowUnitsPerPackagingField ? (
-                    <div>
-                      <label htmlFor="pack_item_units_per_packaging" style={labelStyles}>
-                        {unitsPerPackagingLabel}
-                      </label>
-                      <input
-                        id="pack_item_units_per_packaging"
-                        type="number"
-                        min="1"
-                        value={itemDraft.units_per_packaging}
-                        onChange={(event) =>
-                          onItemDraftChange("units_per_packaging", event.target.value)
-                        }
-                        style={lockStockFormFields ? lockedInputStyles : inputStyles}
-                        disabled={lockStockFormFields}
-                        placeholder={unitsPerPackagingPlaceholder}
-                        aria-invalid={Boolean(itemFieldErrors.units_per_packaging)}
-                      />
-                      {itemFieldErrors.units_per_packaging ? (
-                        <p style={fieldErrorTextStyles}>
-                          {itemFieldErrors.units_per_packaging}
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
 
                   <div>
                     <label htmlFor="pack_item_expiration_date" style={labelStyles}>
@@ -2095,26 +2145,6 @@ const DonationModal = ({
                           ))}
                         </div>
 
-                        <div
-                          className="mayor-donation-management-form-actions"
-                          style={{
-                            display: "flex",
-                            justifyContent: "flex-end",
-                            gap: "12px",
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          <button
-                            type="button"
-                            onClick={editingItemId ? onEditExistingItem : onAddItemDraft}
-                            style={{
-                              ...pageHeaderStyles.primaryButton,
-                              minHeight: "48px",
-                            }}
-                          >
-                            {editingItemId ? "Save Relief Pack" : "+ Add Relief Pack"}
-                          </button>
-                        </div>
                       </div>
                     )}
                   </div>

@@ -1,7 +1,7 @@
 {
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build --configLoader native",
     "build:development": "node scripts/buildWithAccessMode.cjs development",
     "build:demo": "node scripts/buildWithAccessMode.cjs demo",
     "preview": "vite preview",
