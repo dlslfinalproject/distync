@@ -13,6 +13,7 @@ import {
   fetchEvacuationCentersByBarangay,
   fetchSectors,
   getCachedRegistrationReferenceData,
+  getCachedEvacuationCentersByBarangay,
   registerHousehold,
   updateHousehold,
 } from "./householdRegistrationService";
@@ -804,7 +805,7 @@ export const useHouseholdRegistrationForm = ({
       if ((!Array.isArray(centers) || centers.length === 0) && isOffline) {
         const cachedReferenceData = getCachedRegistrationReferenceData();
         centers = needsBarangayScopedCenters
-          ? cachedReferenceData.evacuationCentersByBarangay?.[selectedBarangayId] || []
+          ? getCachedEvacuationCentersByBarangay(selectedBarangayId)
           : cachedReferenceData.evacuationCentersAll || [];
       }
 

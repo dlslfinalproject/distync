@@ -131,3 +131,41 @@ test("archived historical and re-admitted active occurrences remain distinct", (
     ["historical-1", "new-2"],
   );
 });
+
+test("pending registrations are sorted with synced rows newest-first", () => {
+  const rows = resolveEffectiveMasterlistRows({
+    rows: [
+      { ...activeRow("synced"), registered_at: "2026-01-01T15:02:00Z" },
+    ],
+    recordStatus: "active",
+    sortOrder: "newest",
+    selectedEventId: "event-a",
+    assignedBarangayId: "barangay-a",
+    syncQueueEntries: [
+      entry({ id: "local-a", actionKey: "HOUSEHOLD_REGISTER", timestamp: "2026-01-01T15:41:00Z" }),
+      entry({ id: "local-b", actionKey: "HOUSEHOLD_REGISTER", timestamp: "2026-01-01T15:44:00Z" }),
+    ],
+  });
+
+  assert.deepEqual(rows.map((row) => row.household_id), ["local-b", "local-a", "synced"]);
+});
+
+test("pending registrations respect oldest-first and edits retain registration order", () => {
+  const rows = resolveEffectiveMasterlistRows({
+    rows: [
+      { ...activeRow("synced"), registered_at: "2026-01-01T15:02:00Z" },
+      { ...activeRow("edited"), registered_at: "2026-01-01T13:00:00Z" },
+    ],
+    recordStatus: "active",
+    sortOrder: "oldest",
+    selectedEventId: "event-a",
+    assignedBarangayId: "barangay-a",
+    syncQueueEntries: [
+      entry({ id: "local-a", actionKey: "HOUSEHOLD_REGISTER", timestamp: "2026-01-01T15:44:00Z" }),
+      entry({ id: "edited", actionKey: "HOUSEHOLD_UPDATE", status: "PENDING", timestamp: "2026-01-01T16:00:00Z" }),
+    ],
+  });
+
+  assert.deepEqual(rows.map((row) => row.household_id), ["edited", "synced", "local-a"]);
+  assert.equal(rows.find((row) => row.household_id === "edited").sync_status, "PENDING");
+});

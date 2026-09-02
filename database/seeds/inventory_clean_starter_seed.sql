@@ -248,7 +248,6 @@ inserted_batches AS (
     inventory_item_id,
     inventory_item_stock_form_id,
     batch_no,
-    supplier_id,
     source_type,
     quantity_received,
     quantity_available,
@@ -281,7 +280,6 @@ inserted_batches AS (
       WHEN ii.item_code = 'INV-START-FOOD-002' AND sf.barcode = '4809990000003'
         THEN 'INV-START-FOOD-002-RESTOCK-BOX-001'
     END AS batch_no,
-    NULL AS supplier_id,
     'LGU' AS source_type,
     CASE
       WHEN ii.item_code = 'INV-START-NFI-001' AND sf.packaging = 'piece' THEN 10

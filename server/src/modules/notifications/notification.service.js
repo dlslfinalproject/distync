@@ -101,7 +101,6 @@ const MAYOR_RELEVANT_SYNC_ENTITY_TYPES = new Set([
   "INVENTORY_TRANSACTION",
   "DONATION",
   "DONATION_ITEM",
-  "SUPPLIER",
 ]);
 
 const FALLBACK_SYNC_NOTIFICATION_ROLE_CODES = [
@@ -1644,6 +1643,48 @@ const emitSyncTransactionFailureAlert = async (syncTransaction) => {
 const emitSyncConflictAlert = async (syncConflict) => {
   if (!syncConflict?.user_id) {
     return null;
+  }
+
+  if (
+    syncConflict.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE" &&
+    syncConflict.status === "RESOLVED" &&
+    syncConflict.resolved_payload_json?.automatic
+  ) {
+    if (
+      syncConflict.resolved_payload_json.result !==
+      "LATER_REGISTRATION_RESOLVED_AS_DUPLICATE"
+    ) {
+      return null;
+    }
+
+    const familyHead =
+      syncConflict.resolved_payload_json.later_registration?.family_head ||
+      syncConflict.local_payload_json?.family_head ||
+      {};
+    const familyHeadName = [familyHead.first_name, familyHead.last_name]
+      .filter(Boolean)
+      .join(" ");
+    const authoritativeBarangay =
+      syncConflict.resolved_payload_json.earlier_registration?.barangay_name ||
+      "another Barangay";
+
+    return createNotificationForUsers({
+      ruleCode: "SYNC_CONFLICT",
+      userIds: [syncConflict.user_id],
+      roleCode: ROLE_CODES.BARANGAY,
+      type: NOTIFICATION_TYPES.SYNC,
+      title: "Duplicate Registration Resolved",
+      message: `${familyHeadName || "This household registration"} was not saved because an earlier registration already exists under Barangay ${authoritativeBarangay}.`,
+      severity: "WARNING",
+      reference_type: "SYNC_CONFLICT",
+      reference_id: syncConflict.id,
+      source_event_key: `SYNC_CONFLICT:${syncConflict.id}`,
+      metadata: {
+        conflictId: syncConflict.id,
+        conflictType: syncConflict.conflict_type,
+        resolutionStatus: "RESOLVED_AUTOMATICALLY",
+      },
+    });
   }
 
   const recipientRoleCode =

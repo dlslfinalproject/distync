@@ -1,0 +1,6 @@
+export const LOCAL_SYNC_STATUS = {
+  PENDING: "PENDING",
+  SYNCED: "SYNCED",
+  FAILED: "FAILED",
+  CONFLICT: "CONFLICT",
+};

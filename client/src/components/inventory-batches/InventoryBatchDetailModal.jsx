@@ -129,7 +129,6 @@ const InventoryBatchDetailModal = ({
               ["Expiry Date", formatDate(batch.expiration_date)],
               ["Status", batch.status || "--"],
               ["Source Type", batch.source_type || "--"],
-              ["Supplier / Source", batch.supplier?.name || "--"],
             ].map(([label, value]) => (
               <div key={label} style={modalStyles.card}>
                 <div style={modalStyles.label}>{label}</div>

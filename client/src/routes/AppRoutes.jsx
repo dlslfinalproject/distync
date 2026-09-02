@@ -21,7 +21,6 @@ import NotificationCenterPage from "../pages/inventory/NotificationCenterPage";
 import SyncManagementPage from "../pages/SyncManagementPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
 import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage";
-import SuppliersPage from "../pages/inventory/SuppliersPage";
 import DonationInformationPage from "../pages/donor/DonationInformationPage";
 import DonationManagementPage from "../pages/DonationManagementPage";
 import DistributionHistoryPage from "../pages/DistributionHistoryPage";
@@ -163,7 +162,6 @@ const AppRoutes = () => {
             { path: "notifications", element: <NotificationCenterPage /> },
             { path: "sync", element: <SyncManagementPage /> },
             { path: "anomalies", element: <MayorAnomalyTrackingPage /> },
-            { path: "suppliers", element: <SuppliersPage /> },
             {
               path: "relief-pack-templates",
               element: <ReliefPackTemplatesPage />,

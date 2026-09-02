@@ -302,6 +302,13 @@ const buildDuplicateRegistrationError = (duplicateMatch, barangayId = null) => {
   error.serverPayload = duplicateMatch
     ? buildDuplicateSuggestionMatchSummary(duplicateMatch)
     : null;
+  if (crossBarangay) {
+    error.duplicateRegistration = {
+      match: duplicateMatch,
+      barangay_id: barangayId,
+      registration_data: null,
+    };
+  }
   return error;
 };
 
@@ -1887,7 +1894,9 @@ const handleDuplicateRegistrationMatch = async ({
     isCrossBarangayDuplicate(match, registrationData.barangay_id) &&
     !registrationData.allow_reviewed_cross_barangay_duplicate
   ) {
-    throw buildDuplicateRegistrationError(match, registrationData.barangay_id);
+    const error = buildDuplicateRegistrationError(match, registrationData.barangay_id);
+    error.duplicateRegistration.registration_data = registrationData;
+    throw error;
   }
 
   if (
@@ -1923,6 +1932,45 @@ const handleDuplicateRegistrationMatch = async ({
   }
 
   throw buildDuplicateRegistrationError(match);
+};
+
+const reconcileCrossBarangayDuplicateWithEarlierRegistration = async ({
+  householdId,
+  registrationData,
+  dbClient,
+}) => {
+  if (
+    !householdId ||
+    !registrationData?.registered_at ||
+    !isValidTimestampValue(registrationData.registered_at)
+  ) {
+    return null;
+  }
+
+  const updatedHousehold =
+    await householdRegistrationRepository.replaceHouseholdRegistrationAuthority(
+      householdId,
+      registrationData,
+      dbClient,
+    );
+
+  if (!updatedHousehold) {
+    return null;
+  }
+
+  if (updatedHousehold.family_head_evacuee_id) {
+    await householdRegistrationRepository.updateEvacuee(
+      updatedHousehold.family_head_evacuee_id,
+      {
+        ...registrationData.family_head,
+        is_family_head: true,
+        is_active: true,
+      },
+      dbClient,
+    );
+  }
+
+  return buildRegistrationResponse(householdId, dbClient);
 };
 
 const registerHousehold = async (
@@ -2153,7 +2201,7 @@ const registerHousehold = async (
 
     const existingHouseholdId = await handleDuplicateRegistrationMatch({
       match: authoritativeDuplicateMatch,
-      registrationData,
+      registrationData: requestDataWithDerivedAgeGroups,
       dbClient: client,
     });
 
@@ -3102,6 +3150,7 @@ module.exports = {
   assertHouseholdUpdateDisasterEventActive,
   getDuplicateRegistrationSuggestions,
   registerHousehold,
+  reconcileCrossBarangayDuplicateWithEarlierRegistration,
   updateHouseholdDetails,
   departHousehold,
   correctEvacuationLog,

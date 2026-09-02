@@ -8,7 +8,13 @@ import {
   getCanonicalMemberSectorCode,
 } from "../../utils/registrationOptions";
 import { formatStayTypeLabel } from "../../utils/stayType";
-import { cacheMasterlistRows } from "../../offline/masterlistCache.js";
+import {
+  cacheMasterlistRows,
+  getCachedMasterlistRows,
+} from "../../offline/masterlistCache.js";
+import { sortMasterlistRows } from "./masterlistSort.js";
+
+export { sortMasterlistRows } from "./masterlistSort.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -43,36 +49,6 @@ export const MASTERLIST_SORT_OPTIONS = [
   { value: "az", label: "Sort A-Z" },
   { value: "za", label: "Sort Z-A" },
 ];
-
-export const sortMasterlistRows = (rows, sortOrder = "newest") => {
-  const safeRows = Array.isArray(rows) ? [...rows] : [];
-
-  return safeRows.sort((leftRow, rightRow) => {
-    if (sortOrder === "oldest" || sortOrder === "newest") {
-      const leftTime = new Date(leftRow?.registered_at || 0).getTime();
-      const rightTime = new Date(rightRow?.registered_at || 0).getTime();
-
-      if (leftTime !== rightTime) {
-        return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
-      }
-    }
-
-    const leftName = String(leftRow?.family_head_name || "").trim().toUpperCase();
-    const rightName = String(rightRow?.family_head_name || "").trim().toUpperCase();
-
-    if (leftName !== rightName) {
-      if (sortOrder === "za") {
-        return rightName.localeCompare(leftName);
-      }
-
-      return leftName.localeCompare(rightName);
-    }
-
-    const leftTime = new Date(leftRow?.registered_at || 0).getTime();
-    const rightTime = new Date(rightRow?.registered_at || 0).getTime();
-    return rightTime - leftTime;
-  });
-};
 
 export const buildSectorsText = (household) => {
   const orderIndexByCode = new Map(
@@ -390,7 +366,13 @@ export const fetchMasterlist = async ({
   const rows = households.map((household) =>
     mapMasterlistRow(household, allHouseholds, { disasterEventId }),
   );
-  await cacheMasterlistRows({ rows, disasterEventId, barangayId }).catch(() => null);
+  try {
+    await cacheMasterlistRows({ rows, disasterEventId, barangayId });
+  } catch (_error) {
+    // Keep the online result usable, while the preparation workflow performs
+    // its own read-back verification and reports persistence failures.
+    console.error("Barangay Masterlist offline cache write failed.");
+  }
   const totalMembers = households.reduce((total, household) => {
     return total + (household.members?.length || 0);
   }, 0);
@@ -398,7 +380,7 @@ export const fetchMasterlist = async ({
     (household) => household.latest_attendance,
   ).length;
 
-  return {
+  const result = {
     disasterEvent: payload.disaster_event || null,
     summary: {
       registeredFamilies: payload.pagination?.totalItems || payload.count || households.length,
@@ -408,7 +390,50 @@ export const fetchMasterlist = async ({
     rows,
     pagination: payload.pagination || null,
   };
+
+  return result;
 };
+
+export const buildCachedMasterlistResult = ({
+  cachedRows = [],
+  disasterEventId,
+  barangayId,
+  recordStatus = "active",
+  page = 1,
+  pageSize = 25,
+  search = "",
+  sectorIds = [],
+} = {}) => {
+  const normalizedSearch = String(search || "").trim().toLowerCase();
+  const requestedSectorIds = new Set((Array.isArray(sectorIds) ? sectorIds : []).map(String));
+  const filteredRows = cachedRows.filter((row) => {
+    if (recordStatus === "active" && row.is_operationally_active === false) return false;
+    if (recordStatus === "archived" && row.is_operationally_active !== false) return false;
+    if (requestedSectorIds.size && !(row.sector_ids || []).some((id) => requestedSectorIds.has(String(id)))) return false;
+    if (!normalizedSearch) return true;
+    return [row.family_head_name, row.address, row.sectors_text, row.attendance_status_text, row.arrival_time_text, row.departure_time_text]
+      .some((value) => String(value || "").toLowerCase().includes(normalizedSearch));
+  });
+  const safePageSize = Math.max(Number(pageSize) || 25, 1);
+  const safePage = Math.max(Number(page) || 1, 1);
+  const totalPages = Math.ceil(filteredRows.length / safePageSize);
+  const rows = filteredRows.slice((safePage - 1) * safePageSize, safePage * safePageSize);
+
+  return rows.length || cachedRows.length
+    ? {
+        disasterEvent: null,
+        summary: { registeredFamilies: filteredRows.length, totalMembers: filteredRows.reduce((total, row) => total + Number(row.members_count || 0), 0), withAttendance: filteredRows.filter((row) => row.arrival_time_text && row.arrival_time_text !== "-").length },
+        rows,
+        pagination: { page: safePage, pageSize: safePageSize, totalItems: filteredRows.length, totalPages, hasPreviousPage: safePage > 1, hasNextPage: safePage < totalPages },
+      }
+    : null;
+};
+
+export const getCachedMasterlistResult = async (options = {}) =>
+  buildCachedMasterlistResult({
+    ...options,
+    cachedRows: await getCachedMasterlistRows(options),
+  });
 
 export const exportBarangayMasterlist = async ({
   disasterEventId,

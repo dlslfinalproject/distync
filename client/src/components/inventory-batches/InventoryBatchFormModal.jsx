@@ -49,7 +49,6 @@ const sourceTypes = ["PURCHASED", "DONATED", "DSWD", "LGU", "OTHER"];
 const createDefaultForm = () => ({
   inventory_item_id: "",
   batch_no: "",
-  supplier_id: "",
   source_type: "DONATED",
   quantity_received: 1,
   expiration_date: "",
@@ -60,7 +59,6 @@ const createDefaultForm = () => ({
 const InventoryBatchFormModal = ({
   isOpen,
   inventoryItems,
-  suppliers,
   initialInventoryItemId,
   isSubmitting,
   errorMessage,
@@ -97,7 +95,6 @@ const InventoryBatchFormModal = ({
     onSubmit({
       inventory_item_id: formValues.inventory_item_id,
       batch_no: formValues.batch_no.trim(),
-      supplier_id: formValues.supplier_id || null,
       source_type: formValues.source_type,
       quantity_received: Number.parseInt(formValues.quantity_received, 10),
       expiration_date: formValues.expiration_date || null,
@@ -182,25 +179,6 @@ const InventoryBatchFormModal = ({
                 onChange={(event) => handleChange("batch_no", event.target.value)}
                 style={inputStyles}
               />
-            </div>
-
-            <div>
-              <label htmlFor="supplier_id" style={labelStyles}>
-                Supplier
-              </label>
-              <select
-                id="supplier_id"
-                value={formValues.supplier_id}
-                onChange={(event) => handleChange("supplier_id", event.target.value)}
-                style={inputStyles}
-              >
-                <option value="">No supplier</option>
-                {suppliers.map((supplier) => (
-                  <option key={supplier.id} value={supplier.id}>
-                    {supplier.name}
-                  </option>
-                ))}
-              </select>
             </div>
 
             <div>

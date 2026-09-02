@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { FiFileText } from "react-icons/fi";
 import { useSearchParams } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import ExportModal from "../../components/shared/ExportModal";
@@ -16,12 +17,17 @@ import {
   fetchInventoryBatchDetail,
   fetchInventoryBatches,
   fetchInventoryItems,
-  fetchSuppliers,
 } from "../../features/inventory-batches/inventoryBatchService";
 import db from "../../offline/db.js";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
+import {
+  canUseMayorInventoryCacheAfterError,
+  getMayorInventoryCacheSnapshot,
+} from "../../offline/mayorInventoryCache";
+import { useMayorInventoryOfflinePreparation } from "../../features/offline/useMayorInventoryOfflinePreparation";
+import { ROLE_CODES } from "../../utils/roleSession";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
@@ -50,41 +56,73 @@ const statusOptions = [
   "DAMAGED",
 ];
 
-const buildQueuedBatch = (entry, inventoryItems, suppliers) => {
+const buildQueuedBatch = (entry, inventoryItems) => {
   return {
-    id: entry.entityLocalId || entry.id,
+    id: `local-inventory-batch:${entry.id || entry.entityLocalId}`,
     batch_no: entry.payload?.batch_no || entry.entityLocalId || "Pending batch",
     inventory_item_id: entry.payload?.inventory_item_id || "",
-    supplier_id: entry.payload?.supplier_id || "",
     inventory_item:
       inventoryItems.find((item) => item.id === entry.payload?.inventory_item_id) ||
       null,
-    supplier:
-      suppliers.find((supplier) => supplier.id === entry.payload?.supplier_id) || null,
     source_type: entry.payload?.source_type || "OTHER",
     quantity_received: entry.payload?.quantity_received || 0,
     quantity_available: entry.payload?.quantity_available || entry.payload?.quantity_received || 0,
     expiration_date: entry.payload?.expiration_date || null,
+    received_at: entry.clientTimestamp || null,
+    created_at: entry.clientTimestamp || null,
+    updated_at: entry.clientUpdatedAt || entry.clientTimestamp || null,
     status: entry.payload?.status || "AVAILABLE",
     sync_status: entry.status,
     is_local_only: true,
+    client_sync_id: entry.id || null,
   };
 };
 
+const filterCachedBatches = (batches, filters = {}) => {
+  const search = String(filters.search || "").trim().toLowerCase();
+
+  return (Array.isArray(batches) ? batches : []).filter((batch) => {
+    const matchesSearch =
+      !search ||
+      [
+        batch?.batch_no,
+        batch?.storage_location,
+        batch?.inventory_item?.item_name,
+        batch?.inventory_item?.item_code,
+      ].some((value) => String(value || "").toLowerCase().includes(search));
+    const matchesItem =
+      !filters.inventory_item_id ||
+      String(batch?.inventory_item_id || "") === String(filters.inventory_item_id);
+    const matchesSource =
+      !filters.source_type || batch?.source_type === filters.source_type;
+    const matchesStatus = !filters.status || batch?.status === filters.status;
+
+    return (
+      matchesSearch &&
+      matchesItem &&
+      matchesSource &&
+      matchesStatus
+    );
+  });
+};
+
 const InventoryBatchesPage = () => {
+  const { currentRole, authenticatedUser } = useAuth();
+  const isMayorPortal = currentRole === ROLE_CODES.MAYOR;
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState({
     search: "",
     inventory_item_id: "",
-    supplier_id: "",
     source_type: "",
     status: "",
   });
   const [inventoryBatches, setInventoryBatches] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
-  const [suppliers, setSuppliers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine !== false,
+  );
   const [successMessage, setSuccessMessage] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -103,6 +141,11 @@ const InventoryBatchesPage = () => {
   const [hasHandledScanRedirect, setHasHandledScanRedirect] = useState(false);
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
+  const mayorOfflinePreparation = useMayorInventoryOfflinePreparation({
+    enabled: isMayorPortal,
+    userId: authenticatedUser?.id || "",
+    roleCode: currentRole,
+  });
   const initialInventoryItemId = searchParams.get("inventory_item_id") || "";
   const shouldOpenCreateFromScan = searchParams.get("open_create") === "1";
 
@@ -110,22 +153,59 @@ const InventoryBatchesPage = () => {
     downloadExportFile(file);
   };
 
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
   const loadPageData = async (activeFilters = filters) => {
     setIsLoading(true);
     setErrorMessage("");
 
+    if (!isOnline && isMayorPortal) {
+      const cacheRow = await getMayorInventoryCacheSnapshot();
+
+      if (cacheRow) {
+        setInventoryBatches(filterCachedBatches(cacheRow.batches, activeFilters));
+        setInventoryItems(cacheRow.items || []);
+      } else {
+        setErrorMessage(
+          "Inventory batches are not prepared on this device yet. Connect to DISTYNC before using offline stock-in.",
+        );
+      }
+
+      setIsLoading(false);
+      return;
+    }
+
     try {
-      const [batchResponse, itemResponse, supplierResponse] = await Promise.all([
+      const [batchResponse, itemResponse] = await Promise.all([
         fetchInventoryBatches(activeFilters),
         fetchInventoryItems(),
-        fetchSuppliers(),
       ]);
 
       setInventoryBatches(batchResponse || []);
       setInventoryItems(itemResponse || []);
-      setSuppliers(supplierResponse || []);
     } catch (error) {
-      setErrorMessage(error.message);
+      if (isMayorPortal && canUseMayorInventoryCacheAfterError(error)) {
+        const cacheRow = await getMayorInventoryCacheSnapshot();
+        if (cacheRow) {
+          setInventoryBatches(filterCachedBatches(cacheRow.batches, activeFilters));
+          setInventoryItems(cacheRow.items || []);
+        } else {
+          setErrorMessage(error.message || "Failed to load inventory batches.");
+        }
+      } else {
+        setErrorMessage(error.message || "Failed to load inventory batches.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -186,14 +266,17 @@ const InventoryBatchesPage = () => {
   }, [filters]);
 
   const itemOptions = useMemo(() => inventoryItems, [inventoryItems]);
-  const supplierOptions = useMemo(() => suppliers, [suppliers]);
   const inventoryBatchesWithSyncStatus = useMemo(() => {
     const syncedRows = inventoryBatches.map((batch) => {
       const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
         return (
           entry.moduleName === "mayor-inventory" &&
           entry.entityType === "INVENTORY_BATCH" &&
-          (entry.entityServerId === batch.id || entry.entityLocalId === batch.id)
+          (entry.entityServerId === batch.id ||
+            entry.entityLocalId === batch.id ||
+            (entry.entityLocalId === batch.batch_no &&
+              String(entry.payload?.inventory_item_id || "") ===
+                String(batch.inventory_item_id || "")))
         );
       });
 
@@ -211,14 +294,18 @@ const InventoryBatchesPage = () => {
           entry.actionKey === "INVENTORY_BATCH_CREATE" &&
           !syncedRows.some(
             (batch) =>
-              batch.id === entry.entityServerId || batch.id === entry.entityLocalId,
+              batch.id === entry.entityServerId ||
+              batch.id === entry.entityLocalId ||
+              (batch.batch_no === entry.entityLocalId &&
+                String(batch.inventory_item_id || "") ===
+                  String(entry.payload?.inventory_item_id || "")),
           )
         );
       })
-      .map((entry) => buildQueuedBatch(entry, inventoryItems, suppliers));
+      .map((entry) => buildQueuedBatch(entry, inventoryItems));
 
-    return [...optimisticRows, ...syncedRows];
-  }, [inventoryBatches, inventoryItems, suppliers, syncQueueEntries]);
+    return filterCachedBatches([...optimisticRows, ...syncedRows], filters);
+  }, [filters, inventoryBatches, inventoryItems, syncQueueEntries]);
 
   const handleFilterChange = (fieldName, value) => {
     setFilters((currentFilters) => ({
@@ -232,7 +319,11 @@ const InventoryBatchesPage = () => {
   };
 
   const handleOpenCreateModal = () => {
-    setModalErrorMessage("");
+    setModalErrorMessage(
+      !isOnline && !mayorOfflinePreparation.isReady
+        ? "Batch stock-in is unavailable offline until complete inventory reference data is saved on this device."
+        : "",
+    );
     setSuccessMessage("");
     setIsModalOpen(true);
   };
@@ -250,6 +341,14 @@ const InventoryBatchesPage = () => {
     setIsSubmitting(true);
     setModalErrorMessage("");
     setSuccessMessage("");
+
+    if (!isOnline && !mayorOfflinePreparation.isReady) {
+      setModalErrorMessage(
+        "Batch stock-in is unavailable offline until complete inventory reference data is saved on this device.",
+      );
+      setIsSubmitting(false);
+      return;
+    }
 
     try {
       const response = await createInventoryBatch(payload);
@@ -270,6 +369,21 @@ const InventoryBatchesPage = () => {
     setIsDetailLoading(true);
     setDetailErrorMessage("");
     setSelectedBatchDetail(null);
+
+    const localBatch = inventoryBatchesWithSyncStatus.find(
+      (batch) => batch.id === inventoryBatchId && batch.is_local_only,
+    );
+
+    if (localBatch) {
+      setSelectedBatchDetail({
+        batch: localBatch,
+        related_transactions: [],
+        audit_history: [],
+        alerts: [],
+      });
+      setIsDetailLoading(false);
+      return;
+    }
 
     try {
       const response = await fetchInventoryBatchDetail(inventoryBatchId);
@@ -321,7 +435,7 @@ const InventoryBatchesPage = () => {
       <PageHeader
         eyebrow="Inventory Workspace"
         title="INVENTORY BATCHES"
-        description="Track batch-level stock intake records with item, supplier, quantity, expiration, and availability details."
+        description="Track batch-level stock intake records with item, quantity, expiration, and availability details."
         actions={[
           {
             label: "Create Batch",
@@ -365,21 +479,6 @@ const InventoryBatchesPage = () => {
               {itemOptions.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.item_name}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={filters.supplier_id}
-              onChange={(event) =>
-                handleFilterChange("supplier_id", event.target.value)
-              }
-              style={selectStyles}
-            >
-              <option value="">All Suppliers</option>
-              {supplierOptions.map((supplier) => (
-                <option key={supplier.id} value={supplier.id}>
-                  {supplier.name}
                 </option>
               ))}
             </select>
@@ -492,7 +591,6 @@ const InventoryBatchesPage = () => {
       <InventoryBatchFormModal
         isOpen={isModalOpen}
         inventoryItems={inventoryItems}
-        suppliers={suppliers}
         initialInventoryItemId={initialInventoryItemId}
         isSubmitting={isSubmitting}
         errorMessage={modalErrorMessage}

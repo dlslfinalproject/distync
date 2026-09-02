@@ -149,10 +149,16 @@ const BarangayLayout = () => {
     context: offlineContext,
   });
   const isSettingsRoute = location.pathname.endsWith("/settings");
+  const isSyncRoute = location.pathname.endsWith("/sync");
+  const isMayorPortal = currentRole === ROLE_CODES.MAYOR;
   const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
   const isMayorAnomalyRoute = location.pathname.startsWith("/inventory/anomalies");
   const shouldShowSyncStatusBanner =
-    !isBarangayPortal && !isBarangayAnomalyRoute && !isMayorAnomalyRoute;
+    !isBarangayPortal &&
+    !isMayorPortal &&
+    !isBarangayAnomalyRoute &&
+    !isMayorAnomalyRoute &&
+    !(currentRole === ROLE_CODES.MSWDO && isSyncRoute);
   const isSidebarOpen = !isSidebarCollapsed;
   const sidebarToggleRef = useRef(null);
   const sidebarWidth = isDonorPortal

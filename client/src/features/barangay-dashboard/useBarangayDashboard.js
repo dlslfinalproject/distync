@@ -4,6 +4,10 @@ import { ROLE_CODES } from "../../utils/roleSession";
 import { fetchBarangays } from "../masterlist/masterlistService";
 import { fetchBarangayDashboard } from "./barangayDashboardService";
 import {
+  getPreparedBarangayOfflineContexts,
+} from "../../offline/offlinePreparation.js";
+import { getCachedRegistrationReferenceData } from "../household-registration/householdRegistrationService.js";
+import {
   persistOperationalDisasterEventSelection,
   readOperationalDisasterEventId,
   readOperationalDisasterEventContext,
@@ -320,22 +324,47 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
               userId,
               eventScope,
             });
-            const retainedEventId =
+            let retainedEventId =
               selectedDisasterEventId || storedEvent?.id || "";
-            const retainedEvent = storedEvent ||
+            const preparedContexts = await getPreparedBarangayOfflineContexts({ userId });
+            const selectedPreparedContext = retainedEventId
+              ? preparedContexts.find(
+                  (preparation) =>
+                    String(preparation.disaster_event_id) === String(retainedEventId),
+                )
+              : preparedContexts.length === 1
+                ? preparedContexts[0]
+                : null;
+            if (!retainedEventId && selectedPreparedContext?.disaster_event_id) {
+              retainedEventId = selectedPreparedContext.disaster_event_id;
+            }
+            const cachedReferenceData = getCachedRegistrationReferenceData();
+            const cachedEvent = Array.isArray(cachedReferenceData.activeDisasterEvents)
+              ? cachedReferenceData.activeDisasterEvents.find(
+                  (event) => String(event?.id) === String(retainedEventId),
+                )
+              : null;
+            const retainedEvent = storedEvent || cachedEvent ||
               (retainedEventId ? { id: retainedEventId } : null);
             const previousContext = lastResolvedContextRef.current;
             const retainedBarangayId =
               previousContext.assignedBarangayId ||
               previousContext.assignedBarangay?.id ||
+              selectedPreparedContext?.barangay_id ||
               overrideBarangayId ||
               fallbackBarangayId ||
               null;
+            const cachedBarangay = Array.isArray(cachedReferenceData.barangays)
+              ? cachedReferenceData.barangays.find(
+                  (barangay) => String(barangay?.id) === String(retainedBarangayId),
+                )
+              : null;
 
             setPayload({
               ...emptyPayload,
               assigned_barangay:
                 previousContext.assignedBarangay ||
+                cachedBarangay ||
                 (retainedBarangayId ? { id: retainedBarangayId } : null),
               assigned_barangay_id: retainedBarangayId,
               event_scope: eventScope,

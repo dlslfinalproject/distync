@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchMasterlist, sortMasterlistRows } from "./masterlistService";
+import {
+  fetchMasterlist,
+  buildCachedMasterlistResult,
+  sortMasterlistRows,
+} from "./masterlistService";
 import { getCachedMasterlistRows } from "../../offline/masterlistCache.js";
 
 const emptyData = {
@@ -26,6 +30,7 @@ export const useMasterlist = ({
   const [data, setData] = useState(emptyData);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [infoMessage, setInfoMessage] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const lastSuccessfulDataRef = useRef(null);
 
@@ -36,12 +41,14 @@ export const useMasterlist = ({
       if (!disasterEventId) {
         setData(emptyData);
         setErrorMessage("");
+        setInfoMessage("");
         setIsLoading(false);
         return;
       }
 
       setIsLoading(true);
       setErrorMessage("");
+      setInfoMessage("");
 
       try {
         const result = await fetchMasterlist({
@@ -58,33 +65,51 @@ export const useMasterlist = ({
         if (isMounted) {
           setData(result);
           lastSuccessfulDataRef.current = result;
+          setInfoMessage("");
         }
       } catch (error) {
         if (isMounted) {
           const isOffline =
             typeof navigator !== "undefined" && navigator.onLine === false;
-          let fallbackData = null;
-          if (isOffline) {
-            const cachedRows = await getCachedMasterlistRows({ disasterEventId, barangayId });
-            const filteredRows = cachedRows.filter((row) => {
-              const isActive = row.is_operationally_active !== false;
-              const statusMatches = recordStatus === "all" || (recordStatus === "active" ? isActive : !isActive);
-              const query = search.trim().toLowerCase();
-              const searchMatches = !query || `${row.family_head_name} ${row.address}`.toLowerCase().includes(query);
-              const sectorMatches = !sectorIds.length || sectorIds.some((id) => (row.sector_ids || []).includes(id));
-              return statusMatches && searchMatches && sectorMatches;
-            });
-            const sortedRows = sortMasterlistRows(filteredRows, sortOrder);
-            const totalPages = pageSize ? Math.ceil(sortedRows.length / pageSize) : 1;
-            fallbackData = {
-              disasterEvent: { id: disasterEventId },
-              summary: { registeredFamilies: sortedRows.length, totalMembers: sortedRows.reduce((sum, row) => sum + (row.members_count || 0), 0), withAttendance: 0 },
-              rows: pageSize ? sortedRows.slice((page - 1) * pageSize, page * pageSize) : sortedRows,
-              pagination: { page, pageSize, totalItems: sortedRows.length, totalPages, hasPreviousPage: page > 1, hasNextPage: page < totalPages },
-            };
+          const cachedMasterlistRows = await getCachedMasterlistRows({
+            disasterEventId,
+            barangayId,
+          });
+          const cachedData = buildCachedMasterlistResult({
+            cachedRows: cachedMasterlistRows,
+            disasterEventId,
+            barangayId,
+            recordStatus,
+            page,
+            pageSize,
+            search,
+            sectorIds,
+            sortOrder,
+          });
+          if (cachedData) {
+            cachedData.rows = sortMasterlistRows(cachedData.rows, sortOrder);
           }
-          setData(fallbackData || (isOffline && lastSuccessfulDataRef.current ? lastSuccessfulDataRef.current : emptyData));
-          setErrorMessage(error.message || "Failed to load masterlist");
+          const fallbackData =
+            cachedData || lastSuccessfulDataRef.current || null;
+
+          if (fallbackData) {
+            setData(fallbackData);
+            lastSuccessfulDataRef.current = fallbackData;
+            setErrorMessage("");
+            setInfoMessage(
+              isOffline
+                ? "Offline mode: showing the last saved Masterlist. Pending registrations remain available."
+                : error.message || "Showing the last saved Masterlist.",
+            );
+          } else {
+            setData(emptyData);
+            setInfoMessage("");
+            setErrorMessage(
+              isOffline
+                ? "Offline Data Not Ready: no saved Masterlist is available for this event and Barangay."
+                : error.message || "Failed to load masterlist",
+            );
+          }
         }
       } finally {
         if (isMounted) {
@@ -114,6 +139,7 @@ export const useMasterlist = ({
     data,
     isLoading,
     errorMessage,
+    infoMessage,
     reloadMasterlist: () => setReloadKey((currentValue) => currentValue + 1),
   };
 };

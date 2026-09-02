@@ -10,6 +10,14 @@ import {
 } from "../features/stubs/stubCache.js";
 import { fetchMasterlist } from "../features/masterlist/masterlistService.js";
 import { cacheMasterlistRows, getCachedMasterlistRows } from "./masterlistCache.js";
+import {
+  fetchActiveDisasterEvents,
+  fetchBarangays,
+  fetchEvacuationCentersByBarangay,
+  fetchSectors,
+  getCachedEvacuationCentersByBarangay,
+  getCachedRegistrationReferenceData,
+} from "../features/household-registration/householdRegistrationService.js";
 
 export const OFFLINE_PREPARATION_STATUS = {
   NOT_PREPARED: "NOT_PREPARED",
@@ -34,6 +42,30 @@ export const getOfflinePreparation = async ({ eventId, barangayId }) => {
   const owner = getSyncQueueActorContext();
   if (!owner.userId || owner.roleCode !== ROLE_CODES.BARANGAY || !eventId || !barangayId) return null;
   return db.offlinePreparation.get(scopeKey({ eventId, barangayId }));
+};
+
+export const getPreparedBarangayOfflineContexts = async ({ userId = "" } = {}) => {
+  const owner = getSyncQueueActorContext();
+  if (
+    !userId ||
+    owner.userId !== userId ||
+    owner.roleCode !== ROLE_CODES.BARANGAY
+  ) {
+    return [];
+  }
+
+  const preparations = await db.offlinePreparation.toArray();
+  return preparations.filter(
+    (preparation) =>
+      preparation.accessMode === owner.accessMode &&
+      preparation.userId === userId &&
+      preparation.roleCode === ROLE_CODES.BARANGAY &&
+      [OFFLINE_PREPARATION_STATUS.READY, OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH].includes(
+        preparation.status,
+      ) &&
+      preparation.disaster_event_id &&
+      preparation.barangay_id,
+  );
 };
 
 export const getLastOfflinePreparationDiagnostics = () => lastPreparationDiagnostics;
@@ -148,7 +180,8 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
     try {
       startStage("FETCHING_MASTERLIST");
       startStage("FETCHING_STUBS");
-      const [stubs, masterlist] = await Promise.all([
+      startStage("FETCHING_REGISTRATION_REFERENCES");
+      const [stubs, masterlist, registrationReferences] = await Promise.all([
           fetchAllPages(
           (page, pageSize) => fetchBarangayStubDashboard({ userId, disasterEventId: eventId, barangayId, page, pageSize, status: "all", skipOfflineCache: true }),
           (pageInfo) => {
@@ -188,9 +221,38 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
             publishDiagnostics({ ...diagnostics });
           },
         ),
+        Promise.all([
+          fetchActiveDisasterEvents(),
+          fetchBarangays(),
+          fetchSectors(),
+          fetchEvacuationCentersByBarangay(barangayId),
+        ]),
       ]);
       completeStage("FETCHING_MASTERLIST", masterlist.rows.length);
       completeStage("FETCHING_STUBS", stubs.rows.length);
+      completeStage("FETCHING_REGISTRATION_REFERENCES");
+      void registrationReferences;
+      const cachedReferenceData = getCachedRegistrationReferenceData();
+      const cachedEvents = Array.isArray(cachedReferenceData.activeDisasterEvents)
+        ? cachedReferenceData.activeDisasterEvents
+        : [];
+      const cachedBarangays = Array.isArray(cachedReferenceData.barangays)
+        ? cachedReferenceData.barangays
+        : [];
+      const cachedSectors = Array.isArray(cachedReferenceData.sectors?.data)
+        ? cachedReferenceData.sectors.data
+        : [];
+      const cachedEvacuationCenters = getCachedEvacuationCentersByBarangay(barangayId);
+      if (
+        !cachedEvents.some((event) => String(event?.id) === String(eventId)) ||
+        !cachedBarangays.some((barangay) => String(barangay?.id) === String(barangayId)) ||
+        cachedSectors.length === 0 ||
+        cachedEvacuationCenters.length === 0
+      ) {
+        const error = new Error("Offline registration reference read-back failed");
+        error.code = "OFFLINE_PREPARATION_REFERENCE_READ_BACK_FAILED";
+        throw error;
+      }
       startStage("PERSISTING_MASTERLIST");
       startStage("PERSISTING_STUBS");
       const persistedStubs = await upsertOfflineStubSnapshots(stubs.rows);

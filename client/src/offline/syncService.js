@@ -28,6 +28,9 @@ const NETWORK_ERROR_MESSAGES = [
   "timeout",
   "timed out",
 ];
+const TRANSPORT_FAILURE_MESSAGES = NETWORK_ERROR_MESSAGES.filter(
+  (fragment) => !["timeout", "timed out"].includes(fragment),
+);
 const SYNC_ENDPOINT = `${API_BASE_URL}/api/v1/sync/process`;
 const syncListeners = new Set();
 let isInitialized = false;
@@ -40,7 +43,28 @@ const generateLocalId = () => {
     return crypto.randomUUID();
   }
 
-  return `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const randomHex = (length) => {
+    let value = "";
+
+    while (value.length < length) {
+      value += Math.floor(Math.random() * 0x100000000)
+        .toString(16)
+        .padStart(8, "0");
+    }
+
+    return value.slice(0, length);
+  };
+  const value = randomHex(32).split("");
+  value[12] = "4";
+  value[16] = (8 + (Number.parseInt(value[16], 16) % 4)).toString(16);
+
+  return [
+    value.slice(0, 8).join(""),
+    value.slice(8, 12).join(""),
+    value.slice(12, 16).join(""),
+    value.slice(16, 20).join(""),
+    value.slice(20, 32).join(""),
+  ].join("-");
 };
 
 const isNetworkFailure = (error) => {
@@ -50,6 +74,21 @@ const isNetworkFailure = (error) => {
 
   return (
     transientStatus || NETWORK_ERROR_MESSAGES.some((fragment) => message.includes(fragment))
+  );
+};
+
+// A transport failure has no server status: the browser could not establish
+// or keep the request connection. It is not evidence that the queued action
+// was rejected. Keep the local row pending so reconnect recovery can retry it.
+const isTransportFailure = (error) => {
+  const statusCode = Number(
+    error?.statusCode || error?.status || error?.response?.status || 0,
+  );
+  const message = String(error?.message || "").toLowerCase();
+
+  return (
+    !statusCode &&
+    TRANSPORT_FAILURE_MESSAGES.some((fragment) => message.includes(fragment))
   );
 };
 
@@ -67,10 +106,10 @@ const validateRequiredFields = (payload, requiredFields = []) => {
   }
 };
 
-const notifySyncListeners = () => {
+const notifySyncListeners = (event = {}) => {
   syncListeners.forEach((listener) => {
     try {
-      listener();
+      listener(event);
     } catch (_error) {
       // Listener failures should not block sync state changes.
     }
@@ -107,17 +146,20 @@ export const subscribeToSyncUpdates = (listener) => {
   return () => syncListeners.delete(listener);
 };
 
-export const flushPendingSyncEntries = async () => {
+export const flushPendingSyncEntries = async ({ source = "automatic" } = {}) => {
   const queuedEntries = await getRetryableSyncEntries();
-  return flushSelectedSyncEntries(queuedEntries);
+  return flushSelectedSyncEntries(queuedEntries, { source });
 };
 
 export const retryFailedSyncEntries = async (entryIds = []) => {
   const failedEntries = await getFailedSyncEntries(entryIds);
-  return flushSelectedSyncEntries(failedEntries);
+  return flushSelectedSyncEntries(failedEntries, { source: "manual" });
 };
 
-const flushSelectedSyncEntries = async (queuedEntries = []) => {
+const flushSelectedSyncEntries = async (
+  queuedEntries = [],
+  { source = "automatic" } = {},
+) => {
   const requestedIds = queuedEntries.map((entry) => entry.id).filter(Boolean);
 
   if (isSyncInFlight) {
@@ -154,7 +196,11 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
   }
 
   isSyncInFlight = true;
-  notifySyncListeners();
+  notifySyncListeners({
+    type: "started",
+    source,
+    entryIds: requestedIds,
+  });
 
   const processingOwner = generateLocalId();
   const attemptedIds = [];
@@ -163,6 +209,7 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
   const nonRetryableIds = [];
   const conflictIds = [];
   const pendingIds = [];
+  let entriesToSync = [];
 
   try {
     const claimedEntries = await claimSyncEntries(queuedEntries, processingOwner);
@@ -178,7 +225,7 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
       };
     }
 
-    const entriesToSync = claimedEntries;
+    entriesToSync = claimedEntries;
     attemptedIds.push(...entriesToSync.map((entry) => entry.id));
 
     const response = await fetch(SYNC_ENDPOINT, {
@@ -270,6 +317,7 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
         lastErrorCode: result.error_code || null,
         lastErrorStatusCode: result.status_code || null,
         conflict: result.conflict || null,
+        resolutionStatus: result.resolution_status || null,
         processingOwner: null,
         processingUntil: null,
       });
@@ -317,12 +365,18 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
       pendingIds,
     };
   } catch (error) {
+    const transportFailure = isTransportFailure(error);
+
     for (const entry of entriesToSync) {
       if (syncedIds.includes(entry.id) || conflictIds.includes(entry.id)) {
         continue;
       }
 
-      if (!failedIds.includes(entry.id)) {
+      if (transportFailure) {
+        if (!pendingIds.includes(entry.id)) {
+          pendingIds.push(entry.id);
+        }
+      } else if (!failedIds.includes(entry.id)) {
         failedIds.push(entry.id);
       }
 
@@ -332,11 +386,17 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
 
       try {
         await updateSyncEntryStatus(entry.id, {
-          status: LOCAL_SYNC_STATUS.FAILED,
-          lastError: getSafeSyncErrorMessage(error, "Sync failed."),
-          serverMessage: getSafeSyncErrorMessage(error, "Sync failed."),
-          lastErrorCode: error.code || null,
-          lastErrorStatusCode: error.statusCode || null,
+          status: transportFailure
+            ? LOCAL_SYNC_STATUS.PENDING
+            : LOCAL_SYNC_STATUS.FAILED,
+          lastError: transportFailure
+            ? null
+            : getSafeSyncErrorMessage(error, "Sync failed."),
+          serverMessage: transportFailure
+            ? null
+            : getSafeSyncErrorMessage(error, "Sync failed."),
+          lastErrorCode: transportFailure ? null : error.code || null,
+          lastErrorStatusCode: transportFailure ? null : error.statusCode || null,
           processingOwner: null,
           processingUntil: null,
         });
@@ -346,13 +406,15 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
       }
     }
 
-    emitSyncFeedbackEvent({
-      type: "failed",
-      message: getSafeSyncErrorMessage(
-        error,
-        SYNC_PRESENTATION_MESSAGES.SERVER,
-      ),
-    });
+    if (!transportFailure) {
+      emitSyncFeedbackEvent({
+        type: "failed",
+        message: getSafeSyncErrorMessage(
+          error,
+          SYNC_PRESENTATION_MESSAGES.SERVER,
+        ),
+      });
+    }
 
     const failureResult = {
       attemptedIds,
@@ -376,7 +438,7 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
     };
   } finally {
     isSyncInFlight = false;
-    notifySyncListeners();
+    notifySyncListeners({ type: "finished", source });
   }
 };
 
@@ -387,17 +449,36 @@ export const initializeSyncService = () => {
 
   isInitialized = true;
 
-  window.addEventListener("online", () => {
-    void flushPendingSyncEntries();
-  });
+  const handleOnline = () => {
+    void flushPendingSyncEntries({ source: "automatic" });
+  };
+
+  window.addEventListener("online", handleOnline);
 
   window.setInterval(() => {
-    void flushPendingSyncEntries();
+    void flushPendingSyncEntries({ source: "automatic" });
   }, 30000);
 
   if (navigator.onLine) {
-    void flushPendingSyncEntries();
+    void flushPendingSyncEntries({ source: "automatic" });
   }
+};
+
+const assertOfflineQueueAllowed = async (canQueueOffline) => {
+  if (typeof canQueueOffline !== "function") {
+    return;
+  }
+
+  const allowed = await canQueueOffline();
+  if (allowed !== false) {
+    return;
+  }
+
+  const error = new Error(
+    "This change cannot be saved offline until the required reference data is prepared on this device.",
+  );
+  error.code = "OFFLINE_PREPARATION_REQUIRED";
+  throw error;
 };
 
 export const performSyncableMutation = async ({
@@ -413,6 +494,7 @@ export const performSyncableMutation = async ({
   allowOffline = true,
   buildQueuedResponse,
   queueDisplayContext = null,
+  canQueueOffline = null,
 }) => {
   validateRequiredFields(payload, requiredFields);
   // Delete/deactivate operations require online connection to avoid unsafe
@@ -425,6 +507,7 @@ export const performSyncableMutation = async ({
   const queueGroupKey = `${actionKey}:${entityServerId || effectiveEntityLocalId}`;
 
   if (typeof navigator !== "undefined" && !navigator.onLine && allowOffline) {
+    await assertOfflineQueueAllowed(canQueueOffline);
     await persistOfflineMutation({
       id: clientSyncId,
       queueGroupKey,
@@ -459,6 +542,7 @@ export const performSyncableMutation = async ({
       throw error;
     }
 
+    await assertOfflineQueueAllowed(canQueueOffline);
     await persistOfflineMutation({
       id: clientSyncId,
       queueGroupKey,
@@ -507,7 +591,22 @@ export const performOnlineOnlyMutation = async ({
     throw new Error(message);
   }
 
-  return request();
+  try {
+    return await request();
+  } catch (error) {
+    if (!isNetworkFailure(error)) {
+      throw error;
+    }
+
+    const message =
+      offlineMessage || "An internet connection is required to complete this action.";
+    emitSyncFeedbackEvent({
+      type: "failed",
+      message,
+    });
+
+    throw new Error(message);
+  }
 };
 
 export const buildOfflineQueuedResponse = ({

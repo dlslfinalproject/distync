@@ -1,6 +1,7 @@
 import React from "react";
 import DetailsModalShell from "../shared/DetailsModalShell";
 import { shellStyles } from "../layout/BarangayLayout";
+import { getSyncLabel } from "../../offline/syncStatus.js";
 
 const styles = {
   shellPanel: {
@@ -108,7 +109,7 @@ const InventoryTransactionDetailModal = ({ isOpen, row, onClose }) => {
 
   const additionalInformation = [
     ["Source", row.source_details || row.source_label || "--"],
-    ["Record ID", row.id || "--"],
+    ...(row.is_local_only ? [["Sync Status", getSyncLabel(row.sync_status)]] : []),
   ];
 
   const remarks = row.remarks || "--";

@@ -994,7 +994,6 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
         inventory_item_id: createdItem.id,
         inventory_item_stock_form_id: createdStockForm.id,
         batch_no: buildOpeningBatchNumber(createdItem.item_code),
-        supplier_id: null,
         source_type: "LGU",
         quantity_received: totalInitialQuantity,
         quantity_available: totalInitialQuantity,
@@ -1007,6 +1006,9 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
           reorderLevel: createdItem.reorder_level,
         }),
         created_by: actor?.userId || null,
+        ...(options.clientTimestamp
+          ? { received_at: options.clientTimestamp }
+          : {}),
       },
       client,
     );
@@ -1022,6 +1024,9 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
           reference_id: createdItem.id,
           performed_by: actor?.userId || null,
           remarks: "Opening stock recorded during inventory item creation",
+          ...(options.clientTimestamp
+            ? { performed_at: options.clientTimestamp }
+            : {}),
         },
         client,
       );

@@ -8,6 +8,7 @@ import {
 } from "../../features/pagination/pagination.mjs";
 import TableActionsMenu from "../shared/TableActionsMenu";
 import StatusPill from "../shared/StatusPill";
+import SyncStatusBadge from "../shared/SyncStatusBadge";
 import TablePagination from "../shared/TablePagination";
 
 const styles = {
@@ -273,6 +274,9 @@ const InventoryItemsTable = ({
                         >
                           {itemName}
                         </div>
+                        {item.sync_status && item.sync_status !== "SYNCED" ? (
+                          <SyncStatusBadge status={item.sync_status} compact />
+                        ) : null}
                       </div>
                     </td>
                     <td

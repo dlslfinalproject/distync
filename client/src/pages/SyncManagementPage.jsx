@@ -68,7 +68,6 @@ const MAYOR_RECORD_TYPE_OPTIONS = [
   { value: "INVENTORY_ITEM", label: "Inventory Items" },
   { value: "INVENTORY_BATCH", label: "Inventory Batches" },
   { value: "INVENTORY_TRANSACTION", label: "Inventory Movements" },
-  { value: "SUPPLIER", label: "Suppliers" },
 ];
 
 const QUEUE_STATUS_OPTIONS = [
@@ -981,22 +980,11 @@ const SyncManagementPage = () => {
             selectedConflictDetail.sync_transaction_id),
       );
       if (localEntry) {
-        const isDifferentHousehold = action === "APPLY_LOCAL";
         await updateSyncEntryStatus(localEntry.id, {
-          status: isDifferentHousehold ? LOCAL_SYNC_STATUS.SYNCED : LOCAL_SYNC_STATUS.CONFLICT,
-          resolutionStatus:
-            isDifferentHousehold
-              ? "ACCEPTED_AS_DIFFERENT_HOUSEHOLD"
-              : action === "KEEP_SERVER"
-                ? "DUPLICATE_HOUSEHOLD"
-                : "TRANSFER_REASSIGNMENT_REQUIRED",
-          entityServerId: resolvedConflict?.resolved_payload_json?.accepted_household_id || localEntry.entityServerId || null,
-          serverMessage:
-            action === "KEEP_SERVER"
-              ? "Resolved — Duplicate Household"
-              : action === "APPLY_LOCAL"
-                ? "Resolved — Accepted as Different Household"
-                : "Transfer/Reassignment Required",
+          status: resolvedConflict?.sync_status || LOCAL_SYNC_STATUS.CONFLICT,
+          resolutionStatus: resolvedConflict?.resolution_status_label || "RESOLVED",
+          entityServerId: resolvedConflict?.entity_server_id || localEntry.entityServerId || null,
+          serverMessage: resolvedConflict?.resolution_reason || "Sync conflict resolved.",
         });
       }
 
@@ -1532,6 +1520,7 @@ const SyncManagementPage = () => {
                       <td style={tableStyles.td}>
                         <SyncStatusBadge
                           status={conflict.status === "RESOLVED" ? "RESOLVED" : "OPEN"}
+                          label={getResolutionStatusLabel(conflict)}
                         />
                       </td>
                       <td style={tableStyles.td}>

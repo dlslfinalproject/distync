@@ -16,14 +16,6 @@ WITH seeded_events AS (
     'DE-2026-0004'
   ]) AS event_code
 ),
-seeded_suppliers AS (
-  SELECT unnest(ARRAY[
-    'Malvar LGU Procurement',
-    'DSWD Region IV-A',
-    'Red Cross Batangas',
-    'Community Donor Network'
-  ]) AS supplier_name
-),
 seeded_items AS (
   SELECT unnest(ARRAY[
     'INV-FOOD-001',
@@ -645,28 +637,7 @@ WHERE de.event_code = se.event_code
   );
 
 -- =========================================================
--- 6) REMOVE TEST SUPPLIERS ONLY IF NOW UNUSED
--- =========================================================
-
-WITH seeded_suppliers AS (
-  SELECT unnest(ARRAY[
-    'Malvar LGU Procurement',
-    'DSWD Region IV-A',
-    'Red Cross Batangas',
-    'Community Donor Network'
-  ]) AS supplier_name
-)
-DELETE FROM suppliers s
-USING seeded_suppliers ss
-WHERE s.name = ss.supplier_name
-  AND NOT EXISTS (
-    SELECT 1
-    FROM inventory_batches ib
-    WHERE ib.supplier_id = s.id
-  );
-
--- =========================================================
--- 7) RECOMPUTE SURVIVING INVENTORY QUANTITIES
+-- 6) RECOMPUTE SURVIVING INVENTORY QUANTITIES
 -- =========================================================
 
 UPDATE inventory_items ii

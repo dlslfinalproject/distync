@@ -2,6 +2,7 @@ import {
   buildOfflineQueuedResponse,
   performSyncableMutation,
 } from "../../offline/syncService";
+import { getMayorInventoryCacheSnapshot } from "../../offline/mayorInventoryCache.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -10,7 +11,9 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   const responseData = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(responseData?.message || fallbackMessage);
+    const error = new Error(responseData?.message || fallbackMessage);
+    error.statusCode = response.status;
+    throw error;
   }
 
   return responseData;
@@ -40,10 +43,6 @@ export const fetchInventoryBatches = async (filters = {}) => {
 
   if (filters.inventory_item_id) {
     searchParams.set("inventory_item_id", filters.inventory_item_id);
-  }
-
-  if (filters.supplier_id) {
-    searchParams.set("supplier_id", filters.supplier_id);
   }
 
   if (filters.source_type) {
@@ -91,10 +90,6 @@ export const exportInventoryBatches = async (format = "csv", filters = {}) => {
     searchParams.set("inventory_item_id", filters.inventory_item_id);
   }
 
-  if (filters.supplier_id) {
-    searchParams.set("supplier_id", filters.supplier_id);
-  }
-
   if (filters.source_type) {
     searchParams.set("source_type", filters.source_type);
   }
@@ -120,6 +115,7 @@ export const createInventoryBatch = async (payload) => {
     entityLocalId: payload?.batch_no || null,
     payload,
     requiredFields: ["inventory_item_id", "batch_no", "quantity_received"],
+    canQueueOffline: async () => Boolean(await getMayorInventoryCacheSnapshot()),
     request: async () => {
       const response = await fetch(`${API_BASE_URL}/api/v1/inventory-batches`, {
         method: "POST",
@@ -172,10 +168,4 @@ export const fetchInventoryItems = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items`);
 
   return handleJsonResponse(response, "Failed to fetch inventory items");
-};
-
-export const fetchSuppliers = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/suppliers`);
-
-  return handleJsonResponse(response, "Failed to fetch suppliers");
 };
