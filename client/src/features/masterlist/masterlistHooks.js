@@ -30,6 +30,7 @@ export const useMasterlist = ({
   const [data, setData] = useState(emptyData);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [infoMessage, setInfoMessage] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const lastSuccessfulDataRef = useRef(null);
 
@@ -40,12 +41,14 @@ export const useMasterlist = ({
       if (!disasterEventId) {
         setData(emptyData);
         setErrorMessage("");
+        setInfoMessage("");
         setIsLoading(false);
         return;
       }
 
       setIsLoading(true);
       setErrorMessage("");
+      setInfoMessage("");
 
       try {
         const result = await fetchMasterlist({
@@ -62,6 +65,7 @@ export const useMasterlist = ({
         if (isMounted) {
           setData(result);
           lastSuccessfulDataRef.current = result;
+          setInfoMessage("");
         }
       } catch (error) {
         if (isMounted) {
@@ -91,13 +95,15 @@ export const useMasterlist = ({
           if (fallbackData) {
             setData(fallbackData);
             lastSuccessfulDataRef.current = fallbackData;
-            setErrorMessage(
+            setErrorMessage("");
+            setInfoMessage(
               isOffline
                 ? "Offline mode: showing the last saved Masterlist. Pending registrations remain available."
                 : error.message || "Showing the last saved Masterlist.",
             );
           } else {
             setData(emptyData);
+            setInfoMessage("");
             setErrorMessage(
               isOffline
                 ? "Offline Data Not Ready: no saved Masterlist is available for this event and Barangay."
@@ -133,6 +139,7 @@ export const useMasterlist = ({
     data,
     isLoading,
     errorMessage,
+    infoMessage,
     reloadMasterlist: () => setReloadKey((currentValue) => currentValue + 1),
   };
 };

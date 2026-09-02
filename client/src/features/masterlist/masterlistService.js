@@ -12,6 +12,9 @@ import {
   cacheMasterlistRows,
   getCachedMasterlistRows,
 } from "../../offline/masterlistCache.js";
+import { sortMasterlistRows } from "./masterlistSort.js";
+
+export { sortMasterlistRows } from "./masterlistSort.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -46,36 +49,6 @@ export const MASTERLIST_SORT_OPTIONS = [
   { value: "az", label: "Sort A-Z" },
   { value: "za", label: "Sort Z-A" },
 ];
-
-export const sortMasterlistRows = (rows, sortOrder = "newest") => {
-  const safeRows = Array.isArray(rows) ? [...rows] : [];
-
-  return safeRows.sort((leftRow, rightRow) => {
-    if (sortOrder === "oldest" || sortOrder === "newest") {
-      const leftTime = new Date(leftRow?.registered_at || 0).getTime();
-      const rightTime = new Date(rightRow?.registered_at || 0).getTime();
-
-      if (leftTime !== rightTime) {
-        return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
-      }
-    }
-
-    const leftName = String(leftRow?.family_head_name || "").trim().toUpperCase();
-    const rightName = String(rightRow?.family_head_name || "").trim().toUpperCase();
-
-    if (leftName !== rightName) {
-      if (sortOrder === "za") {
-        return rightName.localeCompare(leftName);
-      }
-
-      return leftName.localeCompare(rightName);
-    }
-
-    const leftTime = new Date(leftRow?.registered_at || 0).getTime();
-    const rightTime = new Date(rightRow?.registered_at || 0).getTime();
-    return rightTime - leftTime;
-  });
-};
 
 export const buildSectorsText = (household) => {
   const orderIndexByCode = new Map(

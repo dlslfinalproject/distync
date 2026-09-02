@@ -19,6 +19,7 @@ export const useBarangayMasterlistSync = ({
   selectedEvent,
   assignedBarangay,
   recordStatus,
+  sortOrder,
   reloadMasterlist,
 }) => {
   // HOUSEHOLD_RE_ADMISSION remains an optimistic Active occurrence.
@@ -40,12 +41,14 @@ export const useBarangayMasterlistSync = ({
       selectedEventId: selectedEvent?.id,
       assignedBarangayId: assignedBarangay?.id,
       assignedBarangayName: assignedBarangay?.name || "",
+      sortOrder,
     });
   }, [
     assignedBarangay?.id,
     assignedBarangay?.name,
     rows,
     recordStatus,
+    sortOrder,
     selectedEvent?.id,
     syncQueueEntries,
   ]);
