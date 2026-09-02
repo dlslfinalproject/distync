@@ -260,6 +260,7 @@ const BarangayMasterlistPage = () => {
     selectedEvent,
     assignedBarangay,
     recordStatus,
+    sortOrder: selectedSortOrder,
     reloadMasterlist,
   });
 

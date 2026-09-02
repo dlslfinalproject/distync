@@ -1,3 +1,5 @@
+import { sortMasterlistRows } from "./masterlistSort.js";
+
 const formatDateTime = (value) => {
   if (!value) {
     return "-";
@@ -180,6 +182,7 @@ export const resolveEffectiveMasterlistRows = ({
   assignedBarangayName = "",
   selectedEventId = "",
   assignedBarangayId = "",
+  sortOrder = "newest",
 } = {}) => {
   const scopedEntries = syncQueueEntries.filter((entry) => {
     const payload = entry?.payload || {};
@@ -219,7 +222,10 @@ export const resolveEffectiveMasterlistRows = ({
       }
     });
 
-  return resolvedRows.filter((row) => matchesRecordStatus(row, recordStatus));
+  return sortMasterlistRows(
+    resolvedRows.filter((row) => matchesRecordStatus(row, recordStatus)),
+    sortOrder,
+  );
 };
 
 export const isEndedDisasterEvent = (event, eventScope) => {
