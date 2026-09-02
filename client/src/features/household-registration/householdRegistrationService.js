@@ -336,13 +336,9 @@ export const registerHousehold = async (payload, options = {}) => {
       moduleName: "barangay-households",
       actionKey,
       entityType: "HOUSEHOLD",
-      entityLocalId: payload?.family_head?.first_name
-        ? `${payload.family_head.first_name}-${payload.family_head.last_name}-${payload.disaster_event_id}-${payload.barangay_id}${
-            isReAdmission
-              ? `-${payload.re_admission_source_household_id || "source"}`
-              : ""
-          }`
-        : null,
+      // Let the sync service allocate a UUID for every new local occurrence.
+      // A name-derived ID could overwrite a previous offline registration.
+      entityLocalId: null,
       payload,
       requiredFields: [
         "disaster_event_id",

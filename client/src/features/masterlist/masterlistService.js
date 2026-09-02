@@ -8,10 +8,59 @@ import {
   getCanonicalMemberSectorCode,
 } from "../../utils/registrationOptions";
 import { formatStayTypeLabel } from "../../utils/stayType";
-import { cacheMasterlistRows } from "../../offline/masterlistCache.js";
+import {
+  getRegistrationStorageKey,
+  readStorageValue,
+  writeStorageValue,
+} from "../../utils/modeStorage.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+
+const MASTERLIST_SNAPSHOT_STORAGE_PREFIX = "masterlist-snapshot";
+
+const getMasterlistSnapshotKey = ({
+  disasterEventId,
+  barangayId,
+  recordStatus,
+  page,
+  pageSize,
+  search,
+  sectorIds,
+  sortOrder,
+}) =>
+  getRegistrationStorageKey(
+    `${MASTERLIST_SNAPSHOT_STORAGE_PREFIX}:${JSON.stringify({
+      disasterEventId: disasterEventId || "",
+      barangayId: barangayId || "",
+      recordStatus: recordStatus || "active",
+      page: page || null,
+      pageSize: pageSize || null,
+      search: search || "",
+      sectorIds: Array.isArray(sectorIds) ? [...sectorIds].sort() : [],
+      sortOrder: sortOrder || "newest",
+    })}`,
+  );
+
+export const getCachedMasterlistSnapshot = (options = {}) => {
+  try {
+    const rawValue = readStorageValue(getMasterlistSnapshotKey(options));
+    return rawValue ? JSON.parse(rawValue) : null;
+  } catch (_error) {
+    return null;
+  }
+};
+
+const cacheMasterlistSnapshot = (options, result) => {
+  try {
+    writeStorageValue(
+      getMasterlistSnapshotKey(options),
+      JSON.stringify({ ...result, cachedAt: new Date().toISOString() }),
+    );
+  } catch (_error) {
+    // A full localStorage quota must not prevent online Masterlist use.
+  }
+};
 
 const parseJsonResponse = async (response, fallbackMessage) => {
   const payload = await response.json();
@@ -398,7 +447,7 @@ export const fetchMasterlist = async ({
     (household) => household.latest_attendance,
   ).length;
 
-  return {
+  const result = {
     disasterEvent: payload.disaster_event || null,
     summary: {
       registeredFamilies: payload.pagination?.totalItems || payload.count || households.length,
@@ -408,6 +457,22 @@ export const fetchMasterlist = async ({
     rows,
     pagination: payload.pagination || null,
   };
+
+  cacheMasterlistSnapshot(
+    {
+      disasterEventId,
+      barangayId,
+      recordStatus,
+      page,
+      pageSize,
+      search,
+      sectorIds,
+      sortOrder,
+    },
+    result,
+  );
+
+  return result;
 };
 
 export const exportBarangayMasterlist = async ({
