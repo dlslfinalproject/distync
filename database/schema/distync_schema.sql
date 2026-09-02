@@ -85,6 +85,7 @@ CREATE TABLE public.user_roles (
   assigned_by uuid,
   assigned_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT user_roles_pkey PRIMARY KEY (id),
+  CONSTRAINT uq_user_role UNIQUE (user_id, role_id),
   CONSTRAINT user_roles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
   CONSTRAINT user_roles_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id),
   CONSTRAINT user_roles_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES public.users(id)
