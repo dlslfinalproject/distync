@@ -7,6 +7,7 @@ import ErrorState from "../../components/shared/ErrorState";
 import FormModalShell from "../../components/shared/FormModalShell";
 import LoadingState from "../../components/shared/LoadingState";
 import ResponsiveFilterPopover from "../../components/shared/ResponsiveFilterPopover";
+import TablePagination from "../../components/shared/TablePagination";
 import {
   fetchAllDisasterEvents,
   fetchBarangayDisasterEventOptions,
@@ -21,6 +22,7 @@ import {
   getAnomalyTypesForScope,
   getAnomalyPresentation,
   getAnomalyReviewStatusLabel,
+  mayorReviewOutcomeOptions,
   mswdoReviewOutcomeOptions,
   reviewOutcomeOptions,
 } from "../../features/mswdo-reports/anomalyPresentation";
@@ -28,6 +30,10 @@ import {
   fetchMswdoAnomalies,
   saveAnomalyReview,
 } from "../../features/mswdo-reports/mswdoReportService";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 
 const inputStyles = {
   width: "100%",
@@ -173,14 +179,13 @@ const orderOptions = [
   { value: "za", label: "Sort Z-A" },
 ];
 
-const DEFAULT_PAGE_SIZE = 50;
 const REVIEW_NOTE_MAX_LENGTH = 2000;
 const BARANGAY_STALE_REVIEW_MESSAGE =
   "This anomaly is no longer available for review. Its underlying record may have changed or it may no longer require Barangay review.";
 const MSWDO_STALE_REVIEW_MESSAGE =
   "This anomaly is no longer available for review. Its underlying record may have changed or it may no longer require MSWDO review.";
-const pageSizeOptions = [25, 50, 100];
-
+const MAYOR_STALE_REVIEW_MESSAGE =
+  "This anomaly is no longer available for review. Its underlying inventory or distribution record may have changed or it may no longer require Mayor review.";
 const modalStyles = {
   grid: {
     display: "grid",
@@ -263,32 +268,6 @@ const statusPalette = {
   },
 };
 
-const paginationStyles = {
-  wrapper: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "14px",
-    marginTop: "18px",
-  },
-  controls: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-  },
-  pageText: {
-    color: "#17324d",
-    fontSize: "14px",
-    fontWeight: 700,
-  },
-  resultText: {
-    color: "#5f7892",
-    fontSize: "14px",
-    fontWeight: 600,
-  },
-};
-
 const formatDateTime = (value) => {
   if (!value) {
     return "Not available";
@@ -314,15 +293,16 @@ const formatNullableValue = (value, fallback = "Not available") => {
   return normalizedValue || fallback;
 };
 
-const formatEventLabel = (row) =>
+const formatEventLabel = (row, scope = "mswdo") =>
   formatNullableValue(
     row?.disaster_event_title ||
       row?.disaster_event?.title ||
       row?.disasterEvent?.title,
+    scope === "mayor" ? "—" : "Not available",
   );
 
-const formatBarangayLabel = (row) =>
-  formatNullableValue(row?.barangay_name, "Not attributed");
+const formatBarangayLabel = (row, scope = "mswdo") =>
+  formatNullableValue(row?.barangay_name, scope === "mayor" ? "—" : "Not attributed");
 
 const normalizeBarangayName = (value) => String(value || "").trim().toLowerCase();
 
@@ -461,7 +441,7 @@ const getStatusLabel = (row, scope = "barangay") => {
     return reviewLabel;
   }
 
-  if (scope === "mswdo") {
+  if (scope === "mswdo" || scope === "mayor") {
     return getStatusCategory(row) === "failed" ? "Sync Center Review" : "Open";
   }
 
@@ -552,6 +532,7 @@ const AnomalyDetailModal = ({
   onClose,
   finalFocusRef,
   isBarangayScope,
+  isMayorScope,
   onReviewSaved,
   onReviewStale,
 }) => {
@@ -580,14 +561,20 @@ const AnomalyDetailModal = ({
     return null;
   }
 
-  const presentationScope = isBarangayScope ? "barangay" : "mswdo";
+  const presentationScope = isBarangayScope
+    ? "barangay"
+    : isMayorScope
+      ? "mayor"
+      : "mswdo";
   const presentation = getAnomalyPresentation(
     anomaly.anomaly_type,
     presentationScope,
   );
   const availableReviewOutcomeOptions = isBarangayScope
     ? reviewOutcomeOptions
-    : mswdoReviewOutcomeOptions;
+    : isMayorScope
+      ? mayorReviewOutcomeOptions
+      : mswdoReviewOutcomeOptions;
   const displayedAnomaly = localReview
     ? {
         ...anomaly,
@@ -606,12 +593,8 @@ const AnomalyDetailModal = ({
   const isSyncAnomaly = anomaly.anomaly_type === "SYNC_CONFLICT" || anomaly.anomaly_type === "SYNC_FAILED";
   const canRecordReview =
     anomaly.manual_review_allowed === true &&
-    (isBarangayScope || Boolean(anomaly.barangay_id)) &&
+    (!isBarangayScope || Boolean(anomaly.barangay_id)) &&
     !isReviewUnavailable;
-  const needsBarangayAttribution =
-    !isBarangayScope &&
-    displayedAnomaly.review_state === "needs_review" &&
-    !displayedAnomaly.barangay_id;
   const canEditSavedReview =
     isBarangayScope && canRecordReview && hasSavedReview;
   const shouldShowReviewForm =
@@ -700,15 +683,6 @@ const AnomalyDetailModal = ({
       setReviewSubmitError("");
       await onReviewSaved?.(response?.data || null);
     } catch (error) {
-      if (error.code === "ANOMALY_REVIEW_BARANGAY_REQUIRED") {
-        setIsReviewUnavailable(true);
-        setReviewSubmitError(
-          "Affected Barangay information must be identified before MSWDO can record a review result.",
-        );
-        await onReviewStale?.();
-        return;
-      }
-
       if (error.code === "ANOMALY_REVIEW_FINAL") {
         setIsReviewUnavailable(true);
         setReviewSubmitError(
@@ -728,7 +702,9 @@ const AnomalyDetailModal = ({
         setReviewSubmitError(
           isBarangayScope
             ? BARANGAY_STALE_REVIEW_MESSAGE
-            : MSWDO_STALE_REVIEW_MESSAGE,
+            : isMayorScope
+              ? MAYOR_STALE_REVIEW_MESSAGE
+              : MSWDO_STALE_REVIEW_MESSAGE,
         );
         await onReviewStale?.();
         return;
@@ -804,7 +780,11 @@ const AnomalyDetailModal = ({
   return (
     <FormModalShell
       isOpen
-      title={isBarangayScope && !hasSavedReview ? "Review Anomaly" : "Anomaly Details"}
+      title={
+        (isBarangayScope || isMayorScope) && !hasSavedReview
+          ? "Review Anomaly"
+          : "Anomaly Details"
+      }
       onClose={onClose}
       closeButtonLabel="Close anomaly details"
       closeOnBackdrop={false}
@@ -836,10 +816,14 @@ const AnomalyDetailModal = ({
         <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
           <div style={modalStyles.fieldGrid}>
             <DetailField label="Disaster Event">
-              {formatEventLabel(displayedAnomaly)}
+              {formatEventLabel(displayedAnomaly, presentationScope)}
             </DetailField>
             <DetailField label="Affected Record">
-              {formatAffectedRecord(displayedAnomaly, isBarangayScope)}
+              {formatAffectedRecord(
+                displayedAnomaly,
+                isBarangayScope,
+                presentationScope,
+              )}
             </DetailField>
             <DetailField label="Detected At">
               {formatDateTime(displayedAnomaly.detected_at)}
@@ -847,7 +831,7 @@ const AnomalyDetailModal = ({
             {!isBarangayScope ? (
               <>
                 <DetailField label="Barangay">
-                  {formatBarangayLabel(displayedAnomaly)}
+                  {formatBarangayLabel(displayedAnomaly, presentationScope)}
                 </DetailField>
               </>
             ) : null}
@@ -912,15 +896,6 @@ const AnomalyDetailModal = ({
           </div>
         ) : null}
 
-        {needsBarangayAttribution ? (
-          <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
-            <div style={labelStyles}>Review Availability</div>
-            <div style={modalStyles.value}>
-              Affected Barangay information must be identified before MSWDO can record a review result.
-            </div>
-          </div>
-        ) : null}
-
         {reviewSubmitError ? (
           <div
             role="alert"
@@ -960,7 +935,7 @@ const AnomalyDetailModal = ({
               <p id={reviewOutcomeHelperId} style={modalStyles.helperText}>
                 {isBarangayScope
                   ? "Select the result that best matches your verification."
-                  : "Select the result that best documents MSWDO validation."}
+                  : `Select the result that best documents ${isMayorScope ? "Mayor" : "MSWDO"} validation.`}
               </p>
               <div style={{ display: "grid", gap: "8px", marginBottom: "10px" }}>
                 {availableReviewOutcomeOptions.map((option) => (
@@ -1020,7 +995,7 @@ const AnomalyDetailModal = ({
             <p id={reviewNoteHelperId} style={modalStyles.helperText}>
               {isBarangayScope
                 ? "Briefly describe what you verified and why you selected this outcome."
-                : "Document what MSWDO validated, coordinated, or referred and why this result was selected."}
+                : `Document what ${isMayorScope ? "the Mayor's office" : "MSWDO"} validated, coordinated, or referred and why this result was selected.`}
             </p>
             <textarea
               id="anomaly-review-note"
@@ -1064,7 +1039,12 @@ const AnomalyTrackingPage = ({
   scopeErrorMessage = "",
 }) => {
   const isBarangayScope = scope === "barangay";
-  const presentationScope = isBarangayScope ? "barangay" : "mswdo";
+  const isMayorScope = scope === "mayor";
+  const presentationScope = isBarangayScope
+    ? "barangay"
+    : isMayorScope
+      ? "mayor"
+      : "mswdo";
   const availableStatusFilters = isBarangayScope
     ? statusFilters
     : mswdoStatusFilters;
@@ -1076,10 +1056,10 @@ const AnomalyTrackingPage = ({
   const [barangays, setBarangays] = useState([]);
   const [rows, setRows] = useState([]);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [pagination, setPagination] = useState({
     page: 1,
-    pageSize: DEFAULT_PAGE_SIZE,
+    pageSize: DEFAULT_TABLE_PAGE_SIZE,
     totalItems: 0,
     totalPages: 0,
     hasPreviousPage: false,
@@ -1364,6 +1344,21 @@ const AnomalyTrackingPage = ({
     viewState,
   ]);
 
+  useEffect(() => {
+    const numericTotalItems = Number(pagination.totalItems || 0);
+    const numericPageSize = Number(pagination.pageSize || pageSize);
+    const totalPages =
+      numericTotalItems > 0 && numericPageSize > 0
+        ? Math.ceil(numericTotalItems / numericPageSize)
+        : 0;
+    const safePage =
+      totalPages > 0 ? Math.min(Math.max(page, 1), totalPages) : 1;
+
+    if (page !== safePage) {
+      setPage(safePage);
+    }
+  }, [page, pageSize, pagination.pageSize, pagination.totalItems]);
+
   const hasActiveFilters = Boolean(
     filters.disaster_event_id ||
       (filters.barangay_id && !isBarangayScope) ||
@@ -1374,11 +1369,6 @@ const AnomalyTrackingPage = ({
       viewState.status !== "all",
   );
   const totalItems = pagination.totalItems || 0;
-  const totalPages = pagination.totalPages || 0;
-  const firstVisibleItem = totalItems === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
-  const lastVisibleItem = totalItems === 0
-    ? 0
-    : Math.min(firstVisibleItem + rows.length - 1, totalItems);
   const shouldShowPaginationControls = totalItems > 0;
   const openAnomalyDetails = useCallback((row, event) => {
     anomalyDetailsTriggerRef.current = event.currentTarget;
@@ -1387,58 +1377,6 @@ const AnomalyTrackingPage = ({
   const closeAnomalyDetails = useCallback(() => {
     setSelectedAnomaly(null);
   }, []);
-  const paginationControls = shouldShowPaginationControls ? (
-    <div style={paginationStyles.wrapper}>
-      <div style={paginationStyles.controls}>
-        <button
-          type="button"
-          onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
-          disabled={!pagination.hasPreviousPage || isLoadingRows}
-          style={pageHeaderStyles.secondaryButton}
-        >
-          Previous
-        </button>
-        <span style={paginationStyles.pageText}>
-          Page {pagination.page} of {totalPages}
-        </span>
-        <button
-          type="button"
-          onClick={() => setPage((currentPage) => currentPage + 1)}
-          disabled={!pagination.hasNextPage || isLoadingRows}
-          style={pageHeaderStyles.secondaryButton}
-        >
-          Next
-        </button>
-      </div>
-
-      <label style={{ ...paginationStyles.controls, color: "#17324d", fontWeight: 700 }}>
-        Rows per page
-        <select
-          value={pageSize}
-          onChange={(event) => {
-            setPage(1);
-            setPageSize(Number(event.target.value));
-          }}
-          style={{
-            minWidth: "92px",
-            borderRadius: "12px",
-            border: "1px solid #c7d6e5",
-            backgroundColor: "#ffffff",
-            color: "#17324d",
-            padding: "10px 12px",
-            fontSize: "14px",
-            fontWeight: 600,
-          }}
-        >
-          {pageSizeOptions.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </label>
-    </div>
-  ) : null;
 
   return (
     <div style={pageSpacingStyles.pageStack}>
@@ -1589,6 +1527,8 @@ const AnomalyTrackingPage = ({
             placeholder={
               isBarangayScope
                 ? "Search anomaly type, family head, barangay, event, or reason"
+                : isMayorScope
+                  ? "Search anomaly type, Barangay, inventory record, event, reason, review status, or notes"
                 : "Search anomaly type, Barangay, affected record, event, reason, review status, or notes"
             }
             aria-label="Search anomaly records"
@@ -1689,20 +1629,34 @@ const AnomalyTrackingPage = ({
       </div>
 
       <section style={shellStyles.card}>
-        <div style={pageSpacingStyles.tableHeader}>
-          <h3
-            ref={anomalyRecordsHeadingRef}
-            tabIndex={-1}
-            style={{ margin: 0, color: "#17324d", outline: "none" }}
-          >
-            Anomaly Records
-          </h3>
-          <span style={paginationStyles.resultText}>
-            {totalItems === 0
-              ? "No anomalies found"
-              : `Showing ${firstVisibleItem}-${lastVisibleItem} of ${totalItems}`}
-          </span>
-        </div>
+        <h3
+          className="table-card-title"
+          ref={anomalyRecordsHeadingRef}
+          tabIndex={-1}
+          style={{ outline: "none" }}
+        >
+          Anomaly Records
+        </h3>
+
+        <TablePagination
+          totalItems={totalItems}
+          currentPage={pagination.page || page}
+          pageSize={pagination.pageSize || pageSize}
+          pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+          onPageChange={setPage}
+          onPageSizeChange={(value) => {
+            setPage(1);
+            setPageSize(Number(value));
+          }}
+          isVisible={
+            !isLoadingRows && !errorMessage && shouldShowPaginationControls
+          }
+          disabled={isLoadingRows}
+          disablePageSize={isLoadingRows}
+          ariaLabel="Anomaly tracking pagination"
+          previousAriaLabel="Go to previous anomaly tracking page"
+          nextAriaLabel="Go to next anomaly tracking page"
+        />
 
         {errorMessage ? <ErrorState message={errorMessage} style={{ marginBottom: "16px" }} /> : null}
 
@@ -1789,13 +1743,13 @@ const AnomalyTrackingPage = ({
                             </span>
                           </td>
                           <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.barangay }}>
-                            {formatBarangayLabel(row)}
+                            {formatBarangayLabel(row, presentationScope)}
                           </td>
                           <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.affectedRecord }}>
-                            {formatAffectedRecord(row, false)}
+                            {formatAffectedRecord(row, false, presentationScope)}
                           </td>
                           <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.disasterEvent }}>
-                            {formatEventLabel(row)}
+                            {formatEventLabel(row, presentationScope)}
                           </td>
                           <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.whyFlagged }}>
                             {getAnomalyExplanation(row, presentationScope)}
@@ -1848,7 +1802,6 @@ const AnomalyTrackingPage = ({
               </table>
             </div>
 
-            {paginationControls}
           </>
         )}
       </section>
@@ -1858,6 +1811,7 @@ const AnomalyTrackingPage = ({
         onClose={closeAnomalyDetails}
         finalFocusRef={anomalyDetailsFinalFocusRef}
         isBarangayScope={isBarangayScope}
+        isMayorScope={isMayorScope}
         onReviewSaved={async () => {
           setReloadToken((currentValue) => currentValue + 1);
         }}

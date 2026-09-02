@@ -1647,7 +1647,7 @@ const ForecastingPanel = ({
                           width: panelStyles.stockActionColumnWidths.currentStock,
                         }}
                       >
-                        Current Stock
+                        Eligible Stock
                       </th>
                       <th
                         style={{
@@ -1894,7 +1894,7 @@ const ForecastingPanel = ({
               <tr>
                 {[
                   ["Item Name", panelStyles.detailedColumnWidths.item],
-                  ["Current Stock", panelStyles.detailedColumnWidths.currentStock],
+                  ["Eligible Stock", panelStyles.detailedColumnWidths.currentStock],
                   ["Assigned Pack Demand", panelStyles.detailedColumnWidths.assignedPackDemand],
                   ["Forecast Need", panelStyles.detailedColumnWidths.forecastNeed],
                   ["Add Stock", panelStyles.detailedColumnWidths.addStock],

@@ -7,6 +7,9 @@ import ShellHeader from "./ShellHeader";
 import SyncStatusBanner from "./SyncStatusBanner";
 import { initializeSyncService } from "../../offline/syncService";
 import { SettingsUnsavedChangesProvider } from "../../pages/settings/SettingsUnsavedChangesContext";
+import { useBarangayDashboard } from "../../features/barangay-dashboard/useBarangayDashboard";
+import { useBarangayOfflinePreparation } from "../../features/offline/useBarangayOfflinePreparation";
+import OfflineDataReadiness from "./OfflineDataReadiness";
 
 const SIDEBAR_EXPANDED_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "0px";
@@ -127,12 +130,35 @@ const BarangayLayout = () => {
   );
   const lastNonSettingsCollapseStateRef = useRef(false);
   const location = useLocation();
-  const { currentRole } = useAuth();
+  const { currentRole, authenticatedUser } = useAuth();
   const isDonorPortal = currentRole === ROLE_CODES.DONOR;
   const isBarangayPortal = currentRole === ROLE_CODES.BARANGAY;
+  const { selectedEvent, assignedBarangay } = useBarangayDashboard({
+    userId: isBarangayPortal ? authenticatedUser?.id || "" : "",
+  });
+  const offlineContext = useMemo(() => ({
+    barangaySource: assignedBarangay?.id ? "resolved context" : "user/default Barangay",
+    eventSource: selectedEvent?.id ? "selected event" : "restored operational event",
+    eventStatus: selectedEvent?.status || "",
+  }), [assignedBarangay?.id, selectedEvent?.id, selectedEvent?.status]);
+  const offlinePreparation = useBarangayOfflinePreparation({
+    enabled: isBarangayPortal,
+    userId: authenticatedUser?.id || "",
+    eventId: selectedEvent?.id || "",
+    barangayId: assignedBarangay?.id || authenticatedUser?.default_barangay_id || "",
+    context: offlineContext,
+  });
   const isSettingsRoute = location.pathname.endsWith("/settings");
+  const isSyncRoute = location.pathname.endsWith("/sync");
+  const isMayorPortal = currentRole === ROLE_CODES.MAYOR;
   const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
-  const shouldShowSyncStatusBanner = !isBarangayPortal && !isBarangayAnomalyRoute;
+  const isMayorAnomalyRoute = location.pathname.startsWith("/inventory/anomalies");
+  const shouldShowSyncStatusBanner =
+    !isBarangayPortal &&
+    !isMayorPortal &&
+    !isBarangayAnomalyRoute &&
+    !isMayorAnomalyRoute &&
+    !(currentRole === ROLE_CODES.MSWDO && isSyncRoute);
   const isSidebarOpen = !isSidebarCollapsed;
   const sidebarToggleRef = useRef(null);
   const sidebarWidth = isDonorPortal
@@ -293,6 +319,7 @@ const BarangayLayout = () => {
         <main className="distync-shell__main" style={shellStyles.main}>
           <div className="distync-shell__content" style={shellStyles.content}>
             {shouldShowSyncStatusBanner ? <SyncStatusBanner /> : null}
+            {isBarangayPortal ? <OfflineDataReadiness {...offlinePreparation} /> : null}
             <Outlet />
           </div>
         </main>

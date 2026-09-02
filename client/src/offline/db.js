@@ -1,13 +1,9 @@
 import Dexie from "dexie";
 import { ACCESS_MODES, getAccessMode } from "../utils/accessMode.js";
 import { getModeDatabaseName } from "../utils/modeStorage.js";
+import { LOCAL_SYNC_STATUS } from "./syncStatusConstants.js";
 
-export const LOCAL_SYNC_STATUS = {
-  PENDING: "PENDING",
-  SYNCED: "SYNCED",
-  FAILED: "FAILED",
-  CONFLICT: "CONFLICT",
-};
+export { LOCAL_SYNC_STATUS };
 
 export const DISTYNC_OFFLINE_DB_BASE_NAME = "distyncOfflineDb";
 
@@ -37,6 +33,30 @@ class DistyncOfflineDb extends Dexie {
         "id, queueGroupKey, status, accessMode, userId, roleCode, moduleName, actionKey, entityType, entityLocalId, entityServerId, clientTimestamp, syncedAt, createdAt, updatedAt",
       offlineStubCache:
         "id, stubId, qr_code_value, accessMode, userId, roleCode, disaster_event_id, barangay_id, status, cached_at, [accessMode+userId+roleCode+stubId], [accessMode+userId+roleCode+qr_code_value], [accessMode+userId+roleCode+disaster_event_id+barangay_id]",
+    });
+
+    this.version(4).stores({
+      syncQueue:
+        "id, queueGroupKey, status, accessMode, userId, roleCode, moduleName, actionKey, entityType, entityLocalId, entityServerId, clientTimestamp, syncedAt, createdAt, updatedAt",
+      offlineStubCache:
+        "id, stubId, qr_code_value, accessMode, userId, roleCode, disaster_event_id, barangay_id, status, cached_at, [accessMode+userId+roleCode+stubId], [accessMode+userId+roleCode+qr_code_value], [accessMode+userId+roleCode+disaster_event_id+barangay_id]",
+      offlineMasterlistCache:
+        "id, household_id, accessMode, userId, roleCode, disaster_event_id, barangay_id, cached_at, [accessMode+userId+roleCode+disaster_event_id+barangay_id+household_id]",
+      offlinePreparation:
+        "id, accessMode, userId, roleCode, disaster_event_id, barangay_id, status, cache_version, updated_at, [accessMode+userId+roleCode+disaster_event_id+barangay_id]",
+    });
+
+    this.version(5).stores({
+      syncQueue:
+        "id, queueGroupKey, status, accessMode, userId, roleCode, moduleName, actionKey, entityType, entityLocalId, entityServerId, clientTimestamp, syncedAt, createdAt, updatedAt",
+      offlineStubCache:
+        "id, stubId, qr_code_value, accessMode, userId, roleCode, disaster_event_id, barangay_id, status, cached_at, [accessMode+userId+roleCode+stubId], [accessMode+userId+roleCode+qr_code_value], [accessMode+userId+roleCode+disaster_event_id+barangay_id]",
+      offlineMasterlistCache:
+        "id, household_id, accessMode, userId, roleCode, disaster_event_id, barangay_id, cached_at, [accessMode+userId+roleCode+disaster_event_id+barangay_id+household_id]",
+      offlinePreparation:
+        "id, accessMode, userId, roleCode, disaster_event_id, barangay_id, status, cache_version, updated_at, [accessMode+userId+roleCode+disaster_event_id+barangay_id]",
+      offlineInventoryCache:
+        "id, accessMode, userId, roleCode, device_id, cache_version, status, cached_at, [accessMode+userId+roleCode], [accessMode+userId+roleCode+device_id]",
     });
   }
 }

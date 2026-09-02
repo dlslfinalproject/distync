@@ -44,7 +44,7 @@ test("BRG-ANOM-L03 reviewed MSWDO details remain read-only while Barangay retain
 
   assert.match(
     modalSource,
-    /title=\{isBarangayScope && !hasSavedReview \? "Review Anomaly" : "Anomaly Details"\}/,
+    /title=\{\s*\(isBarangayScope \|\| isMayorScope\) && !hasSavedReview\s*\? "Review Anomaly"\s*:\s*"Anomaly Details"\s*\}/,
   );
   assert.match(
     modalSource,
@@ -70,5 +70,5 @@ test("BRG-ANOM-L05 lifecycle table preserves the semantic responsive and paginat
   assert.match(source, /overflowX: "auto", width: "100%", minWidth: 0/);
   assert.match(source, /const barangayAnomalyTableMinWidth = "1040px"/);
   assert.match(source, /tableLayout: "auto"/);
-  assert.match(source, /\{paginationControls\}/);
+  assert.match(source, /<TablePagination[\s\S]*ariaLabel="Anomaly tracking pagination"/);
 });

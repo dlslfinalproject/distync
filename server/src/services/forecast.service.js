@@ -17,6 +17,8 @@ const FORECAST_HORIZON_DAYS = 14;
 const LOOKBACK_DAYS = 30;
 const MOVING_AVERAGE_WINDOW = 7;
 const EXPONENTIAL_SMOOTHING_ALPHA = 0.4;
+const FORECAST_ELIGIBLE_SOURCE_TYPES = Object.freeze(["LGU", "DONATED"]);
+const FORECAST_NEAR_EXPIRY_EXCLUSION_DAYS = 30;
 const ANALYTICS_SERVICE_URL =
   process.env.ANALYTICS_SERVICE_URL || "http://localhost:8000";
 const ANALYTICS_TIMEOUT_MS = Number.parseInt(
@@ -233,10 +235,23 @@ const getRecommendedReorderQuantity = ({
 const enrichForecastResult = ({
   result,
   demandContext,
+  stockContext,
   forecastHorizonDays,
   fallbackModelName,
 }) => {
-  const currentAvailableStock = Number(result.current_available_stock || 0);
+  const currentAvailableStock = Number(
+    result.current_available_stock ?? stockContext?.current_available_stock ?? 0,
+  );
+  const currentLguAvailableStock = Number(
+    stockContext?.current_lgu_available_stock ??
+      result.current_lgu_available_stock ??
+      0,
+  );
+  const currentDonatedAvailableStock = Number(
+    stockContext?.current_donated_available_stock ??
+      result.current_donated_available_stock ??
+      0,
+  );
   const reorderLevel = Number(result.reorder_level || 0);
   const averageDailyUsage = Number(result.average_daily_usage || 0);
   const analyticsForecastedUsage = Number(result.forecasted_usage || 0);
@@ -281,6 +296,8 @@ const enrichForecastResult = ({
   return {
     ...result,
     current_available_stock: currentAvailableStock,
+    current_lgu_available_stock: currentLguAvailableStock,
+    current_donated_available_stock: currentDonatedAvailableStock,
     reorder_level: reorderLevel,
     average_daily_usage: averageDailyUsage,
     forecasted_usage: resolvedForecastedUsage,
@@ -355,6 +372,12 @@ const buildForecastDashboard = ({
       inventory_item_id: result.inventory_item_id,
       item_name: result.item_name,
       current_available_stock: Number(result.current_available_stock || 0),
+      current_lgu_available_stock: Number(
+        result.current_lgu_available_stock || 0,
+      ),
+      current_donated_available_stock: Number(
+        result.current_donated_available_stock || 0,
+      ),
       projected_remaining_stock: Number(result.projected_remaining_stock || 0),
       forecasted_usage: Number(result.forecasted_usage || 0),
       risk_level: result.risk_level,
@@ -456,12 +479,7 @@ const buildPublicForecastSuggestionNote = (result) => {
 };
 
 const resolvePublicSuggestedQuantity = (result) => {
-  const forecastedUsage = Number(result.forecasted_usage || 0);
-  const recommendedReorderQuantity = Number(
-    result.recommended_reorder_quantity || 0,
-  );
-
-  return forecastedUsage > 0 ? forecastedUsage : recommendedReorderQuantity;
+  return Math.max(0, Number(result.recommended_reorder_quantity || 0));
 };
 
 const buildPublicForecastSuggestions = (storedForecast) => {
@@ -514,6 +532,12 @@ const mapStoredForecastRun = (forecastRun, resultRows) => {
       category: row.category,
       unit_of_measure: row.unit_of_measure,
       current_available_stock: Number(parsedNotes.current_available_stock || 0),
+      current_lgu_available_stock: Number(
+        parsedNotes.current_lgu_available_stock || 0,
+      ),
+      current_donated_available_stock: Number(
+        parsedNotes.current_donated_available_stock || 0,
+      ),
       reorder_level: Number(parsedNotes.reorder_level || 0),
       average_daily_usage: Number(parsedNotes.average_daily_usage || 0),
       forecasted_usage: Number(row.predicted_quantity_needed || 0),
@@ -920,6 +944,12 @@ const buildResultConfidenceNotes = ({
   return JSON.stringify({
     risk_level: analyticsResult.risk_level || "LOW",
     current_available_stock: Number(analyticsResult.current_available_stock || 0),
+    current_lgu_available_stock: Number(
+      analyticsResult.current_lgu_available_stock || 0,
+    ),
+    current_donated_available_stock: Number(
+      analyticsResult.current_donated_available_stock || 0,
+    ),
     reorder_level: Number(analyticsResult.reorder_level || 0),
     average_daily_usage: Number(analyticsResult.average_daily_usage || 0),
     forecasted_usage: Number(analyticsResult.forecasted_usage || 0),
@@ -953,6 +983,12 @@ const buildResponseResults = (analyticsResults) => {
     category: result.category,
     unit_of_measure: result.unit_of_measure,
     current_available_stock: Number(result.current_available_stock || 0),
+    current_lgu_available_stock: Number(
+      result.current_lgu_available_stock || 0,
+    ),
+    current_donated_available_stock: Number(
+      result.current_donated_available_stock || 0,
+    ),
     reorder_level: Number(result.reorder_level || 0),
     average_daily_usage: Number(result.average_daily_usage || 0),
     forecasted_usage: Number(result.forecasted_usage || 0),
@@ -975,7 +1011,12 @@ const buildResponseResults = (analyticsResults) => {
 const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) => {
   const resolvedModelName = model_name || DEFAULT_FORECAST_MODEL;
   const disasterEvent = await ensureForecastableDisasterEvent(disaster_event_id);
-  const forecastItems = await forecastRepository.getInventoryForecastItems();
+  const forecastItems = await forecastRepository.getInventoryForecastItems(
+    disaster_event_id,
+  );
+  const forecastItemStockById = new Map(
+    forecastItems.map((item) => [item.id, item]),
+  );
   const eventContext = await forecastRepository.getForecastEventContext(
     disaster_event_id,
   );
@@ -1014,6 +1055,7 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
     enrichForecastResult({
       result,
       demandContext: demandMap.get(result.inventory_item_id),
+      stockContext: forecastItemStockById.get(result.inventory_item_id),
       forecastHorizonDays: analyticsForecast.forecast_horizon_days,
       fallbackModelName: resolvedModelName,
     }),
@@ -1048,6 +1090,12 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
           lookback_days: analyticsForecast.lookback_days,
           moving_average_window: MOVING_AVERAGE_WINDOW,
           exponential_smoothing_alpha: EXPONENTIAL_SMOOTHING_ALPHA,
+          inventory_stock_basis: {
+            included_source_types: [...FORECAST_ELIGIBLE_SOURCE_TYPES],
+            included_batch_statuses: ["AVAILABLE", "LOW_STOCK"],
+            near_expiry_exclusion_days: FORECAST_NEAR_EXPIRY_EXCLUSION_DAYS,
+            donated_stock_scope: "SELECTED_DISASTER_EVENT",
+          },
           analytics_service_url: normalizeAnalyticsServiceUrl(ANALYTICS_SERVICE_URL),
           event_context: {
             household_count: Number(eventContext?.household_count || 0),

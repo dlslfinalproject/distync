@@ -1,4 +1,5 @@
 import { normalizeDonorType } from "./donationFormatters";
+import { getDonationTypeKey } from "./donationType";
 
 export const defaultPortalData = {
   disaster_events: [],
@@ -41,16 +42,9 @@ export const filterDonations = (donationsWithSyncStatus, donationSearch) => {
 };
 
 export const getDonationTypeLabel = (donation) => {
-  const items = Array.isArray(donation?.items) ? donation.items : [];
-
-  if (
-    items.length > 0 &&
-    items.every((item) => String(item?.remarks || "").startsWith("Relief Pack:"))
-  ) {
-    return "Relief Pack";
-  }
-
-  return "Loose Item";
+  return getDonationTypeKey(donation?.items) === "RELIEF_PACK"
+    ? "Relief Pack"
+    : "Loose Item";
 };
 
 export const filterDonationsByType = (donationsWithSyncStatus, donationTypeFilter) => {

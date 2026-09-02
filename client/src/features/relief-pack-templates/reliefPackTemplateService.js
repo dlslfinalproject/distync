@@ -5,7 +5,11 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   const responseData = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(responseData?.message || fallbackMessage);
+    const error = new Error(responseData?.message || fallbackMessage);
+    error.statusCode = response.status;
+    error.code = responseData?.code || null;
+    error.payload = responseData;
+    throw error;
   }
 
   return responseData;
@@ -18,7 +22,7 @@ export const fetchReliefPackTemplates = async (filters = {}) => {
     searchParams.set("search", filters.search.trim());
   }
 
-  if (filters.is_active !== "") {
+  if (filters.is_active !== undefined && filters.is_active !== "") {
     searchParams.set("is_active", filters.is_active);
   }
 
@@ -64,6 +68,24 @@ export const updateReliefPackTemplate = async (templateId, payload) => {
   );
 
   return handleJsonResponse(response, "Failed to update relief pack template");
+};
+
+export const updateReliefPackTemplateStatus = async (templateId, isActive) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/relief-pack-templates/${templateId}/status`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ is_active: isActive }),
+    },
+  );
+
+  return handleJsonResponse(
+    response,
+    "Failed to update relief pack template status",
+  );
 };
 
 export const replaceReliefPackTemplateItems = async (templateId, payload) => {

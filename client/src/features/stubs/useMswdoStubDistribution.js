@@ -60,6 +60,7 @@ const getMappedRows = (stubRows) =>
     qr_notes: stubRow.qr_notes || "",
     queue_time_in: stubRow.queue_time_in || "",
     latest_attendance_status: stubRow.latest_attendance_status || "",
+    latest_attendance_time_out: stubRow.latest_attendance_time_out || null,
     unclaimed_queue_position: stubRow.unclaimed_queue_position || null,
     relief_pack_name: stubRow.relief_pack_name || "--",
     assigned_relief_packs: Array.isArray(stubRow.assigned_relief_packs)

@@ -57,12 +57,19 @@ router.get(
 
 router.get(
   "/",
-  requireRoles(ROLE_CODES.MAYOR),
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
   validateGetInventoryBatches,
   async (req, res) => {
   try {
+    const filters =
+      req.auth.roleCode === ROLE_CODES.MAYOR
+        ? req.validatedQuery
+        : {
+            ...req.validatedQuery,
+            source_type: "LGU",
+          };
     const inventoryBatches = await inventoryBatchService.getInventoryBatches(
-      req.validatedQuery,
+      filters,
     );
 
     return res.status(200).json(inventoryBatches);

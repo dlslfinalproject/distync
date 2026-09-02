@@ -1,20 +1,18 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import QrScanner from "qr-scanner";
 import qrScannerWorkerPath from "qr-scanner/qr-scanner-worker.min.js?url";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import StubSummaryCard from "../../components/distribution/StubSummaryCard";
-import DistributionForm from "../../components/distribution/DistributionForm";
+import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
 import { shellStyles } from "../../components/layout/BarangayLayout";
-import { fetchStubDetails, verifyStub } from "../../features/stubs/stubService";
-import { extractStubQrValue } from "../../utils/stubQr";
+import { useAuth } from "../../context/AuthContext";
 import {
-  fetchInventoryBatches,
-  fetchInventoryItems,
-  fetchReliefPackTemplateById,
-  fetchReliefPackTemplates,
-  recordDistributionTransaction,
-} from "../../features/distribution/distributionService";
+  claimStub,
+  fetchStubDetails,
+  verifyStub,
+} from "../../features/stubs/stubService";
+import { extractStubQrValue } from "../../utils/stubQr";
 import {
   UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE,
   isServerVerifiedDistributionTarget,
@@ -52,36 +50,6 @@ const qrLookupStyles = {
     border: "1px solid #d3dfeb",
     backgroundColor: "#0f2236",
   },
-};
-
-const createEmptyReleasedItem = () => ({
-  id: `${Date.now()}-${Math.random()}`,
-  inventory_item_id: "",
-  inventory_batch_id: "",
-  quantity_released: 1,
-});
-
-const NEAR_EXPIRY_DAYS = 30;
-
-const isNearExpiryBatch = (expirationDate) => {
-  if (!expirationDate) {
-    return false;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const thresholdDate = new Date(today);
-  thresholdDate.setDate(thresholdDate.getDate() + NEAR_EXPIRY_DAYS);
-
-  const parsedExpirationDate = new Date(expirationDate);
-  parsedExpirationDate.setHours(0, 0, 0, 0);
-
-  return (
-    !Number.isNaN(parsedExpirationDate.getTime()) &&
-    parsedExpirationDate >= today &&
-    parsedExpirationDate <= thresholdDate
-  );
 };
 
 const buildStubContextFromDetails = (stubDetails) => {
@@ -166,31 +134,8 @@ const buildStubContextFromLocation = (locationState, searchParams) => {
   });
 };
 
-const getTemplateFamilySizeCoverage = (template) => {
-  const parsedCoverage = Number.parseInt(String(template?.description || "").trim(), 10);
-  return Number.isInteger(parsedCoverage) && parsedCoverage > 0 ? parsedCoverage : 0;
-};
-
-const getTemplatePackMultiplier = (template, householdSize) => {
-  if (!template?.based_on_family_size) {
-    return 1;
-  }
-
-  const normalizedHouseholdSize = Number.parseInt(String(householdSize || 0), 10);
-  const familySizeCoverage = getTemplateFamilySizeCoverage(template);
-
-  if (
-    !Number.isInteger(normalizedHouseholdSize) ||
-    normalizedHouseholdSize <= 0 ||
-    familySizeCoverage <= 0
-  ) {
-    return 1;
-  }
-
-  return Math.max(1, Math.ceil(normalizedHouseholdSize / familySizeCoverage));
-};
-
 const DistributionTransactionPage = () => {
+  const { authenticatedUser } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -200,16 +145,7 @@ const DistributionTransactionPage = () => {
   const [stubContext, setStubContext] = useState(() =>
     buildStubContextFromLocation(location.state, searchParams),
   );
-  const [claimedByName, setClaimedByName] = useState(
-    location.state?.stubContext?.family_head_name || "",
-  );
-  const [remarks, setRemarks] = useState("");
-  const [templates, setTemplates] = useState([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [inventoryItems, setInventoryItems] = useState([]);
-  const [inventoryBatches, setInventoryBatches] = useState([]);
-  const [releasedItems, setReleasedItems] = useState([createEmptyReleasedItem()]);
-  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [verifiedStubDetails, setVerifiedStubDetails] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -225,33 +161,6 @@ const DistributionTransactionPage = () => {
   const hasTrustedStubContext = isServerVerifiedDistributionTarget(stubContext);
 
   useEffect(() => {
-    const loadFormOptions = async () => {
-      setIsLoadingData(true);
-      setErrorMessage("");
-
-      try {
-        const [templateList, itemList, batchList] = await Promise.all([
-          fetchReliefPackTemplates({
-            disaster_event_id: stubContext?.disaster_event_id || null,
-          }),
-          fetchInventoryItems(),
-          fetchInventoryBatches(),
-        ]);
-
-        setTemplates(templateList || []);
-        setInventoryItems(itemList || []);
-        setInventoryBatches(batchList || []);
-      } catch (error) {
-        setErrorMessage(error.message);
-      } finally {
-        setIsLoadingData(false);
-      }
-    };
-
-    loadFormOptions();
-  }, [stubContext?.disaster_event_id]);
-
-  useEffect(() => {
     const currentStubContext = buildStubContextFromLocation(
       location.state,
       searchParams,
@@ -259,7 +168,6 @@ const DistributionTransactionPage = () => {
 
     setStubContext(currentStubContext);
 
-    setClaimedByName(currentStubContext?.family_head_name || "");
   }, [location.state, searchParams]);
 
   useEffect(() => {
@@ -279,6 +187,7 @@ const DistributionTransactionPage = () => {
           return;
         }
 
+        setVerifiedStubDetails(stubDetails);
         setStubContext((currentValue) => {
           if (!currentValue) {
             return currentValue;
@@ -361,90 +270,6 @@ const DistributionTransactionPage = () => {
     setIsQrScannerOpen(false);
   };
 
-  const availableInventoryBatches = useMemo(() => {
-    return inventoryBatches.filter(
-      (batch) =>
-        batch.quantity_available > 0 &&
-        ["AVAILABLE", "LOW_STOCK"].includes(batch.status) &&
-        !isNearExpiryBatch(batch.expiration_date),
-    );
-  }, [inventoryBatches]);
-  const usesTemplateFifo = Boolean(selectedTemplateId);
-
-  const updateReleasedItem = (rowId, fieldName, fieldValue) => {
-    setReleasedItems((currentRows) =>
-      currentRows.map((row) => {
-        if (row.id !== rowId) {
-          return row;
-        }
-
-        if (fieldName === "inventory_item_id") {
-          return {
-            ...row,
-            inventory_item_id: fieldValue,
-            inventory_batch_id: "",
-          };
-        }
-
-        if (fieldName === "quantity_released") {
-          return {
-            ...row,
-            quantity_released:
-              fieldValue === "" ? "" : Number.parseInt(fieldValue, 10),
-          };
-        }
-
-        return {
-          ...row,
-          [fieldName]: fieldValue,
-        };
-      }),
-    );
-  };
-
-  const handleAddItemRow = () => {
-    setReleasedItems((currentRows) => [...currentRows, createEmptyReleasedItem()]);
-  };
-
-  const handleRemoveItemRow = (rowId) => {
-    setReleasedItems((currentRows) =>
-      currentRows.filter((row) => row.id !== rowId),
-    );
-  };
-
-  const handleApplyTemplate = async () => {
-    if (!selectedTemplateId) {
-      return;
-    }
-
-    setErrorMessage("");
-    setSuccessMessage("");
-
-    try {
-      const template = await fetchReliefPackTemplateById(selectedTemplateId);
-      const packMultiplier = getTemplatePackMultiplier(
-        template,
-        stubContext?.household_size,
-      );
-
-      if (!template.items || template.items.length === 0) {
-        setReleasedItems([createEmptyReleasedItem()]);
-        return;
-      }
-
-      setReleasedItems(
-        template.items.map((item, index) => ({
-          id: `${Date.now()}-${index}`,
-          inventory_item_id: item.inventory_item_id,
-          inventory_batch_id: "",
-          quantity_released: Number(item.quantity_required || 0) * packMultiplier,
-        })),
-      );
-    } catch (error) {
-      setErrorMessage(error.message);
-    }
-  };
-
   const resolveStubFromQrLookup = async (lookupValue) => {
     const normalizedValue = extractStubQrValue(lookupValue);
 
@@ -472,8 +297,8 @@ const DistributionTransactionPage = () => {
       const stubDetails = await fetchStubDetails(resolvedStubId);
       const nextStubContext = buildStubContextFromDetails(stubDetails);
 
+      setVerifiedStubDetails(stubDetails);
       setStubContext(nextStubContext);
-      setClaimedByName(nextStubContext?.family_head_name || "");
       setQrLookupValue(normalizedValue);
 
       if (verification?.data?.is_claimable) {
@@ -492,75 +317,15 @@ const DistributionTransactionPage = () => {
     }
   };
 
-  const validateForm = () => {
-    if (!stubContext) {
-      return "No stub was selected for distribution.";
-    }
-
-    if (!isServerVerifiedDistributionTarget(stubContext)) {
-      return UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE;
-    }
-
-    if (stubContext.status !== "ISSUED") {
-      return "Selected stub is not claimable for distribution.";
-    }
-
-    if (!claimedByName.trim()) {
-      return "claimed_by_name is required.";
-    }
-
-    if (releasedItems.length === 0) {
-      return "Add at least one released item.";
-    }
-
-    for (const row of releasedItems) {
-      if (!row.inventory_item_id) {
-        return "Each released item row must have an inventory item.";
-      }
-
-      if (!usesTemplateFifo && !row.inventory_batch_id) {
-        return "Each released item row must have a selected batch.";
-      }
-
-      if (!Number.isInteger(row.quantity_released) || row.quantity_released <= 0) {
-        return "Each released item quantity must be a positive integer.";
-      }
-
-      if (usesTemplateFifo) {
-        continue;
-      }
-
-      const batch = availableInventoryBatches.find(
-        (currentBatch) => currentBatch.id === row.inventory_batch_id,
-      );
-
-      if (!batch) {
-        return "One or more selected batches are no longer available.";
-      }
-
-      if (batch.inventory_item_id !== row.inventory_item_id) {
-        return "Selected batch does not match the chosen inventory item.";
-      }
-
-      if (row.quantity_released > batch.quantity_available) {
-        return `Quantity exceeds available stock for batch ${batch.batch_no}.`;
-      }
-    }
-
-    return "";
-  };
-
-  const handleSubmit = async () => {
+  const handleConfirmDistribution = async () => {
     if (!isServerVerifiedDistributionTarget(stubContext)) {
       setErrorMessage(UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE);
       setSuccessMessage("");
       return;
     }
 
-    const validationMessage = validateForm();
-
-    if (validationMessage) {
-      setErrorMessage(validationMessage);
+    if (!verifiedStubDetails || verifiedStubDetails.status !== "ISSUED") {
+      setErrorMessage("Selected stub is not claimable for distribution.");
       setSuccessMessage("");
       return;
     }
@@ -570,54 +335,44 @@ const DistributionTransactionPage = () => {
     setSuccessMessage("");
 
     try {
-      const response = await recordDistributionTransaction({
-          disaster_event_id: stubContext.disaster_event_id,
-          household_id: stubContext.household_id,
-          stub_id: stubContext.stub_id,
-          claimed_by_name: claimedByName.trim(),
-          verified_by: null,
-          device_id: null,
-          is_offline_encoded: false,
-          sync_status: "SYNCED",
-          qr_reference_value:
-            stubContext.qr_code_value || qrLookupValue.trim() || null,
-          relief_pack_template_id: selectedTemplateId || null,
-          remarks: remarks.trim() || null,
-          items: releasedItems.map((row) => ({
-            inventory_item_id: row.inventory_item_id,
-            inventory_batch_id: usesTemplateFifo ? null : row.inventory_batch_id,
-            quantity_released: row.quantity_released,
-          })),
-        },
-        {
-          barangayId:
-            stubContext.barangay_id || stubContext.barangay?.id || null,
-          disasterEventTitle:
-            stubContext.disaster_event_title ||
-            stubContext.disaster_event?.title ||
-            stubContext.disaster_event?.name ||
-            "",
-        },
-      );
+      const response = await claimStub({
+        stubId: stubContext.stub_id,
+        userId: authenticatedUser?.id || "",
+        disasterEventId: stubContext.disaster_event_id,
+        disasterEventTitle:
+          verifiedStubDetails.disaster_event?.title ||
+          verifiedStubDetails.disaster_event?.name ||
+          "",
+      });
+      const isQueuedOffline =
+        response?.queued_offline || response?.data?.status === "PENDING_SYNC";
+      const nextStatus = isQueuedOffline
+        ? "PENDING_SYNC"
+        : response?.data?.status || "CLAIMED";
 
       setSuccessMessage(
-        response.message
-          ? `${response.message}${response.data?.receipt_no ? ` Receipt No: ${response.data.receipt_no}` : ""}`
+        isQueuedOffline
+          ? "Distribution saved offline. It will synchronize when connectivity is restored."
           : "Distribution recorded successfully.",
       );
-      setReleasedItems([createEmptyReleasedItem()]);
-      setSelectedTemplateId("");
-      setRemarks("");
+      setVerifiedStubDetails((currentValue) =>
+        currentValue
+          ? {
+              ...currentValue,
+              status: nextStatus,
+            }
+          : currentValue,
+      );
       setStubContext((currentValue) =>
         currentValue
           ? {
               ...currentValue,
-              status: response.data?.stub?.status || "CLAIMED",
+              status: nextStatus,
             }
           : currentValue,
       );
     } catch (error) {
-      setErrorMessage(error.message);
+      setErrorMessage(error.message || "Unable to record the relief distribution.");
     } finally {
       setIsSubmitting(false);
     }
@@ -628,7 +383,7 @@ const DistributionTransactionPage = () => {
       <PageHeader
         eyebrow="Barangay Workspace"
         title="DISTRIBUTION TRANSACTION"
-        description="Record actual relief claiming after a stub has been verified and select the exact item batches being released."
+        description="Confirm the assigned relief packs after a stub has been verified. Eligible loose donations are used first, followed by Malvar LGU inventory."
         actions={[
           {
             label: "Back to Verification",
@@ -693,8 +448,9 @@ const DistributionTransactionPage = () => {
         </div>
 
         <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
-          Manual stub search and the existing stub-based workflow still work. QR lookup
-          is an added proof-of-receipt and distribution validation path.
+          QR verification identifies the household. The distribution confirmation
+          uses the same eligibility and relief-pack assignment rules as the Barangay
+          dashboard.
         </p>
 
         {!canUseQrScanner ? (
@@ -735,27 +491,32 @@ const DistributionTransactionPage = () => {
         isLoadingStubDetails={isLoadingStubDetails}
       />
 
-      <DistributionForm
-        claimedByName={claimedByName}
-        remarks={remarks}
-        templates={templates}
-        selectedTemplateId={selectedTemplateId}
-        inventoryItems={inventoryItems}
-        inventoryBatches={availableInventoryBatches}
-        releasedItems={releasedItems}
-        errorMessage={errorMessage}
-        successMessage={successMessage}
+      {errorMessage ? (
+        <section style={shellStyles.card}>
+          <p style={{ ...shellStyles.mutedText, color: "#a14d58", margin: 0 }}>
+            {errorMessage}
+          </p>
+        </section>
+      ) : null}
+
+      {successMessage ? (
+        <section style={shellStyles.card}>
+          <p style={{ ...shellStyles.mutedText, color: "#2f6f4e", margin: 0 }}>
+            {successMessage}
+          </p>
+        </section>
+      ) : null}
+
+      <StubClaimConfirmModal
+        isOpen={
+          hasTrustedStubContext &&
+          verifiedStubDetails?.status === "ISSUED"
+        }
         isSubmitting={isSubmitting}
-        isLoadingData={isLoadingData}
-        isSubmitDisabled={!hasTrustedStubContext}
-        onClaimedByNameChange={setClaimedByName}
-        onRemarksChange={setRemarks}
-        onTemplateChange={setSelectedTemplateId}
-        onApplyTemplate={handleApplyTemplate}
-        onAddItemRow={handleAddItemRow}
-        onRemoveItemRow={handleRemoveItemRow}
-        onUpdateItemRow={updateReleasedItem}
-        onSubmit={handleSubmit}
+        isLoadingStubDetails={isLoadingStubDetails}
+        onCancel={() => navigate("/barangay/stub-distribution")}
+        onConfirm={handleConfirmDistribution}
+        stubDetails={verifiedStubDetails}
       />
     </>
   );

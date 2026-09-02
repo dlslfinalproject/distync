@@ -105,7 +105,7 @@ const InventoryBatchesTable = ({ rows, isLoading, errorMessage, onViewDetails })
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Inventory Batches</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-          Batch-level stock records with supplier, source, quantity, and
+          Batch-level stock records with source, quantity, and
           expiration details.
         </p>
       </div>
@@ -116,7 +116,6 @@ const InventoryBatchesTable = ({ rows, isLoading, errorMessage, onViewDetails })
             <tr>
               <th style={tableStyles.headerCell}>Batch No</th>
               <th style={tableStyles.headerCell}>Item</th>
-              <th style={tableStyles.headerCell}>Supplier</th>
               <th style={tableStyles.headerCell}>Source Type</th>
               <th style={tableStyles.headerCell}>Quantity Received</th>
               <th style={tableStyles.headerCell}>Quantity Available</th>
@@ -133,7 +132,6 @@ const InventoryBatchesTable = ({ rows, isLoading, errorMessage, onViewDetails })
                 <td style={tableStyles.bodyCell}>
                   {row.inventory_item?.item_name || "--"}
                 </td>
-                <td style={tableStyles.bodyCell}>{row.supplier?.name || "--"}</td>
                 <td style={tableStyles.bodyCell}>{row.source_type}</td>
                 <td style={tableStyles.bodyCell}>{row.quantity_received}</td>
                 <td style={tableStyles.bodyCell}>{row.quantity_available}</td>

@@ -78,7 +78,6 @@ const buildRepositoryStub = (overrides = {}) => ({
     unit_of_measure: "sack",
     is_active: true,
   }),
-  getSupplierById: async () => null,
   getInventoryBatchByItemIdAndBatchNo: async () => null,
   insertInventoryBatch: async () => ({
     id: "batch-created",

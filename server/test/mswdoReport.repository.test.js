@@ -155,6 +155,28 @@ test("MSWDO anomaly tracking keeps plain sync failures for consolidated review",
   );
 });
 
+test("MAYOR anomaly tracking only returns inventory-distribution mismatches", async () => {
+  const { capturedQueries } = await captureAnomalyRepositoryCall({
+    roleScope: "MAYOR",
+    page: 1,
+    pageSize: 25,
+  });
+
+  const itemQuery = capturedQueries[1];
+
+  assert.match(
+    itemQuery,
+    /anomaly_rows\.anomaly_type IN \('INVENTORY_DISTRIBUTION_MISMATCH'\)/,
+  );
+  assert.doesNotMatch(itemQuery, /UNION ALL SELECT \* FROM sync_conflict/);
+  assert.doesNotMatch(itemQuery, /UNION ALL SELECT \* FROM sync_failed/);
+  assert.match(itemQuery, /inventory_item_name/);
+  assert.match(itemQuery, /inventory_batch_no/);
+  assert.match(itemQuery, /inventory_transaction_reference_no/);
+  assert.match(itemQuery, /it\.transaction_type = 'OUTFLOW'/);
+  assert.match(itemQuery, /it\.reference_type = 'DISTRIBUTION'/);
+});
+
 test("MSWDO operational search covers safe reasons, affected context, review status, and notes", async () => {
   const { capturedQueries } = await captureAnomalyRepositoryCall({
     roleScope: "MSWDO",
@@ -213,7 +235,7 @@ test("MSWDO anomaly timestamps follow the approved source-event contract", async
   assert.doesNotMatch(itemQuery, /occurred_at/);
 });
 
-test("manual review availability requires an attributed Barangay without narrowing MSWDO scope", async () => {
+test("municipal manual review availability permits only the approved NULL-Barangay anomaly type", async () => {
   const { capturedQueries } = await captureAnomalyRepositoryCall({
     roleScope: "MSWDO",
     page: 1,
@@ -222,11 +244,31 @@ test("manual review availability requires an attributed Barangay without narrowi
 
   const itemQuery = capturedQueries[1];
 
+  assert.match(itemQuery, /anomaly_rows\.barangay_id IS NOT NULL/);
   assert.match(
     itemQuery,
+    /anomaly_rows\.anomaly_type IN \('INVENTORY_DISTRIBUTION_MISMATCH'\)/,
+  );
+  assert.match(
+    itemQuery,
+    /anomaly_rows\.source_type IN \('INVENTORY_DISTRIBUTION_ORPHAN_OUTFLOW'\)/,
+  );
+  assert.match(itemQuery, /AS manual_review_allowed/);
+  assert.doesNotMatch(itemQuery, /WHERE anomaly_rows\.barangay_id = \$/);
+});
+
+test("Barangay manual review availability still requires non-null Barangay attribution", async () => {
+  const { capturedQueries } = await captureAnomalyRepositoryCall({
+    roleScope: "BARANGAY",
+    barangayId: "barangay-a",
+    page: 1,
+    pageSize: 10,
+  });
+
+  assert.match(
+    capturedQueries[1],
     /anomaly_rows\.anomaly_type IN \([\s\S]*\)[\s\S]*AND anomaly_rows\.barangay_id IS NOT NULL[\s\S]*AS manual_review_allowed/,
   );
-  assert.doesNotMatch(itemQuery, /WHERE anomaly_rows\.barangay_id = \$/);
 });
 
 test("H01-04 and H01-05 error-log anomalies use a narrow Barangay-only actor fallback", async () => {
@@ -1016,7 +1058,7 @@ test("Barangay anomaly review metadata is joined without duplicating derived ano
   assert.match(itemQuery, /ar\.source_type = anomaly_rows\.source_type/);
   assert.match(itemQuery, /ar\.source_id = anomaly_rows\.source_id/);
   assert.match(itemQuery, /ar\.anomaly_type = anomaly_rows\.anomaly_type/);
-  assert.match(itemQuery, /ar\.barangay_id = anomaly_rows\.barangay_id/);
+  assert.match(itemQuery, /ar\.barangay_id IS NOT DISTINCT FROM anomaly_rows\.barangay_id/);
   assert.match(itemQuery, /review_state/);
   assert.match(itemQuery, /manual_review_allowed/);
   assert.match(countQuery, /anomaly_rows\.barangay_id = \$1/);

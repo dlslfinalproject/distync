@@ -155,7 +155,7 @@ const buildCsvBuffer = ({ rows, filters }) => {
     "DISTYNC",
     "Office of the Mayor",
     "Municipality of Malvar, Batangas",
-    "Inventory Items report",
+    "Inventory Items Report",
     ...metadata.map((item) => `${item.label}: ${item.value}`),
   ];
   const columnLine = EXPORT_COLUMNS.map((column) =>
@@ -238,7 +238,7 @@ const buildExcelBuffer = async ({ rows, filters }) => {
   };
   worksheet.getCell("A3").alignment = { horizontal: "left", vertical: "middle", indent: 7 };
 
-  worksheet.getCell("A4").value = "Inventory Items report";
+  worksheet.getCell("A4").value = "Inventory Items Report";
   worksheet.getCell("A4").font = {
     bold: true,
     size: 12,
@@ -261,6 +261,7 @@ const buildExcelBuffer = async ({ rows, filters }) => {
 
   const headerRowNumber = 11;
   const headerRow = worksheet.getRow(headerRowNumber);
+  headerRow.height = 32;
 
   EXPORT_COLUMNS.forEach((column, index) => {
     const cell = headerRow.getCell(index + 1);
@@ -372,7 +373,7 @@ const buildPdfBuffer = ({ rows, filters }) => {
       size: 11,
       color: reportExport.PDF_COLORS.white,
     });
-    addText("Inventory Items report", pageWidth - 250, 767, {
+    addText("Inventory Items Report", pageWidth - 250, 767, {
       bold: true,
       size: 12,
       color: reportExport.PDF_COLORS.white,
@@ -391,13 +392,48 @@ const buildPdfBuffer = ({ rows, filters }) => {
     const headerHeight =
       Math.max(...wrappedHeaders.map((lines) => lines.length), 1) * headerLineHeight + 4;
 
+    page.fillRect(
+      marginX,
+      cursorY - headerHeight,
+      contentWidth,
+      headerHeight,
+      reportExport.PDF_COLORS.blue,
+    );
+    page.strokeRect(
+      marginX,
+      cursorY - headerHeight,
+      contentWidth,
+      headerHeight,
+      reportExport.PDF_COLORS.border,
+      0.8,
+    );
+
+    headerX = marginX;
     wrappedHeaders.forEach((lines, index) => {
+      const textStartY =
+        cursorY -
+        (headerHeight - lines.length * headerLineHeight) / 2 -
+        7;
+
       lines.forEach((line, lineIndex) => {
-        addText(line, headerX + 3, cursorY - lineIndex * headerLineHeight, {
+        addText(line, headerX + 3, textStartY - lineIndex * headerLineHeight, {
           bold: true,
           size: 7.2,
+          color: reportExport.PDF_COLORS.white,
         });
       });
+
+      if (index < wrappedHeaders.length - 1) {
+        page.drawLine(
+          headerX + columnWidths[index],
+          cursorY,
+          headerX + columnWidths[index],
+          cursorY - headerHeight,
+          reportExport.PDF_COLORS.border,
+          0.6,
+        );
+      }
+
       headerX += columnWidths[index];
     });
     cursorY -= headerHeight;
@@ -411,7 +447,7 @@ const buildPdfBuffer = ({ rows, filters }) => {
 
   drawHeader();
 
-  rows.forEach((row) => {
+  rows.forEach((row, rowIndex) => {
     const wrappedCells = EXPORT_COLUMNS.map((column, index) =>
       wrapText(row[column.key], Math.max(8, Math.floor(columnWidths[index] / 5.8))),
     );
@@ -423,10 +459,40 @@ const buildPdfBuffer = ({ rows, filters }) => {
       drawHeader();
     }
 
+    const rowBackgroundColor =
+      rowIndex % 2 === 0 ? reportExport.PDF_COLORS.white : "0.97 0.98 0.99";
+
+    page.fillRect(
+      marginX,
+      cursorY - rowHeight,
+      contentWidth,
+      rowHeight,
+      rowBackgroundColor,
+    );
+    page.strokeRect(
+      marginX,
+      cursorY - rowHeight,
+      contentWidth,
+      rowHeight,
+      reportExport.PDF_COLORS.border,
+      0.6,
+    );
+
     let cellX = marginX;
     wrappedCells.forEach((lines, index) => {
+      if (index < wrappedCells.length - 1) {
+        page.drawLine(
+          cellX + columnWidths[index],
+          cursorY,
+          cellX + columnWidths[index],
+          cursorY - rowHeight,
+          reportExport.PDF_COLORS.border,
+          0.5,
+        );
+      }
+
       lines.forEach((line, lineIndex) => {
-        addText(line, cellX + 3, cursorY - lineIndex * bodyLineHeight, {
+        addText(line, cellX + 3, cursorY - 13 - lineIndex * bodyLineHeight, {
           size: 7.2,
         });
       });

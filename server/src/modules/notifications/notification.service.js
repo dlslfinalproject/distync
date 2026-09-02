@@ -61,6 +61,29 @@ const DEFAULT_NOTIFICATION_RULES = NOTIFICATION_RULE_TARGETS.map((rule) => ({
   is_active: rule.isActive,
 }));
 
+const NOTIFICATION_SEVERITY_BY_POLICY_PRIORITY = Object.freeze({
+  CRITICAL: "CRITICAL",
+  WARNING: "WARNING",
+  INFORMATIONAL: "INFO",
+  INFO: "INFO",
+});
+
+const resolveNotificationSeverity = (priority) => {
+  const normalizedPriority = String(priority || "").trim().toUpperCase();
+  const severity = NOTIFICATION_SEVERITY_BY_POLICY_PRIORITY[normalizedPriority];
+
+  if (!severity) {
+    const error = new Error(
+      `Notification policy priority is invalid: ${normalizedPriority || "missing"}.`,
+    );
+    error.code = "INVALID_NOTIFICATION_PRIORITY";
+    error.statusCode = 500;
+    throw error;
+  }
+
+  return severity;
+};
+
 let notificationMaintenanceInterval = null;
 
 const createNotificationPolicyConfigurationError = (roleCode) => {
@@ -78,7 +101,6 @@ const MAYOR_RELEVANT_SYNC_ENTITY_TYPES = new Set([
   "INVENTORY_TRANSACTION",
   "DONATION",
   "DONATION_ITEM",
-  "SUPPLIER",
 ]);
 
 const FALLBACK_SYNC_NOTIFICATION_ROLE_CODES = [
@@ -586,7 +608,7 @@ const createPersistentNotification = async ({
     throw error;
   }
   // Priority is static for every active rule. Producers supply context only.
-  const severity = priorities[0];
+  const severity = resolveNotificationSeverity(priorities[0]);
 
   const deliveryPlanBuckets = await Promise.all(
     (recipientGroups || []).map((group) =>
@@ -1621,6 +1643,48 @@ const emitSyncTransactionFailureAlert = async (syncTransaction) => {
 const emitSyncConflictAlert = async (syncConflict) => {
   if (!syncConflict?.user_id) {
     return null;
+  }
+
+  if (
+    syncConflict.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE" &&
+    syncConflict.status === "RESOLVED" &&
+    syncConflict.resolved_payload_json?.automatic
+  ) {
+    if (
+      syncConflict.resolved_payload_json.result !==
+      "LATER_REGISTRATION_RESOLVED_AS_DUPLICATE"
+    ) {
+      return null;
+    }
+
+    const familyHead =
+      syncConflict.resolved_payload_json.later_registration?.family_head ||
+      syncConflict.local_payload_json?.family_head ||
+      {};
+    const familyHeadName = [familyHead.first_name, familyHead.last_name]
+      .filter(Boolean)
+      .join(" ");
+    const authoritativeBarangay =
+      syncConflict.resolved_payload_json.earlier_registration?.barangay_name ||
+      "another Barangay";
+
+    return createNotificationForUsers({
+      ruleCode: "SYNC_CONFLICT",
+      userIds: [syncConflict.user_id],
+      roleCode: ROLE_CODES.BARANGAY,
+      type: NOTIFICATION_TYPES.SYNC,
+      title: "Duplicate Registration Resolved",
+      message: `${familyHeadName || "This household registration"} was not saved because an earlier registration already exists under Barangay ${authoritativeBarangay}.`,
+      severity: "WARNING",
+      reference_type: "SYNC_CONFLICT",
+      reference_id: syncConflict.id,
+      source_event_key: `SYNC_CONFLICT:${syncConflict.id}`,
+      metadata: {
+        conflictId: syncConflict.id,
+        conflictType: syncConflict.conflict_type,
+        resolutionStatus: "RESOLVED_AUTOMATICALLY",
+      },
+    });
   }
 
   const recipientRoleCode =

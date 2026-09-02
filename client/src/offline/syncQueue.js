@@ -9,6 +9,7 @@ import {
   SYNC_ERROR_CODES,
   SYNC_PRESENTATION_MESSAGES,
 } from "./syncStatus.js";
+import { getOfflineDeviceId } from "./deviceIdentity.js";
 
 const unsupportedOfflineActionKeys = new Set([
   "DONATION_NEED_CREATE",
@@ -21,6 +22,22 @@ const unsupportedOfflineActionKeys = new Set([
   "DISASTER_EVENT_UPDATE",
   "DISASTER_EVENT_EXTEND",
   "DISASTER_EVENT_END",
+]);
+const supportedOfflineActionKeys = new Set([
+  "STUB_CLAIM",
+  "HOUSEHOLD_DEPART",
+  "HOUSEHOLD_UPDATE",
+  "INVENTORY_ITEM_CREATE",
+  "INVENTORY_ITEM_UPDATE",
+  "INVENTORY_BATCH_CREATE",
+]);
+const recognizedOfflineActionKeys = new Set([
+  ...supportedOfflineActionKeys,
+  ...unsupportedOfflineActionKeys,
+  "HOUSEHOLD_REGISTER",
+  "HOUSEHOLD_RE_ADMISSION",
+  "DISTRIBUTION_CREATE",
+  "INVENTORY_TRANSACTION_CREATE",
 ]);
 
 const getIsoNow = () => new Date().toISOString();
@@ -38,8 +55,13 @@ const getQueueBarangayId = ({ payload = {}, barangayId = null, user = null } = {
       "",
   ) || null;
 
-export const isUnsupportedOfflineActionKey = (actionKey) =>
-  unsupportedOfflineActionKeys.has(String(actionKey || "").trim().toUpperCase());
+export const isUnsupportedOfflineActionKey = (actionKey) => {
+  const normalizedActionKey = String(actionKey || "").trim().toUpperCase();
+
+  return Boolean(normalizedActionKey) &&
+    (unsupportedOfflineActionKeys.has(normalizedActionKey) ||
+      !recognizedOfflineActionKeys.has(normalizedActionKey));
+};
 
 export const isMalformedSyncEntry = (entry = {}) => {
   if (!entry || typeof entry !== "object") {
@@ -85,6 +107,7 @@ export const getSyncQueueActorContext = () => {
     userId: authenticatedUser?.id || null,
     roleCode: getCurrentRole() || null,
     barangayId: authenticatedUser?.default_barangay_id || null,
+    deviceId: getOfflineDeviceId(),
   };
 };
 
@@ -97,6 +120,7 @@ export const buildStoredSyncEntry = (
     accessMode: actorContext.accessMode,
     userId: actorContext.userId,
     roleCode: actorContext.roleCode,
+    deviceId: entry?.deviceId || actorContext.deviceId || null,
     barangayId: getQueueBarangayId({
       payload: entry?.payload,
       barangayId: entry?.barangayId || actorContext.barangayId,
@@ -121,11 +145,26 @@ export const isSyncEntryVisibleForContext = (
     return false;
   }
 
+  // IndexedDB is device-local, but retain the device identity on every new
+  // row so copied profiles and future shared-storage adapters cannot surface
+  // another device's work. Legacy rows without a device id remain visible.
+  if (
+    entry.deviceId &&
+    actorContext.deviceId &&
+    entry.deviceId !== actorContext.deviceId
+  ) {
+    return false;
+  }
+
   if (
     entry.barangayId &&
     actorContext.roleCode === "BARANGAY" &&
     (!actorContext.barangayId || entry.barangayId !== actorContext.barangayId)
   ) {
+    return false;
+  }
+
+  if (entry.resolutionStatus === "RESOLVED_AUTOMATICALLY") {
     return false;
   }
 
@@ -305,8 +344,10 @@ export const clearSyncedEntries = async () => {
     .orderBy("updatedAt")
     .filter(
       (entry) =>
-        isSyncEntryVisibleForContext(entry) &&
-        entry.status === LOCAL_SYNC_STATUS.SYNCED,
+        (isSyncEntryVisibleForContext(entry) ||
+          entry.resolutionStatus === "RESOLVED_AUTOMATICALLY") &&
+        (entry.status === LOCAL_SYNC_STATUS.SYNCED ||
+          entry.resolutionStatus === "RESOLVED_AUTOMATICALLY"),
     )
     .toArray();
 

@@ -12,6 +12,7 @@ const RELIEF_PACK_DISASTER_TYPE_OPTIONS = [
   "Fire",
   "Other",
 ];
+const POSITIVE_INTEGER_PATTERN = /^\d+$/;
 
 const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
@@ -33,6 +34,42 @@ const parseOptionalBoolean = (value) => {
   return { isProvided: true, value: "invalid" };
 };
 
+const validateFamilySize = ({ based_on_family_size, description }) => {
+  if (!based_on_family_size) {
+    return null;
+  }
+
+  const normalizedValue = String(description ?? "").trim();
+
+  if (!normalizedValue) {
+    return "Family size covered is required.";
+  }
+
+  if (normalizedValue.startsWith("-")) {
+    return "Family size covered cannot be negative.";
+  }
+
+  if (/[.,]/.test(normalizedValue)) {
+    return "Family size covered must be a whole number; decimal values are not allowed.";
+  }
+
+  if (!POSITIVE_INTEGER_PATTERN.test(normalizedValue)) {
+    return "Family size covered must contain whole numbers only.";
+  }
+
+  const parsedValue = Number(normalizedValue);
+
+  if (!Number.isSafeInteger(parsedValue)) {
+    return "Family size covered must be a valid whole number.";
+  }
+
+  if (parsedValue <= 0) {
+    return "Family size covered must be greater than 0.";
+  }
+
+  return null;
+};
+
 const validateReliefPackTemplateId = (req, res, next) => {
   try {
     const { id } = req.params;
@@ -47,6 +84,29 @@ const validateReliefPackTemplateId = (req, res, next) => {
   } catch (error) {
     return res.status(500).json({
       message: "Failed to validate relief pack template id",
+      error: error.message,
+    });
+  }
+};
+
+const validateReliefPackTemplateStatus = (req, res, next) => {
+  try {
+    const { is_active } = req.body || {};
+
+    if (typeof is_active !== "boolean") {
+      return res.status(400).json({
+        message: "is_active must be a boolean",
+      });
+    }
+
+    req.validatedBody = {
+      is_active,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate relief pack template status",
       error: error.message,
     });
   }
@@ -262,6 +322,17 @@ const validateCreateReliefPackTemplate = (req, res, next) => {
       });
     }
 
+    const familySizeValidationError = validateFamilySize({
+      based_on_family_size: based_on_family_size ?? false,
+      description,
+    });
+
+    if (familySizeValidationError) {
+      return res.status(400).json({
+        message: familySizeValidationError,
+      });
+    }
+
     if (
       based_on_sector !== undefined &&
       typeof based_on_sector !== "boolean"
@@ -349,7 +420,7 @@ const validateCreateReliefPackTemplate = (req, res, next) => {
       sector_ids: isAdditionalPack ? normalizedSectorIds : [],
       applies_to_all_disasters: applies_to_all_disasters ?? true,
       created_by: created_by ?? null,
-      is_active: is_active ?? true,
+      is_active: is_active ?? false,
       items: items ?? [],
       disaster_types:
         (applies_to_all_disasters ?? true) === false ? normalizedDisasterTypes : [],
@@ -402,6 +473,17 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
     ) {
       return res.status(400).json({
         message: "based_on_family_size must be a boolean when provided",
+      });
+    }
+
+    const familySizeValidationError = validateFamilySize({
+      based_on_family_size: based_on_family_size ?? false,
+      description,
+    });
+
+    if (familySizeValidationError) {
+      return res.status(400).json({
+        message: familySizeValidationError,
       });
     }
 
@@ -526,6 +608,7 @@ const validateReplaceReliefPackTemplateItems = (req, res, next) => {
 
 module.exports = {
   validateReliefPackTemplateId,
+  validateReliefPackTemplateStatus,
   validateGetReliefPackTemplates,
   validateCreateReliefPackTemplate,
   validateUpdateReliefPackTemplate,

@@ -5,6 +5,7 @@ const path = require("node:path");
 
 const servicePath = require.resolve("../src/services/sync.service");
 const syncRepositoryPath = require.resolve("../src/repositories/sync.repository");
+const deviceServicePath = require.resolve("../src/services/device.service");
 const householdRegistrationRepositoryPath = require.resolve(
   "../src/repositories/householdRegistration.repository",
 );
@@ -23,18 +24,25 @@ const inventoryTransactionRepositoryPath = require.resolve(
 );
 const inventoryItemServicePath = require.resolve("../src/services/inventoryItem.service");
 const inventoryBatchServicePath = require.resolve("../src/services/inventoryBatch.service");
-const supplierServicePath = require.resolve("../src/services/supplier.service");
 const systemLogPath = require.resolve("../src/utils/systemLog");
 const systemLogRepositoryPath = require.resolve(
   "../src/repositories/systemLog.repository",
 );
+const { validateProcessSyncEntries } = require("../src/validators/sync.validator");
 const notificationServicePath = require.resolve(
   "../src/modules/notifications/notification.service",
 );
 const inventoryStateBasisPath = require.resolve("../src/utils/inventoryStateBasis");
 
 const withStubbedSyncService = async (stubs, runTest) => {
-  const dependencyPaths = Object.keys(stubs);
+  const effectiveStubs = {
+    [deviceServicePath]: {
+      resolveCanonicalDeviceId: async ({ clientDeviceUuid }) =>
+        clientDeviceUuid || null,
+    },
+    ...stubs,
+  };
+  const dependencyPaths = Object.keys(effectiveStubs);
   const originalEntries = new Map(
     dependencyPaths.map((modulePath) => [modulePath, require.cache[modulePath]]),
   );
@@ -48,7 +56,7 @@ const withStubbedSyncService = async (stubs, runTest) => {
         id: modulePath,
         filename: modulePath,
         loaded: true,
-        exports: stubs[modulePath],
+        exports: effectiveStubs[modulePath],
       };
     });
 
@@ -4898,7 +4906,7 @@ test("M04-01 stock drift detail exposes only Mayor MARK_REVIEWED and KEEP_SERVER
   await withStubbedSyncService(
     {
       [syncRepositoryPath]: {
-        getSyncConflictById: async ({ id }) => ({
+        getSyncConflictByIdForMayor: async ({ id }) => ({
           id,
           sync_transaction_id: "sync-1",
           user_id: "mayor-1",
@@ -4915,6 +4923,9 @@ test("M04-01 stock drift detail exposes only Mayor MARK_REVIEWED and KEEP_SERVER
           sync_status: "CONFLICT",
           operation_type: "INVENTORY_ADJUSTMENT",
         }),
+        getSyncConflictById: async () => {
+          throw new Error("Mayor detail must use the Mayor-scoped conflict read");
+        },
       },
       [systemLogPath]: {
         logAuditSafely: async () => {},
@@ -4946,45 +4957,49 @@ test("M04-01 stock drift detail exposes only Mayor MARK_REVIEWED and KEEP_SERVER
   );
 });
 
-test("BRG-SC-04B peer Mayor discovers eligible stock-drift conflict without foreign history", async () => {
-  const ownedConflict = {
-    id: "owned-conflict",
-    user_id: "mayor-b",
-    entity_type: "INVENTORY_TRANSACTION",
-    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
-    resolution_strategy: "MANUAL_REVIEW",
-    status: "OPEN",
-    created_at: "2026-08-09T01:00:00.000Z",
-  };
-  const peerConflict = {
-    id: "peer-conflict",
-    user_id: "mayor-a",
-    entity_type: "INVENTORY_TRANSACTION",
-    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
-    resolution_strategy: "MANUAL_REVIEW",
-    status: "OPEN",
-    created_at: "2026-08-09T02:00:00.000Z",
-  };
-  const duplicateOwnedReviewable = {
-    ...ownedConflict,
-    created_at: "2026-08-09T03:00:00.000Z",
-  };
+test("MAYOR Sync Center history uses municipality-wide inventory scope", async () => {
+  let transactionRead = false;
+  let conflictRead = false;
 
   await withStubbedSyncService(
     {
       [syncRepositoryPath]: {
-        getSyncTransactionsByUser: async ({ userId }) => {
-          assert.equal(userId, "mayor-b");
-          return [{ id: "mayor-b-own-transaction", user_id: "mayor-b" }];
+        getSyncTransactionsByMayor: async (args) => {
+          transactionRead = true;
+          assert.deepEqual(args, {
+            syncStatus: null,
+            limit: 100,
+          });
+          return [
+            {
+              id: "mayor-inventory-transaction",
+              entity_type: "INVENTORY_TRANSACTION",
+            },
+          ];
         },
-        getSyncConflictsByUser: async ({ userId }) => {
-          assert.equal(userId, "mayor-b");
-          return [ownedConflict];
+        getSyncConflictsByMayor: async (args) => {
+          conflictRead = true;
+          assert.deepEqual(args, {
+            status: null,
+            limit: 100,
+          });
+          return [
+            {
+              id: "mayor-stock-conflict",
+              entity_type: "INVENTORY_TRANSACTION",
+              conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+              resolution_strategy: "MANUAL_REVIEW",
+              status: "OPEN",
+              created_at: "2026-08-09T02:00:00.000Z",
+            },
+          ];
         },
-        getReviewableManualInventoryConflicts: async () => [
-          peerConflict,
-          duplicateOwnedReviewable,
-        ],
+        getSyncTransactionsByUser: async () => {
+          throw new Error("Mayor history must not use user-scoped transactions");
+        },
+        getSyncConflictsByUser: async () => {
+          throw new Error("Mayor history must not use user-scoped conflicts");
+        },
       },
     },
     async ({ getSyncHistory }) => {
@@ -4995,16 +5010,17 @@ test("BRG-SC-04B peer Mayor discovers eligible stock-drift conflict without fore
         },
         syncStatus: null,
         conflictStatus: null,
+        barangayId: "should-not-be-used",
         limit: 100,
       });
 
       assert.deepEqual(
         history.transactions.map((transaction) => transaction.id),
-        ["mayor-b-own-transaction"],
+        ["mayor-inventory-transaction"],
       );
       assert.deepEqual(
         history.conflicts.map((conflict) => conflict.id),
-        ["peer-conflict", "owned-conflict"],
+        ["mayor-stock-conflict"],
       );
       assert.deepEqual(history.conflicts[0].availableResolutionActions, [
         "MARK_REVIEWED",
@@ -5012,6 +5028,9 @@ test("BRG-SC-04B peer Mayor discovers eligible stock-drift conflict without fore
       ]);
     },
   );
+
+  assert.equal(transactionRead, true);
+  assert.equal(conflictRead, true);
 });
 
 test("BRG-SC-04B non-Mayor history excludes peer review workload", async () => {
@@ -5182,21 +5201,23 @@ test("BRG-SC-EVENT-02 unresolved or deleted event IDs do not fail or expose titl
   );
 });
 
-test("BRG-SC-04B peer Mayor Needs Review count includes eligible conflict once", async () => {
+test("MAYOR Sync Center health summary uses municipality-wide inventory reads", async () => {
   await withStubbedSyncService(
     {
       [syncRepositoryPath]: {
-        countOpenSyncConflictsByUser: async ({ userId }) => {
-          assert.equal(userId, "mayor-b");
-          return 1;
+        countOpenSyncConflictsByMayor: async (args) => {
+          assert.deepEqual(args, {});
+          return 3;
         },
-        countOpenReviewableManualInventoryConflicts: async ({ userId }) => {
-          assert.equal(userId, "mayor-b");
-          return 2;
+        getLastSuccessfulSyncAtForMayor: async (args) => {
+          assert.deepEqual(args, {});
+          return "2026-08-09T02:00:00.000Z";
         },
-        getLastSuccessfulSyncAtByUser: async ({ userId }) => {
-          assert.equal(userId, "mayor-b");
-          return null;
+        countOpenSyncConflictsByUser: async () => {
+          throw new Error("Mayor status must not use user-scoped conflicts");
+        },
+        getLastSuccessfulSyncAtByUser: async () => {
+          throw new Error("Mayor status must not use user-scoped sync time");
         },
       },
     },
@@ -5208,15 +5229,19 @@ test("BRG-SC-04B peer Mayor Needs Review count includes eligible conflict once",
         },
       });
 
-      assert.equal(summary.conflictCount, 3);
+      assert.deepEqual(summary, {
+        conflictCount: 3,
+        lastSuccessfulSyncAt: "2026-08-09T02:00:00.000Z",
+        backendReachable: true,
+      });
     },
   );
 });
 
-test("BRG-SC-04B peer Mayor can view eligible conflict detail but not automatic foreign conflict", async () => {
+test("MAYOR Sync Center detail is municipality-scoped to inventory conflicts", async () => {
   const conflictsById = {
-    "peer-stock-drift": {
-      id: "peer-stock-drift",
+    "mayor-stock-drift": {
+      id: "mayor-stock-drift",
       sync_transaction_id: "sync-1",
       user_id: "mayor-a",
       entity_type: "INVENTORY_TRANSACTION",
@@ -5232,20 +5257,20 @@ test("BRG-SC-04B peer Mayor can view eligible conflict detail but not automatic 
       sync_status: "CONFLICT",
       operation_type: "INVENTORY_ADJUSTMENT",
     },
-    "foreign-automatic": {
-      id: "foreign-automatic",
+    "unrelated-household": {
+      id: "unrelated-household",
       sync_transaction_id: "sync-2",
       user_id: "mayor-a",
-      entity_type: "INVENTORY_TRANSACTION",
+      entity_type: "HOUSEHOLD",
       entity_server_id: null,
-      conflict_type: "DUPLICATE_INVENTORY_BATCH",
+      conflict_type: "HOUSEHOLD_UPDATE_CONFLICT",
       local_payload_json: {},
       server_payload_json: {},
-      resolution_strategy: "FIRST_ACCEPTED",
-      resolved_payload_json: { winner: "SERVER" },
+      resolution_strategy: "LATEST_TIMESTAMP",
+      resolved_payload_json: null,
       resolved_by: null,
-      resolved_at: "2026-08-09T03:00:00.000Z",
-      status: "RESOLVED",
+      resolved_at: null,
+      status: "OPEN",
       sync_status: "CONFLICT",
       operation_type: "CREATE",
     },
@@ -5254,7 +5279,10 @@ test("BRG-SC-04B peer Mayor can view eligible conflict detail but not automatic 
   await withStubbedSyncService(
     {
       [syncRepositoryPath]: {
-        getSyncConflictById: async ({ id }) => conflictsById[id] || null,
+        getSyncConflictByIdForMayor: async ({ id }) => conflictsById[id] || null,
+        getSyncConflictById: async () => {
+          throw new Error("Mayor detail must not use the generic conflict read");
+        },
       },
       [systemLogPath]: {
         logAuditSafely: async () => {},
@@ -5266,15 +5294,15 @@ test("BRG-SC-04B peer Mayor can view eligible conflict detail but not automatic 
       },
     },
     async ({ getSyncConflictDetail }) => {
-      const detail = await getSyncConflictDetail({
+        const detail = await getSyncConflictDetail({
         auth: {
           userId: "mayor-b",
           roleCode: "MAYOR",
         },
-        conflictId: "peer-stock-drift",
-      });
+          conflictId: "mayor-stock-drift",
+        });
 
-      assert.equal(detail.id, "peer-stock-drift");
+      assert.equal(detail.id, "mayor-stock-drift");
       assert.deepEqual(detail.availableResolutionActions, [
         "MARK_REVIEWED",
         "KEEP_SERVER",
@@ -5287,7 +5315,7 @@ test("BRG-SC-04B peer Mayor can view eligible conflict detail but not automatic 
               userId: "mayor-b",
               roleCode: "MAYOR",
             },
-            conflictId: "foreign-automatic",
+            conflictId: "unrelated-household",
           }),
         /Sync conflict not found/,
       );
@@ -5547,4 +5575,291 @@ test("M04-03 FIRST_ACCEPTED resolved conflicts expose no actions and cannot be r
       );
     },
   );
+});
+
+test("RC1 cross-Barangay household registration remains an open review conflict", async () => {
+  let conflictPayload = null;
+  let transactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+          transactionPayload = payload.transactionPayload;
+          return {
+            syncTransaction: { id: payload.syncTransactionId, ...payload.transactionPayload },
+            conflictRecord: { id: "cross-conflict-1", ...payload.conflictPayload },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error("A similar household registration already exists under another Barangay and requires municipality-level review.");
+          error.code = "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE";
+          error.entityServerId = "33333333-3333-4333-8333-333333333333";
+          error.serverPayload = { barangay_name: "Santiago", household_size: 2 };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, defaultBarangayId: "44444444-4444-4444-8444-444444444444" },
+        entries: [{
+          client_sync_id: "cross-barangay-registration-1",
+          action_key: "HOUSEHOLD_REGISTER",
+          entity_type: "HOUSEHOLD",
+          entity_local_id: "local-cross-1",
+          client_timestamp: "2026-08-29T02:05:00.000Z",
+          payload: buildValidHouseholdRegisterSyncPayload({
+            barangay_id: "44444444-4444-4444-8444-444444444444",
+          }),
+        }],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(conflictPayload.conflict_type, "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE");
+      assert.equal(conflictPayload.resolution_strategy, "MANUAL_REVIEW");
+      assert.equal(conflictPayload.status, "OPEN");
+      assert.equal(transactionPayload.entity_server_id, null);
+    },
+  );
+});
+
+test("RC1 cross-Barangay conflicts no longer expose manual MSWDO resolution", async () => {
+  const conflict = {
+    id: "cross-conflict-2",
+    sync_transaction_id: "sync-cross-2",
+    user_id: "origin-user",
+    entity_type: "HOUSEHOLD",
+    conflict_type: "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE",
+    local_payload_json: { payload: buildValidHouseholdRegisterSyncPayload({ barangay_id: "44444444-4444-4444-8444-444444444444" }) },
+    server_payload_json: { household_id: "accepted-household-1", barangay_name: "Santiago" },
+    resolution_strategy: "MANUAL_REVIEW",
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    client_timestamp: "2026-08-29T02:05:00.000Z",
+    operation_type: "CREATE",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        lockSyncConflictById: async () => conflict,
+        updateSyncTransaction: async (_id, payload) => payload,
+      },
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => ({ household: { id: "accepted-household-2" } }),
+      },
+      [systemLogPath]: { logAuditSafely: async () => {}, logErrorSafely: async () => {}, pickDefined: () => ({}) },
+      [systemLogRepositoryPath]: { insertAuditLog: async () => ({}) },
+      [notificationServicePath]: { ensureSyncNotificationIntent: async () => null, processNotificationOutboxEventById: async () => {} },
+    },
+    async ({ resolveSyncConflict }) => {
+      await assert.rejects(
+        () => resolveSyncConflict({
+          auth: { userId: "mswdo-user", roleCode: "MSWDO" },
+          conflictId: conflict.id,
+          action: "APPLY_LOCAL",
+          reason: "Manual cross-Barangay actions are retired.",
+        }),
+        /not allowed/,
+      );
+    },
+  );
+});
+
+test("MAYOR-OFFLINE-DEVICE-01 processes the real client queue shape with a canonical device id and preserves retry identity", async () => {
+  const clientDeviceUuid = "66666666-6666-4666-8666-666666666666";
+  const canonicalDeviceId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const clientSyncId = "mayor-offline-stock-in-20260830-1";
+  const clientTimestamp = "2026-08-30T01:02:03.000Z";
+  const request = {
+    body: {
+      entries: [
+        {
+          client_sync_id: clientSyncId,
+          action_key: "INVENTORY_BATCH_CREATE",
+          entity_type: "INVENTORY_BATCH",
+          entity_local_id: "RICE-BATCH-004",
+          entity_server_id: null,
+          device_id: clientDeviceUuid,
+          client_timestamp: clientTimestamp,
+          client_updated_at: clientTimestamp,
+          payload: {
+            inventory_item_id: "item-1",
+            inventory_item_stock_form_id: "stock-form-1",
+            batch_no: "RICE-BATCH-004",
+            quantity_received: 100,
+            source_type: "LGU",
+            expiration_date: null,
+          },
+        },
+      ],
+    },
+  };
+  const validationResponse = {
+    statusCode: null,
+    payload: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      this.payload = payload;
+      return this;
+    },
+  };
+  let validatorNextCalled = false;
+
+  validateProcessSyncEntries(request, validationResponse, () => {
+    validatorNextCalled = true;
+  });
+
+  assert.equal(validatorNextCalled, true);
+  assert.equal(validationResponse.statusCode, null);
+
+  const fakeDbClient = { query: async () => ({ rows: [] }) };
+  const deviceResolutionCalls = [];
+  const claimPayloads = [];
+  const batchPayloads = [];
+  let claimCount = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => callback(fakeDbClient),
+        claimSyncTransaction: async (payload) => {
+          claimPayloads.push(payload);
+          claimCount += 1;
+
+          if (claimCount === 1) {
+            return {
+              decision: "CLAIMED_NEW",
+              transaction: {
+                id: "sync-mayor-device-1",
+                ...payload,
+              },
+            };
+          }
+
+          return {
+            decision: "REPLAY_TERMINAL",
+            transaction: {
+              id: "sync-mayor-device-1",
+              ...payload,
+              sync_status: "SYNCED",
+              entity_server_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+              error_message: null,
+            },
+            conflictRecord: null,
+          };
+        },
+      }),
+      [deviceServicePath]: {
+        resolveCanonicalDeviceId: async (args) => {
+          deviceResolutionCalls.push(args);
+          return canonicalDeviceId;
+        },
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          batchPayloads.push(payload);
+          return {
+            id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+            ...payload,
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const firstResult = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: request.validatedBody.entries,
+      });
+      const replayResult = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: request.validatedBody.entries,
+      });
+
+      assert.equal(firstResult[0].sync_status, "SYNCED");
+      assert.equal(replayResult[0].replayed, true);
+      assert.equal(replayResult[0].client_sync_id, clientSyncId);
+    },
+  );
+
+  assert.equal(deviceResolutionCalls.length, 2);
+  assert.ok(
+    deviceResolutionCalls.every(
+      ({ clientDeviceUuid: resolvedClientDeviceUuid, dbClient }) =>
+        resolvedClientDeviceUuid === clientDeviceUuid && dbClient === fakeDbClient,
+    ),
+  );
+  assert.equal(claimPayloads.length, 2);
+  assert.ok(claimPayloads.every((payload) => payload.device_id === canonicalDeviceId));
+  assert.ok(claimPayloads.every((payload) => payload.client_sync_id === clientSyncId));
+  assert.deepEqual(
+    claimPayloads[0].payload_json.payload,
+    request.validatedBody.entries[0].payload,
+  );
+  assert.equal(batchPayloads.length, 1);
+  assert.equal(batchPayloads[0].created_by, baseAuth.userId);
+  assert.equal(batchPayloads[0].received_at, clientTimestamp);
+});
+
+test("device resolution does not bypass shared sync action authorization", async () => {
+  let deviceResolutionCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [deviceServicePath]: {
+        resolveCanonicalDeviceId: async () => {
+          deviceResolutionCalls += 1;
+          return "ffffffff-ffff-4fff-8fff-ffffffffffff";
+        },
+      },
+    },
+    async ({ processSyncEntries }) => {
+      await assert.rejects(
+        () =>
+          processSyncEntries({
+            auth: { ...baseAuth, roleCode: "BARANGAY" },
+            entries: [
+              {
+                client_sync_id: "mayor-action-auth-check-1",
+                action_key: "INVENTORY_BATCH_CREATE",
+                entity_type: "INVENTORY_BATCH",
+                entity_local_id: "batch-auth-check",
+                device_id: "66666666-6666-4666-8666-666666666666",
+                client_timestamp: "2026-08-30T01:02:03.000Z",
+                payload: {
+                  inventory_item_id: "item-1",
+                  batch_no: "BATCH-AUTH-CHECK",
+                  quantity_received: 1,
+                },
+              },
+            ],
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 403);
+          assert.match(error.message, /permission/i);
+          return true;
+        },
+      );
+    },
+  );
+
+  assert.equal(deviceResolutionCalls, 0);
 });

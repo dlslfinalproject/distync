@@ -1,20 +1,46 @@
-import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
+import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus.js";
 
 export const buildQueuedInventoryItem = (entry) => {
+  const payload = entry.payload || {};
+  const localItemId = entry.entityLocalId || entry.id;
+  const packaging = payload.packaging || "piece";
+  const unitsPerPackaging =
+    Number(payload.quantity || payload.units_per_packaging || 0) ||
+    (packaging === "piece" ? 1 : 0);
+
   return {
-    id: entry.entityLocalId || entry.id,
-    item_name: entry.payload?.item_name || "Pending inventory item",
-    category: entry.payload?.category || "--",
-    quantity: entry.payload?.quantity || 0,
-    packaging_count: entry.payload?.packaging_count || 0,
-    unit_of_measure: entry.payload?.unit_of_measure || "--",
-    unit_of_measure_value: entry.payload?.unit_of_measure_value || 1,
-    reorder_level: entry.payload?.reorder_level || null,
-    expiration_date: entry.payload?.expiration_date || null,
+    id: localItemId,
+    item_code: payload.item_code || localItemId,
+    item_name: payload.item_name || "Pending inventory item",
+    category: payload.category || "--",
+    quantity: payload.quantity || unitsPerPackaging || 1,
+    packaging_count: payload.packaging_count || 0,
+    unit_of_measure: payload.unit_of_measure || "--",
+    unit_of_measure_value: payload.unit_of_measure_value || 1,
+    packaging,
+    barcode: payload.barcode || null,
+    reorder_level: payload.reorder_level ?? null,
+    expiration_date: payload.expiration_date || null,
     is_active: true,
-    is_perishable: Boolean(entry.payload?.is_perishable),
+    is_perishable: Boolean(payload.is_perishable),
+    stock_forms: [
+      {
+        id: `local-stock-form:${entry.id || localItemId}`,
+        inventory_item_id: localItemId,
+        barcode: payload.barcode || null,
+        packaging,
+        units_per_packaging: unitsPerPackaging || 1,
+        unit_of_measure: payload.unit_of_measure || "pc",
+        unit_of_measure_value: payload.unit_of_measure_value || 1,
+        is_active: true,
+        is_local_only: true,
+      },
+    ],
     is_local_only: true,
     sync_status: entry.status,
+    client_sync_id: entry.id || null,
+    created_at: entry.clientTimestamp || null,
+    updated_at: entry.clientUpdatedAt || entry.clientTimestamp || null,
   };
 };
 

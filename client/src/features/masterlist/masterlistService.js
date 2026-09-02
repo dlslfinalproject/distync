@@ -439,6 +439,7 @@ export const fetchMasterlist = async ({
   const rows = households.map((household) =>
     mapMasterlistRow(household, allHouseholds, { disasterEventId }),
   );
+  await cacheMasterlistRows({ rows, disasterEventId, barangayId }).catch(() => null);
   const totalMembers = households.reduce((total, household) => {
     return total + (household.members?.length || 0);
   }, 0);

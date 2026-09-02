@@ -12,7 +12,7 @@ const router = express.Router();
 
 router.get(
   "/anomalies",
-  requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.BARANGAY),
+  requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.MAYOR, ROLE_CODES.BARANGAY),
   validateMswdoReportFilters,
   async (req, res) => {
     try {
@@ -51,7 +51,10 @@ router.get(
       const rows = Array.isArray(report) ? report : report.items;
 
       return res.status(200).json({
-        message: "MSWDO anomaly tracking fetched successfully",
+        message:
+          req.auth.roleCode === ROLE_CODES.MAYOR
+            ? "Mayor anomaly tracking fetched successfully"
+            : "MSWDO anomaly tracking fetched successfully",
         data: rows || [],
         pagination: report.pagination || null,
       });
@@ -65,7 +68,7 @@ router.get(
 
 router.post(
   "/anomalies/reviews",
-  requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.BARANGAY),
+  requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.MAYOR, ROLE_CODES.BARANGAY),
   validateAnomalyReviewPayload,
   async (req, res) => {
     try {
@@ -95,7 +98,7 @@ router.post(
       });
 
       return res.status(200).json({
-        message: `${isBarangayScope ? "Barangay" : "MSWDO"} anomaly review saved successfully`,
+        message: `${isBarangayScope ? "Barangay" : req.auth.roleCode === ROLE_CODES.MAYOR ? "Mayor" : "MSWDO"} anomaly review saved successfully`,
         data: review,
       });
     } catch (error) {

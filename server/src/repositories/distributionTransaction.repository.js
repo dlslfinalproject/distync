@@ -1,5 +1,17 @@
 const pool = require("../config/db");
 
+const buildLinkedReliefPackTemplateNamesQuery = (transactionAlias) => `
+  SELECT STRING_AGG(DISTINCT linked_template.name, ', ' ORDER BY linked_template.name) AS names
+  FROM relief_pack_templates linked_template
+  WHERE linked_template.id = ${transactionAlias}.relief_pack_template_id
+    OR EXISTS (
+      SELECT 1
+      FROM distribution_transaction_relief_pack_templates linked_template_row
+      WHERE linked_template_row.distribution_transaction_id = ${transactionAlias}.id
+        AND linked_template_row.relief_pack_template_id = linked_template.id
+    )
+`;
+
 const getDistributionReceiptSequence = async (dbClient) => {
   const currentYear = new Date().getFullYear();
   const receiptPrefix = `RCPT-${currentYear}-`;
@@ -67,6 +79,7 @@ const getInventoryBatchByIdForUpdate = async (batchId, dbClient) => {
       ib.id,
       ib.inventory_item_id,
       ib.batch_no,
+      ib.source_type,
       ib.quantity_available,
       ib.stock_version,
       ib.expiration_date,
@@ -154,10 +167,23 @@ const getLatestAttendanceByHouseholdId = async (
   return result.rows[0] || null;
 };
 
+const resolveReliefPackBatchQueryArguments = (
+  disasterEventIdOrDbClient,
+  maybeDbClient,
+) => ({
+  disasterEventId: maybeDbClient ? disasterEventIdOrDbClient : null,
+  dbClient: maybeDbClient || disasterEventIdOrDbClient,
+});
+
 const getAvailableInventoryBatchesByItemIdForUpdate = async (
   inventoryItemId,
-  dbClient,
+  disasterEventIdOrDbClient,
+  maybeDbClient,
 ) => {
+  const { disasterEventId, dbClient } = resolveReliefPackBatchQueryArguments(
+    disasterEventIdOrDbClient,
+    maybeDbClient,
+  );
   const query = `
     SELECT
       ib.id,
@@ -170,15 +196,47 @@ const getAvailableInventoryBatchesByItemIdForUpdate = async (
       ib.received_at,
       ib.created_at,
       ib.status,
+      ib.source_type,
       ii.item_code,
       ii.item_name,
       ii.unit_of_measure,
-      ii.reorder_level
+      ii.reorder_level,
+      loose_donation.donation_id,
+      loose_donation.donation_item_id,
+      loose_donation.donor_name,
+      loose_donation.donation_received_at,
+      loose_donation.donation_created_at
     FROM inventory_batches ib
     INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    LEFT JOIN LATERAL (
+      SELECT
+        loose_di.id AS donation_item_id,
+        loose_d.id AS donation_id,
+        loose_d.donor_name,
+        loose_d.received_at AS donation_received_at,
+        loose_d.created_at AS donation_created_at
+      FROM donation_items loose_di
+      INNER JOIN donations loose_d ON loose_d.id = loose_di.donation_id
+      WHERE loose_di.inventory_batch_id = ib.id
+        AND loose_d.disaster_event_id = $2
+        AND loose_d.status <> 'CANCELLED'
+        AND COALESCE(loose_di.remarks, '') NOT ILIKE 'Relief Pack:%'
+      ORDER BY
+        loose_d.received_at ASC NULLS LAST,
+        loose_d.created_at ASC,
+        loose_di.created_at ASC
+      LIMIT 1
+    ) loose_donation ON TRUE
     WHERE ib.inventory_item_id = $1
       AND COALESCE(ib.quantity_available, 0) > 0
       AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
+      AND (
+        ib.source_type = 'LGU'
+        OR (
+          ib.source_type = 'DONATED'
+          AND loose_donation.donation_id IS NOT NULL
+        )
+      )
       AND NOT EXISTS (
         SELECT 1
         FROM donation_items relief_pack_donation_items
@@ -190,13 +248,24 @@ const getAvailableInventoryBatchesByItemIdForUpdate = async (
         OR ib.expiration_date > (CURRENT_DATE + INTERVAL '30 days')
       )
     ORDER BY
+      CASE WHEN ib.source_type = 'DONATED' THEN 0 ELSE 1 END,
+      CASE
+        WHEN ib.source_type = 'DONATED'
+          THEN loose_donation.donation_received_at
+        ELSE ib.received_at
+      END ASC NULLS LAST,
+      CASE
+        WHEN ib.source_type = 'DONATED'
+          THEN loose_donation.donation_created_at
+        ELSE ib.created_at
+      END ASC NULLS LAST,
       ib.received_at ASC NULLS LAST,
       ib.created_at ASC,
       ib.batch_no ASC
     FOR UPDATE OF ib
   `;
 
-  const result = await dbClient.query(query, [inventoryItemId]);
+  const result = await dbClient.query(query, [inventoryItemId, disasterEventId]);
   return result.rows;
 };
 
@@ -234,6 +303,12 @@ const getDonatedReliefPackItemsByDisasterEventId = async (
       AND d.status <> 'CANCELLED'
       AND ib.source_type = 'DONATED'
       AND COALESCE(di.remarks, '') ILIKE 'Relief Pack:%'
+      AND COALESCE(ib.quantity_available, 0) > 0
+      AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
+      AND (
+        ib.expiration_date IS NULL
+        OR ib.expiration_date > (CURRENT_DATE + INTERVAL '30 days')
+      )
     ORDER BY
       d.received_at ASC,
       d.created_at ASC,
@@ -284,7 +359,7 @@ const getAvailableDonatedLooseItemsByDisasterEventId = async (
       AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
       AND (
         ib.expiration_date IS NULL
-        OR ib.expiration_date > CURRENT_DATE
+        OR ib.expiration_date > (CURRENT_DATE + INTERVAL '30 days')
       )
     ORDER BY
       d.received_at ASC,
@@ -520,6 +595,41 @@ const insertDistributionTransaction = async (transactionData, dbClient) => {
   return result.rows[0];
 };
 
+const insertDistributionTransactionReliefPackTemplates = async (
+  distributionTransactionId,
+  reliefPackTemplateIds = [],
+  dbClient,
+) => {
+  const uniqueTemplateIds = [
+    ...new Set((reliefPackTemplateIds || []).filter(Boolean)),
+  ];
+
+  if (!distributionTransactionId || uniqueTemplateIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    INSERT INTO distribution_transaction_relief_pack_templates (
+      distribution_transaction_id,
+      relief_pack_template_id,
+      created_at
+    )
+    SELECT $1, template_id, NOW()
+    FROM UNNEST($2::uuid[]) AS template_ids(template_id)
+    ON CONFLICT (distribution_transaction_id, relief_pack_template_id) DO NOTHING
+    RETURNING
+      distribution_transaction_id,
+      relief_pack_template_id,
+      created_at
+  `;
+
+  const result = await dbClient.query(query, [
+    distributionTransactionId,
+    uniqueTemplateIds,
+  ]);
+  return result.rows;
+};
+
 const insertDistributionTransactionItem = async (itemData, dbClient) => {
   const query = `
     INSERT INTO distribution_transaction_items (
@@ -699,9 +809,13 @@ const getDistributionTransactionItemsForUpdate = async (
       ib.batch_no,
       ib.quantity_available,
       ib.status,
+      ib.source_type,
       ii.item_name,
       ii.unit_of_measure,
       ii.reorder_level,
+      source_donation.donation_id,
+      source_donation.donation_item_id,
+      source_donation.donor_name,
       CAST(COALESCE((
         SELECT SUM(COALESCE(item_stock.quantity_available, 0))
         FROM inventory_batches item_stock
@@ -710,6 +824,17 @@ const getDistributionTransactionItemsForUpdate = async (
     FROM distribution_transaction_items dti
     INNER JOIN inventory_batches ib ON ib.id = dti.inventory_batch_id
     INNER JOIN inventory_items ii ON ii.id = dti.inventory_item_id
+    LEFT JOIN LATERAL (
+      SELECT
+        di.id AS donation_item_id,
+        d.id AS donation_id,
+        d.donor_name
+      FROM donation_items di
+      INNER JOIN donations d ON d.id = di.donation_id
+      WHERE di.inventory_batch_id = ib.id
+      ORDER BY di.created_at ASC
+      LIMIT 1
+    ) source_donation ON TRUE
     WHERE dti.distribution_transaction_id = $1
     FOR UPDATE OF ib
   `;
@@ -739,12 +864,16 @@ const getLatestDistributionReliefSourcesByStubIds = async (stubIds = []) => {
       ld.stub_id,
       ld.distribution_date,
       ld.received_at,
-      rpt.name AS relief_pack_template_name,
+      linked_template_names.names AS relief_pack_template_name,
+      linked_template_names.names AS relief_pack_template_names,
       d.donor_name,
       di.remarks AS donation_item_remarks,
       COALESCE(di.remarks, '') ILIKE 'Relief Pack:%' AS is_relief_pack_donation
     FROM latest_distributions ld
     LEFT JOIN relief_pack_templates rpt ON rpt.id = ld.relief_pack_template_id
+    LEFT JOIN LATERAL (
+      ${buildLinkedReliefPackTemplateNamesQuery("ld")}
+    ) linked_template_names ON TRUE
     LEFT JOIN distribution_transaction_items dti
       ON dti.distribution_transaction_id = ld.id
     LEFT JOIN inventory_batches ib ON ib.id = dti.inventory_batch_id
@@ -929,6 +1058,14 @@ const buildDistributionHistoryFilters = ({
       OR rpt.name ILIKE ${searchParam}
       OR EXISTS (
         SELECT 1
+        FROM distribution_transaction_relief_pack_templates dtrpt_search
+        INNER JOIN relief_pack_templates rpt_search
+          ON rpt_search.id = dtrpt_search.relief_pack_template_id
+        WHERE dtrpt_search.distribution_transaction_id = dt.id
+          AND rpt_search.name ILIKE ${searchParam}
+      )
+      OR EXISTS (
+        SELECT 1
         FROM distribution_transaction_items dti_search
         INNER JOIN inventory_items ii_search
           ON ii_search.id = dti_search.inventory_item_id
@@ -1056,7 +1193,8 @@ const selectDistributionHistoryRows = async ({
           u.middle_name,
           u.last_name
         ) AS verified_by_name,
-        rpt.name AS relief_pack_template_name
+        linked_template_names.names AS relief_pack_template_name,
+        linked_template_names.names AS relief_pack_template_names
       FROM distribution_transactions dt
       INNER JOIN households h ON h.id = dt.household_id
       INNER JOIN barangays b ON b.id = h.barangay_id
@@ -1064,6 +1202,9 @@ const selectDistributionHistoryRows = async ({
       INNER JOIN stubs s ON s.id = dt.stub_id
       LEFT JOIN users u ON u.id = dt.verified_by
       LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
+      LEFT JOIN LATERAL (
+        ${buildLinkedReliefPackTemplateNamesQuery("dt")}
+      ) linked_template_names ON TRUE
       ${whereClause}
     )
     SELECT
@@ -1322,10 +1463,17 @@ const buildDistributionHistorySummaryQuery = ({
       LEFT JOIN LATERAL (
         SELECT STRING_AGG(DISTINCT relief_name, ', ' ORDER BY relief_name) AS relief_pack_summary
         FROM (
-          SELECT COALESCE(rpt.name, item_summary.released_items_summary) AS relief_name
+          SELECT COALESCE(
+            linked_template_names.names,
+            rpt.name,
+            item_summary.released_items_summary
+          ) AS relief_name
           FROM distribution_transactions dt
           INNER JOIN households h ON h.id = dt.household_id
           LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
+          LEFT JOIN LATERAL (
+            ${buildLinkedReliefPackTemplateNamesQuery("dt")}
+          ) linked_template_names ON TRUE
           LEFT JOIN LATERAL (
             SELECT STRING_AGG(
               CONCAT(ii.item_name, ' x', dti.quantity_released),
@@ -1605,7 +1753,8 @@ const getInventoryDistributionDetailByStubId = async (stubId) => {
       dt.receipt_status,
       dt.received_at,
       dt.relief_pack_template_id,
-      rpt.name AS relief_pack_template_name,
+      linked_template_names.names AS relief_pack_template_name,
+      linked_template_names.names AS relief_pack_template_names,
       dt.remarks,
       dt.sync_status,
       dt.created_at,
@@ -1613,6 +1762,9 @@ const getInventoryDistributionDetailByStubId = async (stubId) => {
     FROM distribution_transactions dt
     LEFT JOIN users u ON u.id = dt.verified_by
     LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
+    LEFT JOIN LATERAL (
+      ${buildLinkedReliefPackTemplateNamesQuery("dt")}
+    ) linked_template_names ON TRUE
     WHERE dt.stub_id = $1
     ORDER BY dt.distribution_date DESC, dt.created_at DESC
     LIMIT 1
@@ -1657,6 +1809,7 @@ module.exports = {
   getPresentUnclaimedStubQueuePosition,
   getPresentUnclaimedStubQueueContext,
   insertDistributionTransaction,
+  insertDistributionTransactionReliefPackTemplates,
   insertDistributionTransactionItem,
   insertInventoryTransaction,
   updateInventoryBatchQuantityAndStatus,

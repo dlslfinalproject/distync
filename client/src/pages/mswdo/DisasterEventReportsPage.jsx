@@ -10,6 +10,7 @@ import ErrorState from "../../components/shared/ErrorState";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import LoadingState from "../../components/shared/LoadingState";
 import SearchBar from "../../components/shared/SearchBar";
+import TablePagination from "../../components/shared/TablePagination";
 import {
   exportDisasterEventReportSummary,
   fetchAllDisasterEvents,
@@ -27,6 +28,12 @@ import {
   NO_EXPORT_DATA_MESSAGE,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  paginateRows,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 
 const inputStyles = {
   width: "100%",
@@ -301,6 +308,8 @@ const DisasterEventReportsPage = () => {
   const [isLoadingRows, setIsLoadingRows] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
     message: "",
@@ -312,6 +321,27 @@ const DisasterEventReportsPage = () => {
   const [selectedExportSortOrder, setSelectedExportSortOrder] =
     useState("newest");
   const [isExporting, setIsExporting] = useState(false);
+
+  const updateFilters = (updater) => {
+    setPage(1);
+    setFilters(updater);
+  };
+
+  const handleSearchChange = (value) => {
+    setPage(1);
+    setSearchTerm(value);
+  };
+
+  const handlePageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+      return;
+    }
+
+    setPage(1);
+    setPageSize(nextPageSize);
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -436,12 +466,36 @@ const DisasterEventReportsPage = () => {
     );
 
     if (!isSelectedBarangayAvailable) {
+      setPage(1);
       setFilters((currentValue) => ({
         ...currentValue,
         barangay_id: "",
       }));
     }
   }, [filters.barangay_id, selectableBarangays]);
+
+  const pagination = useMemo(
+    () =>
+      getTablePaginationState({
+        totalItems: displayedRows.length,
+        currentPage: page,
+        pageSize,
+        pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+      }),
+    [displayedRows.length, page, pageSize],
+  );
+  const paginatedRows = useMemo(
+    () => paginateRows(displayedRows, pagination.currentPage, pagination.pageSize),
+    [displayedRows, pagination.currentPage, pagination.pageSize],
+  );
+
+  useEffect(() => {
+    setPage((currentPage) =>
+      currentPage === pagination.currentPage
+        ? currentPage
+        : pagination.currentPage,
+    );
+  }, [pagination.currentPage]);
 
   const openExportModal = () => {
     if (rows.length === 0) {
@@ -509,7 +563,7 @@ const DisasterEventReportsPage = () => {
               id="disaster-report-event"
               value={filters.disaster_event_id}
               onChange={(event) =>
-                setFilters((currentValue) => ({
+                updateFilters((currentValue) => ({
                   ...currentValue,
                   disaster_event_id: event.target.value,
                 }))
@@ -534,7 +588,7 @@ const DisasterEventReportsPage = () => {
               id="disaster-report-barangay"
               value={filters.barangay_id}
               onChange={(event) =>
-                setFilters((currentValue) => ({
+                updateFilters((currentValue) => ({
                   ...currentValue,
                   barangay_id: event.target.value,
                 }))
@@ -559,7 +613,7 @@ const DisasterEventReportsPage = () => {
               id="disaster-report-sort-order"
               value={filters.sort_order}
               onChange={(event) =>
-                setFilters((currentValue) => ({
+                updateFilters((currentValue) => ({
                   ...currentValue,
                   sort_order: event.target.value,
                 }))
@@ -580,7 +634,7 @@ const DisasterEventReportsPage = () => {
         <div className="disaster-summary-toolbar-search" style={{ flex: "1 1 320px", minWidth: 0 }}>
           <SearchBar
             value={searchTerm}
-            onChange={setSearchTerm}
+            onChange={handleSearchChange}
             placeholder="Search disaster events name, type, or affected barangays"
           />
         </div>
@@ -600,6 +654,21 @@ const DisasterEventReportsPage = () => {
         <div style={pageSpacingStyles.tableHeader}>
           <h3 style={{ margin: 0, color: "#17324d" }}>Disaster Events Record</h3>
         </div>
+
+        <TablePagination
+          totalItems={pagination.totalItems}
+          currentPage={pagination.currentPage}
+          pageSize={pagination.pageSize}
+          pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+          onPageChange={setPage}
+          onPageSizeChange={handlePageSizeChange}
+          isVisible={!isLoadingRows && !errorMessage}
+          disabled={isLoadingRows}
+          disablePageSize={isLoadingRows}
+          ariaLabel="Disaster events summary pagination"
+          previousAriaLabel="Go to previous disaster events summary page"
+          nextAriaLabel="Go to next disaster events summary page"
+        />
 
         {errorMessage ? <ErrorState message={errorMessage} style={{ marginBottom: "16px" }} /> : null}
 
@@ -667,7 +736,7 @@ const DisasterEventReportsPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {displayedRows.map((row) => (
+                {paginatedRows.map((row) => (
                   <tr key={`${row.id}-${row.barangay_id || "summary"}`}>
                     <td
                       className="disaster-summary-text-cell"

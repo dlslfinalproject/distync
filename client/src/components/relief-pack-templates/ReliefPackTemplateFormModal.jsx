@@ -9,6 +9,11 @@ import {
 } from "react-icons/fi";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
+import {
+  getReliefPackTemplateNameValidationError,
+  getPositiveIntegerValidationError,
+  parsePositiveInteger,
+} from "../../features/relief-pack-templates/reliefPackTemplateValidation";
 
 const overlayStyles = {
   position: "fixed",
@@ -295,10 +300,8 @@ const normalizeComparablePackItems = (items) =>
   [...(Array.isArray(items) ? items : [])]
     .map((item) => ({
       inventory_item_id: String(item.inventory_item_id || "").trim(),
-      quantity: Number.parseInt(
-        String(item.quantity || item.quantity_required || 0),
-        10,
-      ),
+      quantity:
+        parsePositiveInteger(item.quantity || item.quantity_required || 0) ?? 0,
     }))
     .filter((item) => item.inventory_item_id)
     .sort((leftItem, rightItem) =>
@@ -334,18 +337,19 @@ const noticeStyles = {
   lineHeight: 1.5,
 };
 
-const getFamilyCoverageValue = (value) => {
-  const parsedCoverage = Number.parseInt(String(value || "").trim(), 10);
-  return Number.isInteger(parsedCoverage) && parsedCoverage > 0
-    ? String(parsedCoverage)
-    : "1";
+const getFamilyCoverageValue = (value, defaultValue = "1") => {
+  const normalizedValue = String(value ?? "").trim();
+  return normalizedValue || defaultValue;
 };
 
 const buildInitialFormValues = (templateData) => ({
   packName: templateData?.name || "",
   selectedItem: "",
   quantity: "",
-  familyPerPack: getFamilyCoverageValue(templateData?.description),
+  familyPerPack: getFamilyCoverageValue(
+    templateData?.description,
+    templateData ? "" : "1",
+  ),
   packType: templateData?.is_additional_pack ? "additional" : "standard",
   sectorIds: Array.isArray(templateData?.sector_ids)
     ? templateData.sector_ids
@@ -365,6 +369,7 @@ const ReliefPackTemplateFormModal = ({
   templateData,
   inventoryItems = [],
   sectorOptions = [],
+  existingTemplates = [],
   errorMessage = "",
   onClose,
   onSubmit,
@@ -444,6 +449,46 @@ const ReliefPackTemplateFormModal = ({
       previousValues.disasterApplicability === "all"
         ? { disasterTypes: [...DISASTER_TYPE_OPTIONS] }
         : {}),
+    }));
+  };
+
+  const handleQuantityBlur = () => {
+    if (isViewMode || areItemFieldsLocked) {
+      return;
+    }
+
+    setFieldErrors((previousErrors) => ({
+      ...previousErrors,
+      quantity: getPositiveIntegerValidationError(formValues.quantity),
+    }));
+  };
+
+  const handleFamilyCoverageBlur = () => {
+    if (isViewMode || areTemplateDefinitionFieldsLocked) {
+      return;
+    }
+
+    setFieldErrors((previousErrors) => ({
+      ...previousErrors,
+      familyPerPack: getPositiveIntegerValidationError(
+        formValues.familyPerPack,
+        "Family size covered",
+      ),
+    }));
+  };
+
+  const handlePackNameBlur = () => {
+    if (isViewMode || areTemplateDefinitionFieldsLocked) {
+      return;
+    }
+
+    setFieldErrors((previousErrors) => ({
+      ...previousErrors,
+      packName: getReliefPackTemplateNameValidationError(
+        formValues.packName,
+        existingTemplates,
+        templateData?.id,
+      ),
     }));
   };
 
@@ -547,15 +592,18 @@ const ReliefPackTemplateFormModal = ({
     const selectedInventoryItem = inventoryItems.find(
       (inventoryItem) => inventoryItem.id === formValues.selectedItem,
     );
-    const parsedQuantity = Number.parseInt(formValues.quantity, 10);
+    const normalizedQuantity = String(formValues.quantity ?? "").trim();
+    const quantityValidationError =
+      getPositiveIntegerValidationError(normalizedQuantity);
+    const parsedQuantity = parsePositiveInteger(normalizedQuantity);
     const nextErrors = {};
 
     if (!selectedInventoryItem) {
       nextErrors.selectedItem = "Inventory item is required.";
     }
 
-    if (!Number.isInteger(parsedQuantity) || parsedQuantity <= 0) {
-      nextErrors.quantity = "Quantity per pack is required.";
+    if (quantityValidationError) {
+      nextErrors.quantity = quantityValidationError;
     }
 
     if (Object.keys(nextErrors).length > 0) {
@@ -577,7 +625,7 @@ const ReliefPackTemplateFormModal = ({
           packItem.inventory_item_id === selectedInventoryItem.id
             ? {
               ...packItem,
-              quantity: String(parsedQuantity),
+              quantity: normalizedQuantity,
             }
             : packItem,
         ),
@@ -603,7 +651,7 @@ const ReliefPackTemplateFormModal = ({
         id: `${selectedInventoryItem.id}-${Date.now()}`,
         inventory_item_id: selectedInventoryItem.id,
         item: selectedInventoryItem.item_name,
-        quantity: String(parsedQuantity),
+        quantity: normalizedQuantity,
       },
     ]);
 
@@ -670,25 +718,34 @@ const ReliefPackTemplateFormModal = ({
   const handleFinalSubmit = (event) => {
     event.preventDefault();
     const nextErrors = {};
-    const familyCoverage = Number.parseInt(formValues.familyPerPack, 10);
+    const familyCoverageValidationError =
+      formValues.packType === "standard"
+        ? getPositiveIntegerValidationError(
+            formValues.familyPerPack,
+            "Family size covered",
+          )
+        : "";
     const originalFormValues = buildInitialFormValues(templateData);
     const originalPackItems = buildPackItems(templateData);
     const packTypeChanged =
       isEditMode && formValues.packType !== originalFormValues.packType;
 
-    if (!formValues.packName.trim()) {
-      nextErrors.packName = "Pack name is required.";
+    const packNameValidationError = getReliefPackTemplateNameValidationError(
+      formValues.packName,
+      existingTemplates,
+      templateData?.id,
+    );
+
+    if (packNameValidationError) {
+      nextErrors.packName = packNameValidationError;
     }
 
     if (packTypeChanged) {
       nextErrors.packType = "Pack type cannot be changed after creation.";
     }
 
-    if (
-      formValues.packType === "standard" &&
-      (!Number.isInteger(familyCoverage) || familyCoverage <= 0)
-    ) {
-      nextErrors.familyPerPack = "Family size covered is required.";
+    if (familyCoverageValidationError) {
+      nextErrors.familyPerPack = familyCoverageValidationError;
     }
 
     if (
@@ -719,13 +776,12 @@ const ReliefPackTemplateFormModal = ({
     const parsedItems = packItems
       .map((packItem) => ({
         inventory_item_id: packItem.inventory_item_id,
-        quantity_required: Number.parseInt(packItem.quantity, 10),
+        quantity_required: parsePositiveInteger(packItem.quantity),
       }))
       .filter(
         (packItem) =>
           packItem.inventory_item_id &&
-          Number.isInteger(packItem.quantity_required) &&
-          packItem.quantity_required > 0,
+          packItem.quantity_required !== null,
       );
 
     if (parsedItems.length === 0) {
@@ -784,7 +840,7 @@ const ReliefPackTemplateFormModal = ({
         formValues.disasterApplicability === "specific"
           ? formValues.disasterTypes
           : [],
-      is_active: templateData?.is_active ?? true,
+      is_active: templateData?.is_active ?? false,
       items: parsedItems,
       family_per_pack_label: formValues.familyPerPack,
     });
@@ -874,6 +930,7 @@ const ReliefPackTemplateFormModal = ({
                     }
                     value={formValues.packName}
                     onChange={handleInputChange}
+                    onBlur={handlePackNameBlur}
                     placeholder="e.g. Standard Food Pack"
                     disabled={areTemplateDefinitionFieldsLocked}
                     aria-invalid={Boolean(fieldErrors.packName)}
@@ -926,6 +983,8 @@ const ReliefPackTemplateFormModal = ({
                         name="familyPerPack"
                         type="number"
                         min="1"
+                        step="1"
+                        inputMode="numeric"
                         style={
                           areTemplateDefinitionFieldsLocked
                             ? getDisabledInputStyles(Boolean(fieldErrors.familyPerPack))
@@ -933,6 +992,7 @@ const ReliefPackTemplateFormModal = ({
                         }
                         value={formValues.familyPerPack}
                         onChange={handleInputChange}
+                        onBlur={handleFamilyCoverageBlur}
                         placeholder="e.g. 5"
                         disabled={areTemplateDefinitionFieldsLocked}
                         aria-invalid={Boolean(fieldErrors.familyPerPack)}
@@ -1193,6 +1253,8 @@ const ReliefPackTemplateFormModal = ({
                       name="quantity"
                       type="number"
                       min="1"
+                      step="1"
+                      inputMode="numeric"
                       style={
                         areItemFieldsLocked
                           ? getDisabledInputStyles(Boolean(fieldErrors.quantity))
@@ -1200,6 +1262,7 @@ const ReliefPackTemplateFormModal = ({
                       }
                       value={formValues.quantity}
                       onChange={handleInputChange}
+                      onBlur={handleQuantityBlur}
                       placeholder="0"
                       disabled={areItemFieldsLocked}
                       aria-invalid={Boolean(fieldErrors.quantity)}

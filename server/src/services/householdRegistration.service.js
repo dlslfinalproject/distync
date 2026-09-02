@@ -280,16 +280,35 @@ const buildVisibleDuplicateSuggestionMatches = ({ matches, requester }) => {
   ];
 };
 
-const buildDuplicateRegistrationError = (duplicateMatch) => {
+const isCrossBarangayDuplicate = (duplicateMatch, barangayId) =>
+  Boolean(
+    duplicateMatch?.barangay_id &&
+      barangayId &&
+      String(duplicateMatch.barangay_id) !== String(barangayId),
+  );
+
+const buildDuplicateRegistrationError = (duplicateMatch, barangayId = null) => {
+  const crossBarangay = isCrossBarangayDuplicate(duplicateMatch, barangayId);
   const error = new Error(
-    "Possible duplicate evacuee registration detected. Review the matched household before registering again.",
+    crossBarangay
+      ? "A similar household registration already exists under another Barangay and requires municipality-level review."
+      : "Possible duplicate evacuee registration detected. Review the matched household before registering again.",
   );
   error.statusCode = 409;
-  error.code = "DUPLICATE_HOUSEHOLD_REGISTRATION";
+  error.code = crossBarangay
+    ? "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE"
+    : "DUPLICATE_HOUSEHOLD_REGISTRATION";
   error.entityServerId = duplicateMatch?.household_id || null;
   error.serverPayload = duplicateMatch
     ? buildDuplicateSuggestionMatchSummary(duplicateMatch)
     : null;
+  if (crossBarangay) {
+    error.duplicateRegistration = {
+      match: duplicateMatch,
+      barangay_id: barangayId,
+      registration_data: null,
+    };
+  }
   return error;
 };
 
@@ -1872,6 +1891,22 @@ const handleDuplicateRegistrationMatch = async ({
   }
 
   if (
+    isCrossBarangayDuplicate(match, registrationData.barangay_id) &&
+    !registrationData.allow_reviewed_cross_barangay_duplicate
+  ) {
+    const error = buildDuplicateRegistrationError(match, registrationData.barangay_id);
+    error.duplicateRegistration.registration_data = registrationData;
+    throw error;
+  }
+
+  if (
+    isCrossBarangayDuplicate(match, registrationData.barangay_id) &&
+    registrationData.allow_reviewed_cross_barangay_duplicate
+  ) {
+    return null;
+  }
+
+  if (
     registrationData.enforce_sync_duplicate_guard &&
     registrationData.synced_client_timestamp &&
     isEarlierTimestamp(
@@ -1897,6 +1932,45 @@ const handleDuplicateRegistrationMatch = async ({
   }
 
   throw buildDuplicateRegistrationError(match);
+};
+
+const reconcileCrossBarangayDuplicateWithEarlierRegistration = async ({
+  householdId,
+  registrationData,
+  dbClient,
+}) => {
+  if (
+    !householdId ||
+    !registrationData?.registered_at ||
+    !isValidTimestampValue(registrationData.registered_at)
+  ) {
+    return null;
+  }
+
+  const updatedHousehold =
+    await householdRegistrationRepository.replaceHouseholdRegistrationAuthority(
+      householdId,
+      registrationData,
+      dbClient,
+    );
+
+  if (!updatedHousehold) {
+    return null;
+  }
+
+  if (updatedHousehold.family_head_evacuee_id) {
+    await householdRegistrationRepository.updateEvacuee(
+      updatedHousehold.family_head_evacuee_id,
+      {
+        ...registrationData.family_head,
+        is_family_head: true,
+        is_active: true,
+      },
+      dbClient,
+    );
+  }
+
+  return buildRegistrationResponse(householdId, dbClient);
 };
 
 const registerHousehold = async (
@@ -1995,7 +2069,8 @@ const registerHousehold = async (
     });
   const shouldAutoArchiveWithoutAttendance =
     isNonAdmittedResidentRecord(requestDataWithDerivedAgeGroups);
-  const precheckDuplicateMatch = isReAdmissionClone
+  const precheckDuplicateMatch = isReAdmissionClone ||
+    registrationData.allow_reviewed_cross_barangay_duplicate
     ? null
     : await getStrongestDuplicateRegistrationMatch({
         disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
@@ -2015,7 +2090,10 @@ const registerHousehold = async (
       )
     )
   ) {
-    throw buildDuplicateRegistrationError(precheckDuplicateMatch);
+    throw buildDuplicateRegistrationError(
+      precheckDuplicateMatch,
+      registrationData.barangay_id,
+    );
   }
 
   const householdSectors = await householdRegistrationRepository.getSectorsByIds(
@@ -2123,7 +2201,7 @@ const registerHousehold = async (
 
     const existingHouseholdId = await handleDuplicateRegistrationMatch({
       match: authoritativeDuplicateMatch,
-      registrationData,
+      registrationData: requestDataWithDerivedAgeGroups,
       dbClient: client,
     });
 
@@ -3072,6 +3150,7 @@ module.exports = {
   assertHouseholdUpdateDisasterEventActive,
   getDuplicateRegistrationSuggestions,
   registerHousehold,
+  reconcileCrossBarangayDuplicateWithEarlierRegistration,
   updateHouseholdDetails,
   departHousehold,
   correctEvacuationLog,

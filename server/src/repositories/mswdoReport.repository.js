@@ -6,6 +6,13 @@ const MANUAL_REVIEW_ANOMALY_TYPES = [
   "INVENTORY_DISTRIBUTION_MISMATCH",
   "FAILED_STUB_OR_QR_VERIFICATION",
 ];
+const MUNICIPAL_NULLABLE_ANOMALY_TYPES = [
+  "INVENTORY_DISTRIBUTION_MISMATCH",
+];
+const MUNICIPAL_NULLABLE_SOURCE_TYPES = [
+  "INVENTORY_DISTRIBUTION_ORPHAN_OUTFLOW",
+];
+const MAYOR_ANOMALY_TYPES = ["INVENTORY_DISTRIBUTION_MISMATCH"];
 
 const getAnomalyReviewStateExpression = ({
   anomalyAlias = "",
@@ -31,10 +38,31 @@ const getAnomalyReviewStateExpression = ({
 `;
 };
 
-const getManualReviewAllowedExpression = (anomalyAlias = "") => `
-  ${anomalyAlias ? `${anomalyAlias}.` : ""}anomaly_type IN (${MANUAL_REVIEW_ANOMALY_TYPES.map((type) => `'${type}'`).join(", ")})
-  AND ${anomalyAlias ? `${anomalyAlias}.` : ""}barangay_id IS NOT NULL
-`;
+const getManualReviewAllowedExpression = ({
+  anomalyAlias = "",
+  roleScope = null,
+} = {}) => {
+  const prefix = anomalyAlias ? `${anomalyAlias}.` : "";
+  const reviewableTypes = `${prefix}anomaly_type IN (${MANUAL_REVIEW_ANOMALY_TYPES.map((type) => `'${type}'`).join(", ")})`;
+
+  if (roleScope === "MSWDO" || roleScope === "MAYOR") {
+    return `
+      ${reviewableTypes}
+      AND (
+        ${prefix}barangay_id IS NOT NULL
+        OR (
+          ${prefix}anomaly_type IN (${MUNICIPAL_NULLABLE_ANOMALY_TYPES.map((type) => `'${type}'`).join(", ")})
+          AND ${prefix}source_type IN (${MUNICIPAL_NULLABLE_SOURCE_TYPES.map((type) => `'${type}'`).join(", ")})
+        )
+      )
+    `;
+  }
+
+  return `
+    ${reviewableTypes}
+    AND ${prefix}barangay_id IS NOT NULL
+  `;
+};
 
 const DEFAULT_WHY_FLAGGED =
   "This record was flagged because its information does not match the expected operational data.";
@@ -289,6 +317,7 @@ const getMswdoAnomalyTracking = async ({
 }) => {
   const effectivePageSize = pageSize || limit || 50;
   const isBarangayScope = roleScope === "BARANGAY";
+  const isMayorScope = roleScope === "MAYOR";
   const values = [];
   const distributionConditions = ["dt.distribution_status = 'CLAIMED'"];
   const reconciliationDistributionConditions = ["dt.distribution_status = 'CLAIMED'"];
@@ -386,6 +415,9 @@ const getMswdoAnomalyTracking = async ({
         OR COALESCE(anomaly_rows.disaster_event_title, '') ILIKE $${searchIndex}
         OR COALESCE(anomaly_rows.barangay_name, '') ILIKE $${searchIndex}
         OR COALESCE(anomaly_rows.family_head_name, '') ILIKE $${searchIndex}
+        OR COALESCE(anomaly_rows.inventory_item_name, '') ILIKE $${searchIndex}
+        OR COALESCE(anomaly_rows.inventory_batch_no, '') ILIKE $${searchIndex}
+        OR COALESCE(anomaly_rows.inventory_transaction_reference_no, '') ILIKE $${searchIndex}
         OR COALESCE(ar.resolution_reason, '') ILIKE $${searchIndex}
         OR ${getOperationalReviewSearchExpression({ anomalyAlias: "anomaly_rows", reviewAlias: "ar" })} ILIKE $${searchIndex}
       )
@@ -406,6 +438,12 @@ const getMswdoAnomalyTracking = async ({
 
   if (barangayId) {
     finalConditions.push(`anomaly_rows.barangay_id = $${barangayParamIndex}`);
+  }
+
+  if (isMayorScope) {
+    finalConditions.push(
+      `anomaly_rows.anomaly_type IN (${MAYOR_ANOMALY_TYPES.map((type) => `'${type}'`).join(", ")})`,
+    );
   }
 
   finalConditions.push(...detectedAtConditions);
@@ -433,6 +471,9 @@ const getMswdoAnomalyTracking = async ({
           h.family_head_last_name,
           h.family_head_suffix
         ) AS family_head_name,
+        NULL::text AS inventory_item_name,
+        NULL::text AS inventory_batch_no,
+        NULL::text AS inventory_transaction_reference_no,
         CONCAT(
           'Household has ',
           COUNT(*),
@@ -482,6 +523,7 @@ const getMswdoAnomalyTracking = async ({
         dti.inventory_item_id,
         ii.item_name,
         ii.unit_of_measure,
+        NULL::text AS inventory_batch_no,
         SUM(dti.quantity_released)::integer AS expected_quantity
       FROM distribution_transactions dt
       INNER JOIN distribution_transaction_items dti
@@ -538,6 +580,8 @@ const getMswdoAnomalyTracking = async ({
         ib.inventory_item_id,
         MAX(ii.item_name) AS item_name,
         MAX(ii.unit_of_measure) AS unit_of_measure,
+        MAX(ib.batch_no) AS inventory_batch_no,
+        MAX(it.inventory_transaction_reference_no) AS inventory_transaction_reference_no,
         SUM(it.quantity)::integer AS actual_quantity,
         BOOL_OR(
           dt.id IS NOT NULL
@@ -595,6 +639,9 @@ const getMswdoAnomalyTracking = async ({
         COALESCE(expected.barangay_id, actual.barangay_id) AS barangay_id,
         COALESCE(expected.barangay_name, actual.barangay_name) AS barangay_name,
         COALESCE(expected.family_head_name, actual.family_head_name) AS family_head_name,
+        COALESCE(expected.item_name, actual.item_name) AS inventory_item_name,
+        COALESCE(expected.inventory_batch_no, actual.inventory_batch_no) AS inventory_batch_no,
+        actual.inventory_transaction_reference_no AS inventory_transaction_reference_no,
         CASE
           WHEN COALESCE(expected.expected_quantity, 0) <= 0
             THEN CONCAT(
@@ -662,6 +709,9 @@ const getMswdoAnomalyTracking = async ({
           h.family_head_last_name,
           h.family_head_suffix
         )), '') AS family_head_name,
+        ii.item_name AS inventory_item_name,
+        ib.batch_no AS inventory_batch_no,
+        it.inventory_transaction_reference_no AS inventory_transaction_reference_no,
         CASE
           WHEN it.reference_id IS NULL
             THEN 'Distribution-generated inventory outflow is missing its distribution reference.'
@@ -679,6 +729,8 @@ const getMswdoAnomalyTracking = async ({
       FROM inventory_transactions it
       INNER JOIN inventory_batches ib
         ON ib.id = it.inventory_batch_id
+      INNER JOIN inventory_items ii
+        ON ii.id = ib.inventory_item_id
       LEFT JOIN distribution_transactions dt
         ON dt.id = it.reference_id
       LEFT JOIN households h
@@ -913,6 +965,9 @@ const getMswdoAnomalyTracking = async ({
         b.id AS barangay_id,
         b.name AS barangay_name,
         NULLIF(TRIM(sba.family_head_name), '') AS family_head_name,
+        NULL::text AS inventory_item_name,
+        NULL::text AS inventory_batch_no,
+        NULL::text AS inventory_transaction_reference_no,
         COALESCE(st.error_message, 'Sync transaction failed.') AS anomaly_reason,
         st.sync_status AS status,
         COALESCE(st.server_timestamp, st.updated_at) AS detected_at,
@@ -939,6 +994,9 @@ const getMswdoAnomalyTracking = async ({
         b.id AS barangay_id,
         b.name AS barangay_name,
         NULLIF(TRIM(sba.family_head_name), '') AS family_head_name,
+        NULL::text AS inventory_item_name,
+        NULL::text AS inventory_batch_no,
+        NULL::text AS inventory_transaction_reference_no,
         CONCAT(sc.conflict_type, ' conflict for ', sc.entity_type) AS anomaly_reason,
         sc.status AS status,
         sc.created_at AS detected_at,
@@ -966,6 +1024,9 @@ const getMswdoAnomalyTracking = async ({
         b.id AS barangay_id,
         b.name AS barangay_name,
         eba.family_head_name,
+        NULL::text AS inventory_item_name,
+        NULL::text AS inventory_batch_no,
+        NULL::text AS inventory_transaction_reference_no,
         el.error_message AS anomaly_reason,
         el.severity AS status,
         el.created_at AS detected_at,
@@ -993,6 +1054,9 @@ const getMswdoAnomalyTracking = async ({
         b.id AS barangay_id,
         b.name AS barangay_name,
         eba.family_head_name,
+        NULL::text AS inventory_item_name,
+        NULL::text AS inventory_batch_no,
+        NULL::text AS inventory_transaction_reference_no,
         el.error_message AS anomaly_reason,
         el.severity AS status,
         el.created_at AS detected_at,
@@ -1020,6 +1084,9 @@ const getMswdoAnomalyTracking = async ({
         b.id AS barangay_id,
         b.name AS barangay_name,
         eba.family_head_name,
+        NULL::text AS inventory_item_name,
+        NULL::text AS inventory_batch_no,
+        NULL::text AS inventory_transaction_reference_no,
         el.error_message AS anomaly_reason,
         el.severity AS status,
         el.created_at AS detected_at,
@@ -1047,8 +1114,7 @@ const getMswdoAnomalyTracking = async ({
     ),
     anomaly_rows AS (
       SELECT * FROM suspicious_distribution
-      UNION ALL
-      SELECT * FROM sync_conflict
+      ${isMayorScope ? "" : "UNION ALL SELECT * FROM sync_conflict"}
       UNION ALL
       SELECT * FROM duplicate_claim_attempts
       UNION ALL
@@ -1057,7 +1123,7 @@ const getMswdoAnomalyTracking = async ({
       SELECT * FROM inventory_distribution_mismatch
       UNION ALL
       SELECT * FROM failed_stub_verification
-      ${isBarangayScope ? "" : "UNION ALL SELECT * FROM sync_failed"}
+      ${isBarangayScope || isMayorScope ? "" : "UNION ALL SELECT * FROM sync_failed"}
     ),
     filtered_anomalies AS (
       SELECT
@@ -1077,13 +1143,16 @@ const getMswdoAnomalyTracking = async ({
           reviewer.last_name
         )), '') AS reviewer_name,
         ${getAnomalyReviewStateExpression({ anomalyAlias: "anomaly_rows", reviewAlias: "ar" })} AS review_state,
-        ${getManualReviewAllowedExpression("anomaly_rows")} AS manual_review_allowed
+        ${getManualReviewAllowedExpression({
+          anomalyAlias: "anomaly_rows",
+          roleScope,
+        })} AS manual_review_allowed
       FROM anomaly_rows
       LEFT JOIN anomaly_reviews ar
         ON ar.source_type = anomaly_rows.source_type
         AND ar.source_id = anomaly_rows.source_id
         AND ar.anomaly_type = anomaly_rows.anomaly_type
-        AND ar.barangay_id = anomaly_rows.barangay_id
+        AND ar.barangay_id IS NOT DISTINCT FROM anomaly_rows.barangay_id
       LEFT JOIN users reviewer
         ON reviewer.id = ar.reviewed_by
       ${finalWhere}
@@ -1119,6 +1188,9 @@ const getMswdoAnomalyTracking = async ({
         barangay_id,
         barangay_name,
         family_head_name,
+        inventory_item_name,
+        inventory_batch_no,
+        inventory_transaction_reference_no,
         why_flagged,
         status,
         detected_at,

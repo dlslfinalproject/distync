@@ -23,6 +23,20 @@ const barangayLayoutSourcePath = new URL(
   import.meta.url,
 );
 
+const normalizeSource = (source) => source.replace(/\r\n/g, "\n");
+
+const assertOrdered = (source, markers) => {
+  let previousIndex = -1;
+
+  for (const marker of markers) {
+    const index = source.indexOf(marker, previousIndex + 1);
+
+    assert.ok(index >= 0, `Missing structural marker: ${marker}`);
+    assert.ok(index > previousIndex, `Expected marker after previous: ${marker}`);
+    previousIndex = index;
+  }
+};
+
 test("M05 anomaly page requests bounded server pages instead of the old 500-row fetch", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
 
@@ -86,8 +100,8 @@ test("MSWDO consolidated table uses the required operational columns in order", 
     /Severity|>Status<|Created Date|Action Required|Responsible Office|Household \/ Stub/,
   );
   assert.doesNotMatch(source, /SeverityPill|getAnomalySeverity/);
-  assert.match(source, /formatBarangayLabel\(row\)/);
-  assert.match(source, /formatAffectedRecord\(row, false\)/);
+  assert.match(source, /formatBarangayLabel\(row, presentationScope\)/);
+  assert.match(source, /formatAffectedRecord\(row, false, presentationScope\)/);
 });
 
 test("MSWDO filters and search expose municipal operational fields", async () => {
@@ -154,31 +168,48 @@ test("M05 anomaly page resets pagination when result filters change", async () =
 
   assert.match(source, /const updateFilters = \(updater\) => \{\s*setPage\(1\);/);
   assert.match(source, /const updateViewState = \(updater\) => \{\s*setPage\(1\);/);
-  assert.match(source, /setPage\(1\);\s*setPageSize\(Number\(event\.target\.value\)\)/);
+  assert.match(source, /onPageSizeChange=\{\(value\) => \{\s*setPage\(1\);\s*setPageSize\(Number\(value\)\)/);
 });
 
 test("M05 anomaly page renders accessible previous and next pagination controls", async () => {
-  const source = await fs.readFile(pageSourcePath, "utf8");
+  const [source, paginationSource] = await Promise.all([
+    fs.readFile(pageSourcePath, "utf8"),
+    fs.readFile(new URL("../src/components/shared/TablePagination.jsx", import.meta.url), "utf8"),
+  ]);
+  const normalizedSource = normalizeSource(source);
 
-  assert.match(source, /<button\s+type="button"[\s\S]*Previous/);
-  assert.match(source, /disabled=\{!pagination\.hasPreviousPage \|\| isLoadingRows\}/);
-  assert.match(source, /<button\s+type="button"[\s\S]*Next/);
-  assert.match(source, /disabled=\{!pagination\.hasNextPage \|\| isLoadingRows\}/);
-  assert.match(source, /Page \{pagination\.page\} of \{totalPages\}/);
+  assert.match(normalizedSource, /<TablePagination/);
+  assert.match(normalizedSource, /ariaLabel="Anomaly tracking pagination"/);
+  assert.match(paginationSource, /FiChevronLeft/);
+  assert.match(paginationSource, /FiChevronRight/);
+  assert.match(paginationSource, /disabled=\{disabled \|\| !pagination\.hasPreviousPage\}/);
+  assert.match(paginationSource, /disabled=\{disabled \|\| !pagination\.hasNextPage\}/);
+  assert.match(paginationSource, /Page \{pagination\.currentPage\} of \{pagination\.totalPages\}/);
+
+  const recordsStart = normalizedSource.lastIndexOf(
+    '<section style={shellStyles.card}>',
+  );
+  assert.ok(recordsStart >= 0);
+  assertOrdered(normalizedSource.slice(recordsStart), [
+    "<h3",
+    'className="table-card-title"',
+    "Anomaly Records",
+    "<TablePagination",
+    '<div style={{ overflowX: "auto"',
+    "<table",
+    "<thead>",
+  ]);
+  assert.doesNotMatch(normalizedSource, /paginationStyles|distribution-history-pagination-/);
 });
 
 test("M05F-09 anomaly page shows empty state without Page 0 of 0", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
 
   assert.match(source, /const shouldShowPaginationControls = totalItems > 0/);
-  assert.match(source, /totalItems === 0[\s\S]*\? "No anomalies found"/);
   assert.match(source, /hasActiveFilters[\s\S]*"No anomalies found for the current filters\."/);
   assert.match(source, /"No unusual or inconsistent records currently require review\."/);
   assert.doesNotMatch(source, /Page \{totalPages === 0 \? 0 : pagination\.page\} of \{totalPages\}/);
-  assert.match(
-    source,
-    /totalItems === 0\s*\? "No anomalies found"\s*:\s*`Showing \$\{firstVisibleItem\}-\$\{lastVisibleItem\} of \$\{totalItems\}`/,
-  );
+  assert.match(source, /isVisible=\{[\s\S]*shouldShowPaginationControls/);
 });
 
 test("M05F-10 empty after filter reset clears stale page rows and keeps page valid", async () => {
@@ -196,7 +227,14 @@ test("M05F-11 recover from empty restores non-empty pagination controls", async 
   assert.match(source, /setPagination\(\s*response\.pagination \|\|/);
   assert.match(source, /const shouldShowPaginationControls = totalItems > 0/);
   assert.match(source, /rows\.map\(\(row, rowIndex\) =>/);
-  assert.match(source, /\{paginationControls\}/);
+  assert.match(source, /<TablePagination[\s\S]*ariaLabel="Anomaly tracking pagination"/);
+});
+
+test("M05 anomaly page clamps the page when the authoritative result set shrinks", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+
+  assert.match(source, /const safePage =\s*totalPages > 0/);
+  assert.match(source, /if \(page !== safePage\) \{\s*setPage\(safePage\)/);
 });
 
 test("M05 anomaly service uses URLSearchParams for explicit query values", async () => {
@@ -342,8 +380,8 @@ test("Barangay anomaly details separates metadata fields instead of flowing para
   assert.match(source, /<strong style=\{\{ \.\.\.modalStyles\.value, fontSize: "16px" \}\}>\{presentation\.label\}<\/strong>/);
   assert.match(source, /<StatusPill row=\{displayedAnomaly\} scope=\{presentationScope\} \/>/);
   assert.doesNotMatch(source, /<div style=\{labelStyles\}>Status<\/div>/);
-  assert.match(source, /<DetailField label="Disaster Event">[\s\S]*\{formatEventLabel\(displayedAnomaly\)\}/);
-  assert.match(source, /<DetailField label="Affected Record">[\s\S]*\{formatAffectedRecord\(displayedAnomaly, isBarangayScope\)\}/);
+  assert.match(source, /<DetailField label="Disaster Event">[\s\S]*\{formatEventLabel\(displayedAnomaly, presentationScope\)\}/);
+  assert.match(source, /<DetailField label="Affected Record">[\s\S]*\{formatAffectedRecord\([\s\S]*displayedAnomaly,[\s\S]*presentationScope,[\s\S]*\)\}/);
   assert.match(source, /<DetailField label="Detected At">[\s\S]*\{formatDateTime\(displayedAnomaly\.detected_at\)\}/);
   assert.match(source, /<DetailField label="Recommendation">[\s\S]*\{getAnomalyActionSummary\(displayedAnomaly, presentationScope\)\}/);
   assert.doesNotMatch(source, /<DetailField label="Responsible Office">/);
@@ -434,7 +472,7 @@ test("anomaly tracking removes summary cards, sync banner, and extra row review 
   const layoutSource = await fs.readFile(barangayLayoutSourcePath, "utf8");
 
   assert.match(sidebarSource, /\{ label: "Anomaly Tracking", to: "\/barangay\/anomalies"(?:, isSectionChild: true)? \}/);
-  assert.match(sidebarSource, /\{ label: "Anomaly Tracking", to: "\/mswdo\/anomalies" \}/);
+  assert.match(sidebarSource, /\{ label: "Anomaly Tracking", to: "\/mswdo\/anomalies"(?:, isSectionChild: true)? \}/);
   assert.match(layoutSource, /isBarangayAnomalyRoute/);
   assert.match(layoutSource, /shouldShowSyncStatusBanner/);
   assert.match(layoutSource, /\{shouldShowSyncStatusBanner \? <SyncStatusBanner \/> : null\}/);
@@ -461,7 +499,7 @@ test("resolved anomaly rows use the eye details action for both scopes", async (
   assert.doesNotMatch(actionBlock, /isBarangayScope &&/);
 });
 
-test("Barangay sidebar groups sync and anomaly navigation under Monitoring only", async () => {
+test("shared sidebar groups each role's monitoring navigation under Monitoring", async () => {
   const sidebarSource = await fs.readFile(sidebarSourcePath, "utf8");
 
   const barangayNavBlock =
@@ -473,16 +511,35 @@ test("Barangay sidebar groups sync and anomaly navigation under Monitoring only"
   const monitoringIndex = barangayNavBlock.indexOf('{ type: "section", label: "Monitoring" }');
   const syncIndex = barangayNavBlock.indexOf('{ label: "Sync Center", to: "/barangay/sync", isSectionChild: true }');
   const anomalyIndex = barangayNavBlock.indexOf('{ label: "Anomaly Tracking", to: "/barangay/anomalies", isSectionChild: true }');
+  const mswdoMonitoringIndex = mswdoNavBlock.indexOf('{ type: "section", label: "Monitoring" }');
+  const mswdoAnalyticsIndex = mswdoNavBlock.indexOf('{ label: "Evacuee Analytics Dashboard", to: "/mswdo/analytics", isSectionChild: true }');
+  const mswdoAnomalyIndex = mswdoNavBlock.indexOf('{ label: "Anomaly Tracking", to: "/mswdo/anomalies", isSectionChild: true }');
+  const mswdoSyncIndex = mswdoNavBlock.indexOf('{ label: "Sync Center", to: "/mswdo/sync", isSectionChild: true }');
+  const mayorMonitoringIndex = mayorNavBlock.indexOf('{ type: "section", label: "Monitoring" }');
+  const mayorSyncIndex = mayorNavBlock.indexOf('{ label: "Sync Center", to: "/inventory/sync", isSectionChild: true }');
+  const mayorAnomalyIndex = mayorNavBlock.indexOf('{ label: "Anomaly Tracking", to: "/inventory/anomalies", isSectionChild: true }');
 
   assert.notEqual(monitoringIndex, -1);
   assert.notEqual(syncIndex, -1);
   assert.notEqual(anomalyIndex, -1);
   assert.ok(monitoringIndex < syncIndex);
   assert.ok(syncIndex < anomalyIndex);
+  assert.notEqual(mswdoMonitoringIndex, -1);
+  assert.notEqual(mswdoAnalyticsIndex, -1);
+  assert.notEqual(mswdoAnomalyIndex, -1);
+  assert.notEqual(mswdoSyncIndex, -1);
+  assert.ok(mswdoMonitoringIndex < mswdoAnalyticsIndex);
+  assert.ok(mswdoAnalyticsIndex < mswdoSyncIndex);
+  assert.ok(mswdoSyncIndex < mswdoAnomalyIndex);
+  assert.notEqual(mayorMonitoringIndex, -1);
+  assert.notEqual(mayorSyncIndex, -1);
+  assert.notEqual(mayorAnomalyIndex, -1);
+  assert.ok(mayorMonitoringIndex < mayorSyncIndex);
+  assert.ok(mayorSyncIndex < mayorAnomalyIndex);
   assert.match(sidebarSource, /item\.type === "section"[\s\S]*className="distync-sidebar__nav-section-label"/);
   assert.match(sidebarSource, /display: isCollapsed \? "none" : sidebarStyles\.navSectionLabel\.display/);
   assert.match(sidebarSource, /marginLeft: item\.isSectionChild && !isCollapsed \? "8px" : 0/);
   assert.doesNotMatch(sidebarSource, /\/barangay\/monitoring/);
-  assert.doesNotMatch(mswdoNavBlock, /type: "section", label: "Monitoring"/);
-  assert.doesNotMatch(mayorNavBlock, /type: "section", label: "Monitoring"/);
+  assert.match(mswdoNavBlock, /type: "section", label: "Monitoring"/);
+  assert.match(mayorNavBlock, /type: "section", label: "Monitoring"/);
 });

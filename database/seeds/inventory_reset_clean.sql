@@ -134,12 +134,4 @@ WHERE NOT EXISTS (
   WHERE rpti.template_id = rpt.id
 );
 
--- Remove suppliers that no longer have any batches.
-DELETE FROM suppliers s
-WHERE NOT EXISTS (
-  SELECT 1
-  FROM inventory_batches ib
-  WHERE ib.supplier_id = s.id
-);
-
 COMMIT;

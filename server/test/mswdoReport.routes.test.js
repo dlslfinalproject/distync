@@ -510,15 +510,23 @@ test("MSWDO review route exposes final-review conflict for a direct second write
   );
 });
 
-test("Mayor cannot use the MSWDO and Barangay anomaly review endpoint", async () => {
-  let serviceCalled = false;
+test("Mayor anomaly routes use the authenticated municipality scope", async () => {
+  const serviceCalls = [];
 
   await withStubbedMswdoReportRoute(
     {
       roleCode: "MAYOR",
-      serviceImpl: async () => {
-        serviceCalled = true;
-        return {};
+      serviceImpl: async (request) => {
+        serviceCalls.push(request);
+
+        if (request?.auth) {
+          return {
+            id: "mayor-review-1",
+            review_status: request.payload.review_status,
+          };
+        }
+
+        return [];
       },
     },
     async (router) => {
@@ -526,17 +534,36 @@ test("Mayor cannot use the MSWDO and Barangay anomaly review endpoint", async ()
 
       try {
         const port = server.address().port;
-        const response = await fetch(
+        const anomalyResponse = await fetch(
+          `http://127.0.0.1:${port}/api/v1/mswdo-reports/anomalies`,
+        );
+        const anomalyPayload = await anomalyResponse.json();
+
+        assert.equal(anomalyResponse.status, 200);
+        assert.deepEqual(anomalyPayload.data, []);
+        assert.equal(serviceCalls[0].role_scope, "MAYOR");
+
+        const reviewResponse = await fetch(
           `http://127.0.0.1:${port}/api/v1/mswdo-reports/anomalies/reviews`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
+            body: JSON.stringify({
+              source_type: "INVENTORY_DISTRIBUTION_RECONCILIATION",
+              source_id: "distribution-1:item-1",
+              anomaly_type: "INVENTORY_DISTRIBUTION_MISMATCH",
+              review_status: "ISSUE_CONFIRMED",
+              resolution_reason: "Mayor inventory review recorded.",
+            }),
           },
         );
+        const reviewPayload = await reviewResponse.json();
 
-        assert.equal(response.status, 403);
-        assert.equal(serviceCalled, false);
+        assert.equal(reviewResponse.status, 200);
+        assert.equal(reviewPayload.data.review_status, "ISSUE_CONFIRMED");
+        assert.match(reviewPayload.message, /Mayor anomaly review saved/);
+        assert.equal(serviceCalls[1].auth.roleCode, "MAYOR");
+        assert.equal(serviceCalls[1].barangayId, null);
       } finally {
         await closeServer(server);
       }

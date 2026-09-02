@@ -48,10 +48,11 @@ import {
   getCachedStubDetailsByQrValue,
   upsertOfflineStubSnapshots,
 } from "../../features/stubs/stubCache";
+import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
+import { DEFAULT_TABLE_PAGE_SIZE } from "../../features/pagination/pagination.mjs";
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
-const DEFAULT_STUB_PAGE_SIZE = 25;
 const QR_SCAN_COOLDOWN_MS = 1800;
 
 const claimErrorModalBodyStyles = {
@@ -187,6 +188,7 @@ const isArchivedStubHousehold = (stubLike) =>
 const isSelectableClaimStubRow = (row) =>
   row?.status === "ISSUED" &&
   !row?.is_local_only &&
+  isCurrentlyPresentStubRow(row) &&
   !row?.is_claim_pending &&
   row?.sync_status !== "PENDING" &&
   row?.sync_status !== "CONFLICT" &&
@@ -258,7 +260,7 @@ const StubDistributionPage = () => {
     },
   });
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_STUB_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [sectorOptions, setSectorOptions] = useState([]);
   const [claimingStubId, setClaimingStubId] = useState("");
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
@@ -398,9 +400,11 @@ const StubDistributionPage = () => {
 
   useEffect(() => {
     const totalPages = Number(stubPagination?.totalPages || 0);
+    const safePage =
+      totalPages > 0 ? Math.min(Math.max(currentPage, 1), totalPages) : 1;
 
-    if (totalPages > 0 && currentPage > totalPages) {
-      setCurrentPage(totalPages);
+    if (currentPage !== safePage) {
+      setCurrentPage(safePage);
     }
   }, [currentPage, stubPagination?.totalPages]);
 
@@ -585,6 +589,8 @@ const StubDistributionPage = () => {
       setClaimErrorMessage(
         isArchivedStubHousehold(selectedRow)
           ? "This household is archived and cannot receive a new relief distribution."
+          : !isCurrentlyPresentStubRow(selectedRow)
+            ? "This household is not currently present in the evacuation center."
           : "Only active unclaimed stubs can be marked as claimed.",
       );
       return;

@@ -7,6 +7,12 @@ const MANUAL_REVIEW_ANOMALY_TYPES = new Set([
   "INVENTORY_DISTRIBUTION_MISMATCH",
   "FAILED_STUB_OR_QR_VERIFICATION",
 ]);
+const MAYOR_REVIEW_ANOMALY_TYPES = new Set([
+  "INVENTORY_DISTRIBUTION_MISMATCH",
+]);
+const MUNICIPAL_NULLABLE_REVIEW_SOURCE_TYPES = new Set([
+  "INVENTORY_DISTRIBUTION_ORPHAN_OUTFLOW",
+]);
 const REVIEW_NOTE_MAX_LENGTH = 2000;
 
 const createHttpError = (statusCode, message, code = null) => {
@@ -61,7 +67,9 @@ const getAnomalyTracking = async (filters) => {
 
 const upsertAnomalyReview = async ({ payload, auth, barangayId = null }) => {
   const isBarangayScope = auth?.roleCode === "BARANGAY";
-  const roleScope = isBarangayScope ? "BARANGAY" : "MSWDO";
+  const isMayorScope = auth?.roleCode === "MAYOR";
+  const isMunicipalScope = auth?.roleCode === "MSWDO" || isMayorScope;
+  const roleScope = isBarangayScope ? "BARANGAY" : auth?.roleCode;
 
   if (isBarangayScope && !barangayId) {
     throw createHttpError(403, "No assigned barangay. Please contact administrator.");
@@ -71,7 +79,7 @@ const upsertAnomalyReview = async ({ payload, auth, barangayId = null }) => {
     throw createHttpError(401, "Authentication is required for this request");
   }
 
-  if (!isBarangayScope && auth?.roleCode !== "MSWDO") {
+  if (!isBarangayScope && !isMunicipalScope) {
     throw createHttpError(403, "This role cannot record anomaly review results");
   }
 
@@ -83,6 +91,13 @@ const upsertAnomalyReview = async ({ payload, auth, barangayId = null }) => {
     throw createHttpError(
       400,
       "This anomaly is not eligible for manual review",
+    );
+  }
+
+  if (isMayorScope && !MAYOR_REVIEW_ANOMALY_TYPES.has(payload.anomaly_type)) {
+    throw createHttpError(
+      400,
+      "This anomaly is not eligible for Mayor inventory review",
     );
   }
 
@@ -102,18 +117,6 @@ const upsertAnomalyReview = async ({ payload, auth, barangayId = null }) => {
     );
   }
 
-  const reviewBarangayId = isBarangayScope
-    ? barangayId
-    : anomaly.barangay_id || null;
-
-  if (!reviewBarangayId) {
-    throw createHttpError(
-      409,
-      "A Barangay must be identified before a review result can be recorded for this anomaly.",
-      "ANOMALY_REVIEW_BARANGAY_REQUIRED",
-    );
-  }
-
   if (anomaly.manual_review_allowed !== true) {
     throw createHttpError(
       409,
@@ -121,6 +124,38 @@ const upsertAnomalyReview = async ({ payload, auth, barangayId = null }) => {
       "ANOMALY_REVIEW_NOT_ALLOWED",
     );
   }
+
+  const anomalyBarangayId = anomaly.barangay_id || null;
+
+  const canPersistUnattributedMunicipalReview =
+    isMunicipalScope &&
+    anomaly.anomaly_type === "INVENTORY_DISTRIBUTION_MISMATCH" &&
+    MUNICIPAL_NULLABLE_REVIEW_SOURCE_TYPES.has(anomaly.source_type);
+
+  if (
+    !isBarangayScope &&
+    !anomalyBarangayId &&
+    !canPersistUnattributedMunicipalReview
+  ) {
+    throw createHttpError(
+      409,
+      "This municipal anomaly source cannot be reviewed without Barangay attribution.",
+      "ANOMALY_REVIEW_UNATTRIBUTED_NOT_ALLOWED",
+    );
+  }
+
+  if (
+    isBarangayScope &&
+    (!anomalyBarangayId || String(anomalyBarangayId) !== String(barangayId))
+  ) {
+    throw createHttpError(
+      403,
+      "This anomaly is outside your assigned Barangay review scope.",
+      "ANOMALY_REVIEW_BARANGAY_SCOPE",
+    );
+  }
+
+  const reviewBarangayId = isBarangayScope ? barangayId : anomalyBarangayId;
 
   const existingReview = anomaly.review_id
     ? {

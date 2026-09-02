@@ -135,8 +135,9 @@ const getReliefPackTemplateByName = async (name) => {
       id,
       name
     FROM relief_pack_templates
-    WHERE LOWER(name) = LOWER($1)
-      AND is_active = TRUE
+    WHERE LOWER(BTRIM(name)) = LOWER(BTRIM($1))
+    ORDER BY is_active DESC, updated_at DESC
+    LIMIT 1
   `;
 
   const result = await pool.query(query, [name]);
@@ -159,7 +160,7 @@ const getInactiveReliefPackTemplateByName = async (name) => {
       created_at,
       updated_at
     FROM relief_pack_templates
-    WHERE LOWER(name) = LOWER($1)
+    WHERE LOWER(BTRIM(name)) = LOWER(BTRIM($1))
       AND is_active = FALSE
     ORDER BY updated_at DESC
     LIMIT 1
@@ -304,6 +305,35 @@ const updateReliefPackTemplate = async (id, templateData, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
+const updateReliefPackTemplateStatus = async (
+  id,
+  isActive,
+  dbClient = pool,
+) => {
+  const query = `
+    UPDATE relief_pack_templates
+    SET is_active = $2,
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      name,
+      description,
+      based_on_family_size,
+      based_on_sector,
+      is_additional_pack,
+      sector_id,
+      applies_to_all_disasters,
+      created_by,
+      is_active,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [id, isActive]);
+  return result.rows[0] || null;
+};
+
 const deleteReliefPackTemplateItemsByTemplateId = async (templateId, dbClient) => {
   const query = `
     DELETE FROM relief_pack_template_items
@@ -364,14 +394,57 @@ const getReliefPackTemplateUsageByTemplateId = async (templateId) => {
       COUNT(dt.id)::integer AS distributions_count
     FROM distribution_transactions dt
     INNER JOIN disaster_events de ON de.id = dt.disaster_event_id
-    WHERE dt.relief_pack_template_id = $1
-      AND dt.distribution_status = 'CLAIMED'
+    WHERE dt.distribution_status = 'CLAIMED'
+      AND (
+        dt.relief_pack_template_id = $1
+        OR EXISTS (
+          SELECT 1
+          FROM distribution_transaction_relief_pack_templates dtrpt
+          WHERE dtrpt.distribution_transaction_id = dt.id
+            AND dtrpt.relief_pack_template_id = $1
+        )
+      )
     GROUP BY de.disaster_type, de.status
     ORDER BY de.disaster_type ASC
   `;
 
   const result = await pool.query(query, [templateId]);
   return result.rows;
+};
+
+const getReliefPackTemplateDeactivationBlockersByTemplateId = async (
+  templateId,
+  dbClient = pool,
+) => {
+  const query = `
+    SELECT
+      COUNT(*) FILTER (
+        WHERE dt.distribution_status = 'CLAIMED'
+          AND COALESCE(UPPER(de.status), '') NOT IN ('CLOSED', 'ARCHIVED')
+      )::integer AS active_event_distribution_count,
+      COUNT(*) FILTER (
+        WHERE COALESCE(UPPER(dt.sync_status), 'SYNCED') <> 'SYNCED'
+      )::integer AS unsynced_distribution_count
+    FROM distribution_transactions dt
+    INNER JOIN disaster_events de ON de.id = dt.disaster_event_id
+    WHERE (
+      dt.relief_pack_template_id = $1
+      OR EXISTS (
+        SELECT 1
+        FROM distribution_transaction_relief_pack_templates dtrpt
+        WHERE dtrpt.distribution_transaction_id = dt.id
+          AND dtrpt.relief_pack_template_id = $1
+      )
+    )
+  `;
+
+  const result = await dbClient.query(query, [templateId]);
+  return (
+    result.rows[0] || {
+      active_event_distribution_count: 0,
+      unsynced_distribution_count: 0,
+    }
+  );
 };
 
 const deleteReliefPackTemplateDisasterTypesByTemplateId = async (
@@ -419,8 +492,10 @@ module.exports = {
   getReliefPackTemplateItemsByTemplateId,
   getReliefPackTemplateDisasterTypesByTemplateId,
   getReliefPackTemplateUsageByTemplateId,
+  getReliefPackTemplateDeactivationBlockersByTemplateId,
   insertReliefPackTemplate,
   updateReliefPackTemplate,
+  updateReliefPackTemplateStatus,
   deleteReliefPackTemplateItemsByTemplateId,
   deleteReliefPackTemplateDisasterTypesByTemplateId,
   insertReliefPackTemplateItem,

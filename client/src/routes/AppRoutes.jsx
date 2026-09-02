@@ -14,13 +14,13 @@ import StubDistributionPage from "../pages/barangay/StubDistributionPage";
 import VerifyStubPage from "../pages/VerifyStubPage";
 import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
+import MayorAnomalyTrackingPage from "../pages/inventory/MayorAnomalyTrackingPage";
 import InventoryDistributionPage from "../pages/inventory/InventoryDistributionPage";
 import InventoryForecastsPage from "../pages/inventory/InventoryForecastsPage";
 import NotificationCenterPage from "../pages/inventory/NotificationCenterPage";
 import SyncManagementPage from "../pages/SyncManagementPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
 import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage";
-import SuppliersPage from "../pages/inventory/SuppliersPage";
 import DonationInformationPage from "../pages/donor/DonationInformationPage";
 import DonationManagementPage from "../pages/DonationManagementPage";
 import DistributionHistoryPage from "../pages/DistributionHistoryPage";
@@ -161,7 +161,7 @@ const AppRoutes = () => {
             },
             { path: "notifications", element: <NotificationCenterPage /> },
             { path: "sync", element: <SyncManagementPage /> },
-            { path: "suppliers", element: <SuppliersPage /> },
+            { path: "anomalies", element: <MayorAnomalyTrackingPage /> },
             {
               path: "relief-pack-templates",
               element: <ReliefPackTemplatesPage />,

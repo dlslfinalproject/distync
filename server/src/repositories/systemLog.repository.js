@@ -260,6 +260,14 @@ const getAuditLogs = async (
           u_distribution.last_name
         ) ILIKE ${searchParam}
         OR rpt_distribution.name ILIKE ${searchParam}
+        OR EXISTS (
+          SELECT 1
+          FROM distribution_transaction_relief_pack_templates dtrpt_search
+          INNER JOIN relief_pack_templates rpt_search
+            ON rpt_search.id = dtrpt_search.relief_pack_template_id
+          WHERE dtrpt_search.distribution_transaction_id = dt_direct.id
+            AND rpt_search.name ILIKE ${searchParam}
+        )
         OR al.old_values_json::text ILIKE ${searchParam}
         OR al.new_values_json::text ILIKE ${searchParam}
       )
@@ -346,7 +354,8 @@ const getAuditLogs = async (
       u_distribution.first_name AS distribution_verified_by_first_name,
       u_distribution.last_name AS distribution_verified_by_last_name,
       u_distribution.email AS distribution_verified_by_email,
-      rpt_distribution.name AS distribution_relief_pack_template_name,
+      distribution_template_names.names AS distribution_relief_pack_template_name,
+      distribution_template_names.names AS distribution_relief_pack_template_names,
       distribution_items.items AS distribution_items_json
     FROM audit_logs al
     LEFT JOIN users u ON u.id = al.user_id
@@ -393,6 +402,20 @@ const getAuditLogs = async (
       ON u_distribution.id = dt_direct.verified_by
     LEFT JOIN relief_pack_templates rpt_distribution
       ON rpt_distribution.id = dt_direct.relief_pack_template_id
+    LEFT JOIN LATERAL (
+      SELECT STRING_AGG(
+        DISTINCT linked_template.name,
+        ', ' ORDER BY linked_template.name
+      ) AS names
+      FROM relief_pack_templates linked_template
+      WHERE linked_template.id = dt_direct.relief_pack_template_id
+        OR EXISTS (
+          SELECT 1
+          FROM distribution_transaction_relief_pack_templates linked_template_row
+          WHERE linked_template_row.distribution_transaction_id = dt_direct.id
+            AND linked_template_row.relief_pack_template_id = linked_template.id
+        )
+    ) distribution_template_names ON TRUE
     LEFT JOIN LATERAL (
       SELECT jsonb_agg(
         jsonb_build_object(

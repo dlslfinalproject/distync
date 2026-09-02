@@ -8,6 +8,7 @@ import {
   getConflictExplanation,
   getConflictReasonLabel,
   getConflictResolutionSummary,
+  getResolutionStatusLabel,
   getSyncRecordDetails,
   SYNC_MISSING_VALUE,
 } from "../../features/sync/syncManagementHelpers";
@@ -144,6 +145,10 @@ const ACTION_LABELS = {
   APPLY_LOCAL: "Use This Device Record",
 };
 
+const getActionLabel = (action) => {
+  return ACTION_LABELS[action] || action;
+};
+
 const isUuidLikeValue = (value) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     String(value || "").trim(),
@@ -201,6 +206,9 @@ const SyncConflictDetailModal = ({
   const conflictReason = conflict.conflict_reason || getConflictReasonLabel(conflict);
   const resolutionSummary = getConflictResolutionSummary(conflict);
   const comparisonRows = getConflictComparisonRows(conflict);
+  const isAutomaticCrossBarangayDuplicate =
+    conflict.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE" &&
+    conflict.resolved_payload_json?.automatic;
   const formattedResolvedAt = formatSyncHistoryDateTime(conflict.resolved_at);
   const resolvedBy = getResolvedByDisplay(conflict);
   const requiresReason = availableActions.some((action) =>
@@ -228,7 +236,7 @@ const SyncConflictDetailModal = ({
           }
           disabled={isResolving}
         >
-          {ACTION_LABELS[action] || action}
+          {getActionLabel(action)}
         </button>
       ))}
     </>
@@ -253,7 +261,10 @@ const SyncConflictDetailModal = ({
         <div style={modalStyles.sectionTitle}>Conflict</div>
         <div style={modalStyles.conflictHeader}>
           <strong style={modalStyles.reasonTitle}>{conflictReason}</strong>
-          <SyncStatusBadge status={isResolved ? "RESOLVED" : "OPEN"} />
+          <SyncStatusBadge
+            status={isResolved ? "RESOLVED" : "OPEN"}
+            label={getResolutionStatusLabel(conflict)}
+          />
         </div>
       </div>
 
@@ -352,12 +363,16 @@ const SyncConflictDetailModal = ({
             </h4>
             <div style={modalStyles.comparisonGrid}>
               {renderComparisonPanel(
-                "This Device Record",
+                isAutomaticCrossBarangayDuplicate
+                  ? "Earlier Registration"
+                  : "This Device Record",
                 comparisonRows,
                 "localValue",
               )}
               {renderComparisonPanel(
-                "Saved DISTYNC Record",
+                isAutomaticCrossBarangayDuplicate
+                  ? "Later Registration"
+                  : "Saved DISTYNC Record",
                 comparisonRows,
                 "serverValue",
               )}

@@ -28,7 +28,6 @@ const validateCreateDistributionTransaction = (req, res, next) => {
       qr_reference_value,
       receipt_status,
       relief_pack_template_id,
-      items,
     } = req.body;
 
     if (!isValidUuid(disaster_event_id)) {
@@ -108,48 +107,10 @@ const validateCreateDistributionTransaction = (req, res, next) => {
       });
     }
 
-    if (
-      relief_pack_template_id !== undefined &&
-      relief_pack_template_id !== null &&
-      !isValidUuid(relief_pack_template_id)
-    ) {
+    if (!isValidUuid(relief_pack_template_id)) {
       return res.status(400).json({
-        message: "relief_pack_template_id must be a valid UUID or null",
+        message: "relief_pack_template_id is required and must be a valid UUID",
       });
-    }
-
-    const hasTemplate = Boolean(relief_pack_template_id);
-    const hasItems = Array.isArray(items) && items.length > 0;
-
-    if (!hasTemplate && !hasItems) {
-      return res.status(400).json({
-        message: "Either relief_pack_template_id or a non-empty items array is required",
-      });
-    }
-
-    for (const item of items || []) {
-      if (
-        item.inventory_batch_id !== undefined &&
-        item.inventory_batch_id !== null &&
-        item.inventory_batch_id !== "" &&
-        !isValidUuid(item.inventory_batch_id)
-      ) {
-        return res.status(400).json({
-          message: "Each item.inventory_batch_id must be a valid UUID when provided",
-        });
-      }
-
-      if (!isValidUuid(item.inventory_item_id)) {
-        return res.status(400).json({
-          message: "Each item.inventory_item_id must be a valid UUID",
-        });
-      }
-
-      if (!Number.isInteger(item.quantity_released) || item.quantity_released <= 0) {
-        return res.status(400).json({
-          message: "Each item.quantity_released must be a positive integer",
-        });
-      }
     }
 
     req.validatedBody = {
@@ -167,12 +128,7 @@ const validateCreateDistributionTransaction = (req, res, next) => {
           ? qr_reference_value.trim()
           : null,
       receipt_status: receipt_status ?? "GENERATED",
-      relief_pack_template_id: relief_pack_template_id ?? null,
-      items: (items || []).map((item) => ({
-        inventory_batch_id: item.inventory_batch_id,
-        inventory_item_id: item.inventory_item_id,
-        quantity_released: item.quantity_released,
-      })),
+      relief_pack_template_id,
     };
 
     return next();

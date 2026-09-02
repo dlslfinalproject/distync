@@ -1614,6 +1614,7 @@ test("emitDonationSummaryUpdate preserves INVENTORY payload details for notifica
       assert.equal(insertedNotifications[0].type, "INVENTORY");
       assert.equal(insertedNotifications[0].reference_type, "DONATION");
       assert.equal(insertedNotifications[0].reference_id, "donation-1");
+      assert.equal(insertedNotifications[0].severity, "INFO");
       assert.match(insertedNotifications[0].message, /3 item entries/);
     },
   );

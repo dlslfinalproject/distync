@@ -6,7 +6,14 @@ const {
   getPrimaryAssignedReliefPackTemplate,
   resolveAssignedReliefPackTemplatesForHousehold,
 } = require("./reliefPackAssignment.service");
-const { getInventoryBatchStatus } = require("../utils/inventoryBatchStatus");
+const {
+  getInventoryBatchStatus,
+  isInventoryBatchExpired,
+  isInventoryBatchNearExpiry,
+} = require("../utils/inventoryBatchStatus");
+const {
+  isCurrentlyPresentEvacuationAttendance,
+} = require("../utils/reliefPackEligibility");
 
 const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
   const normalizedOnHandQuantity = Math.max(Number(onHandQuantity || 0), 0);
@@ -183,22 +190,19 @@ const getDonatedReliefPackGroupAvailablePackCount = (group) => {
 };
 
 const isDonatedReliefPackItemCurrentlyAvailable = (item) => {
-  if (!item || !["AVAILABLE", "LOW_STOCK"].includes(item.previous_status)) {
+  const normalizedStatus = String(item?.previous_status || "")
+    .trim()
+    .toUpperCase();
+
+  if (!item || !["AVAILABLE", "LOW_STOCK"].includes(normalizedStatus)) {
     return false;
   }
 
-  if (item.expiration_date) {
-    const today = new Date();
-    const todayDateOnly = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate(),
-    );
-    const expirationDate = new Date(item.expiration_date);
-
-    if (expirationDate < todayDateOnly) {
-      return false;
-    }
+  if (
+    isInventoryBatchExpired(item.expiration_date) ||
+    isInventoryBatchNearExpiry(item.expiration_date, 30)
+  ) {
+    return false;
   }
 
   return Number(item.quantity_available || 0) >= item.quantity_per_pack;
@@ -282,6 +286,7 @@ const buildDonatedReliefPackClaimPlan = async (
       previous_quantity_available: item.quantity_available,
       previous_status: item.previous_status,
       expiration_date: item.expiration_date,
+      source_type: "DONATED",
       source_relief_type: "DONATED_RELIEF_PACK",
       donated_relief_pack_name: group.pack_name,
       donation_id: group.donation_id,
@@ -408,10 +413,17 @@ const getAvailableDonatedLooseItemsForClaimPreview = async (
   disasterEventId,
   queuePosition = 1,
   eligibleHouseholdsCount = 0,
+  { excludedInventoryItemIds = [] } = {},
 ) => {
   if (!disasterEventId) {
     return [];
   }
+
+  const excludedInventoryItemIdSet = new Set(
+    (Array.isArray(excludedInventoryItemIds) ? excludedInventoryItemIds : [])
+      .map((inventoryItemId) => String(inventoryItemId || "").trim())
+      .filter(Boolean),
+  );
 
   const rows =
     await distributionTransactionRepository.getAvailableDonatedLooseItemsByDisasterEventId(
@@ -419,6 +431,10 @@ const getAvailableDonatedLooseItemsForClaimPreview = async (
     );
 
   return rows
+    .filter(
+      (row) =>
+        !excludedInventoryItemIdSet.has(String(row.inventory_item_id || "")),
+    )
     .map((row) =>
       mapDonatedLooseItemPreview(row, {
         queuePosition,
@@ -437,9 +453,15 @@ const buildDonatedLooseItemClaimPlan = async (
   queuePosition,
   eligibleHouseholdsCount,
   client,
+  { excludedInventoryItemIds = [] } = {},
 ) => {
   const normalizedQueuePosition = Number(queuePosition || 0);
   const normalizedEligibleHouseholdsCount = Number(eligibleHouseholdsCount || 0);
+  const excludedInventoryItemIdSet = new Set(
+    (Array.isArray(excludedInventoryItemIds) ? excludedInventoryItemIds : [])
+      .map((inventoryItemId) => String(inventoryItemId || "").trim())
+      .filter(Boolean),
+  );
 
   const availableRows =
     await distributionTransactionRepository.getAvailableDonatedLooseItemsByDisasterEventId(
@@ -451,6 +473,12 @@ const buildDonatedLooseItemClaimPlan = async (
   const donatedLooseItems = [];
 
   for (const row of availableRows) {
+    if (
+      excludedInventoryItemIdSet.has(String(row.inventory_item_id || ""))
+    ) {
+      continue;
+    }
+
     const perFamilyAllocation = parseDonatedLooseItemPerFamilyAllocation(row.remarks);
     const availableQuantity = Number(row.quantity_available || 0);
     const quantityReleased = calculateDonatedLooseItemQuantityForQueuePosition({
@@ -480,6 +508,7 @@ const buildDonatedLooseItemClaimPlan = async (
       previous_quantity_available: availableQuantity,
       previous_status: row.status,
       expiration_date: row.expiration_date || null,
+      source_type: "DONATED",
       source_relief_type: "DONATED_LOOSE_ITEM",
       donation_id: row.donation_id,
       donor_name: row.donor_name,
@@ -511,6 +540,7 @@ const buildDonatedLooseItemClaimPlan = async (
 const buildAutomaticClaimAllocations = async (
   assignedTemplateItems,
   householdSize,
+  disasterEventId,
   client,
 ) => {
   const allocations = [];
@@ -518,6 +548,9 @@ const buildAutomaticClaimAllocations = async (
 
   for (const { template, templateItems } of assignedTemplateItems) {
     const packMultiplier = getTemplatePackMultiplier(template, householdSize);
+    const sourceReliefType = template.is_additional_pack
+      ? "ADDITIONAL_RELIEF_PACK"
+      : "STANDARD_RELIEF_PACK";
 
     for (const templateItem of templateItems) {
       const requiredQuantity =
@@ -534,6 +567,7 @@ const buildAutomaticClaimAllocations = async (
       if (existingItem) {
         existingItem.requiredQuantity += requiredQuantity;
         existingItem.sourceTemplateNames.push(template.name);
+        existingItem.sourceReliefTypes.add(sourceReliefType);
         continue;
       }
 
@@ -542,6 +576,7 @@ const buildAutomaticClaimAllocations = async (
         item_name: templateItem.item_name,
         requiredQuantity,
         sourceTemplateNames: [template.name],
+        sourceReliefTypes: new Set([sourceReliefType]),
       });
     }
   }
@@ -550,6 +585,7 @@ const buildAutomaticClaimAllocations = async (
   const availableBatches =
     await inventoryTransactionRepository.getDistributableInventoryBatchesByItemIdsForUpdate(
       [...requiredItemsByInventoryItemId.keys()],
+      disasterEventId,
       client,
     );
 
@@ -614,7 +650,14 @@ const buildAutomaticClaimAllocations = async (
         previous_quantity_available: Number(batch.quantity_available || 0),
         previous_status: batch.status,
         expiration_date: batch.expiration_date || null,
-        source_relief_type: "STANDARD_RELIEF_PACK",
+        source_type: batch.source_type || "LGU",
+        donation_id: batch.donation_id || null,
+        donor_name: batch.donor_name || null,
+        donation_item_id: batch.donation_item_id || null,
+        source_relief_type:
+          requiredItem.sourceReliefTypes.size === 1
+            ? [...requiredItem.sourceReliefTypes][0]
+            : "MIXED_RELIEF_PACK",
       });
 
       remainingQuantity -= quantityToRelease;
@@ -700,17 +743,10 @@ const recordAutomaticReliefPackClaim = async ({
       stub.disaster_event_id,
       client,
     );
-  const latestAttendanceStatus = String(latestAttendance?.status || "").toUpperCase();
-
   if (
     String(stub.current_stay_type || "").toUpperCase() !== "EVAC_CENTER" ||
     stub.is_active === false ||
-    latestAttendance?.time_out ||
-    !(
-      latestAttendanceStatus === "PRESENT" ||
-      latestAttendanceStatus === "ARRIVED" ||
-      latestAttendance?.time_in
-    )
+    !isCurrentlyPresentEvacuationAttendance(latestAttendance)
   ) {
     const error = new Error(
       "Relief packs can only be claimed by households currently present in an evacuation center.",
@@ -764,6 +800,7 @@ const recordAutomaticReliefPackClaim = async ({
   const allocations = await buildAutomaticClaimAllocations(
     assignedTemplateItems,
     stub.household_size,
+    stub.disaster_event_id,
     client,
   );
   const donatedQueueContext =
@@ -777,11 +814,21 @@ const recordAutomaticReliefPackClaim = async ({
     client,
     donatedQueuePosition,
   );
+  const assignedTemplateComponentItemIds = [
+    ...new Set(
+      assignedTemplateItems.flatMap(({ templateItems }) =>
+        (templateItems || [])
+          .map((templateItem) => templateItem?.inventory_item_id)
+          .filter(Boolean),
+      ),
+    ),
+  ];
   const donatedLooseItemClaimPlan = await buildDonatedLooseItemClaimPlan(
     stub.disaster_event_id,
     donatedQueuePosition,
     donatedQueueContext.eligible_households_count,
     client,
+    { excludedInventoryItemIds: assignedTemplateComponentItemIds },
   );
   const combinedAllocations = [
     ...allocations,
@@ -838,6 +885,12 @@ const recordAutomaticReliefPackClaim = async ({
       },
       client,
     );
+
+  await distributionTransactionRepository.insertDistributionTransactionReliefPackTemplates(
+    distributionTransaction.id,
+    assignedReliefPackTemplates.map((template) => template.id),
+    client,
+  );
 
   const releasedItems = [];
   const batchAlertPayloads = [];
@@ -930,6 +983,7 @@ const recordAutomaticReliefPackClaim = async ({
       item_code: allocation.item_code,
       item_name: allocation.item_name,
       unit_of_measure: allocation.unit_of_measure,
+      source_type: allocation.source_type || "LGU",
       source_relief_type: allocation.source_relief_type,
       donated_relief_pack_name: allocation.donated_relief_pack_name || null,
       donor_name: allocation.donor_name || null,

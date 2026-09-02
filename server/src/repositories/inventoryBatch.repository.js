@@ -9,7 +9,6 @@ const baseSelectQuery = `
     ib.inventory_item_id,
     ib.inventory_item_stock_form_id,
     ib.batch_no,
-    ib.supplier_id,
     ib.source_type,
     ib.quantity_received,
     ib.quantity_available,
@@ -42,24 +41,31 @@ const baseSelectQuery = `
     stock_forms.is_active AS stock_form_is_active,
     u.first_name AS created_by_first_name,
     u.last_name AS created_by_last_name,
-    s.name AS supplier_name,
-    s.contact_person AS supplier_contact_person,
-    s.contact_number AS supplier_contact_number,
-    s.address AS supplier_address,
-    s.has_moa AS supplier_has_moa,
-    s.notes AS supplier_notes,
     source_donation.donation_id AS source_donation_id,
-    source_donation.donor_name AS source_donor_name
+    source_donation.donation_item_id AS source_donation_item_id,
+    source_donation.donor_name AS source_donor_name,
+    source_donation.disaster_event_id AS source_donation_disaster_event_id,
+    source_donation.donation_status AS source_donation_status,
+    CASE
+      WHEN source_donation.item_remarks ILIKE 'Relief Pack:%'
+        THEN 'RELIEF_PACK'
+      WHEN source_donation.donation_id IS NOT NULL
+        THEN 'LOOSE_ITEM'
+      ELSE NULL
+    END AS source_donation_type
   FROM inventory_batches ib
   INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
   LEFT JOIN inventory_item_stock_forms stock_forms
     ON stock_forms.id = ib.inventory_item_stock_form_id
   LEFT JOIN users u ON u.id = ib.created_by
-  LEFT JOIN suppliers s ON s.id = ib.supplier_id
   LEFT JOIN LATERAL (
     SELECT
+      source_di.id AS donation_item_id,
       source_di.donation_id,
-      source_d.donor_name
+      source_d.donor_name,
+      source_d.disaster_event_id,
+      source_d.status AS donation_status,
+      source_di.remarks AS item_remarks
     FROM donation_items source_di
     INNER JOIN donations source_d
       ON source_d.id = source_di.donation_id
@@ -76,11 +82,6 @@ const getInventoryBatches = async (filters) => {
   if (filters.inventory_item_id) {
     values.push(filters.inventory_item_id);
     conditions.push(`ib.inventory_item_id = $${values.length}`);
-  }
-
-  if (filters.supplier_id) {
-    values.push(filters.supplier_id);
-    conditions.push(`ib.supplier_id = $${values.length}`);
   }
 
   if (filters.source_type) {
@@ -158,24 +159,6 @@ const getInventoryItemById = async (id, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
-const getSupplierById = async (id, dbClient = pool) => {
-  const query = `
-    SELECT
-      id,
-      name,
-      contact_person,
-      contact_number,
-      address,
-      has_moa,
-      notes
-    FROM suppliers
-    WHERE id = $1
-  `;
-
-  const result = await dbClient.query(query, [id]);
-  return result.rows[0] || null;
-};
-
 const getInventoryBatchByItemIdAndBatchNo = async (
   inventoryItemId,
   batchNo,
@@ -187,7 +170,6 @@ const getInventoryBatchByItemIdAndBatchNo = async (
       inventory_item_id,
       inventory_item_stock_form_id,
       batch_no,
-      supplier_id,
       source_type,
       quantity_received,
       quantity_available,
@@ -209,12 +191,13 @@ const getInventoryBatchByItemIdAndBatchNo = async (
 };
 
 const insertInventoryBatch = async (batchData, dbClient = pool) => {
+  const hasReceivedAt =
+    batchData.received_at !== undefined && batchData.received_at !== null;
   const query = `
     INSERT INTO inventory_batches (
       inventory_item_id,
       inventory_item_stock_form_id,
       batch_no,
-      supplier_id,
       source_type,
       quantity_received,
       quantity_available,
@@ -227,7 +210,7 @@ const insertInventoryBatch = async (batchData, dbClient = pool) => {
       updated_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, $11, NOW(), NOW()
+      $1, $2, $3, $4, $5, $6, $7, ${hasReceivedAt ? "$11::timestamptz" : "NOW()"}, $8, $9, $10, NOW(), NOW()
     )
     ON CONFLICT ON CONSTRAINT ${INVENTORY_BATCH_IDENTITY_CONSTRAINT}
     DO NOTHING
@@ -236,7 +219,6 @@ const insertInventoryBatch = async (batchData, dbClient = pool) => {
       inventory_item_id,
       inventory_item_stock_form_id,
       batch_no,
-      supplier_id,
       source_type,
       quantity_received,
       quantity_available,
@@ -254,7 +236,6 @@ const insertInventoryBatch = async (batchData, dbClient = pool) => {
     batchData.inventory_item_id,
     batchData.inventory_item_stock_form_id,
     batchData.batch_no,
-    batchData.supplier_id,
     batchData.source_type,
     batchData.quantity_received,
     batchData.quantity_available,
@@ -263,6 +244,10 @@ const insertInventoryBatch = async (batchData, dbClient = pool) => {
     batchData.status,
     batchData.created_by,
   ];
+
+  if (hasReceivedAt) {
+    values.push(batchData.received_at);
+  }
 
   const result = await dbClient.query(query, values);
   return result.rows[0];
@@ -284,7 +269,6 @@ const updateInventoryBatchExpiry = async (
       inventory_item_id,
       inventory_item_stock_form_id,
       batch_no,
-      supplier_id,
       source_type,
       quantity_received,
       quantity_available,
@@ -306,7 +290,6 @@ module.exports = {
   getInventoryBatches,
   getInventoryBatchById,
   getInventoryItemById,
-  getSupplierById,
   getInventoryBatchByItemIdAndBatchNo,
   insertInventoryBatch,
   updateInventoryBatchExpiry,

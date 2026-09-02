@@ -24,7 +24,7 @@ test("A11Y-01 through A11Y-03 anomaly details modal uses the shared dialog seman
   assert.match(pageSource, /import FormModalShell from "\.\.\/\.\.\/components\/shared\/FormModalShell"/);
   assert.match(
     pageSource,
-    /title=\{isBarangayScope && !hasSavedReview \? "Review Anomaly" : "Anomaly Details"\}/,
+    /title=\{\s*\(isBarangayScope \|\| isMayorScope\) && !hasSavedReview\s*\? "Review Anomaly"\s*:\s*"Anomaly Details"\s*\}/,
   );
   assert.match(pageSource, /closeButtonLabel="Close anomaly details"/);
   assert.match(pageSource, /<button type="button" onClick=\{onClose\}[\s\S]*>\s*Close\s*<\/button>/);

@@ -419,43 +419,352 @@ test("MSWDO first review remains unchanged when a later differing submission is 
   }
 });
 
-test("MSWDO anomaly review refuses an operational row without Barangay attribution", async () => {
-  let upsertCalled = false;
+test("Mayor inventory anomaly review uses the finalized municipal review lifecycle", async () => {
+  let persistedReview = null;
+  let lookupFilters = null;
+  let createPayload = null;
+  let auditCount = 0;
   const { service, restore } = loadService({
     repository: {
-      findAnomalyBySourceIdentity: async () => ({
-        anomaly_type: "INVENTORY_DISTRIBUTION_MISMATCH",
-        barangay_id: null,
-        manual_review_allowed: false,
-      }),
-      upsertAnomalyReview: async () => {
-        upsertCalled = true;
-        return {};
+      findAnomalyBySourceIdentity: async (filters) => {
+        lookupFilters = filters;
+        return {
+          source_type: "INVENTORY_DISTRIBUTION_RECONCILIATION",
+          source_id: "distribution-1:item-1",
+          anomaly_type: "INVENTORY_DISTRIBUTION_MISMATCH",
+          barangay_id: "barangay-a",
+          disaster_event_id: "event-1",
+          manual_review_allowed: true,
+          ...(persistedReview
+            ? {
+                review_id: persistedReview.id,
+                review_status: persistedReview.review_status,
+                resolution_reason: persistedReview.resolution_reason,
+                reviewed_by: persistedReview.reviewed_by,
+                reviewed_at: persistedReview.reviewed_at,
+              }
+            : {}),
+        };
+      },
+      createAnomalyReview: async (payload) => {
+        createPayload = payload;
+        persistedReview = {
+          id: "mayor-review-1",
+          source_type: payload.sourceType,
+          source_id: payload.sourceId,
+          anomaly_type: payload.anomalyType,
+          barangay_id: payload.barangayId,
+          review_status: payload.reviewStatus,
+          resolution_reason: payload.resolutionReason,
+          reviewed_by: payload.reviewedBy,
+          reviewed_at: "2026-08-29T00:00:00.000Z",
+        };
+        return persistedReview;
+      },
+    },
+    auditImpl: async () => {
+      auditCount += 1;
+    },
+  });
+
+  const firstPayload = {
+    source_type: "INVENTORY_DISTRIBUTION_RECONCILIATION",
+    source_id: "distribution-1:item-1",
+    anomaly_type: "INVENTORY_DISTRIBUTION_MISMATCH",
+    review_status: "ISSUE_CONFIRMED",
+    resolution_reason: "Mayor inventory review confirmed the quantity mismatch.",
+  };
+
+  try {
+    const review = await service.upsertAnomalyReview({
+      auth: { userId: "mayor-reviewer", roleCode: "MAYOR" },
+      payload: firstPayload,
+    });
+
+    assert.equal(review.review_status, "ISSUE_CONFIRMED");
+    assert.deepEqual(lookupFilters, {
+      barangayId: null,
+      anomalyType: "INVENTORY_DISTRIBUTION_MISMATCH",
+      sourceType: "INVENTORY_DISTRIBUTION_RECONCILIATION",
+      sourceId: "distribution-1:item-1",
+      roleScope: "MAYOR",
+    });
+    assert.equal(createPayload.barangayId, "barangay-a");
+    assert.equal(createPayload.reviewedBy, "mayor-reviewer");
+
+    await assert.rejects(
+      () =>
+        service.upsertAnomalyReview({
+          auth: { userId: "second-mayor-reviewer", roleCode: "MAYOR" },
+          payload: {
+            ...firstPayload,
+            review_status: "REFERRED",
+            resolution_reason: "Attempted to replace the finalized review.",
+          },
+        }),
+      (error) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.code, "ANOMALY_REVIEW_FINAL");
+        return true;
+      },
+    );
+    assert.equal(auditCount, 1);
+  } finally {
+    restore();
+  }
+});
+
+test("Mayor anomaly review rejects non-inventory anomaly types", async () => {
+  let lookupCalled = false;
+  const { service, restore } = loadService({
+    repository: {
+      findAnomalyBySourceIdentity: async () => {
+        lookupCalled = true;
+        return null;
       },
     },
   });
 
   try {
     await assert.rejects(
-      async () =>
+      () =>
         service.upsertAnomalyReview({
-          auth: { userId: "mswdo-user", roleCode: "MSWDO" },
+          auth: { userId: "mayor-reviewer", roleCode: "MAYOR" },
           payload: {
-            source_type: "INVENTORY_DISTRIBUTION_ORPHAN_OUTFLOW",
-            source_id: "outflow-1",
-            anomaly_type: "INVENTORY_DISTRIBUTION_MISMATCH",
-            review_status: "REFERRED",
-            resolution_reason: "Barangay attribution is still being established.",
+            source_type: "ERROR_LOG",
+            source_id: "household-error-1",
+            anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+            review_status: "ISSUE_CONFIRMED",
+            resolution_reason: "This must remain in the MSWDO/Barangay workflow.",
+          },
+        }),
+      (error) => {
+        assert.equal(error.statusCode, 400);
+        assert.match(error.message, /Mayor inventory review/);
+        return true;
+      },
+    );
+    assert.equal(lookupCalled, false);
+  } finally {
+    restore();
+  }
+});
+
+test("MSWDO anomaly review persists a legitimate municipal row without Barangay attribution", async () => {
+  let persistedReview = null;
+  let createPayload = null;
+  let auditCount = 0;
+  const { service, restore } = loadService({
+    repository: {
+      findAnomalyBySourceIdentity: async () => ({
+        source_type: "INVENTORY_DISTRIBUTION_ORPHAN_OUTFLOW",
+        source_id: "outflow-1",
+        anomaly_type: "INVENTORY_DISTRIBUTION_MISMATCH",
+        barangay_id: null,
+        disaster_event_id: null,
+        manual_review_allowed: true,
+        ...(persistedReview
+          ? {
+              review_id: persistedReview.id,
+              review_status: persistedReview.review_status,
+              resolution_reason: persistedReview.resolution_reason,
+              reviewed_by: persistedReview.reviewed_by,
+              reviewed_at: persistedReview.reviewed_at,
+            }
+          : {}),
+      }),
+      createAnomalyReview: async (payload) => {
+        createPayload = payload;
+        persistedReview = {
+          id: "mswdo-municipal-review-1",
+          source_type: payload.sourceType,
+          source_id: payload.sourceId,
+          anomaly_type: payload.anomalyType,
+          barangay_id: payload.barangayId,
+          review_status: payload.reviewStatus,
+          resolution_reason: payload.resolutionReason,
+          reviewed_by: payload.reviewedBy,
+          reviewed_at: "2026-08-29T00:00:00.000Z",
+        };
+        return persistedReview;
+      },
+    },
+    auditImpl: async () => {
+      auditCount += 1;
+    },
+  });
+
+  const payload = {
+    source_type: "INVENTORY_DISTRIBUTION_ORPHAN_OUTFLOW",
+    source_id: "outflow-1",
+    anomaly_type: "INVENTORY_DISTRIBUTION_MISMATCH",
+    review_status: "REFERRED",
+    resolution_reason: "Municipal inventory review is required; no Barangay is attributable.",
+  };
+
+  try {
+    const review = await service.upsertAnomalyReview({
+      auth: { userId: "mswdo-user", roleCode: "MSWDO" },
+      payload,
+    });
+
+    assert.equal(createPayload.barangayId, null);
+    assert.equal(review.barangay_id, null);
+    assert.equal(review.review_status, "REFERRED");
+
+    await assert.rejects(
+      () =>
+        service.upsertAnomalyReview({
+          auth: { userId: "second-mswdo-user", roleCode: "MSWDO" },
+          payload: {
+            ...payload,
+            review_status: "ISSUE_CONFIRMED",
+            resolution_reason: "Attempted to replace the finalized municipal review.",
           },
         }),
       (error) => {
         assert.equal(error.statusCode, 409);
-        assert.equal(error.code, "ANOMALY_REVIEW_BARANGAY_REQUIRED");
-        assert.match(error.message, /Barangay must be identified/);
+        assert.equal(error.code, "ANOMALY_REVIEW_FINAL");
         return true;
       },
     );
-    assert.equal(upsertCalled, false);
+    assert.equal(persistedReview.barangay_id, null);
+    assert.equal(auditCount, 1);
+  } finally {
+    restore();
+  }
+});
+
+test("Mayor anomaly review persists a legitimate municipal row without Barangay attribution", async () => {
+  let persistedReview = null;
+  let createPayload = null;
+  let auditCount = 0;
+  const { service, restore } = loadService({
+    repository: {
+      findAnomalyBySourceIdentity: async () => ({
+        source_type: "INVENTORY_DISTRIBUTION_ORPHAN_OUTFLOW",
+        source_id: "outflow-mayor-1",
+        anomaly_type: "INVENTORY_DISTRIBUTION_MISMATCH",
+        barangay_id: null,
+        disaster_event_id: null,
+        manual_review_allowed: true,
+        ...(persistedReview
+          ? {
+              review_id: persistedReview.id,
+              review_status: persistedReview.review_status,
+              resolution_reason: persistedReview.resolution_reason,
+              reviewed_by: persistedReview.reviewed_by,
+              reviewed_at: persistedReview.reviewed_at,
+            }
+          : {}),
+      }),
+      createAnomalyReview: async (payload) => {
+        createPayload = payload;
+        persistedReview = {
+          id: "mayor-municipal-review-1",
+          source_type: payload.sourceType,
+          source_id: payload.sourceId,
+          anomaly_type: payload.anomalyType,
+          barangay_id: payload.barangayId,
+          review_status: payload.reviewStatus,
+          resolution_reason: payload.resolutionReason,
+          reviewed_by: payload.reviewedBy,
+          reviewed_at: "2026-08-29T00:00:00.000Z",
+        };
+        return persistedReview;
+      },
+    },
+    auditImpl: async () => {
+      auditCount += 1;
+    },
+  });
+
+  const payload = {
+    source_type: "INVENTORY_DISTRIBUTION_ORPHAN_OUTFLOW",
+    source_id: "outflow-mayor-1",
+    anomaly_type: "INVENTORY_DISTRIBUTION_MISMATCH",
+    review_status: "ISSUE_CONFIRMED",
+    resolution_reason: "Mayor inventory review confirmed a municipality-only outflow mismatch.",
+  };
+
+  try {
+    const review = await service.upsertAnomalyReview({
+      auth: { userId: "mayor-user", roleCode: "MAYOR" },
+      payload,
+    });
+
+    assert.equal(createPayload.barangayId, null);
+    assert.equal(review.barangay_id, null);
+    assert.equal(review.review_status, "ISSUE_CONFIRMED");
+
+    await assert.rejects(
+      () =>
+        service.upsertAnomalyReview({
+          auth: { userId: "second-mayor-user", roleCode: "MAYOR" },
+          payload: {
+            ...payload,
+            review_status: "REFERRED",
+            resolution_reason: "Attempted to replace the finalized municipal review.",
+          },
+        }),
+      (error) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.code, "ANOMALY_REVIEW_FINAL");
+        return true;
+      },
+    );
+    assert.equal(persistedReview.barangay_id, null);
+    assert.equal(auditCount, 1);
+  } finally {
+    restore();
+  }
+});
+
+test("Barangay anomaly review rejects NULL and foreign Barangay attribution before persistence", async () => {
+  let anomaly = null;
+  let persistCalled = false;
+  const { service, restore } = loadService({
+    repository: {
+      findAnomalyBySourceIdentity: async () => anomaly,
+      upsertAnomalyReview: async () => {
+        persistCalled = true;
+        return {};
+      },
+    },
+  });
+
+  const payload = {
+    source_type: "ERROR_LOG",
+    source_id: "barangay-scope-1",
+    anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+    review_status: "ISSUE_CONFIRMED",
+    resolution_reason: "Barangay review scope validation.",
+  };
+
+  try {
+    for (const anomalyBarangayId of [null, "barangay-b"]) {
+      anomaly = {
+        ...payload,
+        barangay_id: anomalyBarangayId,
+        manual_review_allowed: true,
+      };
+
+      await assert.rejects(
+        () =>
+          service.upsertBarangayAnomalyReview({
+            barangayId: "barangay-a",
+            auth: { userId: "barangay-user", roleCode: "BARANGAY" },
+            payload,
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 403);
+          assert.equal(error.code, "ANOMALY_REVIEW_BARANGAY_SCOPE");
+          return true;
+        },
+      );
+    }
+
+    assert.equal(persistCalled, false);
   } finally {
     restore();
   }

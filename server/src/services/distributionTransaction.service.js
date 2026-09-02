@@ -12,13 +12,18 @@ const {
   getAvailableDonatedReliefPacksForClaimPreview,
   recordAutomaticReliefPackClaim,
 } = require("./automaticReliefPackClaim.service");
+const {
+  getPrimaryAssignedReliefPackTemplate,
+  resolveAssignedReliefPackTemplatesForHousehold,
+} = require("./reliefPackAssignment.service");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
 const mswdoReportExport = require("../utils/mswdoReportExport");
 const {
   getInventoryBatchStatus,
-  isInventoryBatchExpired,
-  isInventoryBatchNearExpiry,
 } = require("../utils/inventoryBatchStatus");
+const {
+  isCurrentlyPresentEvacuationAttendance,
+} = require("../utils/reliefPackEligibility");
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
@@ -1129,12 +1134,6 @@ const isTemplateApplicableToDisasterType = (templateDisasterTypes, disasterType)
   });
 };
 
-const isDistributableBatch = (batch) =>
-  Boolean(batch) &&
-  ["AVAILABLE", "LOW_STOCK"].includes(batch.status) &&
-  !isInventoryBatchExpired(batch.expiration_date) &&
-  !isInventoryBatchNearExpiry(batch.expiration_date, 30);
-
 const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
   const normalizedOnHandQuantity = Math.max(Number(onHandQuantity || 0), 0);
   const normalizedPackaging = String(inventoryItem?.packaging || "").toLowerCase();
@@ -1177,17 +1176,7 @@ const isOperationallyActiveClaimHousehold = (stub, latestAttendance) => {
     return false;
   }
 
-  const latestStatus = String(latestAttendance?.status || "").toUpperCase();
-
-  if (latestAttendance?.time_out) {
-    return false;
-  }
-
-  if (latestStatus === "LEFT" || latestStatus === "TRANSFERRED") {
-    return false;
-  }
-
-  return true;
+  return isCurrentlyPresentEvacuationAttendance(latestAttendance);
 };
 
 const buildDistributionInventoryRemarks = ({
@@ -1276,10 +1265,13 @@ const getInventoryItemStockTotals = async (inventoryItemIds, dbClient) => {
 
 const buildTemplateReleasePlan = async ({
   reliefPackTemplateId,
+  disasterEventId,
   client,
   inventoryItemsById,
   disasterType,
   householdSize,
+  reservedQuantityByBatch = new Map(),
+  allowEmptyTemplate = false,
 }) => {
   const reliefPackTemplate =
     await distributionTransactionRepository.getReliefPackTemplateByIdForUpdate(
@@ -1322,6 +1314,17 @@ const buildTemplateReleasePlan = async ({
     );
 
   if (!Array.isArray(templateItems) || templateItems.length === 0) {
+    if (allowEmptyTemplate) {
+      return {
+        reliefPackTemplate,
+        packMultiplier: getTemplatePackMultiplier(
+          reliefPackTemplate,
+          householdSize,
+        ),
+        releasePlan: [],
+      };
+    }
+
     const error = new Error(
       "Selected relief pack template does not have configured inventory items",
     );
@@ -1354,12 +1357,24 @@ const buildTemplateReleasePlan = async ({
     const candidateBatches =
       await distributionTransactionRepository.getAvailableInventoryBatchesByItemIdForUpdate(
         templateItem.inventory_item_id,
+        disasterEventId,
         client,
       );
     const requiredQuantity =
       Number(templateItem.quantity_required || 0) * packMultiplier;
     const totalAvailableQuantity = candidateBatches.reduce(
-      (total, batch) => total + Number(batch.quantity_available || 0),
+      (total, batch) => {
+        const reservedQuantity = Number(
+          reservedQuantityByBatch.get(batch.id) || 0,
+        );
+        return (
+          total +
+          Math.max(
+            0,
+            Number(batch.quantity_available || 0) - reservedQuantity,
+          )
+        );
+      },
       0,
     );
 
@@ -1378,10 +1393,14 @@ const buildTemplateReleasePlan = async ({
         break;
       }
 
-      const quantityReleased = Math.min(
-        Number(batch.quantity_available || 0),
-        remainingQuantity,
+      const reservedQuantity = Number(
+        reservedQuantityByBatch.get(batch.id) || 0,
       );
+      const availableQuantity = Math.max(
+        0,
+        Number(batch.quantity_available || 0) - reservedQuantity,
+      );
+      const quantityReleased = Math.min(availableQuantity, remainingQuantity);
 
       if (quantityReleased <= 0) {
         continue;
@@ -1395,7 +1414,16 @@ const buildTemplateReleasePlan = async ({
         item_code: batch.item_code,
         item_name: batch.item_name,
         unit_of_measure: batch.unit_of_measure,
+        source_type: batch.source_type || "LGU",
+        donation_id: batch.donation_id || null,
+        donor_name: batch.donor_name || null,
+        donation_item_id: batch.donation_item_id || null,
       });
+
+      reservedQuantityByBatch.set(
+        batch.id,
+        reservedQuantity + quantityReleased,
+      );
 
       remainingQuantity -= quantityReleased;
     }
@@ -1408,115 +1436,126 @@ const buildTemplateReleasePlan = async ({
   };
 };
 
-const buildManualReleasePlan = async ({
-  items,
+const buildAssignedTemplateReleasePlan = async ({
+  householdId,
+  disasterEventId,
+  selectedReliefPackTemplateId,
   client,
   inventoryItemsById,
+  disasterType,
+  householdSize,
 }) => {
-  const groupedItems = groupRequestedItemsByBatch(items);
-  const lockedBatches = new Map();
-  const releasePlan = [];
-
-  for (const groupedItem of groupedItems) {
-    const inventoryBatch =
-      await distributionTransactionRepository.getInventoryBatchByIdForUpdate(
-        groupedItem.inventory_batch_id,
-        client,
-      );
-
-    if (!inventoryBatch) {
-      const error = new Error(
-        `Inventory batch not found: ${groupedItem.inventory_batch_id}`,
-      );
-      error.statusCode = 404;
-      throw error;
-    }
-
-    if (inventoryBatch.inventory_item_id !== groupedItem.inventory_item_id) {
-      const error = new Error(
-        `inventory_item_id does not match the selected batch for batch ${groupedItem.inventory_batch_id}`,
-      );
-      error.statusCode = 400;
-      throw error;
-    }
-
-    if (!isDistributableBatch(inventoryBatch)) {
-      const error = new Error(
-        `Batch ${inventoryBatch.batch_no} is not eligible for distribution.`,
-      );
-      error.statusCode = 400;
-      throw error;
-    }
-
-    if (inventoryBatch.quantity_available < groupedItem.total_quantity_released) {
-      const error = new Error(
-        `Insufficient stock for batch ${inventoryBatch.batch_no}`,
-      );
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const inventoryItem = await inventoryItemRepository.getInventoryItemByIdForUpdate(
-      groupedItem.inventory_item_id,
-      client,
+  const assignedReliefPackTemplates =
+    await resolveAssignedReliefPackTemplatesForHousehold(
+      householdId,
+      disasterEventId,
     );
+  const primaryAssignedReliefPackTemplate =
+    getPrimaryAssignedReliefPackTemplate(assignedReliefPackTemplates);
 
-    if (!inventoryItem || inventoryItem.is_active === false) {
-      const error = new Error(
-        `Inventory item is no longer available for batch ${inventoryBatch.batch_no}`,
-      );
-      error.statusCode = 400;
-      throw error;
-    }
-
-    inventoryItemsById.set(groupedItem.inventory_item_id, inventoryItem);
-    lockedBatches.set(groupedItem.inventory_batch_id, inventoryBatch);
+  if (!primaryAssignedReliefPackTemplate?.id) {
+    const error = new Error(
+      "No active standard relief pack is assigned to this family.",
+    );
+    error.statusCode = 400;
+    error.code = "NO_ASSIGNED_RELIEF_PACK";
+    throw error;
   }
 
-  for (const item of items) {
-    const batchDetails = lockedBatches.get(item.inventory_batch_id);
+  const assignedTemplateIds = new Set(
+    assignedReliefPackTemplates.map((template) => template?.id).filter(Boolean),
+  );
 
-    releasePlan.push({
-      inventory_batch_id: item.inventory_batch_id,
-      inventory_item_id: item.inventory_item_id,
-      quantity_released: item.quantity_released,
-      batch_no: batchDetails.batch_no,
-      item_code: batchDetails.item_code,
-      item_name: batchDetails.item_name,
-      unit_of_measure: batchDetails.unit_of_measure,
-    });
+  if (!assignedTemplateIds.has(selectedReliefPackTemplateId)) {
+    const error = new Error(
+      "Selected relief pack template is not assigned to this family.",
+    );
+    error.statusCode = 400;
+    error.code = "RELIEF_PACK_TEMPLATE_NOT_ASSIGNED";
+    throw error;
   }
 
-  return releasePlan;
-};
+  const reservedQuantityByBatch = new Map();
+  const templatePlans = [];
 
-const groupRequestedItemsByBatch = (items) => {
-  const groupedItems = new Map();
-
-  for (const item of items) {
-    const existingBatchEntry = groupedItems.get(item.inventory_batch_id);
-
-    if (!existingBatchEntry) {
-      groupedItems.set(item.inventory_batch_id, {
-        inventory_batch_id: item.inventory_batch_id,
-        inventory_item_id: item.inventory_item_id,
-        total_quantity_released: item.quantity_released,
-      });
+  for (const template of assignedReliefPackTemplates) {
+    if (!template?.id) {
       continue;
     }
 
-    if (existingBatchEntry.inventory_item_id !== item.inventory_item_id) {
-      const error = new Error(
-        "Items using the same inventory_batch_id must also use the same inventory_item_id",
-      );
-      error.statusCode = 400;
-      throw error;
-    }
+    const templatePlan = await buildTemplateReleasePlan({
+      reliefPackTemplateId: template.id,
+      disasterEventId,
+      client,
+      inventoryItemsById,
+      disasterType,
+      householdSize,
+      reservedQuantityByBatch,
+      allowEmptyTemplate: true,
+    });
 
-    existingBatchEntry.total_quantity_released += item.quantity_released;
+    templatePlans.push(templatePlan);
   }
 
-  return [...groupedItems.values()];
+  if (
+    templatePlans.length === 0 ||
+    templatePlans.every((templatePlan) => templatePlan.releasePlan.length === 0)
+  ) {
+    const error = new Error(
+      "The assigned relief packs do not contain any inventory items.",
+    );
+    error.statusCode = 400;
+    error.code = "EMPTY_RELIEF_PACK_TEMPLATE";
+    throw error;
+  }
+
+  const primaryTemplatePlan = templatePlans.find(
+    (templatePlan) =>
+      templatePlan.reliefPackTemplate.id === primaryAssignedReliefPackTemplate.id,
+  );
+
+  if (!primaryTemplatePlan) {
+    const error = new Error(
+      "The assigned primary relief pack is no longer available.",
+    );
+    error.statusCode = 400;
+    error.code = "NO_ASSIGNED_RELIEF_PACK";
+    throw error;
+  }
+
+  const releasePlanByBatch = new Map();
+
+  templatePlans.forEach((templatePlan) => {
+    templatePlan.releasePlan.forEach((releaseItem) => {
+      const existingReleaseItem = releasePlanByBatch.get(
+        releaseItem.inventory_batch_id,
+      );
+
+      if (existingReleaseItem) {
+        existingReleaseItem.quantity_released += Number(
+          releaseItem.quantity_released || 0,
+        );
+        return;
+      }
+
+      releasePlanByBatch.set(releaseItem.inventory_batch_id, {
+        ...releaseItem,
+        quantity_released: Number(releaseItem.quantity_released || 0),
+      });
+    });
+  });
+
+  return {
+    reliefPackTemplate: primaryTemplatePlan.reliefPackTemplate,
+    reliefPackTemplates: templatePlans.map(
+      (templatePlan) => templatePlan.reliefPackTemplate,
+    ),
+    reliefPackTemplateNames: templatePlans
+      .map((templatePlan) => templatePlan.reliefPackTemplate.name)
+      .filter(Boolean),
+    packMultiplier: primaryTemplatePlan.packMultiplier,
+    releasePlan: [...releasePlanByBatch.values()],
+  };
 };
 
 const summarizeDistributionTransaction = (transaction) =>
@@ -1546,6 +1585,10 @@ const summarizeDistributionItems = (items) =>
       "batch_no",
       "item_name",
       "unit_of_measure",
+      "source_type",
+      "donation_id",
+      "donor_name",
+      "donation_item_id",
     ]),
   );
 
@@ -1684,23 +1727,26 @@ const createDistributionTransaction = async (requestData) => {
       throw error;
     }
 
+    if (!requestData.relief_pack_template_id) {
+      const error = new Error(
+        "relief_pack_template_id is required for assignment-driven distribution.",
+      );
+      error.statusCode = 400;
+      error.code = "RELIEF_PACK_TEMPLATE_REQUIRED";
+      throw error;
+    }
+
     const inventoryItemsById = new Map();
-    const templateReleasePlan = requestData.relief_pack_template_id
-      ? await buildTemplateReleasePlan({
-          reliefPackTemplateId: requestData.relief_pack_template_id,
-          client,
-          inventoryItemsById,
-          disasterType: disasterEvent.disaster_type,
-          householdSize: stub.household_size,
-        })
-      : null;
-    const releasePlan = templateReleasePlan
-      ? templateReleasePlan.releasePlan
-      : await buildManualReleasePlan({
-          items: requestData.items,
-          client,
-          inventoryItemsById,
-        });
+    const templateReleasePlan = await buildAssignedTemplateReleasePlan({
+      householdId: stub.household_id,
+      disasterEventId: stub.disaster_event_id,
+      selectedReliefPackTemplateId: requestData.relief_pack_template_id,
+      client,
+      inventoryItemsById,
+      disasterType: disasterEvent.disaster_type,
+      householdSize: stub.household_size,
+    });
+    const releasePlan = templateReleasePlan.releasePlan;
     const releaseQuantityByItemId = releasePlan.reduce(
       (totals, item) => {
         totals.set(
@@ -1758,13 +1804,18 @@ const createDistributionTransaction = async (requestData) => {
           receipt_status: requestData.receipt_status,
           received_at: receivedAt,
           relief_pack_template_id:
-            requestData.relief_pack_template_id ||
-            templateReleasePlan?.reliefPackTemplate?.id ||
-            null,
+            templateReleasePlan?.reliefPackTemplate?.id || null,
           remarks: requestData.remarks,
         },
         client,
       );
+
+    await distributionTransactionRepository.insertDistributionTransactionReliefPackTemplates(
+      distributionTransaction.id,
+      templateReleasePlan?.reliefPackTemplates?.map((template) => template.id) ||
+        [],
+      client,
+    );
 
     const releasedItems = [];
     const batchAlertPayloads = [];
@@ -1797,6 +1848,10 @@ const createDistributionTransaction = async (requestData) => {
         item_code: batchDetails.item_code,
         item_name: batchDetails.item_name,
         unit_of_measure: batchDetails.unit_of_measure,
+        source_type: item.source_type || batchDetails.source_type || "LGU",
+        donation_id: item.donation_id || null,
+        donor_name: item.donor_name || null,
+        donation_item_id: item.donation_item_id || null,
       });
 
       deductedBatchTotals.set(item.inventory_batch_id, {
@@ -1868,7 +1923,8 @@ const createDistributionTransaction = async (requestData) => {
           reference_id: distributionTransaction.id,
           performed_by: requestData.verified_by || null,
           remarks: buildDistributionInventoryRemarks({
-            templateName: templateReleasePlan?.reliefPackTemplate?.name || null,
+            templateName:
+              templateReleasePlan?.reliefPackTemplateNames?.join(", ") || null,
             packQuantity: templateReleasePlan?.packMultiplier || 1,
             batchNo: item.batch_no,
             quantityReleased: item.quantity_released,
@@ -1933,6 +1989,7 @@ const createDistributionTransaction = async (requestData) => {
       relief_pack_template_id: distributionTransaction.relief_pack_template_id,
       relief_pack_template_name:
         templateReleasePlan?.reliefPackTemplate?.name || null,
+      relief_pack_template_names: templateReleasePlan?.reliefPackTemplateNames || [],
       relief_pack_quantity: templateReleasePlan?.packMultiplier || 1,
       stub: {
         id: updatedStub.id,
@@ -2082,6 +2139,7 @@ const claimDistributionTransactionFromQr = async (requestData) => {
     });
     const {
       assignedReliefPackTemplate,
+      assignedReliefPackTemplates,
       distributionTransaction,
       releasedItems,
       updatedStub,
@@ -2128,6 +2186,9 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       received_at: distributionTransaction.received_at,
       relief_pack_template_id: distributionTransaction.relief_pack_template_id,
       relief_pack_template_name: assignedReliefPackTemplate?.name || null,
+      relief_pack_template_names: (assignedReliefPackTemplates || [])
+        .map((template) => template?.name)
+        .filter(Boolean),
       relief_pack_quantity: automaticClaimResult.packQuantity || 1,
       donated_relief_packs: donatedReliefPacks || [],
       stub: {

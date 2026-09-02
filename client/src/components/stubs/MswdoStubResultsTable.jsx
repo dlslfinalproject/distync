@@ -1,10 +1,17 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { FaHandHolding } from "react-icons/fa6";
 import { FiEye } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
 import { formatOrderedSectorText } from "../../utils/sectorDisplay";
 import SyncStatusIcon from "../shared/SyncStatusIcon";
 import QrCodePanel from "./QrCodePanel";
+import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
+import TablePagination from "../shared/TablePagination";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 
 const tableStyles = {
   table: {
@@ -204,6 +211,10 @@ const getStatusLabel = (status) => {
     return "Unclaimed";
   }
 
+  if (status === "NOT_PRESENT") {
+    return "Not Present";
+  }
+
   return status || "-";
 };
 
@@ -222,7 +233,45 @@ const MswdoStubResultsTable = ({
   onSelectAll,
   onViewStub = () => {},
 }) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
   const safeSelectedStubIds = Array.isArray(selectedStubIds) ? selectedStubIds : [];
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const pagination = getTablePaginationState({
+    totalItems: safeRows.length,
+    currentPage,
+    pageSize,
+    pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+  });
+  const paginatedRows = safeRows.slice(
+    (pagination.currentPage - 1) * pagination.pageSize,
+    pagination.currentPage * pagination.pageSize,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [rows]);
+
+  useEffect(() => {
+    setCurrentPage((previousPage) => {
+      if (pagination.totalPages === 0) {
+        return 1;
+      }
+
+      return Math.min(Math.max(previousPage, 1), pagination.totalPages);
+    });
+  }, [pagination.totalPages]);
+
+  const handlePageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+      return;
+    }
+
+    setPageSize(nextPageSize);
+    setCurrentPage(1);
+  };
 
   if (!hasSelectedEvent) {
     return (
@@ -286,7 +335,7 @@ const MswdoStubResultsTable = ({
     );
   }
 
-  if (rows.length === 0) {
+  if (safeRows.length === 0) {
     return (
       <section
         className="stub-results-card mswdo-stub-results-card"
@@ -302,7 +351,12 @@ const MswdoStubResultsTable = ({
 
   const selectableRows = isClaimReadOnly
     ? []
-    : rows.filter((row) => row.status === "ISSUED" && !row.is_local_only);
+    : safeRows.filter(
+        (row) =>
+          row.status === "ISSUED" &&
+          !row.is_local_only &&
+          isCurrentlyPresentStubRow(row),
+      );
 
   const areAllSelected =
     selectableRows.length > 0 &&
@@ -316,6 +370,19 @@ const MswdoStubResultsTable = ({
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Stub Information</h3>
       </div>
+
+      <TablePagination
+        totalItems={pagination.totalItems}
+        currentPage={pagination.currentPage}
+        pageSize={pagination.pageSize}
+        pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={handlePageSizeChange}
+        isVisible={!isLoading && !errorMessage && pagination.totalItems > 0}
+        ariaLabel="Relief goods distribution pagination"
+        previousAriaLabel="Go to previous relief goods distribution page"
+        nextAriaLabel="Go to next relief goods distribution page"
+      />
 
       {claimErrorMessage ? (
         <p
@@ -397,9 +464,12 @@ const MswdoStubResultsTable = ({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {paginatedRows.map((row) => {
               const isSelectable =
-                !isClaimReadOnly && row.status === "ISSUED" && !row.is_local_only;
+                !isClaimReadOnly &&
+                row.status === "ISSUED" &&
+                !row.is_local_only &&
+                isCurrentlyPresentStubRow(row);
               const isSelected = safeSelectedStubIds.includes(row.id);
 
               return (
@@ -476,16 +546,38 @@ const MswdoStubResultsTable = ({
                       <span style={getStatusChipStyles("PENDING_SYNC")}>
                         Pending Sync
                       </span>
+                    ) : row.status === "ISSUED" && !isCurrentlyPresentStubRow(row) ? (
+                      <span
+                        style={getStatusChipStyles("NOT_PRESENT")}
+                        title="This household is not currently present in the evacuation center"
+                      >
+                        Not Present
+                      </span>
                     ) : row.status === "ISSUED" && !isClaimReadOnly ? (
                       <button
                         type="button"
                         onClick={() => onClaimStub(row.id)}
-                        disabled={claimingStubId === row.id}
-                        title="Mark as Claimed"
+                        disabled={
+                          claimingStubId === row.id ||
+                          !isCurrentlyPresentStubRow(row)
+                        }
+                        title={
+                          !isCurrentlyPresentStubRow(row)
+                            ? "Only households currently present in the evacuation center can receive a relief distribution"
+                            : "Mark as Claimed"
+                        }
                         style={{
                           ...tableStyles.statusButton,
-                          opacity: claimingStubId === row.id ? 0.7 : 1,
-                          cursor: claimingStubId === row.id ? "wait" : "pointer",
+                          opacity:
+                            claimingStubId === row.id ||
+                            !isCurrentlyPresentStubRow(row)
+                              ? 0.55
+                              : 1,
+                          cursor:
+                            claimingStubId === row.id ||
+                            !isCurrentlyPresentStubRow(row)
+                              ? "not-allowed"
+                              : "pointer",
                         }}
                       >
                         <FaHandHolding size={18} />

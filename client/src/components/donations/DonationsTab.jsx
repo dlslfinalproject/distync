@@ -5,6 +5,7 @@ import {
   formatDonationDateTime,
   formatDonorType,
 } from "../../features/donations/donationFormatters";
+import { getDonationTypeKey } from "../../features/donations/donationType";
 import SyncStatusIcon from "../shared/SyncStatusIcon";
 import TableActionsMenu from "../shared/TableActionsMenu";
 
@@ -96,16 +97,9 @@ const getDonationItemDetails = (donation) => {
 };
 
 const getDonationTypeLabel = (donation) => {
-  const items = donation.items || [];
-
-  if (
-    items.length > 0 &&
-    items.every((item) => String(item?.remarks || "").startsWith("Relief Pack:"))
-  ) {
-    return "Relief Pack";
-  }
-
-  return "Loose Item";
+  return getDonationTypeKey(donation?.items) === "RELIEF_PACK"
+    ? "Relief Pack"
+    : "Loose Item";
 };
 
 const DonationsTab = ({

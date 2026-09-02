@@ -65,23 +65,18 @@ test("MSWDO relief distribution table keeps overflow local and hides raw QR valu
   );
 });
 
-test("MSWDO relief distribution preserves existing no-pagination presentation", async () => {
+test("MSWDO relief distribution uses canonical pagination for the loaded table", async () => {
   const pageSource = await readSource(["pages", "mswdo", "StubDistributionPage.jsx"]);
   const tableSource = await readSource([
     "components",
     "stubs",
     "MswdoStubResultsTable.jsx",
   ]);
-  const hookSource = await readSource([
-    "features",
-    "stubs",
-    "useMswdoStubDistribution.js",
-  ]);
-
-  assert.doesNotMatch(pageSource, /pagination=\{/);
-  assert.doesNotMatch(tableSource, /stub-results-pagination/);
-  assert.doesNotMatch(
-    hookSource,
-    /page:\s*|pageSize:\s*|totalPages|hasNextPage|hasPreviousPage/,
-  );
+  assert.match(tableSource, /import TablePagination/);
+  assert.match(tableSource, /getTablePaginationState/);
+  assert.match(tableSource, /TABLE_PAGE_SIZE_OPTIONS/);
+  assert.match(tableSource, /ariaLabel="Relief goods distribution pagination"/);
+  assert.match(tableSource, /paginatedRows\.map/);
+  assert.match(tableSource, /setCurrentPage\(1\)/);
+  assert.match(pageSource, /rows=\{displayedRowsWithSyncStatus\}/);
 });

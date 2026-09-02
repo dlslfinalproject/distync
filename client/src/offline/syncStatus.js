@@ -1,4 +1,4 @@
-import { LOCAL_SYNC_STATUS } from "./db.js";
+import { LOCAL_SYNC_STATUS } from "./syncStatusConstants.js";
 
 export const SYNC_PRESENTATION_MESSAGES = Object.freeze({
   NETWORK: "Could not connect to DISTYNC. Reconnect and try again.",

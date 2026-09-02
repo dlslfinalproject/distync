@@ -17,7 +17,6 @@ const baseSelectQuery = `
     it.created_at,
     ib.batch_no,
     ib.inventory_item_stock_form_id,
-    ib.supplier_id,
     ib.source_type,
     ib.status AS batch_status,
     ib.quantity_available,
@@ -30,7 +29,6 @@ const baseSelectQuery = `
     d.donor_name,
     source_donation.donation_id AS source_donation_id,
     source_donation.donor_name AS source_donor_name,
-    s.name AS supplier_name,
     stock_forms.barcode AS stock_form_barcode,
     stock_forms.packaging AS stock_form_packaging,
     stock_forms.units_per_packaging AS stock_form_units_per_packaging,
@@ -57,7 +55,6 @@ const baseSelectQuery = `
     ORDER BY source_di.created_at ASC
     LIMIT 1
   ) source_donation ON TRUE
-  LEFT JOIN suppliers s ON s.id = ib.supplier_id
   LEFT JOIN inventory_item_stock_forms stock_forms
     ON stock_forms.id = ib.inventory_item_stock_form_id
   LEFT JOIN users u ON u.id = it.performed_by
@@ -205,10 +202,23 @@ const getAvailableInventoryBatchesByItemIdForUpdate = async (inventoryItemId, db
   return result.rows;
 };
 
+const resolveDistributableBatchQueryArguments = (
+  disasterEventIdOrDbClient,
+  maybeDbClient,
+) => ({
+  disasterEventId: maybeDbClient ? disasterEventIdOrDbClient : null,
+  dbClient: maybeDbClient || disasterEventIdOrDbClient,
+});
+
 const getDistributableInventoryBatchesByItemIdForUpdate = async (
   inventoryItemId,
-  dbClient,
+  disasterEventIdOrDbClient,
+  maybeDbClient,
 ) => {
+  const { disasterEventId, dbClient } = resolveDistributableBatchQueryArguments(
+    disasterEventIdOrDbClient,
+    maybeDbClient,
+  );
   const query = `
     SELECT
       ib.id,
@@ -218,17 +228,51 @@ const getDistributableInventoryBatchesByItemIdForUpdate = async (
       ib.quantity_available,
       ib.stock_version,
       ib.expiration_date,
+      ib.received_at,
+      ib.created_at,
       ib.status,
+      ib.source_type,
       ii.item_code,
       ii.item_name,
       ii.category,
       ii.unit_of_measure,
-      ii.reorder_level
+      ii.reorder_level,
+      loose_donation.donation_id,
+      loose_donation.donation_item_id,
+      loose_donation.donor_name,
+      loose_donation.donation_received_at,
+      loose_donation.donation_created_at
     FROM inventory_batches ib
     INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    LEFT JOIN LATERAL (
+      SELECT
+        loose_di.id AS donation_item_id,
+        loose_d.id AS donation_id,
+        loose_d.donor_name,
+        loose_d.received_at AS donation_received_at,
+        loose_d.created_at AS donation_created_at
+      FROM donation_items loose_di
+      INNER JOIN donations loose_d ON loose_d.id = loose_di.donation_id
+      WHERE loose_di.inventory_batch_id = ib.id
+        AND loose_d.disaster_event_id = $2
+        AND loose_d.status <> 'CANCELLED'
+        AND COALESCE(loose_di.remarks, '') NOT ILIKE 'Relief Pack:%'
+      ORDER BY
+        loose_d.received_at ASC NULLS LAST,
+        loose_d.created_at ASC,
+        loose_di.created_at ASC
+      LIMIT 1
+    ) loose_donation ON TRUE
     WHERE ib.inventory_item_id = $1
       AND COALESCE(ib.quantity_available, 0) > 0
       AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
+      AND (
+        ib.source_type = 'LGU'
+        OR (
+          ib.source_type = 'DONATED'
+          AND loose_donation.donation_id IS NOT NULL
+        )
+      )
       AND NOT EXISTS (
         SELECT 1
         FROM donation_items relief_pack_donation_items
@@ -240,23 +284,40 @@ const getDistributableInventoryBatchesByItemIdForUpdate = async (
         OR ib.expiration_date > (CURRENT_DATE + INTERVAL '30 days')
       )
     ORDER BY
+      CASE WHEN ib.source_type = 'DONATED' THEN 0 ELSE 1 END,
+      CASE
+        WHEN ib.source_type = 'DONATED'
+          THEN loose_donation.donation_received_at
+        ELSE ib.received_at
+      END ASC NULLS LAST,
+      CASE
+        WHEN ib.source_type = 'DONATED'
+          THEN loose_donation.donation_created_at
+        ELSE ib.created_at
+      END ASC NULLS LAST,
       ib.received_at ASC NULLS LAST,
       ib.created_at ASC,
       ib.batch_no ASC
-    FOR UPDATE
+    FOR UPDATE OF ib
   `;
 
-  const result = await dbClient.query(query, [inventoryItemId]);
+  const result = await dbClient.query(query, [inventoryItemId, disasterEventId]);
   return result.rows;
 };
 
 const getDistributableInventoryBatchesByItemIdsForUpdate = async (
   inventoryItemIds,
-  dbClient,
+  disasterEventIdOrDbClient,
+  maybeDbClient,
 ) => {
   if (!Array.isArray(inventoryItemIds) || inventoryItemIds.length === 0) {
     return [];
   }
+
+  const { disasterEventId, dbClient } = resolveDistributableBatchQueryArguments(
+    disasterEventIdOrDbClient,
+    maybeDbClient,
+  );
 
   const query = `
     SELECT
@@ -267,17 +328,51 @@ const getDistributableInventoryBatchesByItemIdsForUpdate = async (
       ib.quantity_available,
       ib.stock_version,
       ib.expiration_date,
+      ib.received_at,
+      ib.created_at,
       ib.status,
+      ib.source_type,
       ii.item_code,
       ii.item_name,
       ii.category,
       ii.unit_of_measure,
-      ii.reorder_level
+      ii.reorder_level,
+      loose_donation.donation_id,
+      loose_donation.donation_item_id,
+      loose_donation.donor_name,
+      loose_donation.donation_received_at,
+      loose_donation.donation_created_at
     FROM inventory_batches ib
     INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    LEFT JOIN LATERAL (
+      SELECT
+        loose_di.id AS donation_item_id,
+        loose_d.id AS donation_id,
+        loose_d.donor_name,
+        loose_d.received_at AS donation_received_at,
+        loose_d.created_at AS donation_created_at
+      FROM donation_items loose_di
+      INNER JOIN donations loose_d ON loose_d.id = loose_di.donation_id
+      WHERE loose_di.inventory_batch_id = ib.id
+        AND loose_d.disaster_event_id = $2
+        AND loose_d.status <> 'CANCELLED'
+        AND COALESCE(loose_di.remarks, '') NOT ILIKE 'Relief Pack:%'
+      ORDER BY
+        loose_d.received_at ASC NULLS LAST,
+        loose_d.created_at ASC,
+        loose_di.created_at ASC
+      LIMIT 1
+    ) loose_donation ON TRUE
     WHERE ib.inventory_item_id = ANY($1::uuid[])
       AND COALESCE(ib.quantity_available, 0) > 0
       AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
+      AND (
+        ib.source_type = 'LGU'
+        OR (
+          ib.source_type = 'DONATED'
+          AND loose_donation.donation_id IS NOT NULL
+        )
+      )
       AND NOT EXISTS (
         SELECT 1
         FROM donation_items relief_pack_donation_items
@@ -290,13 +385,24 @@ const getDistributableInventoryBatchesByItemIdsForUpdate = async (
       )
     ORDER BY
       ib.inventory_item_id ASC,
+      CASE WHEN ib.source_type = 'DONATED' THEN 0 ELSE 1 END,
+      CASE
+        WHEN ib.source_type = 'DONATED'
+          THEN loose_donation.donation_received_at
+        ELSE ib.received_at
+      END ASC NULLS LAST,
+      CASE
+        WHEN ib.source_type = 'DONATED'
+          THEN loose_donation.donation_created_at
+        ELSE ib.created_at
+      END ASC NULLS LAST,
       ib.received_at ASC NULLS LAST,
       ib.created_at ASC,
       ib.batch_no ASC
     FOR UPDATE OF ib
   `;
 
-  const result = await dbClient.query(query, [inventoryItemIds]);
+  const result = await dbClient.query(query, [inventoryItemIds, disasterEventId]);
   return result.rows;
 };
 
@@ -323,6 +429,9 @@ const getUserById = async (id) => {
 };
 
 const insertInventoryTransaction = async (transactionData, dbClient) => {
+  const hasPerformedAt =
+    transactionData.performed_at !== undefined &&
+    transactionData.performed_at !== null;
   const query = `
     INSERT INTO inventory_transactions (
       disaster_event_id,
@@ -339,7 +448,7 @@ const insertInventoryTransaction = async (transactionData, dbClient) => {
       created_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, ${hasPerformedAt ? "$11::timestamptz" : "NOW()"}, $9, $10, NOW()
     )
     ON CONFLICT DO NOTHING
     RETURNING
@@ -370,6 +479,10 @@ const insertInventoryTransaction = async (transactionData, dbClient) => {
     transactionData.remarks,
     transactionData.other_status || null,
   ];
+
+  if (hasPerformedAt) {
+    values.push(transactionData.performed_at);
+  }
 
   const result = await dbClient.query(query, values);
   return result.rows[0];

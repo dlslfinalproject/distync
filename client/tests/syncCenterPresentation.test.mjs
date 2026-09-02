@@ -317,7 +317,10 @@ test("BRG-SC-P13 table scroll and prior Sync Center fixes remain present", async
   const source = await fs.readFile(pageSourcePath, "utf8");
   const componentSource = await fs.readFile(syncHealthComponentSourcePath, "utf8");
 
-  assert.match(source, /<div style=\{\{ overflowX: "auto" \}\}>[\s\S]*syncHistoryTableStyles/);
+  assert.match(
+    source,
+    /<div className="sync-center-table-scroll" style=\{\{ overflowX: "auto" \}\}>[\s\S]*syncHistoryTableStyles/,
+  );
   assert.match(source, /aria-label="View synchronization details"/);
   assert.match(componentSource, /Last successful sync:/);
 });
@@ -457,6 +460,13 @@ test("BRG-SC-CONFLICT-P02 Conflict Review table keeps reason and status concise"
     "Duplicate Household Registration",
   );
   assert.equal(getResolutionStatusLabel({ status: "OPEN" }), "Open");
+  assert.equal(
+    getResolutionStatusLabel({
+      status: "RESOLVED",
+      resolved_payload_json: { automatic: true },
+    }),
+    "Resolved",
+  );
   assert.doesNotMatch(conflictSection, /error_message[\s\S]*getResolutionStrategyLabel/);
   assert.doesNotMatch(conflictSection, /getResolutionStatusLabel\(conflict\)[\s\S]*detailTextStyles/);
   assert.match(conflictSection, /status=\{conflict\.status === "RESOLVED" \? "RESOLVED" : "OPEN"\}/);

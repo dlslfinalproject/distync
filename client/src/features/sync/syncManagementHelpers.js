@@ -39,6 +39,8 @@ const RECORD_TYPE_LABELS = {
   INVENTORY_ITEMS: "Inventory",
   INVENTORY_TRANSACTION: "Inventory",
   INVENTORY_TRANSACTIONS: "Inventory",
+  INVENTORY_BATCH: "Inventory",
+  INVENTORY_BATCHES: "Inventory",
 };
 
 const ACTION_LABELS = {
@@ -59,6 +61,7 @@ const ACTION_LABELS = {
   DISASTER_EVENT_END: "End Disaster Event",
   INVENTORY_ITEM_CREATE: "Add Inventory Item",
   INVENTORY_ITEM_UPDATE: "Edit Inventory Item",
+  INVENTORY_BATCH_CREATE: "Add Inventory Batch",
   INVENTORY_TRANSACTION_CREATE: "Inventory Movement",
 };
 
@@ -72,6 +75,7 @@ const OPERATION_LABELS = {
   DISTRIBUTION_CREATE: "Create",
   INVENTORY_ITEM_CREATE: "Create",
   INVENTORY_ITEM_UPDATE: "Update",
+  INVENTORY_BATCH_CREATE: "Create",
   INVENTORY_TRANSACTION_CREATE: "Create",
 };
 
@@ -93,8 +97,24 @@ const ACTION_SUBJECT_FALLBACKS = {
   DISASTER_EVENT_END: "Disaster event closure",
   INVENTORY_ITEM_CREATE: "Inventory item record",
   INVENTORY_ITEM_UPDATE: "Inventory item update",
+  INVENTORY_BATCH_CREATE: "Inventory batch record",
   INVENTORY_TRANSACTION_CREATE: "Inventory movement record",
 };
+
+const MAYOR_SYNC_ENTITY_TYPES = new Set([
+  "INVENTORY_ITEM",
+  "INVENTORY_BATCH",
+  "INVENTORY_TRANSACTION",
+]);
+
+const MAYOR_SYNC_ACTION_KEYS = new Set([
+  "INVENTORY_ITEM_CREATE",
+  "INVENTORY_ITEM_UPDATE",
+  "INVENTORY_BATCH_CREATE",
+  "INVENTORY_TRANSACTION_CREATE",
+]);
+
+const MAYOR_SYNC_MODULE_NAMES = new Set(["MAYOR-INVENTORY"]);
 
 const getStoredActionKey = (record = {}) =>
   normalizeKey(
@@ -282,6 +302,22 @@ const getEntityType = (record = {}) =>
       record.payload?.entity_type,
   );
 
+export const isMayorOwnedSyncRecord = (record = {}) => {
+  const actionKey = getActionKey(record);
+  const entityType = getEntityType(record);
+  const moduleName = normalizeKey(
+    record.moduleName ||
+      record.module_name ||
+      record.payload_json?.module_name ||
+      record.payload?.module_name,
+  );
+
+  return (
+    MAYOR_SYNC_ENTITY_TYPES.has(entityType) &&
+    (MAYOR_SYNC_ACTION_KEYS.has(actionKey) || MAYOR_SYNC_MODULE_NAMES.has(moduleName))
+  );
+};
+
 const getFirstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
 
@@ -377,6 +413,32 @@ export const getSyncRecordDetails = (record = {}) => {
   const recordType = getRecordTypeLabel(record, payload);
   const familyHeadName = getFamilyHeadName(payload);
   const affectedPersonName = getAffectedPersonName(payload);
+  const inventoryItemName = getFirstValue(
+    payload.item_name,
+    payload.inventory_item_name,
+    payload.inventory_item?.item_name,
+    payload.item?.item_name,
+    payload.item?.name,
+    payload.inventory_batch?.inventory_item?.item_name,
+    payload.batch?.inventory_item?.item_name,
+  );
+  const inventoryBatchNo = getFirstValue(
+    payload.batch_no,
+    payload.inventory_batch_no,
+    payload.inventory_batch?.batch_no,
+    payload.batch?.batch_no,
+  );
+  const inventoryTransactionReferenceNo = getFirstValue(
+    payload.inventory_transaction_reference_no,
+    payload.inventoryTransactionReferenceNo,
+    payload.transaction_reference_no,
+  );
+  const barcode = getFirstValue(
+    payload.barcode,
+    payload.item_barcode,
+    payload.inventory_item?.barcode,
+    payload.stock_form?.barcode,
+  );
   const stubNumber = getFirstValue(
     payload.display_stub_no,
     payload.display_stub_number,
@@ -434,7 +496,9 @@ export const getSyncRecordDetails = (record = {}) => {
   const subject = getFirstValue(
     affectedPersonName,
     stubNumber,
-    payload.item_name,
+    inventoryItemName,
+    inventoryBatchNo,
+    inventoryTransactionReferenceNo,
     payload.title,
     payload.name,
     uuidPattern.test(String(record.entity_server_id || record.entityServerId || ""))
@@ -453,6 +517,9 @@ export const getSyncRecordDetails = (record = {}) => {
   const primarySubject = asDisplayValue(subject || fallbackSubject);
   const secondaryCandidates = [
     stubNumber ? `Stub No. ${stubNumber}` : "",
+    inventoryBatchNo ? `Batch No. ${inventoryBatchNo}` : "",
+    inventoryTransactionReferenceNo ? `ITR No. ${inventoryTransactionReferenceNo}` : "",
+    barcode ? `Barcode ${barcode}` : "",
     familyHeadName && normalizeDisplayText(familyHeadName) !== normalizeDisplayText(primarySubject)
       ? familyHeadName
       : "",
@@ -570,7 +637,11 @@ export const getSyncHistoryNotes = (record = {}) => {
     payload.quantity_needed || payload.quantity_received
       ? `Quantity: ${payload.quantity_needed || payload.quantity_received}`
       : "",
+    payload.quantity ? `Quantity: ${payload.quantity}` : "",
     payload.item_name ? `Item: ${payload.item_name}` : "",
+    payload.condition ? `Condition: ${payload.condition}` : "",
+    payload.barcode ? `Barcode: ${payload.barcode}` : "",
+    payload.source_type ? `Source: ${payload.source_type}` : "",
     Array.isArray(payload.items) && payload.items.length > 0
       ? `${payload.items.length} item(s)`
       : "",
@@ -600,7 +671,15 @@ export const buildSyncSearchText = (
     details.disasterEvent,
     details.status,
     details.notes,
+    details.secondaryLabel,
     includeBarangay ? barangay : "",
+    payload.item_name,
+    payload.inventory_item_name,
+    payload.batch_no,
+    payload.inventory_batch_no,
+    payload.inventory_transaction_reference_no,
+    payload.barcode,
+    payload.condition,
     payload.sectors_text,
     payload.sectors,
     payload.relief_pack,
@@ -616,6 +695,7 @@ export const matchesRecordTypeFilter = (record = {}, filterValue = "ALL") => {
   }
 
   const recordType = getSyncRecordDetails(record).recordType;
+  const entityType = getEntityType(record);
   const normalizedFilter = normalizeKey(filterValue);
 
   if (normalizedFilter === "EVACUEE_MASTERLIST") {
@@ -631,7 +711,19 @@ export const matchesRecordTypeFilter = (record = {}, filterValue = "ALL") => {
   }
 
   if (normalizedFilter === "INVENTORY") {
-    return recordType === "Inventory";
+    return recordType === "Inventory" || entityType.startsWith("INVENTORY");
+  }
+
+  if (normalizedFilter === "INVENTORY_ITEM") {
+    return entityType === "INVENTORY_ITEM";
+  }
+
+  if (normalizedFilter === "INVENTORY_BATCH") {
+    return entityType === "INVENTORY_BATCH";
+  }
+
+  if (normalizedFilter === "INVENTORY_TRANSACTION") {
+    return entityType === "INVENTORY_TRANSACTION";
   }
 
   return true;
@@ -677,6 +769,10 @@ export const buildPayloadSummary = (payload) => {
 };
 
 export const getConflictReasonLabel = (conflict) => {
+  if (conflict?.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE") {
+    return "Possible Cross-Barangay Duplicate";
+  }
+
   if (conflict?.conflict_type === "UPDATED_AT_MISMATCH") {
     return "Record Changed in Two Places";
   }
@@ -693,12 +789,23 @@ export const getConflictReasonLabel = (conflict) => {
 };
 
 export const getConflictExplanation = (conflict) => {
+  if (
+    conflict?.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE" &&
+    conflict?.resolved_payload_json?.automatic
+  ) {
+    return "The same household was registered under different Barangays for the same disaster event.";
+  }
+
   if (conflict?.error_message && !isUuidLikeValue(conflict.error_message)) {
     return conflict.error_message;
   }
 
   if (conflict?.conflict_type === "DUPLICATE_HOUSEHOLD_REGISTRATION") {
     return "A household with matching information was already recorded for this disaster event.";
+  }
+
+  if (conflict?.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE") {
+    return "The same household was registered under different Barangays for the same disaster event.";
   }
 
   if (conflict?.conflict_type === "DUPLICATE_CLAIM") {
@@ -717,6 +824,13 @@ export const getConflictExplanation = (conflict) => {
 };
 
 export const getResolutionStatusLabel = (conflict) => {
+  if (
+    conflict?.status === "RESOLVED" &&
+    conflict?.resolved_payload_json?.automatic
+  ) {
+    return "Resolved";
+  }
+
   if (conflict?.status === "RESOLVED") {
     return "Resolved";
   }
@@ -738,6 +852,16 @@ export const getConflictResolutionSummary = (conflict = {}) => {
   const action = normalizeKey(conflict.resolution_action);
   const canResolve = Array.isArray(conflict.availableResolutionActions) &&
     conflict.availableResolutionActions.length > 0;
+
+  if (isResolved && conflict.resolved_payload_json?.automatic) {
+    const retained = conflict.resolved_payload_json.result ===
+      "EARLIER_REGISTRATION_RETAINED";
+    return {
+      result: retained ? "Earlier Registration Retained" : "Resolved as Duplicate",
+      whatHappened:
+        "DISTYNC retained the registration with the earlier valid registration time and automatically resolved the later registration as a duplicate.",
+    };
+  }
 
   if (!isResolved) {
     return {
@@ -817,8 +941,12 @@ const getPayloadComparisonDetails = (payload = {}) => {
   return {
     familyHead: details.familyHeadName,
     stubNumber: details.stubNumber,
-    barangay: details.barangay,
-    disasterEvent: details.disasterEvent,
+    barangay: asDisplayValue(normalizedPayload.barangay_name) !== SYNC_MISSING_VALUE
+      ? asDisplayValue(normalizedPayload.barangay_name)
+      : details.barangay,
+    disasterEvent: asDisplayValue(normalizedPayload.disaster_event_title) !== SYNC_MISSING_VALUE
+      ? asDisplayValue(normalizedPayload.disaster_event_title)
+      : details.disasterEvent,
     status: asDisplayValue(normalizedPayload.status),
     remarks: asDisplayValue(normalizedPayload.remarks),
     item: asDisplayValue(normalizedPayload.item_name),
@@ -830,6 +958,10 @@ const getPayloadComparisonDetails = (payload = {}) => {
     batchNo: asDisplayValue(normalizedPayload.batch_no),
     donorName: asDisplayValue(normalizedPayload.donor_name),
     updatedAt: formatSyncHistoryDateTime(normalizedPayload.updated_at),
+    registeredAt: formatSyncHistoryDateTime(normalizedPayload.registered_at),
+    householdSize: asDisplayValue(normalizedPayload.household_size),
+    address: asDisplayValue(normalizedPayload.current_address_details),
+    result: asDisplayValue(normalizedPayload.result),
     receiptNo: asDisplayValue(
       pickComparisonValue(normalizedPayload, [
         "receipt_no",
@@ -842,6 +974,37 @@ const getPayloadComparisonDetails = (payload = {}) => {
 };
 
 export const getConflictComparisonRows = (conflict = {}) => {
+  if (
+    conflict?.conflict_type === "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE" &&
+    conflict?.resolved_payload_json?.automatic
+  ) {
+    const earlier = getPayloadComparisonDetails(
+      conflict.resolved_payload_json.earlier_registration,
+    );
+    const later = getPayloadComparisonDetails(
+      conflict.resolved_payload_json.later_registration,
+    );
+    const fields = [
+      ["Family Head", "familyHead"],
+      ["Barangay", "barangay"],
+      ["Disaster Event", "disasterEvent"],
+      ["Registered At", "registeredAt"],
+      ["Household Size", "householdSize"],
+      ["Address", "address"],
+      ["Result", "result"],
+    ];
+
+    return fields.map(([label, key]) => ({
+      label,
+      localValue: key === "result"
+        ? "Retained"
+        : earlier[key],
+      serverValue: key === "result"
+        ? "Resolved as Duplicate"
+        : later[key],
+    }));
+  }
+
   const localDetails = getPayloadComparisonDetails(conflict.local_payload_json);
   const serverDetails = getPayloadComparisonDetails(conflict.server_payload_json);
   const fields = [

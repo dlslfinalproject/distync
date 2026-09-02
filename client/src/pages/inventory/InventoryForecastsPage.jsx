@@ -409,7 +409,7 @@ const buildInventoryForecastReportHtml = ({
       columns: [
         { label: "Item Name", render: (item) => item.item_name },
         {
-          label: "Current Stock",
+          label: "Eligible Stock",
           render: (item) =>
             formatForecastQuantity(
               item.current_available_stock,

@@ -384,19 +384,6 @@ CREATE TABLE public.distribution_transaction_items (
 -- 5) INVENTORY MANAGEMENT
 -- =========================================================
 
-CREATE TABLE public.suppliers (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  name character varying NOT NULL UNIQUE,
-  contact_person character varying,
-  contact_number character varying,
-  address text,
-  has_moa boolean NOT NULL DEFAULT false,
-  notes text,
-  created_at timestamp with time zone NOT NULL DEFAULT now(),
-  updated_at timestamp with time zone NOT NULL DEFAULT now(),
-  CONSTRAINT suppliers_pkey PRIMARY KEY (id)
-);
-
 CREATE TABLE public.inventory_items (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   item_code character varying NOT NULL UNIQUE,
@@ -447,7 +434,6 @@ CREATE TABLE public.inventory_batches (
   inventory_item_id uuid NOT NULL,
   inventory_item_stock_form_id uuid,
   batch_no character varying NOT NULL,
-  supplier_id uuid,
   source_type character varying NOT NULL DEFAULT 'LGU'::character varying CHECK (source_type::text = ANY (ARRAY['PURCHASED'::character varying, 'DONATED'::character varying, 'DSWD'::character varying, 'LGU'::character varying, 'OTHER'::character varying]::text[])),
   quantity_received integer NOT NULL CHECK (quantity_received >= 0),
   quantity_available integer NOT NULL CHECK (quantity_available >= 0),
@@ -463,7 +449,6 @@ CREATE TABLE public.inventory_batches (
   CONSTRAINT inventory_batches_inventory_item_id_batch_no_unique UNIQUE (inventory_item_id, batch_no),
   CONSTRAINT inventory_batches_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
   CONSTRAINT inventory_batches_inventory_item_stock_form_id_fkey FOREIGN KEY (inventory_item_stock_form_id) REFERENCES public.inventory_item_stock_forms(id),
-  CONSTRAINT inventory_batches_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.suppliers(id),
   CONSTRAINT inventory_batches_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
 );
 
@@ -608,6 +593,9 @@ CREATE TABLE public.relief_pack_templates (
   CONSTRAINT relief_pack_templates_sector_id_fkey FOREIGN KEY (sector_id) REFERENCES public.sectors(id)
 );
 
+CREATE UNIQUE INDEX relief_pack_templates_name_normalized_unique
+ON public.relief_pack_templates (LOWER(BTRIM(name)));
+
 CREATE TABLE public.relief_pack_template_items (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   template_id uuid NOT NULL,
@@ -628,6 +616,18 @@ CREATE TABLE public.relief_pack_template_disaster_types (
   CONSTRAINT relief_pack_template_disaster_types_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.relief_pack_templates(id) ON DELETE CASCADE,
   CONSTRAINT relief_pack_template_disaster_types_unique UNIQUE (template_id, disaster_type)
 );
+
+CREATE TABLE public.distribution_transaction_relief_pack_templates (
+  distribution_transaction_id uuid NOT NULL,
+  relief_pack_template_id uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT distribution_transaction_relief_pack_templates_pkey PRIMARY KEY (distribution_transaction_id, relief_pack_template_id),
+  CONSTRAINT distribution_transaction_relief_pack_templates_transaction_id_fkey FOREIGN KEY (distribution_transaction_id) REFERENCES public.distribution_transactions(id) ON DELETE CASCADE,
+  CONSTRAINT distribution_transaction_relief_pack_templates_template_id_fkey FOREIGN KEY (relief_pack_template_id) REFERENCES public.relief_pack_templates(id)
+);
+
+CREATE INDEX idx_distribution_transaction_relief_pack_templates_template_id
+ON public.distribution_transaction_relief_pack_templates (relief_pack_template_id);
 
 -- =========================================================
 -- 6) DONATIONS & DONOR MANAGEMENT

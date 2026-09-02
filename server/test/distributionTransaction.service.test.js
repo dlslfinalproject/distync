@@ -23,6 +23,9 @@ const inventoryItemRepositoryPath = require.resolve(
 const automaticReliefPackClaimServicePath = require.resolve(
   "../src/services/automaticReliefPackClaim.service",
 );
+const reliefPackAssignmentServicePath = require.resolve(
+  "../src/services/reliefPackAssignment.service",
+);
 const systemLogPath = require.resolve("../src/utils/systemLog");
 const mswdoReportExportPath = require.resolve("../src/utils/mswdoReportExport");
 
@@ -46,7 +49,7 @@ const withStubbedDistributionService = async (stubs, runTest) => {
     });
 
     const distributionTransactionService = require(servicePath);
-    await runTest(distributionTransactionService);
+    return await runTest(distributionTransactionService);
   } finally {
     delete require.cache[servicePath];
 
@@ -157,6 +160,10 @@ const createBaseStubs = ({
       (async () => {
         throw new Error("claim handler should not run");
       }),
+  },
+  [reliefPackAssignmentServicePath]: {
+    getPrimaryAssignedReliefPackTemplate: () => null,
+    resolveAssignedReliefPackTemplatesForHousehold: async () => [],
   },
   [systemLogPath]: {
     logAuditSafely: async () => {},
@@ -374,4 +381,526 @@ test("EE-FIX-03 claimDistributionTransactionFromQr blocks new QR claims when the
     assert.equal(claimHandlerCalled, false);
     assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
   }
+});
+
+test("relief-pack distribution requires a current PRESENT attendance record", async () => {
+  const invalidAttendanceRecords = [
+    {
+      status: "LEFT",
+      time_in: "2026-08-28T08:00:00.000Z",
+      time_out: null,
+    },
+    {
+      status: "ARRIVED",
+      time_in: "2026-08-28T08:00:00.000Z",
+      time_out: null,
+    },
+    {
+      status: "TRANSFERRED",
+      time_in: "2026-08-28T08:00:00.000Z",
+      time_out: null,
+    },
+    {
+      status: "PRESENT",
+      time_in: "2026-08-28T08:00:00.000Z",
+      time_out: "2026-08-28T12:00:00.000Z",
+    },
+    null,
+  ];
+
+  for (const latestAttendance of invalidAttendanceRecords) {
+    const events = [];
+    let releasePlanReached = false;
+
+    await withStubbedDistributionService(
+      createBaseStubs({
+        events,
+        stub: {
+          ...baseStub,
+          status: "ISSUED",
+        },
+        latestAttendance,
+      }),
+      async ({ createDistributionTransaction }) => {
+        await assert.rejects(
+          () => createDistributionTransaction(baseRequest),
+          (error) => {
+            assert.equal(error.statusCode, 400);
+            assert.equal(
+              error.message,
+              "Only active evacuation-center households can claim a relief pack.",
+            );
+            releasePlanReached = true;
+            return true;
+          },
+        );
+      },
+    );
+
+    assert.equal(releasePlanReached, true);
+    assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
+  }
+});
+
+test("assignment-driven distribution rejects the obsolete arbitrary item path", async () => {
+  const events = [];
+
+  await withStubbedDistributionService(
+    createBaseStubs({
+      events,
+      stub: {
+        ...baseStub,
+        status: "ISSUED",
+        current_stay_type: "EVAC_CENTER",
+      },
+    }),
+    async ({ createDistributionTransaction }) => {
+      await assert.rejects(
+        () =>
+          createDistributionTransaction({
+            ...baseRequest,
+            items: [
+              {
+                inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+                inventory_item_id: "66666666-6666-4666-8666-666666666666",
+                quantity_released: 1,
+              },
+            ],
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.equal(error.code, "RELIEF_PACK_TEMPLATE_REQUIRED");
+          assert.equal(
+            error.message,
+            "relief_pack_template_id is required for assignment-driven distribution.",
+          );
+          return true;
+        },
+      );
+    },
+  );
+
+  assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
+});
+
+test("manual template distribution rejects a template that is not assigned to the household", async () => {
+  const events = [];
+  const assignedTemplate = {
+    id: "template-assigned",
+    name: "Assigned Standard Pack",
+    is_active: true,
+    is_additional_pack: false,
+  };
+  const stubs = createBaseStubs({
+    events,
+    stub: {
+      ...baseStub,
+      status: "ISSUED",
+      current_stay_type: "EVAC_CENTER",
+    },
+  });
+
+  stubs[reliefPackAssignmentServicePath] = {
+    getPrimaryAssignedReliefPackTemplate: () => assignedTemplate,
+    resolveAssignedReliefPackTemplatesForHousehold: async () => [
+      assignedTemplate,
+    ],
+  };
+
+  await withStubbedDistributionService(
+    stubs,
+    async ({ createDistributionTransaction }) => {
+      await assert.rejects(
+        () =>
+          createDistributionTransaction({
+            ...baseRequest,
+            stub: undefined,
+            stub_id: baseStub.id,
+            relief_pack_template_id: "template-not-assigned",
+            items: [],
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.equal(error.code, "RELIEF_PACK_TEMPLATE_NOT_ASSIGNED");
+          assert.equal(
+            error.message,
+            "Selected relief pack template is not assigned to this family.",
+          );
+          return true;
+        },
+      );
+    },
+  );
+
+  assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
+});
+
+test("manual template distribution releases every assigned template with shared FIFO stock", async () => {
+  const standardTemplateId = "template-standard";
+  const additionalTemplateId = "template-additional";
+  const sharedItemId = "item-shared";
+  const standardItemId = "item-standard";
+  const additionalItemId = "item-additional";
+  const donatedSharedBatchId = "batch-donated-shared";
+  const sharedBatchId = "batch-shared";
+  const standardBatchId = "batch-standard";
+  const additionalBatchId = "batch-additional";
+  const assignedTemplates = [
+    {
+      id: standardTemplateId,
+      name: "Standard Family Pack",
+      is_active: true,
+      is_additional_pack: false,
+      based_on_family_size: false,
+      applies_to_all_disasters: true,
+    },
+    {
+      id: additionalTemplateId,
+      name: "Senior Citizen Add-on",
+      is_active: true,
+      is_additional_pack: true,
+      based_on_family_size: false,
+      applies_to_all_disasters: true,
+    },
+  ];
+  const inventoryItems = new Map([
+    [
+      sharedItemId,
+      {
+        id: sharedItemId,
+        item_name: "Water",
+        item_code: "WATER",
+        unit_of_measure: "bottle",
+        reorder_level: 0,
+        is_active: true,
+        packaging: "piece",
+        quantity: 1,
+        packaging_count: 5,
+      },
+    ],
+    [
+      standardItemId,
+      {
+        id: standardItemId,
+        item_name: "Rice",
+        item_code: "RICE",
+        unit_of_measure: "kg",
+        reorder_level: 0,
+        is_active: true,
+        packaging: "piece",
+        quantity: 1,
+        packaging_count: 2,
+      },
+    ],
+    [
+      additionalItemId,
+      {
+        id: additionalItemId,
+        item_name: "Blanket",
+        item_code: "BLANKET",
+        unit_of_measure: "piece",
+        reorder_level: 0,
+        is_active: true,
+        packaging: "piece",
+        quantity: 1,
+        packaging_count: 2,
+      },
+    ],
+  ]);
+  const templateItemsById = new Map([
+    [
+      standardTemplateId,
+      [
+        {
+          inventory_item_id: sharedItemId,
+          item_name: "Water",
+          quantity_required: 2,
+        },
+        {
+          inventory_item_id: standardItemId,
+          item_name: "Rice",
+          quantity_required: 1,
+        },
+      ],
+    ],
+    [
+      additionalTemplateId,
+      [
+        {
+          inventory_item_id: sharedItemId,
+          item_name: "Water",
+          quantity_required: 3,
+        },
+        {
+          inventory_item_id: additionalItemId,
+          item_name: "Blanket",
+          quantity_required: 1,
+        },
+      ],
+    ],
+  ]);
+  const batches = new Map([
+    [
+      donatedSharedBatchId,
+      {
+        id: donatedSharedBatchId,
+        inventory_item_id: sharedItemId,
+        batch_no: "DON-BATCH-WATER",
+        quantity_available: 5,
+        source_type: "DONATED",
+        status: "AVAILABLE",
+        expiration_date: "2027-01-01",
+        received_at: "2026-08-01T00:00:00.000Z",
+        created_at: "2026-08-01T00:00:00.000Z",
+      },
+    ],
+    [
+      sharedBatchId,
+      {
+        id: sharedBatchId,
+        inventory_item_id: sharedItemId,
+        batch_no: "BATCH-WATER",
+        quantity_available: 5,
+        source_type: "LGU",
+        status: "AVAILABLE",
+        expiration_date: "2027-01-01",
+        received_at: "2026-08-01T00:00:00.000Z",
+        created_at: "2026-08-01T00:00:00.000Z",
+      },
+    ],
+    [
+      standardBatchId,
+      {
+        id: standardBatchId,
+        inventory_item_id: standardItemId,
+        batch_no: "BATCH-RICE",
+        quantity_available: 2,
+        source_type: "LGU",
+        status: "AVAILABLE",
+        expiration_date: "2027-01-01",
+        received_at: "2026-08-01T00:00:00.000Z",
+        created_at: "2026-08-01T00:00:00.000Z",
+      },
+    ],
+    [
+      additionalBatchId,
+      {
+        id: additionalBatchId,
+        inventory_item_id: additionalItemId,
+        batch_no: "BATCH-BLANKET",
+        quantity_available: 2,
+        source_type: "LGU",
+        status: "AVAILABLE",
+        expiration_date: "2027-01-01",
+        received_at: "2026-08-01T00:00:00.000Z",
+        created_at: "2026-08-01T00:00:00.000Z",
+      },
+    ],
+  ]);
+  const events = [];
+  const insertedItems = [];
+  const inventoryTransactions = [];
+  const linkedTemplateIds = [];
+  const updatedSnapshots = [];
+  const distributionTransactionInput = {};
+  const stubs = createBaseStubs({
+    events,
+    stub: {
+      ...baseStub,
+      status: "ISSUED",
+      current_stay_type: "EVAC_CENTER",
+    },
+  });
+
+  stubs[reliefPackAssignmentServicePath] = {
+    resolveAssignedReliefPackTemplatesForHousehold: async (
+      householdId,
+      disasterEventId,
+    ) => {
+      assert.equal(householdId, baseStub.household_id);
+      assert.equal(disasterEventId, baseStub.disaster_event_id);
+      return assignedTemplates;
+    },
+    getPrimaryAssignedReliefPackTemplate: (templates) => templates[0] || null,
+  };
+
+  stubs[reliefPackTemplateRepositoryPath] = {
+    getReliefPackTemplateDisasterTypesByTemplateId: async () => [],
+  };
+  stubs[inventoryItemRepositoryPath] = {
+    getInventoryItemByIdForUpdate: async (inventoryItemId) =>
+      inventoryItems.get(inventoryItemId) || null,
+    updateInventoryItemStockSnapshot: async (inventoryItemId, snapshot) => {
+      updatedSnapshots.push({ inventoryItemId, snapshot });
+    },
+  };
+  stubs[distributionTransactionRepositoryPath] = {
+    ...stubs[distributionTransactionRepositoryPath],
+    getReliefPackTemplateByIdForUpdate: async (templateId) =>
+      assignedTemplates.find((template) => template.id === templateId) || null,
+    getReliefPackTemplateItemsByTemplateIdForUpdate: async (templateId) =>
+      templateItemsById.get(templateId) || [],
+    getAvailableInventoryBatchesByItemIdForUpdate: async (inventoryItemId) =>
+      [...batches.values()]
+        .filter(
+          (batch) =>
+            batch.inventory_item_id === inventoryItemId &&
+            batch.quantity_available > 0,
+        )
+        .map((batch) => ({
+          ...batch,
+          item_code: inventoryItems.get(inventoryItemId)?.item_code,
+          item_name: inventoryItems.get(inventoryItemId)?.item_name,
+          unit_of_measure: inventoryItems.get(inventoryItemId)?.unit_of_measure,
+          reorder_level: inventoryItems.get(inventoryItemId)?.reorder_level,
+        })),
+    getInventoryBatchByIdForUpdate: async (batchId) => {
+      const batch = batches.get(batchId);
+      const inventoryItem = batch
+        ? inventoryItems.get(batch.inventory_item_id)
+        : null;
+      return batch
+        ? {
+            ...batch,
+            item_code: inventoryItem?.item_code,
+            item_name: inventoryItem?.item_name,
+            unit_of_measure: inventoryItem?.unit_of_measure,
+            reorder_level: inventoryItem?.reorder_level,
+          }
+        : null;
+    },
+    getDistributionReceiptSequence: async () => "RCPT-2026-000002",
+    insertDistributionTransaction: async (transactionData) => {
+      Object.assign(distributionTransactionInput, transactionData);
+      return {
+        id: "distribution-1",
+        distribution_date: "2026-08-29T00:00:00.000Z",
+        ...transactionData,
+      };
+    },
+    insertDistributionTransactionReliefPackTemplates: async (
+      distributionTransactionId,
+      templateIds,
+    ) => {
+      assert.equal(distributionTransactionId, "distribution-1");
+      linkedTemplateIds.push(...templateIds);
+      return [];
+    },
+    insertDistributionTransactionItem: async (itemData) => {
+      const insertedItem = {
+        id: `distribution-item-${insertedItems.length + 1}`,
+        ...itemData,
+      };
+      insertedItems.push(insertedItem);
+      return insertedItem;
+    },
+    updateInventoryBatchQuantityAndStatus: async (
+      batchId,
+      quantityAvailable,
+      status,
+    ) => {
+      const batch = batches.get(batchId);
+      batch.quantity_available = quantityAvailable;
+      batch.status = status;
+      return { ...batch };
+    },
+    insertInventoryTransaction: async (transactionData) => {
+      inventoryTransactions.push(transactionData);
+      return transactionData;
+    },
+    updateStubAsClaimed: async () => ({
+      ...baseStub,
+      status: "CLAIMED",
+      claimed_at: "2026-08-29T00:00:00.000Z",
+    }),
+  };
+
+  const dbClient = {
+    query: async (_sql, values = []) => {
+      if (Array.isArray(values[0])) {
+        return {
+          rows: [...inventoryItems.keys()].map((inventoryItemId) => ({
+            inventory_item_id: inventoryItemId,
+            total_quantity: [...batches.values()]
+              .filter((batch) => batch.inventory_item_id === inventoryItemId)
+              .reduce(
+                (total, batch) => total + Number(batch.quantity_available || 0),
+                0,
+              ),
+          })),
+        };
+      }
+
+      const inventoryItemId = values[0];
+      return {
+        rows: [
+          {
+            total_quantity: [...batches.values()]
+              .filter((batch) => batch.inventory_item_id === inventoryItemId)
+              .reduce(
+                (total, batch) => total + Number(batch.quantity_available || 0),
+                0,
+              ),
+          },
+        ],
+      };
+    },
+  };
+
+  const response = await withStubbedDistributionService(
+    stubs,
+    async ({ createDistributionTransaction }) =>
+      createDistributionTransaction({
+        ...baseRequest,
+        dbClient,
+        stub_id: baseStub.id,
+        relief_pack_template_id: additionalTemplateId,
+        items: [],
+      }),
+  );
+
+  assert.equal(response.relief_pack_template_id, standardTemplateId);
+  assert.equal(response.relief_pack_template_name, "Standard Family Pack");
+  assert.deepEqual(response.relief_pack_template_names, [
+    "Standard Family Pack",
+    "Senior Citizen Add-on",
+  ]);
+  assert.deepEqual(linkedTemplateIds, [standardTemplateId, additionalTemplateId]);
+  assert.equal(distributionTransactionInput.relief_pack_template_id, standardTemplateId);
+  assert.equal(
+    response.items.find((item) => item.inventory_batch_id === donatedSharedBatchId)
+      .source_type,
+    "DONATED",
+  );
+  assert.deepEqual(
+    insertedItems.map(({ inventory_item_id, quantity_released }) => ({
+      inventory_item_id,
+      quantity_released,
+    })),
+    [
+      { inventory_item_id: sharedItemId, quantity_released: 5 },
+      { inventory_item_id: standardItemId, quantity_released: 1 },
+      { inventory_item_id: additionalItemId, quantity_released: 1 },
+    ],
+  );
+  assert.equal(inventoryTransactions.length, 3);
+  assert.equal(
+    inventoryTransactions.find(
+      (transaction) => transaction.inventory_batch_id === sharedBatchId,
+    ),
+    undefined,
+  );
+  assert.ok(
+    inventoryTransactions.every((transaction) =>
+      transaction.remarks.includes(
+        "pack: Standard Family Pack, Senior Citizen Add-on",
+      ),
+    ),
+  );
+  assert.equal(updatedSnapshots.length, 3);
+  assert.equal(batches.get(donatedSharedBatchId).quantity_available, 0);
+  assert.equal(batches.get(sharedBatchId).quantity_available, 5);
+  assert.equal(batches.get(standardBatchId).quantity_available, 1);
+  assert.equal(batches.get(additionalBatchId).quantity_available, 1);
+  assert.deepEqual(events, []);
 });

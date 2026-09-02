@@ -4,6 +4,7 @@ const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const reliefPackTemplateService = require("../services/reliefPackTemplate.service");
 const {
   validateReliefPackTemplateId,
+  validateReliefPackTemplateStatus,
   validateGetReliefPackTemplates,
   validateCreateReliefPackTemplate,
   validateUpdateReliefPackTemplate,
@@ -30,6 +31,38 @@ router.get(
       message: error.message || "Failed to fetch relief pack templates",
     });
   }
+  },
+);
+
+router.patch(
+  "/:id/status",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateReliefPackTemplateId,
+  validateReliefPackTemplateStatus,
+  async (req, res) => {
+    try {
+      const template = await reliefPackTemplateService.setReliefPackTemplateStatus(
+        req.params.id,
+        req.validatedBody.is_active,
+        {
+          userId: req.auth.userId,
+          roleCode: req.auth.roleCode,
+          ipAddress: req.ip,
+        },
+      );
+
+      return res.status(200).json({
+        message: `Relief pack template ${template.is_active ? "activated" : "deactivated"} successfully`,
+        data: template,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to update relief pack template status",
+        code: error.code || null,
+      });
+    }
   },
 );
 

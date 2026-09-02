@@ -455,6 +455,56 @@ test("MSWDO municipality health queries count open conflicts and use the latest 
   assert.match(captured[1].query, /ORDER BY COALESCE\(st\.server_timestamp/);
 });
 
+test("MAYOR municipality sync queries are limited to inventory-owned records", async () => {
+  const conflictId = "55555555-5555-4555-8555-555555555555";
+  const captured = [];
+
+  await withStubbedPool(
+    {
+      query: async (query, values) => {
+        captured.push({ query, values });
+        if (/COUNT\(\*\)/i.test(query)) {
+          return { rows: [{ count: 2 }] };
+        }
+        if (/last_successful_sync_at/i.test(query)) {
+          return { rows: [{ last_successful_sync_at: "2026-08-21T01:02:03.000Z" }] };
+        }
+        return { rows: [{ id: conflictId, entity_type: "INVENTORY_TRANSACTION" }] };
+      },
+      on: () => {},
+    },
+    async ({
+      getSyncTransactionsByMayor,
+      getSyncConflictsByMayor,
+      getSyncConflictByIdForMayor,
+      countOpenSyncConflictsByMayor,
+      getLastSuccessfulSyncAtForMayor,
+    }) => {
+      await getSyncTransactionsByMayor({ syncStatus: "FAILED", limit: 25 });
+      await getSyncConflictsByMayor({ status: "OPEN", limit: 25 });
+      await getSyncConflictByIdForMayor({ id: conflictId });
+      assert.equal(await countOpenSyncConflictsByMayor(), 2);
+      assert.equal(
+        await getLastSuccessfulSyncAtForMayor(),
+        "2026-08-21T01:02:03.000Z",
+      );
+    },
+  );
+
+  assert.deepEqual(captured[0].values, ["FAILED", 25]);
+  assert.deepEqual(captured[1].values, ["OPEN", 25]);
+  assert.deepEqual(captured[2].values, [conflictId]);
+  assert.deepEqual(captured[3].values, []);
+  assert.deepEqual(captured[4].values, []);
+
+  for (const { query } of captured) {
+    assert.match(
+      query,
+      /st\.entity_type IN \('INVENTORY_ITEM', 'INVENTORY_BATCH', 'INVENTORY_TRANSACTION'\)/,
+    );
+  }
+});
+
 test("H03F-07/H03F-08/H03F-09 claim decisions protect stale, active, and legacy pending rows", async () => {
   const createClient = (existingRow) => ({
     query: async (query, values) => {
