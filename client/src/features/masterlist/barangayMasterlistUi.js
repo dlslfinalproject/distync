@@ -187,8 +187,8 @@ export const resolveEffectiveMasterlistRows = ({
       HOUSEHOLD_LIFECYCLE_ACTIONS.has(entry?.actionKey) &&
       entry?.entityType === "HOUSEHOLD" &&
       !isReconciledDuplicate(entry) &&
-      (!selectedEventId || payload.disaster_event_id === selectedEventId) &&
-      (!assignedBarangayId || payload.barangay_id === assignedBarangayId)
+      (!selectedEventId || String(payload.disaster_event_id || "") === String(selectedEventId)) &&
+      (!assignedBarangayId || String(payload.barangay_id || "") === String(assignedBarangayId))
     );
   });
 

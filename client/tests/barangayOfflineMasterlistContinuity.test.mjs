@@ -42,3 +42,25 @@ test("new offline household occurrences do not derive local IDs from names", asy
   assert.match(source, /entityLocalId: null/);
   assert.doesNotMatch(source, /entityLocalId: payload\?\.family_head\?\.first_name/);
 });
+
+test("offline preparation and Register Family share the persisted evacuation-center path", async () => {
+  const preparationSource = await readSource("src", "offline", "offlinePreparation.js");
+  const formSource = await readSource("src", "features", "household-registration", "useHouseholdRegistrationForm.js");
+  const serviceSource = await readSource("src", "features", "household-registration", "householdRegistrationService.js");
+
+  assert.match(preparationSource, /fetchEvacuationCentersByBarangay/);
+  assert.match(preparationSource, /getCachedEvacuationCentersByBarangay/);
+  assert.match(preparationSource, /OFFLINE_PREPARATION_REFERENCE_READ_BACK_FAILED/);
+  assert.match(formSource, /getCachedEvacuationCentersByBarangay/);
+  assert.match(serviceSource, /export const getCachedEvacuationCentersByBarangay/);
+  assert.match(serviceSource, /evacuationCentersByBarangay/);
+});
+
+test("Barangay queue changes are consumed by the reactive Masterlist path", async () => {
+  const pageSource = await readSource("src", "pages", "barangay", "BarangayMasterlistPage.jsx");
+  const syncSource = await readSource("src", "features", "masterlist", "useBarangayMasterlistSync.js");
+
+  assert.match(pageSource, /useLiveQuery\(\(\) => getVisibleSyncQueueEntries\(\), \[\], \[\]\)/);
+  assert.match(syncSource, /syncQueueEntries/);
+  assert.match(syncSource, /resolveEffectiveMasterlistRows/);
+});

@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { getOfflinePreparation, OFFLINE_PREPARATION_STATUS, prepareBarangayOfflineData } from "../../offline/offlinePreparation.js";
 import { getCachedMasterlistRows } from "../../offline/masterlistCache.js";
+import {
+  getCachedEvacuationCentersByBarangay,
+  getCachedRegistrationReferenceData,
+} from "../household-registration/householdRegistrationService.js";
 
 export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eventId = "", barangayId = "", context = {} }) => {
   const [readiness, setReadiness] = useState(OFFLINE_PREPARATION_STATUS.NOT_PREPARED);
@@ -21,10 +25,25 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
         barangayId,
       });
       const expectedMasterlistCount = Number(existing?.masterlist_count ?? 0);
+      const cachedReferenceData = getCachedRegistrationReferenceData();
+      const hasEventReference = Array.isArray(cachedReferenceData.activeDisasterEvents) &&
+        cachedReferenceData.activeDisasterEvents.some((event) => String(event?.id) === String(eventId));
+      const hasBarangayReference = Array.isArray(cachedReferenceData.barangays) &&
+        cachedReferenceData.barangays.some((barangay) => String(barangay?.id) === String(barangayId));
+      const hasSectorReference = Array.isArray(cachedReferenceData.sectors?.data) &&
+        cachedReferenceData.sectors.data.length > 0;
+      const hasEvacuationCenterReference =
+        getCachedEvacuationCentersByBarangay(barangayId).length > 0;
       const hasRequiredMasterlistCache =
         existing?.status === OFFLINE_PREPARATION_STATUS.READY &&
         (expectedMasterlistCount === 0 || cachedMasterlistRows.length > 0);
-      if (hasRequiredMasterlistCache) {
+      if (
+        hasRequiredMasterlistCache &&
+        hasEventReference &&
+        hasBarangayReference &&
+        hasSectorReference &&
+        hasEvacuationCenterReference
+      ) {
         if (mounted) setReadiness(OFFLINE_PREPARATION_STATUS.READY);
         return;
       }

@@ -290,6 +290,16 @@ export const getCachedRegistrationReferenceData = () => {
   };
 };
 
+export const getCachedEvacuationCentersByBarangay = (barangayId) => {
+  if (!barangayId) {
+    return [];
+  }
+
+  const cachedReferenceData = getCachedRegistrationReferenceData();
+  const cachedCenters = cachedReferenceData.evacuationCentersByBarangay?.[barangayId];
+  return Array.isArray(cachedCenters) ? cachedCenters : [];
+};
+
 export const clearRegistrationReferenceCache = () => {
   removeStorageKeysByPrefix(getRegistrationStorageKey(""));
 };
