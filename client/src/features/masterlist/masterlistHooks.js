@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchMasterlist } from "./masterlistService";
+import {
+  fetchMasterlist,
+  getCachedMasterlistSnapshot,
+} from "./masterlistService";
 
 const emptyData = {
   disasterEvent: null,
@@ -62,12 +65,35 @@ export const useMasterlist = ({
         if (isMounted) {
           const isOffline =
             typeof navigator !== "undefined" && navigator.onLine === false;
-          setData(
-            isOffline && lastSuccessfulDataRef.current
-              ? lastSuccessfulDataRef.current
-              : emptyData,
-          );
-          setErrorMessage(error.message || "Failed to load masterlist");
+          const cachedData = getCachedMasterlistSnapshot({
+            disasterEventId,
+            barangayId,
+            recordStatus,
+            page,
+            pageSize,
+            search,
+            sectorIds,
+            sortOrder,
+          });
+          const fallbackData =
+            cachedData || lastSuccessfulDataRef.current || null;
+
+          if (fallbackData) {
+            setData(fallbackData);
+            lastSuccessfulDataRef.current = fallbackData;
+            setErrorMessage(
+              isOffline
+                ? "Offline mode: showing the last saved Masterlist. Pending registrations remain available."
+                : error.message || "Showing the last saved Masterlist.",
+            );
+          } else {
+            setData(emptyData);
+            setErrorMessage(
+              isOffline
+                ? "Offline Data Not Ready: no saved Masterlist is available for this event and Barangay."
+                : error.message || "Failed to load masterlist",
+            );
+          }
         }
       } finally {
         if (isMounted) {
