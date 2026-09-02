@@ -61,6 +61,8 @@ const getInventoryForecastItems = async (
           0
         ) AS current_donated_available_stock
       FROM inventory_items ii
+      LEFT JOIN disaster_events target_event
+        ON target_event.id = $1
       LEFT JOIN inventory_batches ib
         ON ib.inventory_item_id = ii.id
         AND COALESCE(ib.quantity_available, 0) > 0
@@ -85,13 +87,49 @@ const getInventoryForecastItems = async (
               SELECT 1
               FROM donation_items di
               INNER JOIN donations d ON d.id = di.donation_id
+              INNER JOIN disaster_events donation_event
+                ON donation_event.id = d.disaster_event_id
               WHERE di.inventory_batch_id = ib.id
-                AND d.disaster_event_id = $1
                 AND d.status <> 'CANCELLED'
+                AND (
+                  d.disaster_event_id = target_event.id
+                  OR (
+                    COALESCE(di.remarks, '') NOT ILIKE 'Relief Pack:%'
+                    AND target_event.id IS NOT NULL
+                    AND target_event.status = 'ACTIVE'
+                    AND donation_event.status IN ('CLOSED', 'ARCHIVED')
+                    AND (
+                      target_event.created_at > donation_event.created_at
+                      OR (
+                        target_event.created_at = donation_event.created_at
+                        AND target_event.id > donation_event.id
+                      )
+                    )
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM disaster_events next_event
+                      WHERE next_event.status = 'ACTIVE'
+                        AND (
+                          next_event.created_at > donation_event.created_at
+                          OR (
+                            next_event.created_at = donation_event.created_at
+                            AND next_event.id > donation_event.id
+                          )
+                        )
+                        AND (
+                          next_event.created_at < target_event.created_at
+                          OR (
+                            next_event.created_at = target_event.created_at
+                            AND next_event.id < target_event.id
+                          )
+                        )
+                    )
+                  )
+                )
             )
           )
         )
-      WHERE ii.is_active = TRUE
+      WHERE ($1::UUID IS NULL OR target_event.status = 'ACTIVE')
       GROUP BY ii.id, ii.item_code, ii.item_name, ii.category, ii.unit_of_measure, ii.reorder_level
       ORDER BY ii.item_name ASC
     `,

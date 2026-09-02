@@ -12,11 +12,15 @@ const {
 const {
   getAssignedReliefPackTemplatesForSectorIds,
 } = require("./reliefPackAssignment.service");
+const {
+  isReliefPackClaimHouseholdCurrentlyEligible,
+} = require("../utils/reliefPackEligibility");
 
 const isOverrideAllowed = process.env.NODE_ENV !== "production";
 const ACTIVE_QR_STATUS = "ACTIVE";
 const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
 const ARCHIVED_HOUSEHOLD_CODE = "HOUSEHOLD_ARCHIVED";
+const HOUSEHOLD_NOT_PRESENT_CODE = "HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER";
 const DISTRIBUTION_STUB_UNIQUE_CONSTRAINT = "distribution_transactions_stub_id_key";
 
 const buildDisasterEventNotActiveError = (stub) => {
@@ -587,6 +591,7 @@ const getBarangayStubDashboard = async (filters) => {
       const assignedReliefPacks = getAssignedReliefPackTemplatesForSectorIds(
         sectorIds,
         reliefPackTemplates,
+        scopedDisasterEvent.disaster_type,
       ).map((template) => ({
         id: template.id,
         name: template.name,
@@ -903,6 +908,7 @@ const getStubDetails = async (id) => {
   const assignedReliefPackTemplates = getAssignedReliefPackTemplatesForSectorIds(
     householdSectorIds,
     reliefPackTemplates,
+    ensuredStub.disaster_type,
   );
   const assignedReliefPacks = assignedReliefPackTemplates.map((template) => ({
     id: template.id,
@@ -1017,6 +1023,7 @@ const getStubDetails = async (id) => {
 const getClaimabilityResult = ({
   stub,
   latestDistributionTransaction = null,
+  latestAttendance = null,
 }) => {
   if (stub.is_active === false) {
     return {
@@ -1028,16 +1035,13 @@ const getClaimabilityResult = ({
     };
   }
 
-  if (
-    stub.status === "ISSUED" &&
-    (!stub.qr_status || stub.qr_status === ACTIVE_QR_STATUS)
-  ) {
+  if (stub.status === "CLAIMED") {
     return {
-      is_claimable: true,
-      code: null,
-      reason: null,
-      message: "Stub verified successfully",
-      details: {},
+      is_claimable: false,
+      code: STUB_ALREADY_CLAIMED_CODE,
+      reason: "Stub already claimed",
+      message: "Stub already claimed",
+      details: buildClaimedStubDetails(stub, latestDistributionTransaction),
     };
   }
 
@@ -1051,13 +1055,42 @@ const getClaimabilityResult = ({
     };
   }
 
-  if (stub.status === "CLAIMED") {
+  if (stub.status === "ISSUED") {
+    if (
+      stub.disaster_event_status &&
+      stub.disaster_event_status !== "ACTIVE"
+    ) {
+      return {
+        is_claimable: false,
+        code: "DISASTER_EVENT_NOT_ACTIVE",
+        reason:
+          "Relief claim cannot be completed because the disaster event is not active.",
+        message:
+          "Relief claim cannot be completed because the disaster event is not active.",
+        details: buildStubReferenceDetails(stub),
+      };
+    }
+
+    if (
+      !isReliefPackClaimHouseholdCurrentlyEligible(stub, latestAttendance)
+    ) {
+      return {
+        is_claimable: false,
+        code: HOUSEHOLD_NOT_PRESENT_CODE,
+        reason:
+          "Relief packs can only be claimed by households currently present in an evacuation center.",
+        message:
+          "Relief packs can only be claimed by households currently present in an evacuation center.",
+        details: buildStubReferenceDetails(stub),
+      };
+    }
+
     return {
-      is_claimable: false,
-      code: "STUB_ALREADY_CLAIMED",
-      reason: "Stub already claimed",
-      message: "Stub already claimed",
-      details: buildClaimedStubDetails(stub, latestDistributionTransaction),
+      is_claimable: true,
+      code: null,
+      reason: null,
+      message: "Stub verified successfully",
+      details: {},
     };
   }
 
@@ -1122,9 +1155,17 @@ const verifyStub = async (identifier) => {
       : await stubRepository.getLatestDistributionTransactionByStubId(
           ensuredStub.id,
         );
+  const latestAttendance =
+    ensuredStub.status === "ISSUED"
+      ? await stubRepository.getLatestAttendanceByHouseholdId(
+          ensuredStub.household_id,
+          ensuredStub.disaster_event_id,
+        )
+      : null;
   const claimability = getClaimabilityResult({
     stub: ensuredStub,
     latestDistributionTransaction,
+    latestAttendance,
   });
 
   return {

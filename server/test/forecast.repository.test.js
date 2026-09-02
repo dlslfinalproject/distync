@@ -44,9 +44,17 @@ test("getInventoryForecastItems totals only eligible LGU stock and event-scoped 
   );
   assert.match(sql, /ib\.source_type = 'LGU'/);
   assert.match(sql, /ib\.source_type = 'DONATED'/);
+  assert.match(sql, /LEFT JOIN disaster_events target_event\s+ON target_event\.id = \$1/);
   assert.match(sql, /relief_pack_donation_items\.inventory_batch_id = ib\.id/);
   assert.match(sql, /relief_pack_donation_items\.remarks.*ILIKE 'Relief Pack:%'/);
-  assert.match(sql, /d\.disaster_event_id = \$1/);
+  assert.match(sql, /d\.disaster_event_id = target_event\.id/);
+  assert.match(sql, /COALESCE\(di\.remarks, ''\) NOT ILIKE 'Relief Pack:%'/);
+  assert.match(sql, /donation_event\.status IN \('CLOSED', 'ARCHIVED'\)/);
+  assert.match(sql, /FROM disaster_events next_event/);
+  assert.match(sql, /next_event\.status = 'ACTIVE'/);
+  assert.match(sql, /target_event\.created_at > donation_event\.created_at/);
+  assert.match(sql, /target_event\.status = 'ACTIVE'/);
+  assert.match(sql, /\(\$1::UUID IS NULL OR target_event\.status = 'ACTIVE'\)/);
   assert.match(sql, /d\.status <> 'CANCELLED'/);
   assert.match(sql, /current_lgu_available_stock/);
   assert.match(sql, /current_donated_available_stock/);

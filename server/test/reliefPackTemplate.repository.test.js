@@ -77,7 +77,12 @@ test("insertDistributionTransactionReliefPackTemplates links each unique templat
   const result =
     await distributionTransactionRepository.insertDistributionTransactionReliefPackTemplates(
       "distribution-1",
-      ["template-1", "template-2", "template-1", null],
+      [
+        { id: "template-1", name: "Food Pack" },
+        { id: "template-2", name: "Hygiene Kit" },
+        { id: "template-1", name: "Food Pack" },
+        null,
+      ],
       dbClient,
     );
 
@@ -86,11 +91,59 @@ test("insertDistributionTransactionReliefPackTemplates links each unique templat
     capturedQuery,
     /distribution_transaction_relief_pack_templates/i,
   );
-  assert.match(capturedQuery, /UNNEST\(\$2::uuid\[\]\)/i);
+  assert.match(capturedQuery, /UNNEST\(\$2::uuid\[\],\s*\$3::text\[\]\)/i);
+  assert.match(capturedQuery, /name_snapshot/i);
   assert.match(capturedQuery, /ON CONFLICT\s*\(distribution_transaction_id,\s*relief_pack_template_id\)/i);
   assert.deepEqual(capturedValues, [
     "distribution-1",
     ["template-1", "template-2"],
+    ["Food Pack", "Hygiene Kit"],
+  ]);
+});
+
+test("insertDistributionTransactionItem persists immutable released-item labels", async () => {
+  let capturedQuery = "";
+  let capturedValues = [];
+  const dbClient = {
+    query: async (query, values) => {
+      capturedQuery = query;
+      capturedValues = values;
+      return {
+        rows: [
+          {
+            id: "distribution-item-1",
+            item_name_snapshot: "Rice",
+          },
+        ],
+      };
+    },
+  };
+
+  const result = await distributionTransactionRepository.insertDistributionTransactionItem(
+    {
+      distribution_transaction_id: "distribution-1",
+      inventory_batch_id: "batch-1",
+      inventory_item_id: "item-1",
+      quantity_released: 2,
+      item_code_snapshot: "RICE-001",
+      item_name_snapshot: "Rice",
+      unit_of_measure_snapshot: "sack",
+    },
+    dbClient,
+  );
+
+  assert.equal(result.id, "distribution-item-1");
+  assert.match(capturedQuery, /item_code_snapshot/i);
+  assert.match(capturedQuery, /item_name_snapshot/i);
+  assert.match(capturedQuery, /unit_of_measure_snapshot/i);
+  assert.deepEqual(capturedValues, [
+    "distribution-1",
+    "batch-1",
+    "item-1",
+    2,
+    "RICE-001",
+    "Rice",
+    "sack",
   ]);
 });
 
@@ -115,7 +168,9 @@ test("relief pack usage counts legacy and linked secondary templates", async () 
     capturedQuery,
     /dtrpt\.relief_pack_template_id\s*=\s*\$1/i,
   );
-  assert.match(capturedQuery, /COUNT\(dt\.id\)/i);
+  assert.match(capturedQuery, /COUNT\(dt\.id\)\s+FILTER/i);
+  assert.match(capturedQuery, /active_event_distributions_count/i);
+  assert.match(capturedQuery, /edit_blocking_distributions_count/i);
 });
 
 test("relief pack deactivation blockers include active events and unsynced linked distributions", async () => {

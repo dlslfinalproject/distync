@@ -610,10 +610,6 @@ const InventoryItemsPage = () => {
     }
 
     for (const item of inventoryItemsForInventoryManagement) {
-      if (item?.is_active === false) {
-        continue;
-      }
-
       const stockForms = getItemStockForms(item);
       const matchedStockForm = stockForms.find((stockForm) => {
         return (
@@ -838,7 +834,6 @@ const InventoryItemsPage = () => {
         payload?.existing_item_id
           ? inventoryItemsForInventoryManagement.find((item) => {
               return (
-                item?.is_active !== false &&
                 String(item?.id) === String(payload.existing_item_id)
               );
             }) || null

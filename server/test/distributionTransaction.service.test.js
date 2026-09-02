@@ -780,10 +780,10 @@ test("manual template distribution releases every assigned template with shared 
     },
     insertDistributionTransactionReliefPackTemplates: async (
       distributionTransactionId,
-      templateIds,
+      templateSnapshots,
     ) => {
       assert.equal(distributionTransactionId, "distribution-1");
-      linkedTemplateIds.push(...templateIds);
+      linkedTemplateIds.push(...templateSnapshots.map((template) => template.id));
       return [];
     },
     insertDistributionTransactionItem: async (itemData) => {

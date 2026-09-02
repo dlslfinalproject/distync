@@ -347,7 +347,7 @@ const DonationManagementPage = () => {
         await Promise.all([
           fetchAllDisasterEvents(),
           canManageDonations
-            ? fetchInventoryItems({ is_active: true })
+            ? fetchInventoryItems()
             : Promise.resolve([]),
         ]);
 

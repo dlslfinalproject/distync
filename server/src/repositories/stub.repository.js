@@ -1,15 +1,12 @@
 const pool = require("../config/db");
 
 const buildLinkedReliefPackTemplateNamesQuery = (transactionAlias) => `
-  SELECT STRING_AGG(DISTINCT linked_template.name, ', ' ORDER BY linked_template.name) AS names
-  FROM relief_pack_templates linked_template
-  WHERE linked_template.id = ${transactionAlias}.relief_pack_template_id
-    OR EXISTS (
-      SELECT 1
-      FROM distribution_transaction_relief_pack_templates linked_template_row
-      WHERE linked_template_row.distribution_transaction_id = ${transactionAlias}.id
-        AND linked_template_row.relief_pack_template_id = linked_template.id
-    )
+  SELECT STRING_AGG(
+    DISTINCT linked_template_row.name_snapshot,
+    ', ' ORDER BY linked_template_row.name_snapshot
+  ) AS names
+  FROM distribution_transaction_relief_pack_templates linked_template_row
+  WHERE linked_template_row.distribution_transaction_id = ${transactionAlias}.id
 `;
 
 const stubSequenceExpression = `
@@ -570,6 +567,7 @@ const getStubByStubNoOrSerialNo = async ({ stub_no, serial_no }) => {
       h.photo_verification_notes,
       h.household_size,
       h.contact_number,
+      h.current_stay_type,
       h.is_active,
       h.barangay_id,
       b.name AS barangay_name
@@ -610,6 +608,7 @@ const getStubByQrCodeValue = async (qrCodeValue) => {
       h.family_head_suffix,
       h.household_size,
       h.contact_number,
+      h.current_stay_type,
       h.is_active,
       h.family_head_photo_url,
       h.photo_captured_at,
@@ -680,6 +679,7 @@ const getMemberSectorsByHouseholdIds = async (householdIds) => {
     INNER JOIN evacuees e ON e.id = es.evacuee_id
     INNER JOIN sectors s ON s.id = es.sector_id
     WHERE e.household_id = ANY($1::uuid[])
+      AND e.is_active = TRUE
     ORDER BY e.household_id ASC, s.name ASC
   `;
 
@@ -787,7 +787,6 @@ const getLatestDistributionTransactionByStubId = async (stubId) => {
       dt.updated_at
     FROM distribution_transactions dt
     LEFT JOIN users u ON u.id = dt.verified_by
-    LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
     LEFT JOIN LATERAL (
       ${buildLinkedReliefPackTemplateNamesQuery("dt")}
     ) linked_template_names ON TRUE
@@ -959,7 +958,6 @@ const getStubClaimHistory = async ({
       LIMIT 1
     ) dt ON TRUE
     LEFT JOIN users u ON u.id = dt.verified_by
-    LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
     LEFT JOIN LATERAL (
       ${buildLinkedReliefPackTemplateNamesQuery("dt")}
     ) linked_template_names ON TRUE
@@ -967,12 +965,11 @@ const getStubClaimHistory = async ({
       SELECT
         SUM(dti.quantity_released)::integer AS total_quantity_released,
         STRING_AGG(
-          CONCAT(ii.item_name, ' x', dti.quantity_released),
+          CONCAT(dti.item_name_snapshot, ' x', dti.quantity_released),
           ', '
-          ORDER BY ii.item_name
+          ORDER BY dti.item_name_snapshot
         ) AS released_items_summary
       FROM distribution_transaction_items dti
-      INNER JOIN inventory_items ii ON ii.id = dti.inventory_item_id
       WHERE dti.distribution_transaction_id = dt.id
     ) item_summary ON TRUE
     ${whereClause}

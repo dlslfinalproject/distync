@@ -48,6 +48,9 @@ test("Barangay and MSWDO claim controls require both ISSUED and current PRESENT 
     assert.match(source, /row\??\.status === "ISSUED"/);
   }
 
+  assert.match(barangayPage, /HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER/);
+  assert.match(mswdoPage, /HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER/);
+
   assert.match(cache, /latest_attendance_status/);
   assert.match(cache, /latest_attendance_time_out/);
 });

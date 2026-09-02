@@ -76,15 +76,22 @@ const getStandardReliefPackTemplates = (templates) => {
   });
 };
 
-const getAssignedReliefPackTemplatesForSectorIds = (householdSectorIds, templates) => {
+const getAssignedReliefPackTemplatesForSectorIds = (
+  householdSectorIds,
+  templates,
+  disasterType = null,
+) => {
   if (!Array.isArray(templates) || templates.length === 0) {
     return [];
   }
 
   const sectorIdSet = new Set((householdSectorIds || []).filter(Boolean));
-  const assignedTemplates = getStandardReliefPackTemplates(templates);
+  const applicableTemplates = templates.filter((template) =>
+    isTemplateApplicableToDisasterType(template, disasterType),
+  );
+  const assignedTemplates = getStandardReliefPackTemplates(applicableTemplates);
 
-  templates.forEach((template) => {
+  applicableTemplates.forEach((template) => {
     const templateSectorIds = Array.isArray(template?.sector_ids)
       ? template.sector_ids
       : parseSectorIdsFromDescription(template?.description);
@@ -181,8 +188,10 @@ const resolveAssignedReliefPackTemplatesForHousehold = async (
     { [householdId]: memberSectors },
   );
 
-  return getAssignedReliefPackTemplatesForSectorIds(sectorIds, templates).filter(
-    (template) => isTemplateApplicableToDisasterType(template, disasterType),
+  return getAssignedReliefPackTemplatesForSectorIds(
+    sectorIds,
+    templates,
+    disasterType,
   );
 };
 

@@ -13,6 +13,7 @@ const {
   recordAutomaticReliefPackClaim,
 } = require("./automaticReliefPackClaim.service");
 const {
+  getAssignedReliefPackTemplatesForSectorIds,
   getPrimaryAssignedReliefPackTemplate,
   resolveAssignedReliefPackTemplatesForHousehold,
 } = require("./reliefPackAssignment.service");
@@ -22,7 +23,7 @@ const {
   getInventoryBatchStatus,
 } = require("../utils/inventoryBatchStatus");
 const {
-  isCurrentlyPresentEvacuationAttendance,
+  isReliefPackClaimHouseholdCurrentlyEligible,
 } = require("../utils/reliefPackEligibility");
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
@@ -476,9 +477,9 @@ const getStandardTemplates = (templates) => {
 const getHouseholdSectorIdsFromMasterlist = (household) => {
   return [
     ...(household?.household_sectors || []).map((sector) => sector.id),
-    ...(household?.members || []).flatMap((member) =>
-      (member.sectors || []).map((sector) => sector.id),
-    ),
+    ...(household?.members || [])
+      .filter((member) => member?.is_active !== false)
+      .flatMap((member) => (member.sectors || []).map((sector) => sector.id)),
   ].filter(Boolean);
 };
 
@@ -493,20 +494,16 @@ const buildInventoryExportSectorsText = (household) => {
   return [...new Set(sectorNames)].join(", ") || "--";
 };
 
-const getAssignedTemplatesForExport = (household, templates) => {
-  const householdSectorIds = new Set(getHouseholdSectorIdsFromMasterlist(household));
-
-  return (Array.isArray(templates) ? templates : []).filter((template) => {
-    if (!template?.is_active) {
-      return false;
-    }
-
-    if (!template.is_additional_pack) {
-      return true;
-    }
-
-    return template.sector_id && householdSectorIds.has(template.sector_id);
-  });
+const getAssignedTemplatesForExport = (
+  household,
+  templates,
+  disasterType = null,
+) => {
+  return getAssignedReliefPackTemplatesForSectorIds(
+    getHouseholdSectorIdsFromMasterlist(household),
+    templates,
+    disasterType,
+  );
 };
 
 const parseDonatedReliefPackName = (remarks) => {
@@ -833,7 +830,11 @@ const exportInventoryDistribution = async ({ requester, filters }) => {
     );
   const reliefSourceRowsByStubId = groupByKey(reliefSourceRows, "stub_id");
   const mappedRows = await Promise.all(context.exportRows.map(async (household) => {
-    const assignedTemplates = getAssignedTemplatesForExport(household, templates);
+    const assignedTemplates = getAssignedTemplatesForExport(
+      household,
+      templates,
+      disasterEvent?.disaster_type,
+    );
     const stubStatus = getInventoryExportRowStatus(household);
     const sourceRows = reliefSourceRowsByStubId[household?.stub?.id] || [];
     const stubQueueContext =
@@ -1167,18 +1168,6 @@ const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
   };
 };
 
-const isOperationallyActiveClaimHousehold = (stub, latestAttendance) => {
-  if (!stub || stub.is_active === false) {
-    return false;
-  }
-
-  if (String(stub.current_stay_type || "").toUpperCase() !== "EVAC_CENTER") {
-    return false;
-  }
-
-  return isCurrentlyPresentEvacuationAttendance(latestAttendance);
-};
-
 const buildDistributionInventoryRemarks = ({
   templateName,
   packQuantity,
@@ -1344,9 +1333,9 @@ const buildTemplateReleasePlan = async ({
       client,
     );
 
-    if (!inventoryItem || inventoryItem.is_active === false) {
+    if (!inventoryItem) {
       const error = new Error(
-        `Relief pack item is no longer available: ${templateItem.item_name || templateItem.inventory_item_id}`,
+        `Relief pack item no longer exists: ${templateItem.item_name || templateItem.inventory_item_id}`,
       );
       error.statusCode = 400;
       throw error;
@@ -1583,6 +1572,7 @@ const summarizeDistributionItems = (items) =>
       "inventory_item_id",
       "quantity_released",
       "batch_no",
+      "item_code",
       "item_name",
       "unit_of_measure",
       "source_type",
@@ -1696,7 +1686,7 @@ const createDistributionTransaction = async (requestData) => {
         client,
       );
 
-    if (!isOperationallyActiveClaimHousehold(stub, latestAttendance)) {
+    if (!isReliefPackClaimHouseholdCurrentlyEligible(stub, latestAttendance)) {
       const error = new Error(
         "Only active evacuation-center households can claim a relief pack.",
       );
@@ -1812,8 +1802,7 @@ const createDistributionTransaction = async (requestData) => {
 
     await distributionTransactionRepository.insertDistributionTransactionReliefPackTemplates(
       distributionTransaction.id,
-      templateReleasePlan?.reliefPackTemplates?.map((template) => template.id) ||
-        [],
+      templateReleasePlan?.reliefPackTemplates || [],
       client,
     );
 
@@ -1829,6 +1818,9 @@ const createDistributionTransaction = async (requestData) => {
             inventory_batch_id: item.inventory_batch_id,
             inventory_item_id: item.inventory_item_id,
             quantity_released: item.quantity_released,
+            item_code_snapshot: item.item_code,
+            item_name_snapshot: item.item_name,
+            unit_of_measure_snapshot: item.unit_of_measure,
           },
           client,
         );

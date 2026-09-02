@@ -54,7 +54,7 @@ SELECT
     COALESCE(ii.quantity, 1),
     ii.unit_of_measure,
     ii.unit_of_measure_value,
-    ii.is_active
+    TRUE
 FROM inventory_items ii
 WHERE NOT EXISTS (
     SELECT 1

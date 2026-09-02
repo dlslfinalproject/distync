@@ -323,7 +323,8 @@ test("runInventoryForecast sends eligible LGU and donated stock to analytics and
     included_source_types: ["LGU", "DONATED"],
     included_batch_statuses: ["AVAILABLE", "LOW_STOCK"],
     near_expiry_exclusion_days: 30,
-    donated_stock_scope: "SELECTED_DISASTER_EVENT",
+    donated_stock_scope:
+      "SELECTED_DISASTER_EVENT_WITH_CLOSED_EVENT_LOOSE_DONATION_ROLLOVER",
   });
 
   const confidenceNotes = JSON.parse(calls.resultPayload.confidence_notes);

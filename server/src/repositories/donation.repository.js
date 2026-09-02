@@ -817,7 +817,6 @@ const getDefaultEmergencyDonationNeeds = async (
       FROM default_emergency_donation_needs dedn
       LEFT JOIN inventory_items ii
         ON ii.id = dedn.inventory_item_id
-       AND ii.is_active = TRUE
       WHERE ${conditions.join(" AND ")}
       ORDER BY
         CASE WHEN dedn.disaster_type IS NULL THEN 1 ELSE 0 END,
@@ -1024,7 +1023,6 @@ const getPublicForecastSuggestions = async (disasterEventId, dbClient = pool) =>
         FROM latest_run lr
         INNER JOIN forecast_results fr ON fr.forecast_run_id = lr.id
         INNER JOIN inventory_items ii ON ii.id = fr.inventory_item_id
-        WHERE ii.is_active = TRUE
         ORDER BY fr.inventory_item_id, fr.created_at DESC, fr.id DESC
       )
       SELECT *

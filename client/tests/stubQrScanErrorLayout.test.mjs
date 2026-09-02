@@ -64,6 +64,19 @@ test("stub already claimed keeps the original card layout and removes only the c
   assert.equal(config.detailRows[3]?.label, "Relief Pack");
 });
 
+test("household-not-present claimability error explains the current attendance rule", () => {
+  const config = getQrScanBlockingErrorConfig(
+    createQrScanError({
+      code: QR_SCAN_ERROR_CODES.HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER,
+      details: { stubNumber: "STUB#1" },
+    }),
+  );
+
+  assert.equal(config.title, "Household Not Present");
+  assert.match(config.message, /currently present in an evacuation center/i);
+  assert.deepEqual(config.detailRows, [{ label: "Stub Number", value: "STUB#1" }]);
+});
+
 test("qr scan error modal centered alert styles constrain width and stack buttons on narrow viewports", async () => {
   const source = await fs.readFile(
     new URL("../src/components/stubs/StubQrScanErrorModal.jsx", import.meta.url),

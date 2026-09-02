@@ -1,4 +1,6 @@
-const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED", "ARCHIVED"];
+const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED"];
+// ARCHIVED is retained only for read/report compatibility with legacy rows.
+const reportAllowedStatuses = [...allowedStatuses, "ARCHIVED"];
 const allowedSortOrders = ["newest", "oldest", "az", "za"];
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -28,8 +30,7 @@ const isValidDateString = (value) => {
   return !Number.isNaN(date.getTime());
 };
 
-const requiresCompletedEndDate = (status) =>
-  status === "CLOSED" || status === "ARCHIVED";
+const requiresCompletedEndDate = (status) => status === "CLOSED";
 
 const validateCreateDisasterEvent = (req, res, next) => {
   try {
@@ -82,7 +83,7 @@ const validateCreateDisasterEvent = (req, res, next) => {
 
     if (status !== undefined && !allowedStatuses.includes(status)) {
       return res.status(400).json({
-        message: "status must be one of: PLANNED, ACTIVE, CLOSED, ARCHIVED",
+        message: "status must be one of: PLANNED, ACTIVE, CLOSED",
       });
     }
 
@@ -94,7 +95,7 @@ const validateCreateDisasterEvent = (req, res, next) => {
 
     if (requiresCompletedEndDate(normalizedStatus) && !end_date) {
       return res.status(400).json({
-        message: "end_date is required when status is CLOSED or ARCHIVED",
+        message: "end_date is required when status is CLOSED",
       });
     }
 
@@ -305,9 +306,10 @@ const validateDisasterEventReportSummary = (req, res, next) => {
       });
     }
 
-    if (status && !allowedStatuses.includes(String(status).toUpperCase())) {
+    if (status && !reportAllowedStatuses.includes(String(status).toUpperCase())) {
       return res.status(400).json({
-        message: "status must be one of: PLANNED, ACTIVE, CLOSED, ARCHIVED",
+        message:
+          "status must be one of: PLANNED, ACTIVE, CLOSED (ARCHIVED is legacy-only)",
       });
     }
 

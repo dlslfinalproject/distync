@@ -10,6 +10,8 @@ const QR_SCAN_ERROR_CODES = {
   WRONG_EVENT: "WRONG_EVENT",
   WRONG_BARANGAY: "WRONG_BARANGAY",
   QR_INACTIVE: "QR_INACTIVE",
+  HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER: "HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER",
+  DISASTER_EVENT_NOT_ACTIVE: "DISASTER_EVENT_NOT_ACTIVE",
   STUB_CANCELLED: "STUB_CANCELLED",
   STUB_VOID: "STUB_VOID",
   STUB_UNAVAILABLE: "STUB_UNAVAILABLE",
@@ -242,6 +244,24 @@ export const getQrScanBlockingErrorConfig = (error) => {
         title: "QR Stub Unavailable",
         message:
           "This QR reference is inactive and cannot be used for relief distribution.",
+        detailRows: details.stubNumber
+          ? [{ label: "Stub Number", value: details.stubNumber }]
+          : [],
+      };
+    case QR_SCAN_ERROR_CODES.HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER:
+      return {
+        title: "Household Not Present",
+        message:
+          "This stub cannot be claimed because the household is not currently present in an evacuation center.",
+        detailRows: details.stubNumber
+          ? [{ label: "Stub Number", value: details.stubNumber }]
+          : [],
+      };
+    case QR_SCAN_ERROR_CODES.DISASTER_EVENT_NOT_ACTIVE:
+      return {
+        title: "Disaster Event Not Active",
+        message:
+          "This relief claim cannot be completed because the disaster event is no longer active.",
         detailRows: details.stubNumber
           ? [{ label: "Stub Number", value: details.stubNumber }]
           : [],

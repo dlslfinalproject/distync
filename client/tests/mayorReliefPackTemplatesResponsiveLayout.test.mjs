@@ -73,14 +73,16 @@ test("Mayor relief pack templates page exposes scoped responsive hooks", async (
   assert.match(pageSource, /isHouseholdEligibleForReliefPackDemand/);
   assert.match(pageSource, /\.filter\(isHouseholdEligibleForReliefPackDemand\)/);
   assert.match(pageSource, /isReliefPackInventoryBatchEligible/);
-  assert.match(pageSource, /activeDisasterEventIds/);
+  assert.match(pageSource, /allDisasterEvents/);
+  assert.match(pageSource, /targetDisasterEventId/);
+  assert.match(pageSource, /sortDisasterEventsForReliefPackRollover/);
   assert.match(pageSource, /allocateSharedReliefPackInventory/);
   assert.match(pageSource, /availableStockByItemId/);
   assert.match(pageSource, /matchesTemplateStatusFilter/);
   assert.match(pageSource, /updateReliefPackTemplateStatus/);
   assert.match(
     pageSource,
-    /\.forEach\(\(batch\) => \{[\s\S]*?isReliefPackInventoryBatchEligible\(batch,\s*new Date\(\),[\s\S]*?activeDisasterEventIds/,
+    /const getEligibleBatchesForEvent = \([\s\S]*?isReliefPackInventoryBatchEligible\(batch,\s*new Date\(\),[\s\S]*?targetDisasterEventId/,
   );
   assert.match(pageSource, /const hasAllDisasterTypesSelected =/);
   assert.match(

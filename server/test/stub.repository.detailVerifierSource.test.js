@@ -37,3 +37,16 @@ test("barangay stub dashboard rows project verifier display name for inventory d
   );
   assert.match(source, /LEFT JOIN users u ON u\.id = dt\.verified_by/);
 });
+
+test("stub verification queries include the current household stay type", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+
+  assert.match(
+    source,
+    /const getStubByStubNoOrSerialNo = async[\s\S]*?h\.current_stay_type,/,
+  );
+  assert.match(
+    source,
+    /const getStubByQrCodeValue = async[\s\S]*?h\.current_stay_type,/,
+  );
+});

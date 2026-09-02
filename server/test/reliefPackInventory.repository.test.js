@@ -69,6 +69,14 @@ const assertStandardReliefPackInventoryQuery = (query) => {
   );
 };
 
+const assertEventAwareLooseDonationQuery = (query) => {
+  assert.match(query, /target_event\.status\s*=\s*'ACTIVE'/i);
+  assert.match(query, /donation_event\.status\s+IN\s*\('CLOSED',\s*'ARCHIVED'\)/i);
+  assert.match(query, /next_event\.status\s*=\s*'ACTIVE'/i);
+  assert.match(query, /target_event\.created_at/i);
+  assert.match(query, /donation_event\.created_at/i);
+};
+
 test("automatic relief-pack allocation queries allow loose donations before Malvar LGU stock", async () => {
   await withStubbedRepositories(async ({ inventoryTransactionRepository }) => {
     const capturedQueries = [];
@@ -81,10 +89,12 @@ test("automatic relief-pack allocation queries allow loose donations before Malv
 
     await inventoryTransactionRepository.getDistributableInventoryBatchesByItemIdForUpdate(
       "item-1",
+      "event-1",
       dbClient,
     );
     await inventoryTransactionRepository.getDistributableInventoryBatchesByItemIdsForUpdate(
       ["item-1"],
+      "event-1",
       dbClient,
     );
 
@@ -95,6 +105,7 @@ test("automatic relief-pack allocation queries allow loose donations before Malv
       assert.match(query, /loose_donation\.donation_id\s+IS\s+NOT\s+NULL/i);
       assert.match(query, /COALESCE\(loose_di\.remarks, ''\)\s+NOT\s+ILIKE\s+'Relief Pack:%'/i);
       assert.match(query, /CASE\s+WHEN\s+ib\.source_type\s*=\s*'DONATED'\s+THEN\s+0/i);
+      assertEventAwareLooseDonationQuery(query);
     });
   });
 });
@@ -112,6 +123,7 @@ test("manual template relief-pack allocation queries allow loose donations befor
 
       await distributionTransactionRepository.getAvailableInventoryBatchesByItemIdForUpdate(
         "item-1",
+        "event-1",
         dbClient,
       );
 
@@ -119,6 +131,7 @@ test("manual template relief-pack allocation queries allow loose donations befor
       assert.match(capturedQuery, /ib\.source_type\s*=\s*'DONATED'/i);
       assert.match(capturedQuery, /COALESCE\(loose_di\.remarks, ''\)\s+NOT\s+ILIKE\s+'Relief Pack:%'/i);
       assert.match(capturedQuery, /CASE\s+WHEN\s+ib\.source_type\s*=\s*'DONATED'\s+THEN\s+0/i);
+      assertEventAwareLooseDonationQuery(capturedQuery);
     },
   );
 });
@@ -154,6 +167,8 @@ test("donated relief-pack and loose-item allocation queries exclude unusable don
           /ib\.expiration_date\s+IS\s+NULL\s+OR\s+ib\.expiration_date\s*>\s*\(CURRENT_DATE\s*\+\s*INTERVAL\s*'30 days'\)/i,
         );
       });
+
+      assertEventAwareLooseDonationQuery(capturedQueries[1]);
     },
   );
 });

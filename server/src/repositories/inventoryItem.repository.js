@@ -33,11 +33,6 @@ const getInventoryItems = async (filters) => {
     conditions.push(`category = $${values.length}`);
   }
 
-  if (filters.is_active !== null) {
-    values.push(filters.is_active);
-    conditions.push(`is_active = $${values.length}`);
-  }
-
   if (filters.is_perishable !== null) {
     values.push(filters.is_perishable);
     conditions.push(`is_perishable = $${values.length}`);
@@ -68,7 +63,6 @@ const getInventoryItems = async (filters) => {
       expiration_date,
       barcode,
       is_perishable,
-      is_active,
       created_at,
       updated_at
     FROM inventory_items
@@ -102,7 +96,6 @@ const getInventoryItemById = async (id, dbClient = pool) => {
       expiration_date,
       barcode,
       is_perishable,
-      is_active,
       created_at,
       updated_at
     FROM inventory_items
@@ -130,7 +123,6 @@ const getInventoryItemByIdForUpdate = async (id, dbClient = pool) => {
       expiration_date,
       barcode,
       is_perishable,
-      is_active,
       created_at,
       updated_at
     FROM inventory_items
@@ -163,7 +155,6 @@ const getInventoryItemsByIdsForUpdate = async (ids, dbClient = pool) => {
       expiration_date,
       barcode,
       is_perishable,
-      is_active,
       created_at,
       updated_at
     FROM inventory_items
@@ -220,7 +211,6 @@ const getInventoryItemByBarcode = async (barcode, dbClient = pool) => {
       expiration_date,
       barcode,
       is_perishable,
-      is_active,
       created_at,
       updated_at
     FROM inventory_items
@@ -248,7 +238,6 @@ const insertInventoryItem = async (itemData, dbClient = pool) => {
       expiration_date,
       barcode,
       is_perishable,
-      is_active,
       created_at,
       updated_at
     )
@@ -258,7 +247,6 @@ const insertInventoryItem = async (itemData, dbClient = pool) => {
       $${hasReorderLevelColumn ? 10 : 9},
       $${hasReorderLevelColumn ? 11 : 10},
       $${hasReorderLevelColumn ? 12 : 11},
-      $${hasReorderLevelColumn ? 13 : 12},
       NOW(), NOW()
     )
     RETURNING
@@ -275,7 +263,6 @@ const insertInventoryItem = async (itemData, dbClient = pool) => {
       expiration_date,
       barcode,
       is_perishable,
-      is_active,
       created_at,
       updated_at
   `;
@@ -293,7 +280,6 @@ const insertInventoryItem = async (itemData, dbClient = pool) => {
     itemData.expiration_date,
     itemData.barcode,
     itemData.is_perishable,
-    itemData.is_active,
   ];
 
   const result = await dbClient.query(query, values);
@@ -316,7 +302,6 @@ const updateInventoryItem = async (id, itemData, dbClient = pool) => {
         expiration_date = $${hasReorderLevelColumn ? 11 : 10},
         barcode = $${hasReorderLevelColumn ? 12 : 11},
         is_perishable = $${hasReorderLevelColumn ? 13 : 12},
-        is_active = $${hasReorderLevelColumn ? 14 : 13},
         updated_at = NOW()
     WHERE id = $1
     RETURNING
@@ -333,7 +318,6 @@ const updateInventoryItem = async (id, itemData, dbClient = pool) => {
       expiration_date,
       barcode,
       is_perishable,
-      is_active,
       created_at,
       updated_at
   `;
@@ -352,7 +336,6 @@ const updateInventoryItem = async (id, itemData, dbClient = pool) => {
     itemData.expiration_date,
     itemData.barcode,
     itemData.is_perishable,
-    itemData.is_active,
   ];
 
   const result = await dbClient.query(query, values);
@@ -389,7 +372,6 @@ const updateInventoryItemReorderLevel = async (
       expiration_date,
       barcode,
       is_perishable,
-      is_active,
       created_at,
       updated_at
   `;
@@ -424,7 +406,6 @@ const updateInventoryItemStockSnapshot = async (
       expiration_date,
       barcode,
       is_perishable,
-      is_active,
       created_at,
       updated_at
   `;

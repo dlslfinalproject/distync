@@ -38,15 +38,6 @@ const appendInventoryItemFilters = (searchParams, filters = {}) => {
   }
 
   if (
-    filters.is_active === true ||
-    filters.is_active === false ||
-    filters.is_active === "true" ||
-    filters.is_active === "false"
-  ) {
-    searchParams.set("is_active", filters.is_active);
-  }
-
-  if (
     filters.is_perishable === true ||
     filters.is_perishable === false ||
     filters.is_perishable === "true" ||

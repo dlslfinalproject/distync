@@ -400,15 +400,18 @@ const ReliefPackTemplateFormModal = ({
   const isEditMode = mode === "edit";
   const isViewMode = mode === "view";
   const usageSummary = templateData?.usage_summary || {};
-  const isTemplateUsed = Boolean(usageSummary.is_used);
+  const isTemplateCurrentlyUsed = Boolean(
+    usageSummary.is_currently_used ?? usageSummary.is_used,
+  );
   const lockedDisasterTypeOptions = Array.isArray(
     usageSummary.locked_disaster_type_options,
   )
     ? usageSummary.locked_disaster_type_options
     : [];
   const isPackTypeLocked = isEditMode || isViewMode;
-  const areTemplateDefinitionFieldsLocked = isViewMode || isTemplateUsed;
-  const areItemFieldsLocked = isViewMode || isTemplateUsed;
+  const areTemplateDefinitionFieldsLocked =
+    isViewMode || isTemplateCurrentlyUsed;
+  const areItemFieldsLocked = isViewMode || isTemplateCurrentlyUsed;
   const areAllDisasterTypesSelected =
     formValues.disasterTypes.length === DISASTER_TYPE_OPTIONS.length;
   const areAllSectorsSelected =
@@ -788,7 +791,7 @@ const ReliefPackTemplateFormModal = ({
       nextErrors.packItems = "Add at least one inventory item.";
     }
 
-    if (isTemplateUsed) {
+    if (isTemplateCurrentlyUsed) {
       const templateDefinitionChanged =
         formValues.packName.trim() !== originalFormValues.packName.trim() ||
         formValues.familyPerPack !== originalFormValues.familyPerPack ||
@@ -797,7 +800,7 @@ const ReliefPackTemplateFormModal = ({
       if (templateDefinitionChanged) {
         setFieldErrors(nextErrors);
         setLocalErrorMessage(
-          "This relief pack already has distribution records, so pack details and rules cannot be changed.",
+          "This relief pack is currently used by an active event or has unsynchronized distribution records, so pack details and rules cannot be changed.",
         );
         return;
       }
@@ -805,7 +808,7 @@ const ReliefPackTemplateFormModal = ({
       if (!arePackItemsEqual(packItems, originalPackItems)) {
         setFieldErrors(nextErrors);
         setLocalErrorMessage(
-          "This relief pack already has distribution records, so included items and quantities cannot be changed.",
+          "This relief pack is currently used by an active event or has unsynchronized distribution records, so included items and quantities cannot be changed.",
         );
         return;
       }
@@ -900,11 +903,12 @@ const ReliefPackTemplateFormModal = ({
                 Pack Information
               </h3>
 
-              {isEditMode && isTemplateUsed ? (
+              {isEditMode && isTemplateCurrentlyUsed ? (
                 <p style={noticeStyles}>
-                  This relief pack already has distribution records. Pack details,
-                  rules, and items are locked; only unused disaster applicability
-                  options can be changed.
+                  This relief pack is currently used by an active event or has
+                  unsynchronized distribution records. Pack details, rules, and
+                  items are locked; only unused disaster applicability options
+                  can be changed.
                 </p>
               ) : null}
 

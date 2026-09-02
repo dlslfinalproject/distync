@@ -12,6 +12,24 @@ const RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED_CODE =
   "RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED";
 const RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED_MESSAGE =
   "This relief pack cannot be deactivated while an event is active or a distribution is ongoing.";
+const RELIEF_PACK_TEMPLATE_EMPTY_MESSAGE =
+  "Add at least one inventory item before activating this relief pack.";
+
+const createEmptyReliefPackTemplateError = () => {
+  const error = new Error(RELIEF_PACK_TEMPLATE_EMPTY_MESSAGE);
+  error.statusCode = 409;
+  error.code = "RELIEF_PACK_TEMPLATE_EMPTY";
+  return error;
+};
+
+const resolveReliefPackTemplateActiveStatus = (value, fallback) =>
+  typeof value === "boolean" ? value : fallback;
+
+const ensureActiveReliefPackTemplateHasItems = (isActive, items) => {
+  if (isActive && (!Array.isArray(items) || items.length === 0)) {
+    throw createEmptyReliefPackTemplateError();
+  }
+};
 
 const createDuplicateTemplateNameError = () => {
   const error = new Error(
@@ -72,13 +90,6 @@ const validateTemplateItems = async (items) => {
       throw error;
     }
 
-    if (inventoryItem.is_active === false) {
-      const error = new Error(
-        `The inventory item is disabled and cannot be added to a relief pack: ${item.inventory_item_id}`,
-      );
-      error.statusCode = 400;
-      throw error;
-    }
   }
 };
 
@@ -96,7 +107,6 @@ const mapTemplateItems = (items) => {
       unit_of_measure: item.unit_of_measure,
       barcode: item.barcode,
       is_perishable: item.is_perishable,
-      is_active: item.is_active,
     },
   }));
 };
@@ -136,20 +146,49 @@ const normalizeDisasterTypeOption = (disasterType) => {
 };
 
 const buildTemplateUsageSummary = (usageRows = []) => {
+  const historicalUsageRows = usageRows.filter(
+    (row) => Number(row.distributions_count || 0) > 0,
+  );
+  const hasCurrentUsageMetrics = usageRows.some((row) =>
+    Object.prototype.hasOwnProperty.call(
+      row,
+      "edit_blocking_distributions_count",
+    ),
+  );
+  const editBlockingUsageRows = hasCurrentUsageMetrics
+    ? usageRows.filter(
+        (row) => Number(row.edit_blocking_distributions_count || 0) > 0,
+      )
+    : historicalUsageRows;
   const usedDisasterTypes = normalizeDisasterTypes(
-    usageRows.map((row) => row.disaster_type),
+    historicalUsageRows.map((row) => row.disaster_type),
   );
   const lockedDisasterTypeOptions = normalizeDisasterTypes(
-    usedDisasterTypes.map(normalizeDisasterTypeOption).filter(Boolean),
+    editBlockingUsageRows
+      .map((row) => normalizeDisasterTypeOption(row.disaster_type))
+      .filter(Boolean),
   );
-  const totalDistributions = usageRows.reduce(
+  const totalDistributions = historicalUsageRows.reduce(
     (sum, row) => sum + Number(row.distributions_count || 0),
+    0,
+  );
+  const activeEventDistributions = usageRows.reduce(
+    (sum, row) => sum + Number(row.active_event_distributions_count || 0),
+    0,
+  );
+  const unsyncedDistributions = usageRows.reduce(
+    (sum, row) => sum + Number(row.unsynced_distributions_count || 0),
     0,
   );
 
   return {
     is_used: totalDistributions > 0,
+    is_currently_used: hasCurrentUsageMetrics
+      ? activeEventDistributions > 0 || unsyncedDistributions > 0
+      : totalDistributions > 0,
     total_distributions: totalDistributions,
+    active_event_distributions: activeEventDistributions,
+    unsynced_distributions: unsyncedDistributions,
     used_disaster_types: usedDisasterTypes,
     locked_disaster_type_options: lockedDisasterTypeOptions,
   };
@@ -316,7 +355,7 @@ const validateTemplateUsageRules = ({
     throw error;
   }
 
-  if (!usageSummary.is_used) {
+  if (!usageSummary.is_currently_used) {
     return;
   }
 
@@ -348,7 +387,7 @@ const validateTemplateUsageRules = ({
 
   if (isTemplateStructureChanged(currentSnapshot, nextSnapshot)) {
     const error = new Error(
-      "This relief pack has distribution records, so only unused disaster applicability options can be changed",
+      "This relief pack is currently used by an active event or has unsynchronized distribution records, so only unused disaster applicability options can be changed",
     );
     error.statusCode = 409;
     throw error;
@@ -455,18 +494,71 @@ const getReliefPackTemplateById = async (id) => {
 };
 
 const createReliefPackTemplate = async (templateData, actor = null) => {
+  const normalizedTemplateData = {
+    ...templateData,
+    is_active: resolveReliefPackTemplateActiveStatus(
+      templateData.is_active,
+      false,
+    ),
+    items: Array.isArray(templateData.items) ? templateData.items : [],
+  };
   const inactiveTemplate =
     await reliefPackTemplateRepository.getInactiveReliefPackTemplateByName(
-      templateData.name,
+      normalizedTemplateData.name,
     );
 
-  await ensureUniqueTemplateName(templateData.name, inactiveTemplate?.id || null);
+  await ensureUniqueTemplateName(
+    normalizedTemplateData.name,
+    inactiveTemplate?.id || null,
+  );
 
-  if (templateData.items.length > 0) {
-    await validateTemplateItems(templateData.items);
+  ensureActiveReliefPackTemplateHasItems(
+    normalizedTemplateData.is_active,
+    normalizedTemplateData.items,
+  );
+
+  if (normalizedTemplateData.items.length > 0) {
+    await validateTemplateItems(normalizedTemplateData.items);
   }
 
-  const persistencePayload = buildTemplatePersistencePayload(templateData);
+  const persistencePayload = buildTemplatePersistencePayload(normalizedTemplateData);
+  let previousTemplateDetails = null;
+
+  if (inactiveTemplate) {
+    const existingItems =
+      await reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId(
+        inactiveTemplate.id,
+      );
+    const existingDisasterTypes =
+      await reliefPackTemplateRepository.getReliefPackTemplateDisasterTypesByTemplateId(
+        inactiveTemplate.id,
+      );
+    const usageRows =
+      await reliefPackTemplateRepository.getReliefPackTemplateUsageByTemplateId(
+        inactiveTemplate.id,
+      );
+    const usageSummary = buildTemplateUsageSummary(usageRows);
+
+    previousTemplateDetails = {
+      ...inactiveTemplate,
+      description: getPublicTemplateDescription(inactiveTemplate),
+      items: mapTemplateItems(existingItems),
+      disaster_types: existingDisasterTypes.map((row) => row.disaster_type),
+      sector_ids: normalizeSectorIds(
+        parseSectorIdsFromDescription(inactiveTemplate.description),
+        inactiveTemplate.sector_id,
+      ),
+      usage_summary: usageSummary,
+    };
+
+    validateTemplateUsageRules({
+      existingTemplate: inactiveTemplate,
+      existingItems,
+      templateData: normalizedTemplateData,
+      persistencePayload,
+      usageSummary,
+    });
+  }
 
   const client = await pool.connect();
 
@@ -498,7 +590,7 @@ const createReliefPackTemplate = async (templateData, actor = null) => {
       );
     }
 
-    for (const item of templateData.items) {
+    for (const item of normalizedTemplateData.items) {
       await reliefPackTemplateRepository.insertReliefPackTemplateItem(
         {
           template_id: createdTemplate.id,
@@ -509,8 +601,10 @@ const createReliefPackTemplate = async (templateData, actor = null) => {
       );
     }
 
-    if (!templateData.applies_to_all_disasters) {
-      for (const disasterType of normalizeDisasterTypes(templateData.disaster_types)) {
+    if (!normalizedTemplateData.applies_to_all_disasters) {
+      for (const disasterType of normalizeDisasterTypes(
+        normalizedTemplateData.disaster_types,
+      )) {
         await reliefPackTemplateRepository.insertReliefPackTemplateDisasterType(
           {
             template_id: createdTemplate.id,
@@ -527,10 +621,14 @@ const createReliefPackTemplate = async (templateData, actor = null) => {
 
     await logAuditSafely({
       actor,
-      action: "RELIEF_PACK_TEMPLATE_CREATE",
+      action: inactiveTemplate
+        ? "RELIEF_PACK_TEMPLATE_UPDATE"
+        : "RELIEF_PACK_TEMPLATE_CREATE",
       entityType: "RELIEF_PACK_TEMPLATE",
       entityId: createdTemplate.id,
-      oldValues: {},
+      oldValues: previousTemplateDetails
+        ? buildTemplateAuditValues(previousTemplateDetails)
+        : {},
       newValues: buildTemplateAuditValues(createdTemplateDetails),
     });
 
@@ -550,8 +648,10 @@ const createReliefPackTemplate = async (templateData, actor = null) => {
       sector_ids: sectorIds,
       applies_to_all_disasters: createdTemplate.applies_to_all_disasters,
       is_active: createdTemplate.is_active,
-      disaster_types: normalizeDisasterTypes(templateData.disaster_types),
-      items_count: templateData.items.length,
+      disaster_types: normalizeDisasterTypes(
+        normalizedTemplateData.disaster_types,
+      ),
+      items_count: normalizedTemplateData.items.length,
     };
   } catch (error) {
     await client.query("ROLLBACK");
@@ -578,26 +678,40 @@ const updateReliefPackTemplate = async (id, templateData, actor = null) => {
 
   const previousTemplateDetails = await getReliefPackTemplateById(id);
 
-  if (Array.isArray(templateData.items)) {
-    await validateTemplateItems(templateData.items);
-  }
-
   const existingItems =
     await reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId(id);
+  const requestedIsActive = resolveReliefPackTemplateActiveStatus(
+    templateData.is_active,
+    existingTemplate.is_active !== false,
+  );
+  const normalizedTemplateData = {
+    ...templateData,
+    is_active: requestedIsActive,
+  };
+  const itemsToPersist = Array.isArray(normalizedTemplateData.items)
+    ? normalizedTemplateData.items
+    : existingItems;
+
+  ensureActiveReliefPackTemplateHasItems(requestedIsActive, itemsToPersist);
+
+  if (Array.isArray(normalizedTemplateData.items) || requestedIsActive) {
+    await validateTemplateItems(itemsToPersist);
+  }
+
   const usageRows =
     await reliefPackTemplateRepository.getReliefPackTemplateUsageByTemplateId(id);
   const usageSummary = buildTemplateUsageSummary(usageRows);
-  const persistencePayload = buildTemplatePersistencePayload(templateData);
+  const persistencePayload = buildTemplatePersistencePayload(normalizedTemplateData);
 
   validateTemplateUsageRules({
     existingTemplate,
     existingItems,
-    templateData,
+    templateData: normalizedTemplateData,
     persistencePayload,
     usageSummary,
   });
 
-  await ensureUniqueTemplateName(templateData.name, id);
+  await ensureUniqueTemplateName(normalizedTemplateData.name, id);
 
   const client = await pool.connect();
 
@@ -610,13 +724,13 @@ const updateReliefPackTemplate = async (id, templateData, actor = null) => {
       client,
     );
 
-    if (Array.isArray(templateData.items)) {
+    if (Array.isArray(normalizedTemplateData.items)) {
       await reliefPackTemplateRepository.deleteReliefPackTemplateItemsByTemplateId(
         id,
         client,
       );
 
-      for (const item of templateData.items) {
+      for (const item of normalizedTemplateData.items) {
         await reliefPackTemplateRepository.insertReliefPackTemplateItem(
           {
             template_id: id,
@@ -633,8 +747,10 @@ const updateReliefPackTemplate = async (id, templateData, actor = null) => {
       client,
     );
 
-    if (!templateData.applies_to_all_disasters) {
-      for (const disasterType of normalizeDisasterTypes(templateData.disaster_types)) {
+    if (!normalizedTemplateData.applies_to_all_disasters) {
+      for (const disasterType of normalizeDisasterTypes(
+        normalizedTemplateData.disaster_types,
+      )) {
         await reliefPackTemplateRepository.insertReliefPackTemplateDisasterType(
           {
             template_id: id,
@@ -686,13 +802,18 @@ const replaceReliefPackTemplateItems = async (id, itemsPayload, actor = null) =>
 
   await validateTemplateItems(itemsPayload.items);
 
+  ensureActiveReliefPackTemplateHasItems(
+    existingTemplate.is_active !== false,
+    itemsPayload.items,
+  );
+
   const usageRows =
     await reliefPackTemplateRepository.getReliefPackTemplateUsageByTemplateId(id);
   const usageSummary = buildTemplateUsageSummary(usageRows);
 
-  if (usageSummary.is_used) {
+  if (usageSummary.is_currently_used) {
     const error = new Error(
-      "This relief pack has distribution records, so its items cannot be changed",
+      "This relief pack is currently used by an active event or has unsynchronized distribution records, so its items cannot be changed",
     );
     error.statusCode = 409;
     throw error;
@@ -767,14 +888,7 @@ const setReliefPackTemplateStatus = async (
         id,
       );
 
-    if (!Array.isArray(items) || items.length === 0) {
-      const error = new Error(
-        "Add at least one inventory item before activating this relief pack.",
-      );
-      error.statusCode = 409;
-      error.code = "RELIEF_PACK_TEMPLATE_EMPTY";
-      throw error;
-    }
+    ensureActiveReliefPackTemplateHasItems(isActive, items);
 
     await validateTemplateItems(items);
   }

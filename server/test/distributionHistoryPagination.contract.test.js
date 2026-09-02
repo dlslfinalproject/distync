@@ -209,8 +209,8 @@ test("distribution history detail search fields match release client predicate",
     ["SERIAL_ONLY_A", /s\.serial_no ILIKE/],
     ["EVENT_ONLY_A", /de\.title ILIKE/],
     ["EVENT_CODE_ONLY_A", /de\.event_code ILIKE/],
-    ["PACK_ONLY_A", /rpt\.name ILIKE/],
-    ["ITEM_ONLY_A", /ii_search\.item_name ILIKE/],
+    ["PACK_ONLY_A", /dtrpt_search\.name_snapshot ILIKE/],
+    ["ITEM_ONLY_A", /dti_search\.item_name_snapshot ILIKE/],
     ["VERIFIED_ONLY_A", /u\.first_name/],
   ];
 

@@ -11,7 +11,6 @@ export const buildQueuedInventoryItem = (entry) => {
     unit_of_measure_value: entry.payload?.unit_of_measure_value || 1,
     reorder_level: entry.payload?.reorder_level || null,
     expiration_date: entry.payload?.expiration_date || null,
-    is_active: true,
     is_perishable: Boolean(entry.payload?.is_perishable),
     is_local_only: true,
     sync_status: entry.status,

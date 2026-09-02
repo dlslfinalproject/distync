@@ -25,6 +25,13 @@ const originalRepositoryMethods = {
   insertReliefPackTemplate: reliefPackTemplateRepository.insertReliefPackTemplate,
   insertReliefPackTemplateItem:
     reliefPackTemplateRepository.insertReliefPackTemplateItem,
+  updateReliefPackTemplate: reliefPackTemplateRepository.updateReliefPackTemplate,
+  deleteReliefPackTemplateItemsByTemplateId:
+    reliefPackTemplateRepository.deleteReliefPackTemplateItemsByTemplateId,
+  deleteReliefPackTemplateDisasterTypesByTemplateId:
+    reliefPackTemplateRepository.deleteReliefPackTemplateDisasterTypesByTemplateId,
+  insertReliefPackTemplateDisasterType:
+    reliefPackTemplateRepository.insertReliefPackTemplateDisasterType,
   updateReliefPackTemplateStatus:
     reliefPackTemplateRepository.updateReliefPackTemplateStatus,
 };
@@ -120,7 +127,10 @@ test("updateReliefPackTemplate rejects a duplicate name before changing the curr
     () =>
       reliefPackTemplateService.updateReliefPackTemplate(
         "current-template",
-        buildTemplateData("existing food pack"),
+        {
+          ...buildTemplateData("existing food pack"),
+          is_active: false,
+        },
       ),
     (error) => {
       assert.equal(error.message, duplicateNameMessage);
@@ -150,37 +160,6 @@ test("setReliefPackTemplateStatus refuses to activate an empty template", async 
       assert.equal(error.statusCode, 409);
       assert.equal(error.code, "RELIEF_PACK_TEMPLATE_EMPTY");
       assert.match(error.message, /at least one inventory item/i);
-      return true;
-    },
-  );
-});
-
-test("setReliefPackTemplateStatus refuses templates with disabled inventory items", async () => {
-  reliefPackTemplateRepository.getReliefPackTemplateById = async () => ({
-    id: "inactive-template",
-    name: "Draft Food Pack",
-    is_active: false,
-  });
-  reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId = async () => [
-    {
-      inventory_item_id: "disabled-item",
-      quantity_required: 1,
-    },
-  ];
-  reliefPackTemplateRepository.getInventoryItemById = async () => ({
-    id: "disabled-item",
-    is_active: false,
-  });
-
-  await assert.rejects(
-    () =>
-      reliefPackTemplateService.setReliefPackTemplateStatus(
-        "inactive-template",
-        true,
-      ),
-    (error) => {
-      assert.equal(error.statusCode, 400);
-      assert.match(error.message, /disabled.*cannot be added/i);
       return true;
     },
   );
@@ -347,7 +326,11 @@ test("createReliefPackTemplate maps a database name uniqueness race to a clear c
   };
 
   await assert.rejects(
-    () => reliefPackTemplateService.createReliefPackTemplate(buildTemplateData()),
+    () =>
+      reliefPackTemplateService.createReliefPackTemplate({
+        ...buildTemplateData(),
+        is_active: false,
+      }),
     (error) => {
       assert.equal(error.message, duplicateNameMessage);
       assert.equal(error.statusCode, 409);
@@ -359,48 +342,10 @@ test("createReliefPackTemplate maps a database name uniqueness race to a clear c
   assert.deepEqual(queries, ["BEGIN", "ROLLBACK"]);
 });
 
-test("createReliefPackTemplate rejects disabled inventory items", async () => {
-  let connectCalled = false;
-
-  pool.connect = async () => {
-    connectCalled = true;
-    throw new Error("The database connection should not be needed");
-  };
-  reliefPackTemplateRepository.getInactiveReliefPackTemplateByName = async () => null;
-  reliefPackTemplateRepository.getReliefPackTemplateByName = async () => null;
-  reliefPackTemplateRepository.getInventoryItemById = async () => ({
-    id: "inactive-item",
-    item_name: "Archived Water",
-    item_total_stock: 25,
-    is_active: false,
-  });
-
-  await assert.rejects(
-    () =>
-      reliefPackTemplateService.createReliefPackTemplate({
-        ...buildTemplateData("Disabled Item Pack"),
-        items: [
-          {
-            inventory_item_id: "inactive-item",
-            quantity_required: 1,
-          },
-        ],
-      }),
-    (error) => {
-      assert.equal(error.statusCode, 400);
-      assert.match(error.message, /disabled.*cannot be added/i);
-      assert.match(error.message, /inactive-item/);
-      return true;
-    },
-  );
-
-  assert.equal(connectCalled, false);
-});
-
-test("createReliefPackTemplate allows active inventory items with zero stock", async () => {
+test("createReliefPackTemplate allows legacy inventory items with zero stock", async () => {
   const queries = [];
   const insertedItems = [];
-  const activeItem = {
+  const legacyInventoryItem = {
     id: "zero-stock-item",
     item_code: "WATER-001",
     item_name: "Water",
@@ -408,7 +353,7 @@ test("createReliefPackTemplate allows active inventory items with zero stock", a
     unit_of_measure: "pc",
     barcode: null,
     is_perishable: false,
-    is_active: true,
+    is_active: false,
     item_total_stock: 0,
   };
   const createdTemplate = {
@@ -434,7 +379,7 @@ test("createReliefPackTemplate allows active inventory items with zero stock", a
   pool.query = async () => ({ rows: [] });
   reliefPackTemplateRepository.getInactiveReliefPackTemplateByName = async () => null;
   reliefPackTemplateRepository.getReliefPackTemplateByName = async () => null;
-  reliefPackTemplateRepository.getInventoryItemById = async () => activeItem;
+  reliefPackTemplateRepository.getInventoryItemById = async () => legacyInventoryItem;
   reliefPackTemplateRepository.insertReliefPackTemplate = async () => createdTemplate;
   reliefPackTemplateRepository.insertReliefPackTemplateItem = async (item) => {
     insertedItems.push(item);
@@ -444,15 +389,15 @@ test("createReliefPackTemplate allows active inventory items with zero stock", a
   reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId = async () => [
     {
       id: "template-item-1",
-      inventory_item_id: activeItem.id,
+      inventory_item_id: legacyInventoryItem.id,
       quantity_required: 2,
-      item_code: activeItem.item_code,
-      item_name: activeItem.item_name,
-      category: activeItem.category,
-      unit_of_measure: activeItem.unit_of_measure,
-      barcode: activeItem.barcode,
-      is_perishable: activeItem.is_perishable,
-      is_active: activeItem.is_active,
+      item_code: legacyInventoryItem.item_code,
+      item_name: legacyInventoryItem.item_name,
+      category: legacyInventoryItem.category,
+      unit_of_measure: legacyInventoryItem.unit_of_measure,
+      barcode: legacyInventoryItem.barcode,
+      is_perishable: legacyInventoryItem.is_perishable,
+      is_active: legacyInventoryItem.is_active,
     },
   ];
   reliefPackTemplateRepository.getReliefPackTemplateDisasterTypesByTemplateId =
@@ -463,7 +408,7 @@ test("createReliefPackTemplate allows active inventory items with zero stock", a
     ...buildTemplateData("Zero Stock Pack"),
     items: [
       {
-        inventory_item_id: activeItem.id,
+        inventory_item_id: legacyInventoryItem.id,
         quantity_required: 2,
       },
     ],
@@ -473,9 +418,346 @@ test("createReliefPackTemplate allows active inventory items with zero stock", a
   assert.deepEqual(insertedItems, [
     {
       template_id: createdTemplate.id,
-      inventory_item_id: activeItem.id,
+      inventory_item_id: legacyInventoryItem.id,
       quantity_required: 2,
     },
   ]);
   assert.equal(result.items_count, 1);
+});
+
+test("createReliefPackTemplate refuses an active template without items", async () => {
+  let connectCalled = false;
+
+  pool.connect = async () => {
+    connectCalled = true;
+    throw new Error("The database connection should not be needed");
+  };
+  reliefPackTemplateRepository.getInactiveReliefPackTemplateByName = async () => null;
+  reliefPackTemplateRepository.getReliefPackTemplateByName = async () => null;
+
+  await assert.rejects(
+    () =>
+      reliefPackTemplateService.createReliefPackTemplate({
+        ...buildTemplateData("Empty Active Pack"),
+        is_active: true,
+        items: [],
+      }),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.equal(error.code, "RELIEF_PACK_TEMPLATE_EMPTY");
+      assert.match(error.message, /at least one inventory item/i);
+      return true;
+    },
+  );
+
+  assert.equal(connectCalled, false);
+});
+
+test("updateReliefPackTemplate preserves an inactive status when is_active is omitted", async () => {
+  const currentTemplate = {
+    ...buildTemplateData("Original Inactive Pack"),
+    id: "inactive-template",
+    is_active: false,
+  };
+  const existingItems = [
+    {
+      inventory_item_id: "existing-item",
+      quantity_required: 1,
+      item_name: "Existing item",
+      is_active: true,
+    },
+  ];
+  const queries = [];
+  let updatePayload = null;
+  const fakeClient = {
+    async query(sql) {
+      queries.push(sql);
+      return { rows: [] };
+    },
+    release() {},
+  };
+
+  pool.connect = async () => fakeClient;
+  pool.query = async () => ({ rows: [] });
+  reliefPackTemplateRepository.getReliefPackTemplateById = async () => currentTemplate;
+  reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId = async () =>
+    existingItems;
+  reliefPackTemplateRepository.getReliefPackTemplateDisasterTypesByTemplateId =
+    async () => [];
+  reliefPackTemplateRepository.getReliefPackTemplateUsageByTemplateId = async () => [];
+  reliefPackTemplateRepository.getReliefPackTemplateByName = async () => null;
+  reliefPackTemplateRepository.updateReliefPackTemplate = async (id, payload) => {
+    updatePayload = { id, payload };
+    return { ...currentTemplate, ...payload };
+  };
+  reliefPackTemplateRepository.deleteReliefPackTemplateDisasterTypesByTemplateId =
+    async () => {};
+
+  const updateData = {
+    ...buildTemplateData("Renamed Inactive Pack"),
+    is_active: undefined,
+  };
+  delete updateData.items;
+
+  const result = await reliefPackTemplateService.updateReliefPackTemplate(
+    currentTemplate.id,
+    updateData,
+  );
+
+  assert.equal(updatePayload.payload.is_active, false);
+  assert.equal(result.is_active, false);
+  assert.deepEqual(queries, ["BEGIN", "COMMIT"]);
+});
+
+test("updateReliefPackTemplate refuses to activate an empty template", async () => {
+  const currentTemplate = {
+    ...buildTemplateData("Empty Inactive Pack"),
+    id: "empty-template",
+    is_active: false,
+  };
+  let connectCalled = false;
+
+  pool.connect = async () => {
+    connectCalled = true;
+    throw new Error("The database connection should not be needed");
+  };
+  reliefPackTemplateRepository.getReliefPackTemplateById = async () => currentTemplate;
+  reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId = async () => [];
+  reliefPackTemplateRepository.getReliefPackTemplateDisasterTypesByTemplateId =
+    async () => [];
+  reliefPackTemplateRepository.getReliefPackTemplateUsageByTemplateId = async () => [];
+
+  const updateData = {
+    ...buildTemplateData("Empty Inactive Pack"),
+    is_active: true,
+  };
+  delete updateData.items;
+
+  await assert.rejects(
+    () =>
+      reliefPackTemplateService.updateReliefPackTemplate(
+        currentTemplate.id,
+        updateData,
+      ),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.equal(error.code, "RELIEF_PACK_TEMPLATE_EMPTY");
+      return true;
+    },
+  );
+
+  assert.equal(connectCalled, false);
+});
+
+test("createReliefPackTemplate applies usage edit locks when reusing an inactive template", async () => {
+  const inactiveTemplate = {
+    ...buildTemplateData("Reused Food Pack"),
+    id: "inactive-template",
+    is_active: false,
+  };
+  const existingItems = [
+    {
+      inventory_item_id: "old-item",
+      quantity_required: 1,
+    },
+  ];
+  const activeItem = {
+    id: "new-item",
+    item_code: "NEW-001",
+    item_name: "New item",
+    is_active: true,
+  };
+  const usageRows = [
+    {
+      disaster_type: "Flood",
+      disaster_event_status: "ACTIVE",
+      distributions_count: 1,
+      active_event_distributions_count: 1,
+      unsynced_distributions_count: 0,
+      edit_blocking_distributions_count: 1,
+    },
+  ];
+  let connectCalled = false;
+
+  pool.connect = async () => {
+    connectCalled = true;
+    throw new Error("The database connection should not be needed");
+  };
+  reliefPackTemplateRepository.getInactiveReliefPackTemplateByName = async () =>
+    inactiveTemplate;
+  reliefPackTemplateRepository.getReliefPackTemplateByName = async () =>
+    inactiveTemplate;
+  reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId = async () =>
+    existingItems;
+  reliefPackTemplateRepository.getReliefPackTemplateDisasterTypesByTemplateId =
+    async () => [];
+  reliefPackTemplateRepository.getReliefPackTemplateUsageByTemplateId = async () =>
+    usageRows;
+  reliefPackTemplateRepository.getInventoryItemById = async () => activeItem;
+
+  await assert.rejects(
+    () =>
+      reliefPackTemplateService.createReliefPackTemplate({
+        ...buildTemplateData("Reused Food Pack"),
+        is_active: true,
+        items: [
+          {
+            inventory_item_id: activeItem.id,
+            quantity_required: 1,
+          },
+        ],
+      }),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.match(error.message, /currently used by an active event/i);
+      return true;
+    },
+  );
+
+  assert.equal(connectCalled, false);
+});
+
+test("updateReliefPackTemplate allows definition and item edits after closed synced usage", async () => {
+  const currentTemplate = {
+    ...buildTemplateData("Original Food Pack"),
+    id: "template-1",
+    created_at: "2026-08-01T00:00:00.000Z",
+    updated_at: "2026-08-01T00:00:00.000Z",
+  };
+  const existingItems = [
+    {
+      inventory_item_id: "old-item",
+      quantity_required: 1,
+      item_code: "OLD-001",
+      item_name: "Old item",
+      category: "Food",
+      unit_of_measure: "pc",
+      is_active: true,
+    },
+  ];
+  const updatedItems = [
+    {
+      inventory_item_id: "new-item",
+      quantity_required: 2,
+    },
+  ];
+  const usageRows = [
+    {
+      disaster_type: "Flood",
+      disaster_event_status: "CLOSED",
+      distributions_count: 1,
+      active_event_distributions_count: 0,
+      unsynced_distributions_count: 0,
+      edit_blocking_distributions_count: 0,
+    },
+  ];
+  const queries = [];
+  const insertedItems = [];
+  let updatePayload = null;
+  const fakeClient = {
+    async query(sql) {
+      queries.push(sql);
+      return { rows: [] };
+    },
+    release() {},
+  };
+
+  pool.connect = async () => fakeClient;
+  pool.query = async () => ({ rows: [] });
+  reliefPackTemplateRepository.getReliefPackTemplateById = async () => currentTemplate;
+  reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId = async () =>
+    existingItems;
+  reliefPackTemplateRepository.getReliefPackTemplateDisasterTypesByTemplateId =
+    async () => [];
+  reliefPackTemplateRepository.getReliefPackTemplateUsageByTemplateId = async () =>
+    usageRows;
+  reliefPackTemplateRepository.getReliefPackTemplateByName = async () => null;
+  reliefPackTemplateRepository.getInventoryItemById = async (id) =>
+    id === "new-item"
+      ? {
+          id,
+          item_code: "NEW-001",
+          item_name: "New item",
+          category: "Food",
+          unit_of_measure: "pc",
+          is_active: true,
+        }
+      : null;
+  reliefPackTemplateRepository.updateReliefPackTemplate = async (
+    id,
+    payload,
+  ) => {
+    updatePayload = { id, payload };
+    return { ...currentTemplate, ...payload };
+  };
+  reliefPackTemplateRepository.deleteReliefPackTemplateItemsByTemplateId =
+    async () => {};
+  reliefPackTemplateRepository.insertReliefPackTemplateItem = async (item) => {
+    insertedItems.push(item);
+    return item;
+  };
+  reliefPackTemplateRepository.deleteReliefPackTemplateDisasterTypesByTemplateId =
+    async () => {};
+
+  const result = await reliefPackTemplateService.updateReliefPackTemplate(
+    "template-1",
+    {
+      ...buildTemplateData("Renamed Food Pack"),
+      items: updatedItems,
+    },
+  );
+
+  assert.equal(result.id, "template-1");
+  assert.equal(updatePayload.payload.name, "Renamed Food Pack");
+  assert.deepEqual(insertedItems, [
+    {
+      template_id: "template-1",
+      inventory_item_id: "new-item",
+      quantity_required: 2,
+    },
+  ]);
+  assert.deepEqual(queries, ["BEGIN", "COMMIT"]);
+});
+
+test("updateReliefPackTemplate still locks definition edits during active or unsynced usage", async () => {
+  const currentTemplate = {
+    ...buildTemplateData("Original Food Pack"),
+    id: "template-1",
+  };
+  const usageRows = [
+    {
+      disaster_type: "Flood",
+      disaster_event_status: "ACTIVE",
+      distributions_count: 1,
+      active_event_distributions_count: 1,
+      unsynced_distributions_count: 0,
+      edit_blocking_distributions_count: 1,
+    },
+  ];
+
+  pool.connect = async () => {
+    throw new Error("The database connection should not be needed");
+  };
+  reliefPackTemplateRepository.getReliefPackTemplateById = async () => currentTemplate;
+  reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId = async () => [];
+  reliefPackTemplateRepository.getReliefPackTemplateDisasterTypesByTemplateId =
+    async () => [];
+  reliefPackTemplateRepository.getReliefPackTemplateUsageByTemplateId = async () =>
+    usageRows;
+
+  await assert.rejects(
+    () =>
+      reliefPackTemplateService.updateReliefPackTemplate(
+        "template-1",
+        {
+          ...buildTemplateData("Renamed Food Pack"),
+          is_active: false,
+        },
+      ),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.match(error.message, /currently used by an active event/i);
+      return true;
+    },
+  );
 });

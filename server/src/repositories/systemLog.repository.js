@@ -259,14 +259,11 @@ const getAuditLogs = async (
           u_distribution.first_name,
           u_distribution.last_name
         ) ILIKE ${searchParam}
-        OR rpt_distribution.name ILIKE ${searchParam}
         OR EXISTS (
           SELECT 1
           FROM distribution_transaction_relief_pack_templates dtrpt_search
-          INNER JOIN relief_pack_templates rpt_search
-            ON rpt_search.id = dtrpt_search.relief_pack_template_id
           WHERE dtrpt_search.distribution_transaction_id = dt_direct.id
-            AND rpt_search.name ILIKE ${searchParam}
+            AND dtrpt_search.name_snapshot ILIKE ${searchParam}
         )
         OR al.old_values_json::text ILIKE ${searchParam}
         OR al.new_values_json::text ILIKE ${searchParam}
@@ -309,11 +306,6 @@ const getAuditLogs = async (
         ii_batch.item_name,
         ii_transaction.item_name
       ) AS inventory_item_name,
-      COALESCE(
-        ii_direct.is_active,
-        ii_batch.is_active,
-        ii_transaction.is_active
-      ) AS inventory_item_is_active,
       COALESCE(
         ib_direct.batch_no,
         ib_transaction.batch_no
@@ -400,21 +392,13 @@ const getAuditLogs = async (
       AND dt_direct.id = al.entity_id
     LEFT JOIN users u_distribution
       ON u_distribution.id = dt_direct.verified_by
-    LEFT JOIN relief_pack_templates rpt_distribution
-      ON rpt_distribution.id = dt_direct.relief_pack_template_id
     LEFT JOIN LATERAL (
       SELECT STRING_AGG(
-        DISTINCT linked_template.name,
-        ', ' ORDER BY linked_template.name
+        DISTINCT linked_template_row.name_snapshot,
+        ', ' ORDER BY linked_template_row.name_snapshot
       ) AS names
-      FROM relief_pack_templates linked_template
-      WHERE linked_template.id = dt_direct.relief_pack_template_id
-        OR EXISTS (
-          SELECT 1
-          FROM distribution_transaction_relief_pack_templates linked_template_row
-          WHERE linked_template_row.distribution_transaction_id = dt_direct.id
-            AND linked_template_row.relief_pack_template_id = linked_template.id
-        )
+      FROM distribution_transaction_relief_pack_templates linked_template_row
+      WHERE linked_template_row.distribution_transaction_id = dt_direct.id
     ) distribution_template_names ON TRUE
     LEFT JOIN LATERAL (
       SELECT jsonb_agg(
@@ -438,15 +422,24 @@ const getAuditLogs = async (
     LEFT JOIN LATERAL (
       SELECT jsonb_agg(
         jsonb_build_object(
-          'item_name', ii_distribution.item_name,
+          'item_name', COALESCE(
+            dti_distribution.item_name_snapshot,
+            ii_distribution.item_name
+          ),
           'quantity_released', dti_distribution.quantity_released,
-          'unit_of_measure', ii_distribution.unit_of_measure,
+          'unit_of_measure', COALESCE(
+            dti_distribution.unit_of_measure_snapshot,
+            ii_distribution.unit_of_measure
+          ),
           'batch_no', ib_distribution.batch_no,
           'donor_name', d_distribution.donor_name,
           'donation_remarks', di_distribution.remarks,
           'source_type', ib_distribution.source_type
         )
-        ORDER BY ii_distribution.item_name ASC, dti_distribution.created_at ASC
+        ORDER BY COALESCE(
+          dti_distribution.item_name_snapshot,
+          ii_distribution.item_name
+        ) ASC, dti_distribution.created_at ASC
       ) AS items
       FROM distribution_transaction_items dti_distribution
       INNER JOIN inventory_items ii_distribution
@@ -494,11 +487,6 @@ const getAuditLogs = async (
               )
             )
           )
-          AND COALESCE(
-            ii_direct.is_active,
-            ii_batch.is_active,
-            ii_transaction.is_active
-          ) IS TRUE
         )
         OR (
           al.entity_type = 'RELIEF_PACK_TEMPLATE'

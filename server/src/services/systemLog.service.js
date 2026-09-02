@@ -980,16 +980,6 @@ const isCurrentAuditRow = (row) => {
     ) === "CLAIMED";
   }
 
-  if (
-    [
-      "INVENTORY_ITEM",
-      "INVENTORY_BATCH",
-      "INVENTORY_TRANSACTION",
-    ].includes(row.entity_type)
-  ) {
-    return row.inventory_item_is_active === true;
-  }
-
   if (row.entity_type === "RELIEF_PACK_TEMPLATE") {
     return row.relief_pack_template_is_active !== false;
   }

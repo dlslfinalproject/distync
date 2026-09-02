@@ -567,7 +567,9 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
       sector_id: isAdditionalPack ? normalizedSectorIds[0] ?? null : null,
       sector_ids: isAdditionalPack ? normalizedSectorIds : [],
       applies_to_all_disasters: applies_to_all_disasters ?? true,
-      is_active: is_active ?? true,
+      // Omitted status means preserve the existing lifecycle state. The
+      // service resolves that omission against the stored template status.
+      is_active,
       items,
       disaster_types:
         (applies_to_all_disasters ?? true) === false ? normalizedDisasterTypes : [],

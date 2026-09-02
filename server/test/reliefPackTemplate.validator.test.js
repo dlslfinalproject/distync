@@ -71,6 +71,16 @@ test("new relief pack templates default to inactive when status is omitted", () 
   assert.equal(result.req.validatedBody.is_active, false);
 });
 
+test("relief pack template updates preserve the existing status when omitted", () => {
+  const result = runMiddleware(
+    validateUpdateReliefPackTemplate,
+    buildPayload(3),
+  );
+
+  assert.equal(result.nextCalled, true);
+  assert.equal(result.req.validatedBody.is_active, undefined);
+});
+
 test("relief pack template status requires a boolean", () => {
   [undefined, "true", 1, null].forEach((is_active) => {
     const result = runMiddleware(validateReliefPackTemplateStatus, {
