@@ -44,6 +44,30 @@ export const getOfflinePreparation = async ({ eventId, barangayId }) => {
   return db.offlinePreparation.get(scopeKey({ eventId, barangayId }));
 };
 
+export const getPreparedBarangayOfflineContexts = async ({ userId = "" } = {}) => {
+  const owner = getSyncQueueActorContext();
+  if (
+    !userId ||
+    owner.userId !== userId ||
+    owner.roleCode !== ROLE_CODES.BARANGAY
+  ) {
+    return [];
+  }
+
+  const preparations = await db.offlinePreparation.toArray();
+  return preparations.filter(
+    (preparation) =>
+      preparation.accessMode === owner.accessMode &&
+      preparation.userId === userId &&
+      preparation.roleCode === ROLE_CODES.BARANGAY &&
+      [OFFLINE_PREPARATION_STATUS.READY, OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH].includes(
+        preparation.status,
+      ) &&
+      preparation.disaster_event_id &&
+      preparation.barangay_id,
+  );
+};
+
 export const getLastOfflinePreparationDiagnostics = () => lastPreparationDiagnostics;
 
 const publishDiagnostics = (diagnostics) => {

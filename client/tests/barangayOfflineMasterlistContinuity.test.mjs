@@ -64,3 +64,16 @@ test("Barangay queue changes are consumed by the reactive Masterlist path", asyn
   assert.match(syncSource, /syncQueueEntries/);
   assert.match(syncSource, /resolveEffectiveMasterlistRows/);
 });
+
+test("offline Barangay context restores only an authorized prepared event scope", async () => {
+  const dashboardSource = await readSource("src", "features", "barangay-dashboard", "useBarangayDashboard.js");
+  const preparationSource = await readSource("src", "offline", "offlinePreparation.js");
+
+  assert.match(dashboardSource, /getPreparedBarangayOfflineContexts/);
+  assert.match(dashboardSource, /preparation\.disaster_event_id/);
+  assert.match(dashboardSource, /selectedPreparedContext\?\.barangay_id/);
+  assert.match(dashboardSource, /getCachedRegistrationReferenceData/);
+  assert.match(preparationSource, /preparation\.accessMode === owner\.accessMode/);
+  assert.match(preparationSource, /preparation\.userId === userId/);
+  assert.match(preparationSource, /preparation\.roleCode === ROLE_CODES\.BARANGAY/);
+});
