@@ -21,8 +21,11 @@ const ACTIVE_QR_STATUS = "ACTIVE";
 const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
 const ARCHIVED_HOUSEHOLD_CODE = "HOUSEHOLD_ARCHIVED";
 const HOUSEHOLD_NOT_PRESENT_CODE = "HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER";
-const DISTRIBUTION_STUB_UNIQUE_CONSTRAINT = "distribution_transactions_stub_id_key";
 
+const DISTRIBUTION_STUB_UNIQUE_CONSTRAINTS = new Set([
+  "uq_distribution_stub",
+  "distribution_transactions_stub_id_key",
+]);
 const buildDisasterEventNotActiveError = (stub) => {
   const error = buildQrValidationError({
     code: "DISASTER_EVENT_NOT_ACTIVE",
@@ -821,7 +824,7 @@ const claimBarangayStub = async (params) => {
 
     if (
       error.code === "23505" &&
-      error.constraint === DISTRIBUTION_STUB_UNIQUE_CONSTRAINT
+      DISTRIBUTION_STUB_UNIQUE_CONSTRAINTS.has(error.constraint)
     ) {
       const latestDistributionTransaction =
         await stubRepository.getLatestDistributionTransactionByStubId(params.id);

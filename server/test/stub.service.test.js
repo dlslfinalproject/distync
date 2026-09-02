@@ -270,42 +270,47 @@ test("H05-09 claimBarangayStub blocks archived households before any claim proce
   );
 });
 
-test("H05-10 claimBarangayStub normalizes only the known distribution stub unique violation", async () => {
-  const events = [];
+for (const constraint of [
+  "uq_distribution_stub",
+  "distribution_transactions_stub_id_key",
+]) {
+  test(`H05-10 claimBarangayStub normalizes ${constraint}`, async () => {
+    const events = [];
 
-  await withStubbedStubService(
-    createBaseStubs({
-      events,
-      scopedStub: {
-        ...baseStub,
-        status: "ISSUED",
-      },
-      lockedStub: {
-        ...baseStub,
-        status: "ISSUED",
-      },
-      claimHandler: async () => {
-        const error = new Error("duplicate key value violates unique constraint");
-        error.code = "23505";
-        error.constraint = "distribution_transactions_stub_id_key";
-        throw error;
-      },
-    }),
-    async ({ claimBarangayStub }) => {
-      await assert.rejects(
-        () => claimBarangayStub(baseParams),
-        (error) => {
-          assert.equal(error.code, "STUB_ALREADY_CLAIMED");
-          assert.equal(error.statusCode, 409);
-          assert.doesNotMatch(error.message, /23505|constraint/i);
-          return true;
+    await withStubbedStubService(
+      createBaseStubs({
+        events,
+        scopedStub: {
+          ...baseStub,
+          status: "ISSUED",
         },
-      );
-    },
-  );
+        lockedStub: {
+          ...baseStub,
+          status: "ISSUED",
+        },
+        claimHandler: async () => {
+          const error = new Error("duplicate key value violates unique constraint");
+          error.code = "23505";
+          error.constraint = constraint;
+          throw error;
+        },
+      }),
+      async ({ claimBarangayStub }) => {
+        await assert.rejects(
+          () => claimBarangayStub(baseParams),
+          (error) => {
+            assert.equal(error.code, "STUB_ALREADY_CLAIMED");
+            assert.equal(error.statusCode, 409);
+            assert.doesNotMatch(error.message, /23505|constraint/i);
+            return true;
+          },
+        );
+      },
+    );
 
-  assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
-});
+    assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
+  });
+}
 
 test("H05-11 claimBarangayStub leaves unrelated unique violations technical", async () => {
   const events = [];

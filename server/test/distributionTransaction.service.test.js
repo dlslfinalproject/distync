@@ -243,38 +243,43 @@ test("H05-04 non-claimed invalid stub status remains a non-conflict validation e
   assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
 });
 
-test("H05-05 distribution stub unique violation is normalized only for the known stub uniqueness constraint", async () => {
-  const events = [];
+for (const constraint of [
+  "uq_distribution_stub",
+  "distribution_transactions_stub_id_key",
+]) {
+  test(`H05-05 distribution stub unique violation normalizes ${constraint}`, async () => {
+    const events = [];
 
-  await withStubbedDistributionService(
-    createBaseStubs({
-      events,
-      stub: {
-        ...baseStub,
-        status: "ISSUED",
-      },
-      claimHandler: async () => {
-        const error = new Error("duplicate key value violates unique constraint");
-        error.code = "23505";
-        error.constraint = "distribution_transactions_stub_id_key";
-        throw error;
-      },
-    }),
-    async ({ claimDistributionTransactionFromQr }) => {
-      await assert.rejects(
-        () => claimDistributionTransactionFromQr(baseRequest),
-        (error) => {
-          assert.equal(error.code, "STUB_ALREADY_CLAIMED");
-          assert.equal(error.statusCode, 409);
-          assert.doesNotMatch(error.message, /23505|constraint/i);
-          return true;
+    await withStubbedDistributionService(
+      createBaseStubs({
+        events,
+        stub: {
+          ...baseStub,
+          status: "ISSUED",
         },
-      );
-    },
-  );
+        claimHandler: async () => {
+          const error = new Error("duplicate key value violates unique constraint");
+          error.code = "23505";
+          error.constraint = constraint;
+          throw error;
+        },
+      }),
+      async ({ claimDistributionTransactionFromQr }) => {
+        await assert.rejects(
+          () => claimDistributionTransactionFromQr(baseRequest),
+          (error) => {
+            assert.equal(error.code, "STUB_ALREADY_CLAIMED");
+            assert.equal(error.statusCode, 409);
+            assert.doesNotMatch(error.message, /23505|constraint/i);
+            return true;
+          },
+        );
+      },
+    );
 
-  assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
-});
+    assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
+  });
+}
 
 test("H05-06 unrelated unique violations remain technical errors", async () => {
   const events = [];

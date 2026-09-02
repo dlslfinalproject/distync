@@ -1000,11 +1000,14 @@ const ROLE_CODES = {
   MAYOR: "MAYOR",
 };
 const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
-const DISTRIBUTION_STUB_UNIQUE_CONSTRAINT = "distribution_transactions_stub_id_key";
+const DISTRIBUTION_STUB_UNIQUE_CONSTRAINTS = new Set([
+  "uq_distribution_stub",
+  "distribution_transactions_stub_id_key",
+]);
 
 const isDistributionStubUniqueViolation = (error) =>
   error?.code === "23505" &&
-  error?.constraint === DISTRIBUTION_STUB_UNIQUE_CONSTRAINT;
+  DISTRIBUTION_STUB_UNIQUE_CONSTRAINTS.has(error?.constraint);
 
 const createDisasterEventNotActiveError = (stub) => {
   const error = new Error(
