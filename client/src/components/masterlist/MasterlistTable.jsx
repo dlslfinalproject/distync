@@ -106,6 +106,7 @@ const MasterlistTable = ({
   onMarkDeparted,
   onViewHousehold,
   onEditHousehold,
+  isOffline = false,
   onRestoreHousehold,
   isDepartureReadOnly = false,
   departureReadOnlyText = "-",
@@ -214,8 +215,12 @@ const MasterlistTable = ({
           key: "edit",
           label: "Edit Household",
           icon: <FiEdit2 size={18} />,
-          disabled: typeof onEditHousehold !== "function",
-          title: "Edit Household",
+          disabled: isOffline || row.is_local_only || typeof onEditHousehold !== "function",
+          title: isOffline
+            ? "🚫 Editing is unavailable while offline."
+            : row.is_local_only
+              ? "Editing is unavailable until this household syncs."
+            : "Edit Household",
           onClick: (selectedRow) => onEditHousehold?.(selectedRow.household_id),
         },
       ];
@@ -256,8 +261,12 @@ const MasterlistTable = ({
         key: "edit",
         label: "Edit Household",
         icon: <FiEdit2 size={18} />,
-        disabled: typeof onEditHousehold !== "function",
-        title: "Edit Household Details",
+        disabled: isOffline || row.is_local_only || typeof onEditHousehold !== "function",
+        title: isOffline
+          ? "🚫 Editing is unavailable while offline."
+          : row.is_local_only
+            ? "Editing is unavailable until this household syncs."
+          : "Edit Household Details",
         onClick: (selectedRow) => onEditHousehold?.(selectedRow.household_id),
       },
     ];
@@ -485,7 +494,7 @@ const MasterlistTable = ({
                         style={tableStyles.directActionButton}
                         title={actionItems[0].title || actionItems[0].label}
                         aria-label={actionItems[0].label}
-                        disabled={actionItems[0].disabled || row.is_local_only}
+                        disabled={actionItems[0].disabled}
                       >
                         {actionItems[0].icon}
                       </button>
@@ -493,11 +502,9 @@ const MasterlistTable = ({
                       <TableActionsMenu
                         row={row}
                         menuId={row.household_id}
-                        buttonTitle={
-                          row.is_local_only ? "Available after sync" : "Actions"
-                        }
+                        buttonTitle="Actions"
                         buttonAriaLabel="Actions"
-                        disabled={row.is_local_only}
+                        disabled={false}
                         onToggle={(selectedRow) => {
                           console.log("Selected row:", selectedRow);
                         }}
