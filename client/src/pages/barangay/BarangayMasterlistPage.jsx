@@ -1160,6 +1160,7 @@ const BarangayMasterlistPage = () => {
         errorMessage={householdDetailsErrorMessage}
         householdDetails={householdDetails}
         onClose={handleCloseHouseholdDetails}
+        isOffline={isOffline}
         onEditHousehold={
           isSelectedEventEnded || isOffline
             ? undefined

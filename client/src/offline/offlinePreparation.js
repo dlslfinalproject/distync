@@ -8,7 +8,10 @@ import {
   normalizeOfflineStubQrKey,
   upsertOfflineStubSnapshots,
 } from "../features/stubs/stubCache.js";
-import { fetchMasterlist } from "../features/masterlist/masterlistService.js";
+import {
+  fetchHouseholdDetails,
+  fetchMasterlist,
+} from "../features/masterlist/masterlistService.js";
 import { cacheMasterlistRows, getCachedMasterlistRows } from "./masterlistCache.js";
 import {
   fetchActiveDisasterEvents,
@@ -28,7 +31,7 @@ export const OFFLINE_PREPARATION_STATUS = {
   PARTIAL: "PARTIAL",
   FAILED: "FAILED",
 };
-export const OFFLINE_CACHE_VERSION = 1;
+export const OFFLINE_CACHE_VERSION = 2;
 
 const jobs = new Map();
 let lastPreparationDiagnostics = null;
@@ -139,6 +142,31 @@ const fetchAllPages = async (fetchPage, onPage = () => {}) => {
   return { rows: uniqueRows, pages, expectedCount };
 };
 
+const fetchHouseholdDetailsWithBoundedConcurrency = async (rows, onProgress) => {
+  const detailsByHouseholdId = new Map();
+  const queue = [...rows];
+  const worker = async () => {
+    while (queue.length) {
+      const row = queue.shift();
+      const householdId = row?.household_id;
+      if (!householdId) continue;
+      const details = await withTimeout(
+        fetchHouseholdDetails(householdId),
+        `Offline household details ${householdId}`,
+      );
+      if (!details?.household?.id || !details.household.family_head_photo_url) {
+        const error = new Error("Offline household detail or required photo is unavailable");
+        error.code = "OFFLINE_PREPARATION_HOUSEHOLD_DETAILS_INCOMPLETE";
+        throw error;
+      }
+      detailsByHouseholdId.set(String(householdId), details);
+      onProgress?.(detailsByHouseholdId.size);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, queue.length) }, worker));
+  return detailsByHouseholdId;
+};
+
 export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, context = {}, targetQrValue = "" }) => {
   const scope = { eventId, barangayId, owner: getSyncQueueActorContext() };
   const key = scopeKey(scope);
@@ -179,6 +207,7 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
     await savePreparation(scope, OFFLINE_PREPARATION_STATUS.PREPARING, { datasets: diagnostics.datasets });
     try {
       startStage("FETCHING_MASTERLIST");
+      startStage("FETCHING_HOUSEHOLD_DETAILS");
       startStage("FETCHING_STUBS");
       startStage("FETCHING_REGISTRATION_REFERENCES");
       const [stubs, masterlist, registrationReferences] = await Promise.all([
@@ -229,6 +258,15 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
         ]),
       ]);
       completeStage("FETCHING_MASTERLIST", masterlist.rows.length);
+      const householdDetailsById = await fetchHouseholdDetailsWithBoundedConcurrency(
+        masterlist.rows,
+        (processed) => {
+          diagnostics.stages.FETCHING_HOUSEHOLD_DETAILS.processed = processed;
+          diagnostics.lastProgressAt = new Date().toISOString();
+          publishDiagnostics({ ...diagnostics });
+        },
+      );
+      completeStage("FETCHING_HOUSEHOLD_DETAILS", householdDetailsById.size);
       completeStage("FETCHING_STUBS", stubs.rows.length);
       completeStage("FETCHING_REGISTRATION_REFERENCES");
       void registrationReferences;
@@ -256,8 +294,12 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
       startStage("PERSISTING_MASTERLIST");
       startStage("PERSISTING_STUBS");
       const persistedStubs = await upsertOfflineStubSnapshots(stubs.rows);
-      await cacheMasterlistRows({ rows: masterlist.rows, disasterEventId: eventId, barangayId });
-      completeStage("PERSISTING_MASTERLIST", masterlist.rows.length);
+      const preparedMasterlistRows = masterlist.rows.map((row) => ({
+        ...row,
+        offline_household_details: householdDetailsById.get(String(row.household_id)) || null,
+      }));
+      await cacheMasterlistRows({ rows: preparedMasterlistRows, disasterEventId: eventId, barangayId });
+      completeStage("PERSISTING_MASTERLIST", preparedMasterlistRows.length);
       completeStage("PERSISTING_STUBS", persistedStubs.length);
       const [stubRowsAfterWrite, masterlistRowsAfterWrite] = await Promise.all([
         getCachedStubSnapshotsForScope({ disasterEventId: eventId, currentBarangayId: barangayId }),
@@ -271,8 +313,11 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
       diagnostics.stages.VERIFYING_QR_DATA.processed = qrReadBack.length;
       completeStage("VERIFYING_QR_DATA", qrReadBack.length);
       startStage("VERIFYING_LOCAL_DATA");
-      const masterlistReadBack = masterlist.rows.every((row) =>
-        masterlistRowsAfterWrite.some((cachedRow) => cachedRow.household_id === row.household_id),
+      const masterlistReadBack = preparedMasterlistRows.every((row) =>
+        masterlistRowsAfterWrite.some((cachedRow) =>
+          cachedRow.household_id === row.household_id &&
+          cachedRow.offline_household_details?.household?.family_head_photo_url,
+        ),
       );
       const masterlistReadBackSucceeded = masterlistReadBack;
       if (!qrReadBack.every(Boolean) || !masterlistReadBack || stubRowsAfterWrite.length < persistedStubs.length) {
@@ -281,18 +326,18 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
       completeStage("VERIFYING_LOCAL_DATA", stubRowsAfterWrite.length + masterlistRowsAfterWrite.length);
       startStage("FINALIZING");
       diagnostics.datasets.stubs = { ...diagnostics.datasets.stubs, collected: stubs.rows.length, persisted: persistedStubs.length, qrSearchable: qrReadBack.filter(Boolean).length, readBack: true, complete: stubs.pages > 0 && (!stubs.expectedCount || stubs.rows.length >= stubs.expectedCount) };
-      diagnostics.datasets.masterlist = { ...diagnostics.datasets.masterlist, collected: masterlist.rows.length, persisted: masterlist.rows.length, readBack: true, complete: masterlist.pages > 0 && (!masterlist.expectedCount || masterlist.rows.length >= masterlist.expectedCount) };
+      diagnostics.datasets.masterlist = { ...diagnostics.datasets.masterlist, collected: preparedMasterlistRows.length, persisted: preparedMasterlistRows.length, detailsPrepared: householdDetailsById.size, readBack: true, complete: masterlist.pages > 0 && (!masterlist.expectedCount || preparedMasterlistRows.length >= masterlist.expectedCount) };
       await savePreparation(scope, OFFLINE_PREPARATION_STATUS.READY, {
         stub_count: stubs.rows.length,
         stub_pages: stubs.pages,
         stub_expected_count: stubs.expectedCount,
-        masterlist_count: masterlist.rows.length,
+        masterlist_count: preparedMasterlistRows.length,
         masterlist_pages: masterlist.pages,
         masterlist_expected_count: masterlist.expectedCount,
         datasets: diagnostics.datasets,
       });
       publishDiagnostics({ ...diagnostics, status: OFFLINE_PREPARATION_STATUS.READY, completedAt: new Date().toISOString(), targetQr: diagnostics.targetQr ? { ...diagnostics.targetQr, persisted: diagnostics.targetQr.included && qrReadBack.some(Boolean), readBack: diagnostics.targetQr.included && qrReadBack.some(Boolean) } : null });
-      return { status: OFFLINE_PREPARATION_STATUS.READY, stubCount: stubs.rows.length, masterlistCount: masterlist.rows.length };
+      return { status: OFFLINE_PREPARATION_STATUS.READY, stubCount: stubs.rows.length, masterlistCount: preparedMasterlistRows.length };
     } catch (error) {
       if (diagnostics.stage && diagnostics.stages[diagnostics.stage]) {
         diagnostics.stages[diagnostics.stage] = {

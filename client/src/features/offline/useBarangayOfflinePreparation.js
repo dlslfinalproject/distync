@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { getOfflinePreparation, OFFLINE_PREPARATION_STATUS, prepareBarangayOfflineData } from "../../offline/offlinePreparation.js";
+import {
+  getOfflinePreparation,
+  OFFLINE_CACHE_VERSION,
+  OFFLINE_PREPARATION_STATUS,
+  prepareBarangayOfflineData,
+} from "../../offline/offlinePreparation.js";
 import { getCachedMasterlistRows } from "../../offline/masterlistCache.js";
 import {
   getCachedEvacuationCentersByBarangay,
@@ -34,8 +39,16 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
         cachedReferenceData.sectors.data.length > 0;
       const hasEvacuationCenterReference =
         getCachedEvacuationCentersByBarangay(barangayId).length > 0;
+      const hasCompleteHouseholdDetails = cachedMasterlistRows.every(
+        (row) => Boolean(
+          row?.offline_household_details?.household?.id &&
+            row.offline_household_details.household.family_head_photo_url,
+        ),
+      );
       const hasRequiredMasterlistCache =
         existing?.status === OFFLINE_PREPARATION_STATUS.READY &&
+        existing?.cache_version === OFFLINE_CACHE_VERSION &&
+        hasCompleteHouseholdDetails &&
         (expectedMasterlistCount === 0 || cachedMasterlistRows.length > 0);
       if (
         hasRequiredMasterlistCache &&
@@ -48,7 +61,16 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
         return;
       }
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        if (mounted) setReadiness(existing?.status === OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH ? OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH : OFFLINE_PREPARATION_STATUS.NOT_READY);
+        if (mounted) {
+          setReadiness(
+            [
+              OFFLINE_PREPARATION_STATUS.READY,
+              OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH,
+            ].includes(existing?.status)
+              ? OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH
+              : OFFLINE_PREPARATION_STATUS.NOT_READY,
+          );
+        }
         return;
       }
       if (mounted) setReadiness(OFFLINE_PREPARATION_STATUS.PREPARING);

@@ -256,6 +256,7 @@ const HouseholdDetailModal = ({
   householdDetails,
   onClose,
   onEditHousehold,
+  isOffline = false,
   showAdministrativeMetadata = true,
   showDataPrivacyAcknowledgement = false,
 }) => {
@@ -454,7 +455,11 @@ const HouseholdDetailModal = ({
                         style={modalStyles.photo}
                       />
                     ) : (
-                      <div style={modalStyles.placeholder}>No photo available</div>
+                      <div style={modalStyles.placeholder}>
+                        {isOffline
+                          ? "Family head photo is not available in the current offline data. Refresh offline data when connected."
+                          : "No photo available"}
+                      </div>
                     )}
                   </div>
                 </div>
