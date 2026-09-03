@@ -4,6 +4,7 @@ import {
   getCanonicalMemberSectorCode,
   MASTERLIST_FILTER_SECTOR_CODES,
 } from "../../utils/registrationOptions.js";
+import { deriveAgeGroup } from "../../utils/ageGroup.js";
 
 const formatDateTime = (value) => {
   if (!value) {
@@ -71,6 +72,16 @@ const hasPersonName = (person) =>
 const getSubmittedMembers = (payload = {}) =>
   (Array.isArray(payload.members) ? payload.members : []).filter(hasPersonName);
 
+const getDerivedAgeSectorCode = (person = {}) => {
+  const ageValue = Number.isInteger(person.age_value)
+    ? person.age_value
+    : Number.parseInt(person.age_value, 10);
+
+  return Number.isInteger(ageValue)
+    ? deriveAgeGroup(ageValue, person.age_unit)
+    : null;
+};
+
 const getSectorOptionsById = (sectorOptions = []) => {
   const byId = new Map();
 
@@ -87,9 +98,13 @@ const buildQueuedSectorsText = (payload = {}, sectorOptions = []) => {
   const sectorOptionsById = getSectorOptionsById(sectorOptions);
   const sectorRefs = [
     ...(payload.family_head?.sector_ids || []),
+    getDerivedAgeSectorCode(payload.family_head),
     ...(payload.household_sector_ids || []),
-    ...getSubmittedMembers(payload).flatMap((member) => member.sector_ids || []),
-  ];
+    ...getSubmittedMembers(payload).flatMap((member) => [
+      ...(member.sector_ids || []),
+      getDerivedAgeSectorCode(member),
+    ]),
+  ].filter(Boolean);
   const orderIndexByCode = new Map(
     MASTERLIST_FILTER_SECTOR_CODES.map((code, index) => [code, index]),
   );
