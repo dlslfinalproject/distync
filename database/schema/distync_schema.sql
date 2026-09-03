@@ -369,6 +369,9 @@ CREATE TABLE public.distribution_transactions (
   CONSTRAINT distribution_transactions_qr_scanned_by_fkey FOREIGN KEY (qr_scanned_by) REFERENCES public.users(id)
 );
 
+CREATE INDEX idx_distribution_transactions_household_event
+ON public.distribution_transactions (disaster_event_id, household_id);
+
 CREATE TABLE public.distribution_transaction_items (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   distribution_transaction_id uuid NOT NULL,
