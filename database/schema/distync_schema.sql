@@ -383,10 +383,14 @@ CREATE TABLE public.distribution_transaction_items (
   unit_of_measure_snapshot text NOT NULL,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT distribution_transaction_items_pkey PRIMARY KEY (id),
-  CONSTRAINT distribution_transaction_items_distribution_transaction_id_fkey FOREIGN KEY (distribution_transaction_id) REFERENCES public.distribution_transactions(id),
-  CONSTRAINT distribution_transaction_items_inventory_batch_id_fkey FOREIGN KEY (inventory_batch_id) REFERENCES public.inventory_batches(id),
-  CONSTRAINT distribution_transaction_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id)
+  CONSTRAINT distribution_transaction_items_distribution_transaction_id_fkey FOREIGN KEY (distribution_transaction_id) REFERENCES public.distribution_transactions(id) ON DELETE CASCADE,
+  CONSTRAINT distribution_transaction_items_inventory_batch_id_fkey FOREIGN KEY (inventory_batch_id) REFERENCES public.inventory_batches(id) ON DELETE RESTRICT,
+  CONSTRAINT distribution_transaction_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id) ON DELETE RESTRICT
 );
+
+CREATE INDEX idx_distribution_transaction_items_batch
+ON public.distribution_transaction_items
+USING btree (inventory_batch_id);
 
 -- =========================================================
 -- 5) INVENTORY MANAGEMENT
