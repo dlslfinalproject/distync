@@ -329,7 +329,6 @@ const BarangayLayout = () => {
               value={{
                 isAcknowledged: isMayorInventoryReadyAcknowledged,
                 acknowledge: () => setIsMayorInventoryReadyAcknowledged(true),
-                reset: () => setIsMayorInventoryReadyAcknowledged(false),
               }}
             >
               {isBarangayPortal ? <OfflineDataReadiness {...offlinePreparation} /> : null}

@@ -18,10 +18,10 @@ test("Mayor READY popup acknowledgement is in-memory at the shared layout scope"
   assert.doesNotMatch(readiness, /localStorage|sessionStorage|indexedDB/i);
 });
 
-test("route remount cannot reset an acknowledged READY popup, while non-READY resets it", async () => {
+test("route remount and transient readiness states cannot reset acknowledgement", async () => {
   const readiness = await readSource("components/layout/OfflineDataReadiness.jsx");
 
-  assert.match(readiness, /readiness !== OFFLINE_PREPARATION_STATUS\.READY\) mayorDismissal\?\.reset\(\)/);
+  assert.doesNotMatch(readiness, /mayorDismissal\?\.reset\(\)/);
   assert.match(readiness, /ready && \(!readyNotice \|\| readyAcknowledged\)/);
   assert.match(readiness, /setReadyNotice\(false\); setDismissed\(true\); mayorDismissal\?\.acknowledge\(\)/);
 });

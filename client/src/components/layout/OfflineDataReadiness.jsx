@@ -22,9 +22,8 @@ export default function OfflineDataReadiness({
   useEffect(() => {
     if (readiness === OFFLINE_PREPARATION_STATUS.READY && previous.current !== readiness) { setDismissed(false); setReadyNotice(true); }
     if (readiness === OFFLINE_PREPARATION_STATUS.PREPARING) setDismissed(false);
-    if (readiness !== OFFLINE_PREPARATION_STATUS.READY) mayorDismissal?.reset();
     previous.current = readiness;
-  }, [mayorDismissal, readiness]);
+  }, [readiness]);
   if (readiness === OFFLINE_PREPARATION_STATUS.NOT_PREPARED) return null;
   const ready = readiness === OFFLINE_PREPARATION_STATUS.READY;
   const preparing = readiness === OFFLINE_PREPARATION_STATUS.PREPARING;
