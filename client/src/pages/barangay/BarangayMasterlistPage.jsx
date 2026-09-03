@@ -195,7 +195,9 @@ const BarangayMasterlistPage = () => {
     localHouseholdDuplicateCandidates: data.rows,
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
-        response?.message || "Household registered successfully",
+        response?.queued_offline
+          ? ""
+          : response?.message || "Household registered successfully",
       );
       setAttendanceActionMessage("");
       setActiveCrossEventModalTitles(getActiveCrossEventTitles(response));

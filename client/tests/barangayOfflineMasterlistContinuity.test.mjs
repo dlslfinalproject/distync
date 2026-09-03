@@ -22,7 +22,7 @@ test("offline Masterlist reads durable rows and keeps the effective table scope"
 
   assert.match(hookSource, /const cachedMasterlistRows = await getCachedMasterlistRows/);
   assert.match(hookSource, /const cachedData = buildCachedMasterlistResult/);
-  assert.match(hookSource, /Offline mode: showing the last saved Masterlist/);
+  assert.doesNotMatch(hookSource, /Offline mode: showing the last saved Masterlist/);
   assert.match(hookSource, /setErrorMessage\(""\);\s*setInfoMessage\(/);
   assert.match(uiSource, /resolveEffectiveMasterlistRows/);
   assert.match(uiSource, /HOUSEHOLD_REGISTER/);

@@ -32,3 +32,13 @@ test("Mayor Inventory reference still owns its existing scoped banner", async ()
   assert.match(inventory, /<SyncStatusBanner scope="mayor-inventory" \/>/);
   assert.match(banner, /Offline Mode Active/);
 });
+
+test("Masterlist no longer emits the redundant page-level offline messages", async () => {
+  const hook = await readSource("features/masterlist/masterlistHooks.js");
+  const privacy = await readSource("features/household-registration/privacyNotice.mjs");
+  const modal = await readSource("components/household-registration/DataPrivacyConsentModal.jsx");
+
+  assert.doesNotMatch(hook, /Offline mode: showing the last saved Masterlist/);
+  assert.match(privacy, /HOUSEHOLD_PRIVACY_OFFLINE_MESSAGE/);
+  assert.match(modal, /Data Privacy|acknowledgment/i);
+});

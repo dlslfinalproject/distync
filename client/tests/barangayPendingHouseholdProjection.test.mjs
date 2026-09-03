@@ -43,6 +43,33 @@ test("pending head-only registration projects household size and head sectors", 
   assert.equal(row.sectors_text, "Adult");
 });
 
+test("pending projection derives age-based sectors using the registration rule", () => {
+  const row = buildQueuedHouseholdRow(
+    buildEntry({
+      family_head: {
+        first_name: "Kathryn",
+        last_name: "Bernardo",
+        age_value: 30,
+        age_unit: "YEARS",
+        sector_ids: [],
+      },
+      members: [{
+        first_name: "Member",
+        last_name: "Bernardo",
+        age_value: 2,
+        age_unit: "YEARS",
+        sector_ids: [],
+      }],
+      household_size: 2,
+    }),
+    "Santiago",
+    sectorOptions,
+  );
+
+  assert.equal(row.members_count, 2);
+  assert.equal(row.sectors_text, "Toddler, Adult");
+});
+
 test("pending household size is the family head plus submitted members", () => {
   for (const memberCount of [1, 2, 5]) {
     const row = buildQueuedHouseholdRow(
