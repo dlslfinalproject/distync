@@ -265,6 +265,54 @@ test("donor-name publication fails safely when the deployed schema lacks the fla
   });
 });
 
+test("donor-name publication rechecks schema after a missing column becomes available", async () => {
+  await withStubbedRepository(async (repository) => {
+    const calls = [];
+    let hasColumn = false;
+    const dbClient = {
+      query: async (sql, values) => {
+        const normalizedSql = String(sql).trim();
+        calls.push({ sql: normalizedSql, values });
+
+        if (normalizedSql.includes("information_schema.columns")) {
+          const result = { rows: [{ has_column: hasColumn }] };
+          hasColumn = true;
+          return result;
+        }
+
+        if (normalizedSql.includes("UPDATE donations")) {
+          return { rows: [{ id: "donation-1", donor_name_public: true }] };
+        }
+
+        return { rows: [] };
+      },
+    };
+
+    await assert.rejects(
+      repository.updateDonationPublicName("donation-1", true, dbClient),
+      (error) =>
+        error.code === "DONATION_PUBLIC_NAME_COLUMN_MISSING" &&
+        error.statusCode === 503,
+    );
+
+    const updatedDonation = await repository.updateDonationPublicName(
+      "donation-1",
+      true,
+      dbClient,
+    );
+
+    assert.deepEqual(updatedDonation, {
+      id: "donation-1",
+      donor_name_public: true,
+    });
+    assert.equal(
+      calls.filter((call) => call.sql.includes("information_schema.columns"))
+        .length,
+      2,
+    );
+  });
+});
+
 test("donation inventory lookups remain compatible without inventory_items.is_active", async () => {
   await withStubbedRepository(async (repository) => {
     const dbClient = createCapturingDbClient({

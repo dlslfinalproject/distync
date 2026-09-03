@@ -1,14 +1,6 @@
 const pool = require("../config/db");
 
-const schemaColumnCache = new Map();
-
 const hasSchemaColumn = async (tableName, columnName, dbClient = pool) => {
-  const cacheKey = `${tableName}.${columnName}`;
-
-  if (schemaColumnCache.has(cacheKey)) {
-    return schemaColumnCache.get(cacheKey);
-  }
-
   const result = await dbClient.query(
     `
       SELECT EXISTS (
@@ -22,9 +14,7 @@ const hasSchemaColumn = async (tableName, columnName, dbClient = pool) => {
     [tableName, columnName],
   );
 
-  const hasColumn = Boolean(result.rows[0]?.has_column);
-  schemaColumnCache.set(cacheKey, hasColumn);
-  return hasColumn;
+  return Boolean(result.rows[0]?.has_column);
 };
 
 const hasInventoryItemReorderLevelColumn = (dbClient = pool) =>
