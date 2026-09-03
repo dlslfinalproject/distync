@@ -21,7 +21,6 @@ export const buildQueuedInventoryItem = (entry) => {
     barcode: payload.barcode || null,
     reorder_level: payload.reorder_level ?? null,
     expiration_date: payload.expiration_date || null,
-    is_active: true,
     is_perishable: Boolean(payload.is_perishable),
     stock_forms: [
       {

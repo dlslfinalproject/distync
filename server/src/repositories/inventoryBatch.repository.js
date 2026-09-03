@@ -32,7 +32,6 @@ const baseSelectQuery = `
     ii.reorder_level,
     ii.barcode,
     ii.is_perishable,
-    ii.is_active,
     stock_forms.barcode AS stock_form_barcode,
     stock_forms.packaging AS stock_form_packaging,
     stock_forms.units_per_packaging AS stock_form_units_per_packaging,
@@ -46,6 +45,8 @@ const baseSelectQuery = `
     source_donation.donor_name AS source_donor_name,
     source_donation.disaster_event_id AS source_donation_disaster_event_id,
     source_donation.donation_status AS source_donation_status,
+    source_donation.donation_received_at AS source_donation_received_at,
+    source_donation.donation_created_at AS source_donation_created_at,
     CASE
       WHEN source_donation.item_remarks ILIKE 'Relief Pack:%'
         THEN 'RELIEF_PACK'
@@ -65,6 +66,8 @@ const baseSelectQuery = `
       source_d.donor_name,
       source_d.disaster_event_id,
       source_d.status AS donation_status,
+      source_d.received_at AS donation_received_at,
+      source_d.created_at AS donation_created_at,
       source_di.remarks AS item_remarks
     FROM donation_items source_di
     INNER JOIN donations source_d
@@ -149,8 +152,7 @@ const getInventoryItemById = async (id, dbClient = pool) => {
         WHERE item_stock.inventory_item_id = inventory_items.id
       ), 0) AS integer) AS item_total_stock,
       barcode,
-      is_perishable,
-      is_active
+      is_perishable
     FROM inventory_items
     WHERE id = $1
   `;

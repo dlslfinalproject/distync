@@ -7,6 +7,33 @@ const ELIGIBLE_BATCH_STATUSES = new Set(["AVAILABLE", "LOW_STOCK"]);
 
 const normalizeValue = (value) => String(value || "").trim().toUpperCase();
 
+const normalizeIdentifier = (value) => String(value || "").trim();
+
+const getDisasterEventOrderValue = (event) => {
+  const rawValue =
+    event?.created_at || event?.start_date || event?.updated_at || 0;
+  const timestamp = new Date(rawValue).getTime();
+
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const compareDisasterEventsByCreationOrder = (leftEvent, rightEvent) => {
+  const timeDifference =
+    getDisasterEventOrderValue(leftEvent) -
+    getDisasterEventOrderValue(rightEvent);
+
+  if (timeDifference !== 0) {
+    return timeDifference;
+  }
+
+  return normalizeIdentifier(leftEvent?.id).localeCompare(
+    normalizeIdentifier(rightEvent?.id),
+  );
+};
+
+export const sortDisasterEventsForReliefPackRollover = (events) =>
+  [...(events || [])].sort(compareDisasterEventsByCreationOrder);
+
 const getDonationMetadata = (batch) => ({
   donationType: normalizeValue(
     batch?.source_donation_type || batch?.donation?.donation_type,
@@ -19,6 +46,53 @@ const getDonationMetadata = (batch) => ({
     batch?.donation?.disaster_event_id ||
     null,
 });
+
+export const isReliefPackDonationEligibleForDisasterEvent = ({
+  batch,
+  targetDisasterEventId,
+  disasterEvents = [],
+} = {}) => {
+  const targetId = normalizeIdentifier(targetDisasterEventId);
+  const { disasterEventId: sourceEventId } = getDonationMetadata(batch);
+  const normalizedSourceEventId = normalizeIdentifier(sourceEventId);
+  const targetEvent = (disasterEvents || []).find(
+    (event) => normalizeIdentifier(event?.id) === targetId,
+  );
+
+  if (
+    !targetId ||
+    !normalizedSourceEventId ||
+    !targetEvent ||
+    normalizeValue(targetEvent.status) !== "ACTIVE"
+  ) {
+    return false;
+  }
+
+  if (normalizedSourceEventId === targetId) {
+    return true;
+  }
+
+  const sourceEvent = (disasterEvents || []).find(
+    (event) => normalizeIdentifier(event?.id) === normalizedSourceEventId,
+  );
+
+  if (
+    !sourceEvent ||
+    !["CLOSED", "ARCHIVED"].includes(normalizeValue(sourceEvent.status))
+  ) {
+    return false;
+  }
+
+  const laterActiveEvents = (disasterEvents || [])
+    .filter((event) => normalizeValue(event?.status) === "ACTIVE")
+    .filter(
+      (event) =>
+        compareDisasterEventsByCreationOrder(sourceEvent, event) < 0,
+    )
+    .sort(compareDisasterEventsByCreationOrder);
+
+  return normalizeIdentifier(laterActiveEvents[0]?.id) === targetId;
+};
 
 const isLooseDonatedBatch = (batch, options = {}) => {
   if (normalizeValue(batch?.source_type) !== RELIEF_PACK_DONATED_SOURCE_TYPE) {
@@ -33,6 +107,14 @@ const isLooseDonatedBatch = (batch, options = {}) => {
     donationStatus === "CANCELLED"
   ) {
     return false;
+  }
+
+  if (options.targetDisasterEventId) {
+    return isReliefPackDonationEligibleForDisasterEvent({
+      batch,
+      targetDisasterEventId: options.targetDisasterEventId,
+      disasterEvents: options.disasterEvents,
+    });
   }
 
   if (!Array.isArray(options.activeDisasterEventIds)) {

@@ -226,12 +226,13 @@ test("automatic claims link and consume inventory for standard and additional te
         }),
         insertDistributionTransactionReliefPackTemplates: async (
           _distributionTransactionId,
-          templateIds,
+          templateSnapshots,
         ) => {
-          linkedTemplateIds.push(...templateIds);
-          return templateIds.map((relief_pack_template_id) => ({
+          linkedTemplateIds.push(...templateSnapshots.map((template) => template.id));
+          return templateSnapshots.map((template) => ({
             distribution_transaction_id: "distribution-1",
-            relief_pack_template_id,
+            relief_pack_template_id: template.id,
+            name_snapshot: template.name,
           }));
         },
         insertDistributionTransactionItem: async (item) => {

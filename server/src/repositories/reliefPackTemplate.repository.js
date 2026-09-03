@@ -179,8 +179,7 @@ const getInventoryItemById = async (id) => {
       category,
       unit_of_measure,
       barcode,
-      is_perishable,
-      is_active
+      is_perishable
     FROM inventory_items
     WHERE id = $1
   `;
@@ -202,8 +201,7 @@ const getReliefPackTemplateItemsByTemplateId = async (templateId) => {
       ii.category,
       ii.unit_of_measure,
       ii.barcode,
-      ii.is_perishable,
-      ii.is_active
+      ii.is_perishable
     FROM relief_pack_template_items rpti
     INNER JOIN inventory_items ii ON ii.id = rpti.inventory_item_id
     WHERE rpti.template_id = $1
@@ -391,19 +389,34 @@ const getReliefPackTemplateUsageByTemplateId = async (templateId) => {
     SELECT
       de.disaster_type,
       de.status AS disaster_event_status,
-      COUNT(dt.id)::integer AS distributions_count
+      COUNT(dt.id) FILTER (
+        WHERE dt.distribution_status = 'CLAIMED'
+      )::integer AS distributions_count,
+      COUNT(dt.id) FILTER (
+        WHERE dt.distribution_status = 'CLAIMED'
+          AND COALESCE(UPPER(de.status), '') NOT IN ('CLOSED', 'ARCHIVED')
+      )::integer AS active_event_distributions_count,
+      COUNT(dt.id) FILTER (
+        WHERE COALESCE(UPPER(dt.sync_status), 'SYNCED') <> 'SYNCED'
+      )::integer AS unsynced_distributions_count,
+      COUNT(dt.id) FILTER (
+        WHERE (
+          dt.distribution_status = 'CLAIMED'
+          AND COALESCE(UPPER(de.status), '') NOT IN ('CLOSED', 'ARCHIVED')
+        )
+        OR COALESCE(UPPER(dt.sync_status), 'SYNCED') <> 'SYNCED'
+      )::integer AS edit_blocking_distributions_count
     FROM distribution_transactions dt
     INNER JOIN disaster_events de ON de.id = dt.disaster_event_id
-    WHERE dt.distribution_status = 'CLAIMED'
-      AND (
-        dt.relief_pack_template_id = $1
-        OR EXISTS (
-          SELECT 1
-          FROM distribution_transaction_relief_pack_templates dtrpt
-          WHERE dtrpt.distribution_transaction_id = dt.id
-            AND dtrpt.relief_pack_template_id = $1
-        )
+    WHERE (
+      dt.relief_pack_template_id = $1
+      OR EXISTS (
+        SELECT 1
+        FROM distribution_transaction_relief_pack_templates dtrpt
+        WHERE dtrpt.distribution_transaction_id = dt.id
+          AND dtrpt.relief_pack_template_id = $1
       )
+    )
     GROUP BY de.disaster_type, de.status
     ORDER BY de.disaster_type ASC
   `;

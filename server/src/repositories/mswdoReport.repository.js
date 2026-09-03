@@ -521,8 +521,8 @@ const getMswdoAnomalyTracking = async ({
           h.family_head_suffix
         ) AS family_head_name,
         dti.inventory_item_id,
-        ii.item_name,
-        ii.unit_of_measure,
+        COALESCE(dti.item_name_snapshot, ii.item_name) AS item_name,
+        COALESCE(dti.unit_of_measure_snapshot, ii.unit_of_measure) AS unit_of_measure,
         NULL::text AS inventory_batch_no,
         SUM(dti.quantity_released)::integer AS expected_quantity
       FROM distribution_transactions dt
@@ -554,8 +554,8 @@ const getMswdoAnomalyTracking = async ({
         h.family_head_last_name,
         h.family_head_suffix,
         dti.inventory_item_id,
-        ii.item_name,
-        ii.unit_of_measure
+        COALESCE(dti.item_name_snapshot, ii.item_name),
+        COALESCE(dti.unit_of_measure_snapshot, ii.unit_of_measure)
     ),
     reconciliation_actual AS (
       SELECT
@@ -578,8 +578,8 @@ const getMswdoAnomalyTracking = async ({
           h.family_head_suffix
         ) AS family_head_name,
         ib.inventory_item_id,
-        MAX(ii.item_name) AS item_name,
-        MAX(ii.unit_of_measure) AS unit_of_measure,
+        MAX(COALESCE(dti_snapshot.item_name_snapshot, ii.item_name)) AS item_name,
+        MAX(COALESCE(dti_snapshot.unit_of_measure_snapshot, ii.unit_of_measure)) AS unit_of_measure,
         MAX(ib.batch_no) AS inventory_batch_no,
         MAX(it.inventory_transaction_reference_no) AS inventory_transaction_reference_no,
         SUM(it.quantity)::integer AS actual_quantity,
@@ -598,6 +598,10 @@ const getMswdoAnomalyTracking = async ({
       INNER JOIN distribution_transactions dt
         ON dt.id = it.reference_id
         AND dt.distribution_status = 'CLAIMED'
+      LEFT JOIN distribution_transaction_items dti_snapshot
+        ON dti_snapshot.distribution_transaction_id = dt.id
+        AND dti_snapshot.inventory_batch_id = it.inventory_batch_id
+        AND dti_snapshot.inventory_item_id = ib.inventory_item_id
       INNER JOIN households h
         ON h.id = dt.household_id
       INNER JOIN barangays b

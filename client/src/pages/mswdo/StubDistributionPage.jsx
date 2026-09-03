@@ -794,6 +794,18 @@ const StubDistributionPage = () => {
         });
       }
 
+      if (
+        stubDetails?.status === "ISSUED" &&
+        !isCurrentlyPresentStubRow(stubDetails)
+      ) {
+        throw createQrScanError({
+          code: QR_SCAN_ERROR_CODES.HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER,
+          message:
+            "This stub cannot be claimed because the household is not currently present in an evacuation center.",
+          details: buildQrScanErrorDetails(verification, stubDetails),
+        });
+      }
+
       if (!verification?.data?.is_claimable || stubDetails?.status !== "ISSUED") {
         throw createQrScanError({
           code:

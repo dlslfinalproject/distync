@@ -30,6 +30,9 @@ const hasSchemaColumn = async (tableName, columnName, dbClient = pool) => {
 const hasInventoryItemReorderLevelColumn = (dbClient = pool) =>
   hasSchemaColumn("inventory_items", "reorder_level", dbClient);
 
+const hasInventoryItemIsActiveColumn = (dbClient = pool) =>
+  hasSchemaColumn("inventory_items", "is_active", dbClient);
+
 const hasInventoryBatchStockVersionColumn = (dbClient = pool) =>
   hasSchemaColumn("inventory_batches", "stock_version", dbClient);
 
@@ -161,7 +164,10 @@ const getDisasterEventById = async (id, dbClient = pool) => {
 };
 
 const getInventoryItemById = async (id, dbClient = pool) => {
-  const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn(dbClient);
+  const [hasReorderLevelColumn, hasIsActiveColumn] = await Promise.all([
+    hasInventoryItemReorderLevelColumn(dbClient),
+    hasInventoryItemIsActiveColumn(dbClient),
+  ]);
   const result = await dbClient.query(
     `
       SELECT
@@ -175,7 +181,7 @@ const getInventoryItemById = async (id, dbClient = pool) => {
         packaging_count,
         quantity,
         ${hasReorderLevelColumn ? "reorder_level" : "NULL::integer AS reorder_level"},
-        is_active,
+        ${hasIsActiveColumn ? "is_active" : "TRUE AS is_active"},
         is_perishable
       FROM inventory_items
       WHERE id = $1
@@ -187,7 +193,10 @@ const getInventoryItemById = async (id, dbClient = pool) => {
 };
 
 const getInventoryItemByName = async (itemName, dbClient = pool) => {
-  const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn(dbClient);
+  const [hasReorderLevelColumn, hasIsActiveColumn] = await Promise.all([
+    hasInventoryItemReorderLevelColumn(dbClient),
+    hasInventoryItemIsActiveColumn(dbClient),
+  ]);
   const result = await dbClient.query(
     `
       SELECT
@@ -201,11 +210,14 @@ const getInventoryItemByName = async (itemName, dbClient = pool) => {
         packaging_count,
         quantity,
         ${hasReorderLevelColumn ? "reorder_level" : "NULL::integer AS reorder_level"},
-        is_active,
+        ${hasIsActiveColumn ? "is_active" : "TRUE AS is_active"},
         is_perishable
       FROM inventory_items
       WHERE LOWER(BTRIM(item_name)) = LOWER(BTRIM($1))
-      ORDER BY is_active DESC, created_at ASC, id ASC
+      ORDER BY
+        ${hasIsActiveColumn ? "is_active DESC," : ""}
+        created_at ASC,
+        id ASC
       LIMIT 1
     `,
     [itemName],
@@ -953,7 +965,6 @@ const getDefaultEmergencyDonationNeeds = async (
       FROM default_emergency_donation_needs dedn
       LEFT JOIN inventory_items ii
         ON ii.id = dedn.inventory_item_id
-       AND ii.is_active = TRUE
       WHERE ${conditions.join(" AND ")}
       ORDER BY
         CASE WHEN dedn.disaster_type IS NULL THEN 1 ELSE 0 END,
@@ -1160,7 +1171,6 @@ const getPublicForecastSuggestions = async (disasterEventId, dbClient = pool) =>
         FROM latest_run lr
         INNER JOIN forecast_results fr ON fr.forecast_run_id = lr.id
         INNER JOIN inventory_items ii ON ii.id = fr.inventory_item_id
-        WHERE ii.is_active = TRUE
         ORDER BY fr.inventory_item_id, fr.created_at DESC, fr.id DESC
       )
       SELECT *

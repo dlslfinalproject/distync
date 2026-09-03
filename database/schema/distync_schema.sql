@@ -139,7 +139,7 @@ CREATE TABLE public.disaster_events (
   description text,
   start_date date NOT NULL,
   end_date date,
-  status character varying NOT NULL DEFAULT 'PLANNED'::character varying CHECK (status::text = ANY (ARRAY['PLANNED'::character varying, 'ACTIVE'::character varying, 'CLOSED'::character varying, 'ARCHIVED'::character varying]::text[])),
+  status character varying NOT NULL DEFAULT 'PLANNED'::character varying CHECK (status::text = ANY (ARRAY['PLANNED'::character varying, 'ACTIVE'::character varying, 'CLOSED'::character varying]::text[])),
   created_by uuid,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
@@ -340,7 +340,7 @@ CREATE TABLE public.distribution_transactions (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   disaster_event_id uuid NOT NULL,
   household_id uuid NOT NULL,
-  stub_id uuid NOT NULL UNIQUE,
+  stub_id uuid NOT NULL,
   distribution_date timestamp with time zone NOT NULL DEFAULT now(),
   distribution_status character varying NOT NULL DEFAULT 'CLAIMED'::character varying CHECK (distribution_status::text = ANY (ARRAY['CLAIMED'::character varying, 'CANCELLED'::character varying, 'REVERSED'::character varying]::text[])),
   claimed_by_name character varying,
@@ -359,6 +359,7 @@ CREATE TABLE public.distribution_transactions (
   qr_scanned_by uuid,
   relief_pack_template_id uuid,
   CONSTRAINT distribution_transactions_pkey PRIMARY KEY (id),
+  CONSTRAINT uq_distribution_stub UNIQUE (stub_id),
   CONSTRAINT distribution_transactions_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
   CONSTRAINT distribution_transactions_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id),
   CONSTRAINT distribution_transactions_stub_id_fkey FOREIGN KEY (stub_id) REFERENCES public.stubs(id),
@@ -368,12 +369,18 @@ CREATE TABLE public.distribution_transactions (
   CONSTRAINT distribution_transactions_qr_scanned_by_fkey FOREIGN KEY (qr_scanned_by) REFERENCES public.users(id)
 );
 
+CREATE INDEX idx_distribution_transactions_household_event
+ON public.distribution_transactions (disaster_event_id, household_id);
+
 CREATE TABLE public.distribution_transaction_items (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   distribution_transaction_id uuid NOT NULL,
   inventory_batch_id uuid NOT NULL,
   inventory_item_id uuid NOT NULL,
   quantity_released integer NOT NULL CHECK (quantity_released > 0),
+  item_code_snapshot text NOT NULL,
+  item_name_snapshot text NOT NULL,
+  unit_of_measure_snapshot text NOT NULL,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT distribution_transaction_items_pkey PRIMARY KEY (id),
   CONSTRAINT distribution_transaction_items_distribution_transaction_id_fkey FOREIGN KEY (distribution_transaction_id) REFERENCES public.distribution_transactions(id),
@@ -393,7 +400,6 @@ CREATE TABLE public.inventory_items (
   unit_of_measure character varying NOT NULL,
   barcode character varying,
   is_perishable boolean NOT NULL DEFAULT false,
-  is_active boolean NOT NULL DEFAULT true,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   packaging character varying,
@@ -586,7 +592,7 @@ CREATE TABLE public.relief_pack_templates (
   sector_id uuid,
   applies_to_all_disasters boolean NOT NULL DEFAULT true,
   created_by uuid,
-  is_active boolean NOT NULL DEFAULT true,
+  is_active boolean NOT NULL DEFAULT false,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT relief_pack_templates_pkey PRIMARY KEY (id),
@@ -621,6 +627,7 @@ CREATE TABLE public.relief_pack_template_disaster_types (
 CREATE TABLE public.distribution_transaction_relief_pack_templates (
   distribution_transaction_id uuid NOT NULL,
   relief_pack_template_id uuid NOT NULL,
+  name_snapshot text NOT NULL,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT distribution_transaction_relief_pack_templates_pkey PRIMARY KEY (distribution_transaction_id, relief_pack_template_id),
   CONSTRAINT distribution_transaction_relief_pack_templates_transaction_id_fkey FOREIGN KEY (distribution_transaction_id) REFERENCES public.distribution_transactions(id) ON DELETE CASCADE,

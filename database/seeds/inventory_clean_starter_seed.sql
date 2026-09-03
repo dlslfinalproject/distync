@@ -28,7 +28,6 @@ seed_items AS (
         'pc',
         NULL,
         false,
-        true,
         'piece',
         1,
         10,
@@ -43,7 +42,6 @@ seed_items AS (
         'pc',
         '4807770190346',
         false,
-        true,
         'pack',
         1,
         24,
@@ -58,7 +56,6 @@ seed_items AS (
         'pc',
         NULL,
         false,
-        true,
         'pack',
         6,
         12,
@@ -72,7 +69,6 @@ seed_items AS (
         'Perishable',
         'pc',
         NULL,
-        true,
         true,
         'tray',
         30,
@@ -88,7 +84,6 @@ seed_items AS (
         'kg',
         NULL,
         false,
-        true,
         'sack',
         1,
         15,
@@ -103,7 +98,6 @@ seed_items AS (
         'mL',
         '4800011122233',
         false,
-        true,
         'bottle',
         1,
         48,
@@ -118,7 +112,6 @@ seed_items AS (
     unit_of_measure,
     barcode,
     is_perishable,
-    is_active,
     packaging,
     quantity,
     packaging_count,
@@ -135,7 +128,6 @@ inserted_items AS (
     unit_of_measure,
     barcode,
     is_perishable,
-    is_active,
     packaging,
     quantity,
     packaging_count,
@@ -150,7 +142,6 @@ inserted_items AS (
     unit_of_measure,
     barcode,
     is_perishable,
-    is_active,
     packaging,
     quantity,
     packaging_count,
@@ -164,7 +155,6 @@ inserted_items AS (
       unit_of_measure = EXCLUDED.unit_of_measure,
       barcode = EXCLUDED.barcode,
       is_perishable = EXCLUDED.is_perishable,
-      is_active = EXCLUDED.is_active,
       packaging = EXCLUDED.packaging,
       quantity = EXCLUDED.quantity,
       packaging_count = EXCLUDED.packaging_count,
@@ -172,7 +162,7 @@ inserted_items AS (
       reorder_level = EXCLUDED.reorder_level,
       expiration_date = EXCLUDED.expiration_date,
       updated_at = NOW()
-  RETURNING id, item_code, item_name, unit_of_measure, unit_of_measure_value, packaging, quantity, is_active
+  RETURNING id, item_code, item_name, unit_of_measure, unit_of_measure_value, packaging, quantity
 ),
 inserted_stock_forms AS (
   INSERT INTO inventory_item_stock_forms (
@@ -195,7 +185,7 @@ inserted_stock_forms AS (
     ii.quantity,
     ii.unit_of_measure,
     ii.unit_of_measure_value,
-    ii.is_active
+    true
   FROM inserted_items ii
   WHERE ii.item_code <> 'INV-START-FOOD-002'
 

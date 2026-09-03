@@ -1,4 +1,10 @@
 import { sortMasterlistRows } from "./masterlistSort.js";
+import {
+  formatMasterlistFilterSectorLabel,
+  getCanonicalMemberSectorCode,
+  MASTERLIST_FILTER_SECTOR_CODES,
+} from "../../utils/registrationOptions.js";
+import { deriveAgeGroup } from "../../utils/ageGroup.js";
 
 const formatDateTime = (value) => {
   if (!value) {
@@ -55,8 +61,89 @@ const buildFamilyHeadName = (familyHead = {}) => {
     .trim();
 };
 
-export const buildQueuedHouseholdRow = (entry, assignedBarangayName) => {
-  const familyHeadName = buildFamilyHeadName(entry.payload?.family_head);
+const hasPersonName = (person) =>
+  Boolean(
+    person &&
+      [person.first_name, person.middle_name, person.last_name, person.suffix].some(
+        (value) => String(value || "").trim(),
+      ),
+  );
+
+const getSubmittedMembers = (payload = {}) =>
+  (Array.isArray(payload.members) ? payload.members : []).filter(hasPersonName);
+
+const getDerivedAgeSectorCode = (person = {}) => {
+  const ageValue = Number.isInteger(person.age_value)
+    ? person.age_value
+    : Number.parseInt(person.age_value, 10);
+
+  return Number.isInteger(ageValue)
+    ? deriveAgeGroup(ageValue, person.age_unit)
+    : null;
+};
+
+const getSectorOptionsById = (sectorOptions = []) => {
+  const byId = new Map();
+
+  sectorOptions.forEach((sector) => {
+    [sector?.id, sector?.source_sector_id, sector?.code].filter(Boolean).forEach((id) => {
+      byId.set(String(id), sector);
+    });
+  });
+
+  return byId;
+};
+
+const buildQueuedSectorsText = (payload = {}, sectorOptions = []) => {
+  const sectorOptionsById = getSectorOptionsById(sectorOptions);
+  const sectorRefs = [
+    ...(payload.family_head?.sector_ids || []),
+    getDerivedAgeSectorCode(payload.family_head),
+    ...(payload.household_sector_ids || []),
+    ...getSubmittedMembers(payload).flatMap((member) => [
+      ...(member.sector_ids || []),
+      getDerivedAgeSectorCode(member),
+    ]),
+  ].filter(Boolean);
+  const orderIndexByCode = new Map(
+    MASTERLIST_FILTER_SECTOR_CODES.map((code, index) => [code, index]),
+  );
+  const sectorsByCode = new Map();
+
+  sectorRefs.forEach((sectorRef) => {
+    const sector =
+      typeof sectorRef === "object"
+        ? sectorRef
+        : sectorOptionsById.get(String(sectorRef)) || { code: sectorRef };
+    const code = getCanonicalMemberSectorCode(sector?.code);
+    const label = formatMasterlistFilterSectorLabel(sector);
+
+    if (code && label && !sectorsByCode.has(code)) {
+      sectorsByCode.set(code, label);
+    }
+  });
+
+  return [...sectorsByCode.entries()]
+    .sort(([left], [right]) => {
+      const leftIndex = orderIndexByCode.get(left);
+      const rightIndex = orderIndexByCode.get(right);
+      if (leftIndex !== undefined && rightIndex !== undefined) return leftIndex - rightIndex;
+      if (leftIndex !== undefined) return -1;
+      if (rightIndex !== undefined) return 1;
+      return left.localeCompare(right);
+    })
+    .map(([, label]) => label)
+    .join(", ") || "-";
+};
+
+export const buildQueuedHouseholdRow = (
+  entry,
+  assignedBarangayName,
+  sectorOptions = [],
+) => {
+  const payload = entry.payload || {};
+  const familyHeadName = buildFamilyHeadName(payload.family_head);
+  const submittedMembers = getSubmittedMembers(payload);
   const currentAddress =
     entry.payload?.current_address_details ||
     assignedBarangayName ||
@@ -69,10 +156,8 @@ export const buildQueuedHouseholdRow = (entry, assignedBarangayName) => {
     masterlist_record_id: entry.id || entry.entityLocalId || `local-${entry.clientTimestamp}`,
     family_head_name: familyHeadName || "Pending household",
     address: currentAddress,
-    members_count: Array.isArray(entry.payload?.members)
-      ? entry.payload.members.length
-      : 0,
-    sectors_text: "-",
+    members_count: (hasPersonName(payload.family_head) ? 1 : 0) + submittedMembers.length,
+    sectors_text: buildQueuedSectorsText(payload, sectorOptions),
     arrival_time_text: formatDateTime(entry.clientTimestamp),
     departure_time_value: departureTimestamp,
     departure_time_text: departureTimestamp ? formatDateTime(departureTimestamp) : "-",
@@ -182,6 +267,7 @@ export const resolveEffectiveMasterlistRows = ({
   assignedBarangayName = "",
   selectedEventId = "",
   assignedBarangayId = "",
+  sectorOptions = [],
   sortOrder = "newest",
 } = {}) => {
   const scopedEntries = syncQueueEntries.filter((entry) => {
@@ -215,7 +301,11 @@ export const resolveEffectiveMasterlistRows = ({
         return;
       }
 
-      const queuedRow = buildQueuedHouseholdRow(entry, assignedBarangayName);
+      const queuedRow = buildQueuedHouseholdRow(
+        entry,
+        assignedBarangayName,
+        sectorOptions,
+      );
       if (matchesRecordStatus(queuedRow, recordStatus)) {
         resolvedRows.push(queuedRow);
         representedIds.add(String(localId));

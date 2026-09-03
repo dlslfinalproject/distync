@@ -35,7 +35,10 @@ const withStubbedRepository = async (runTest) => {
   }
 };
 
-const createCapturingDbClient = ({ hasDonorNamePublicColumn = true } = {}) => {
+const createCapturingDbClient = ({
+  hasDonorNamePublicColumn = true,
+  hasInventoryItemIsActiveColumn = true,
+} = {}) => {
   const calls = [];
 
   return {
@@ -45,7 +48,14 @@ const createCapturingDbClient = ({ hasDonorNamePublicColumn = true } = {}) => {
       calls.push({ sql: normalizedSql, values });
 
       if (normalizedSql.includes("information_schema.columns")) {
-        return { rows: [{ has_column: hasDonorNamePublicColumn }] };
+        const [tableName, columnName] = values || [];
+        const hasColumn =
+          tableName === "donations" && columnName === "donor_name_public"
+            ? hasDonorNamePublicColumn
+            : tableName === "inventory_items" && columnName === "is_active"
+              ? hasInventoryItemIsActiveColumn
+              : true;
+        return { rows: [{ has_column: hasColumn }] };
       }
 
       if (normalizedSql.includes("total_donations_received")) {
@@ -252,5 +262,27 @@ test("donor-name publication fails safely when the deployed schema lacks the fla
       dbClient.calls.some((call) => call.sql.includes("UPDATE donations")),
       false,
     );
+  });
+});
+
+test("donation inventory lookups remain compatible without inventory_items.is_active", async () => {
+  await withStubbedRepository(async (repository) => {
+    const dbClient = createCapturingDbClient({
+      hasInventoryItemIsActiveColumn: false,
+    });
+
+    await repository.getInventoryItemById("item-1", dbClient);
+    await repository.getInventoryItemByName("Rice", dbClient);
+
+    const inventoryQueries = dbClient.calls.filter((call) =>
+      call.sql.includes("FROM inventory_items"),
+    );
+
+    assert.equal(inventoryQueries.length, 2);
+    inventoryQueries.forEach((query) => {
+      assert.match(query.sql, /TRUE AS is_active/);
+      assert.doesNotMatch(query.sql, /inventory_items\.is_active/);
+      assert.doesNotMatch(query.sql, /ORDER BY\s+is_active/i);
+    });
   });
 });

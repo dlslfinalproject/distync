@@ -1094,7 +1094,8 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
             included_source_types: [...FORECAST_ELIGIBLE_SOURCE_TYPES],
             included_batch_statuses: ["AVAILABLE", "LOW_STOCK"],
             near_expiry_exclusion_days: FORECAST_NEAR_EXPIRY_EXCLUSION_DAYS,
-            donated_stock_scope: "SELECTED_DISASTER_EVENT",
+            donated_stock_scope:
+              "SELECTED_DISASTER_EVENT_WITH_CLOSED_EVENT_LOOSE_DONATION_ROLLOVER",
           },
           analytics_service_url: normalizeAnalyticsServiceUrl(ANALYTICS_SERVICE_URL),
           event_context: {

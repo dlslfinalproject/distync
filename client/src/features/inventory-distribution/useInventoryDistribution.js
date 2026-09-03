@@ -11,6 +11,10 @@ import {
   fetchReliefPackTemplateById,
   fetchReliefPackTemplates,
 } from "../relief-pack-templates/reliefPackTemplateService";
+import {
+  getAssignedReliefPackTemplatesForHousehold,
+  getHouseholdSectorIds,
+} from "../relief-pack-templates/reliefPackAssignment.js";
 import { buildMasterlistFilterSectorOptions } from "../../utils/registrationOptions";
 import {
   matchesInventoryDistributionFilters,
@@ -252,31 +256,6 @@ const mergeMasterlistDataIntoRows = (rows, masterlistPayload) => {
   });
 };
 
-const getHouseholdSectorIds = (household) => {
-  return [
-    ...(household?.household_sectors || []).map((sector) => sector.id),
-    ...(household?.members || []).flatMap((member) =>
-      (member.sectors || []).map((sector) => sector.id),
-    ),
-  ].filter(Boolean);
-};
-
-const getAssignedTemplatesForHousehold = (household, templates) => {
-  const sectorIds = new Set(getHouseholdSectorIds(household));
-
-  return (Array.isArray(templates) ? templates : []).filter((template) => {
-    if (!template?.is_active) {
-      return false;
-    }
-
-    if (!template.is_additional_pack) {
-      return true;
-    }
-
-    return template.sector_id && sectorIds.has(template.sector_id);
-  });
-};
-
 const mapMasterlistDistributionRow = (
   household,
   templateDetails,
@@ -288,9 +267,10 @@ const mapMasterlistDistributionRow = (
   const sectorsText = buildSectorsText(household);
   const stub = household?.stub || null;
   const status = stub?.status || "";
-  const assignedTemplates = getAssignedTemplatesForHousehold(
+  const assignedTemplates = getAssignedReliefPackTemplatesForHousehold(
     household,
     templateDetails,
+    disasterEvent,
   );
 
   return {
@@ -410,9 +390,13 @@ export const useInventoryDistribution = () => {
   const [templateDetails, setTemplateDetails] = useState([]);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingMasterlist, setIsLoadingMasterlist] = useState(false);
-  const [isLoadingTemplate, setIsLoadingTemplate] = useState(false);
+  const [isLoadingTemplateList, setIsLoadingTemplateList] = useState(false);
+  const [isLoadingTemplateDetails, setIsLoadingTemplateDetails] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [templateNotice, setTemplateNotice] = useState("");
+
+  const isLoadingTemplate =
+    isLoadingTemplateList || isLoadingTemplateDetails;
 
   useEffect(() => {
     let isMounted = true;
@@ -423,17 +407,12 @@ export const useInventoryDistribution = () => {
       setTemplateNotice("");
 
       try {
-        const [
-          eventsPayload,
-          barangaysPayload,
-          sectorsPayload,
-          templatePayload,
-        ] = await Promise.all([
-          fetchAllDisasterEvents(),
-          fetchBarangays(),
-          fetchMswdoSectors(),
-          fetchReliefPackTemplates({ is_active: "true" }),
-        ]);
+        const [eventsPayload, barangaysPayload, sectorsPayload] =
+          await Promise.all([
+            fetchAllDisasterEvents(),
+            fetchBarangays(),
+            fetchMswdoSectors(),
+          ]);
 
         if (!isMounted) {
           return;
@@ -442,18 +421,10 @@ export const useInventoryDistribution = () => {
         const eventRows = Array.isArray(eventsPayload) ? eventsPayload : [];
         const barangayRows = Array.isArray(barangaysPayload) ? barangaysPayload : [];
         const sectorRows = Array.isArray(sectorsPayload) ? sectorsPayload : [];
-        const templateRows = Array.isArray(templatePayload) ? templatePayload : [];
 
         setDisasterEvents(eventRows);
         setBarangays(barangayRows);
         setSectors(sectorRows);
-        setReliefPackTemplates(templateRows);
-
-        if (templateRows.length === 0) {
-          setTemplateNotice(
-            "No active relief pack template is currently available. The table is ready for template integration once a pack is assigned.",
-          );
-        }
       } catch (error) {
         if (isMounted) {
           setErrorMessage(
@@ -473,6 +444,55 @@ export const useInventoryDistribution = () => {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadEventTemplates = async () => {
+      if (!selectedDisasterEventId) {
+        setReliefPackTemplates([]);
+        setTemplateDetails([]);
+        setIsLoadingTemplateList(false);
+        return;
+      }
+
+      setIsLoadingTemplateList(true);
+      setReliefPackTemplates([]);
+      setTemplateDetails([]);
+      setTemplateNotice("");
+
+      try {
+        const templatePayload = await fetchReliefPackTemplates({
+          is_active: "true",
+          disaster_event_id: selectedDisasterEventId,
+        });
+
+        if (isMounted) {
+          setReliefPackTemplates(
+            Array.isArray(templatePayload) ? templatePayload : [],
+          );
+        }
+      } catch (error) {
+        if (isMounted) {
+          setReliefPackTemplates([]);
+          setTemplateNotice(
+            error.message ||
+              "Failed to load relief pack templates for the selected disaster event.",
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingTemplateList(false);
+        }
+      }
+    };
+
+    loadEventTemplates();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedDisasterEventId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -524,11 +544,11 @@ export const useInventoryDistribution = () => {
     const loadTemplateDetail = async () => {
       if (!reliefPackTemplates.length) {
         setTemplateDetails([]);
-        setIsLoadingTemplate(false);
+        setIsLoadingTemplateDetails(false);
         return;
       }
 
-      setIsLoadingTemplate(true);
+      setIsLoadingTemplateDetails(true);
 
       try {
         const loadedTemplateDetails = await Promise.all(
@@ -580,7 +600,7 @@ export const useInventoryDistribution = () => {
         }
       } finally {
         if (isMounted) {
-          setIsLoadingTemplate(false);
+          setIsLoadingTemplateDetails(false);
         }
       }
     };
@@ -645,7 +665,7 @@ export const useInventoryDistribution = () => {
           const payload = await fetchBarangayStubDashboard({
             userId: null,
             disasterEventId: selectedDisasterEventId,
-            overrideBarangayId: selectedBarangayId,
+            barangayId: selectedBarangayId,
           });
 
           if (isMounted) {
@@ -676,7 +696,7 @@ export const useInventoryDistribution = () => {
             fetchBarangayStubDashboard({
               userId: null,
               disasterEventId: selectedDisasterEventId,
-              overrideBarangayId: barangay.id,
+              barangayId: barangay.id,
             }).catch(() => emptyStubDashboardPayload),
           ),
         );

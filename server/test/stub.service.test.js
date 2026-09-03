@@ -130,6 +130,7 @@ const createBaseStubs = ({
       receipt_no: "RCPT-2026-000001",
       received_at: "2026-08-08T01:00:00.000Z",
     }),
+    getLatestAttendanceByHouseholdId: async () => null,
     getStubDashboardMetrics: async () => ({
       total_issued_stubs: 1,
       claimed_stubs: 0,
@@ -269,42 +270,47 @@ test("H05-09 claimBarangayStub blocks archived households before any claim proce
   );
 });
 
-test("H05-10 claimBarangayStub normalizes only the known distribution stub unique violation", async () => {
-  const events = [];
+for (const constraint of [
+  "uq_distribution_stub",
+  "distribution_transactions_stub_id_key",
+]) {
+  test(`H05-10 claimBarangayStub normalizes ${constraint}`, async () => {
+    const events = [];
 
-  await withStubbedStubService(
-    createBaseStubs({
-      events,
-      scopedStub: {
-        ...baseStub,
-        status: "ISSUED",
-      },
-      lockedStub: {
-        ...baseStub,
-        status: "ISSUED",
-      },
-      claimHandler: async () => {
-        const error = new Error("duplicate key value violates unique constraint");
-        error.code = "23505";
-        error.constraint = "distribution_transactions_stub_id_key";
-        throw error;
-      },
-    }),
-    async ({ claimBarangayStub }) => {
-      await assert.rejects(
-        () => claimBarangayStub(baseParams),
-        (error) => {
-          assert.equal(error.code, "STUB_ALREADY_CLAIMED");
-          assert.equal(error.statusCode, 409);
-          assert.doesNotMatch(error.message, /23505|constraint/i);
-          return true;
+    await withStubbedStubService(
+      createBaseStubs({
+        events,
+        scopedStub: {
+          ...baseStub,
+          status: "ISSUED",
         },
-      );
-    },
-  );
+        lockedStub: {
+          ...baseStub,
+          status: "ISSUED",
+        },
+        claimHandler: async () => {
+          const error = new Error("duplicate key value violates unique constraint");
+          error.code = "23505";
+          error.constraint = constraint;
+          throw error;
+        },
+      }),
+      async ({ claimBarangayStub }) => {
+        await assert.rejects(
+          () => claimBarangayStub(baseParams),
+          (error) => {
+            assert.equal(error.code, "STUB_ALREADY_CLAIMED");
+            assert.equal(error.statusCode, 409);
+            assert.doesNotMatch(error.message, /23505|constraint/i);
+            return true;
+          },
+        );
+      },
+    );
 
-  assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
-});
+    assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
+  });
+}
 
 test("H05-11 claimBarangayStub leaves unrelated unique violations technical", async () => {
   const events = [];
@@ -365,6 +371,90 @@ test("H05-12 verifyStub marks archived households as not claimable", async () =>
       );
     },
   );
+});
+
+const buildIssuedVerificationStub = (overrides = {}) => ({
+  ...baseStub,
+  status: "ISSUED",
+  qr_code_value: "DISTYNC-STUB|test",
+  disaster_event_status: "ACTIVE",
+  current_stay_type: "EVAC_CENTER",
+  is_active: true,
+  ...overrides,
+});
+
+test("verifyStub makes an issued stub unclaimable after departure and claimable after return", async () => {
+  let latestAttendance = {
+    status: "LEFT",
+    time_in: "2026-08-28T08:00:00.000Z",
+    time_out: "2026-08-28T12:00:00.000Z",
+  };
+
+  await withStubbedStubService(
+    createBaseStubs({
+      verificationStub: buildIssuedVerificationStub(),
+      stubRepositoryOverrides: {
+        getLatestAttendanceByHouseholdId: async () => latestAttendance,
+      },
+    }),
+    async ({ verifyStub }) => {
+      const afterDeparture = await verifyStub({
+        qr_code_value: "DISTYNC-STUB|test",
+      });
+
+      assert.equal(afterDeparture.data.is_claimable, false);
+      assert.equal(
+        afterDeparture.data.code,
+        "HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER",
+      );
+
+      latestAttendance = {
+        status: "PRESENT",
+        time_in: "2026-08-28T15:00:00.000Z",
+        time_out: null,
+      };
+
+      const afterReturn = await verifyStub({
+        qr_code_value: "DISTYNC-STUB|test",
+      });
+
+      assert.equal(afterReturn.data.is_claimable, true);
+      assert.equal(afterReturn.data.code, null);
+    },
+  );
+});
+
+test("verifyStub keeps a claimed stub permanently unclaimable", async () => {
+  let attendanceLookupCalled = false;
+
+  await withStubbedStubService(
+    createBaseStubs({
+      verificationStub: {
+        ...buildIssuedVerificationStub(),
+        status: "CLAIMED",
+      },
+      stubRepositoryOverrides: {
+        getLatestAttendanceByHouseholdId: async () => {
+          attendanceLookupCalled = true;
+          return {
+            status: "PRESENT",
+            time_in: "2026-08-28T15:00:00.000Z",
+            time_out: null,
+          };
+        },
+      },
+    }),
+    async ({ verifyStub }) => {
+      const result = await verifyStub({
+        qr_code_value: "DISTYNC-STUB|test",
+      });
+
+      assert.equal(result.data.is_claimable, false);
+      assert.equal(result.data.code, "STUB_ALREADY_CLAIMED");
+    },
+  );
+
+  assert.equal(attendanceLookupCalled, false);
 });
 
 test("EE-FIX-03 claimBarangayStub blocks new claims when the event is not ACTIVE", async () => {

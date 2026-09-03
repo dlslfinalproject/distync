@@ -244,6 +244,8 @@ const getDistributableInventoryBatchesByItemIdForUpdate = async (
       loose_donation.donation_created_at
     FROM inventory_batches ib
     INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    LEFT JOIN disaster_events target_event
+      ON target_event.id = $2
     LEFT JOIN LATERAL (
       SELECT
         loose_di.id AS donation_item_id,
@@ -253,10 +255,45 @@ const getDistributableInventoryBatchesByItemIdForUpdate = async (
         loose_d.created_at AS donation_created_at
       FROM donation_items loose_di
       INNER JOIN donations loose_d ON loose_d.id = loose_di.donation_id
+      INNER JOIN disaster_events donation_event
+        ON donation_event.id = loose_d.disaster_event_id
       WHERE loose_di.inventory_batch_id = ib.id
-        AND loose_d.disaster_event_id = $2
         AND loose_d.status <> 'CANCELLED'
         AND COALESCE(loose_di.remarks, '') NOT ILIKE 'Relief Pack:%'
+        AND (
+          loose_d.disaster_event_id = target_event.id
+          OR (
+            target_event.id IS NOT NULL
+            AND target_event.status = 'ACTIVE'
+            AND donation_event.status IN ('CLOSED', 'ARCHIVED')
+            AND (
+              target_event.created_at > donation_event.created_at
+              OR (
+                target_event.created_at = donation_event.created_at
+                AND target_event.id > donation_event.id
+              )
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM disaster_events next_event
+              WHERE next_event.status = 'ACTIVE'
+                AND (
+                  next_event.created_at > donation_event.created_at
+                  OR (
+                    next_event.created_at = donation_event.created_at
+                    AND next_event.id > donation_event.id
+                  )
+                )
+                AND (
+                  next_event.created_at < target_event.created_at
+                  OR (
+                    next_event.created_at = target_event.created_at
+                    AND next_event.id < target_event.id
+                  )
+                )
+            )
+          )
+        )
       ORDER BY
         loose_d.received_at ASC NULLS LAST,
         loose_d.created_at ASC,
@@ -264,6 +301,7 @@ const getDistributableInventoryBatchesByItemIdForUpdate = async (
       LIMIT 1
     ) loose_donation ON TRUE
     WHERE ib.inventory_item_id = $1
+      AND ($2::UUID IS NULL OR target_event.status = 'ACTIVE')
       AND COALESCE(ib.quantity_available, 0) > 0
       AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
       AND (
@@ -344,6 +382,8 @@ const getDistributableInventoryBatchesByItemIdsForUpdate = async (
       loose_donation.donation_created_at
     FROM inventory_batches ib
     INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    LEFT JOIN disaster_events target_event
+      ON target_event.id = $2
     LEFT JOIN LATERAL (
       SELECT
         loose_di.id AS donation_item_id,
@@ -353,10 +393,45 @@ const getDistributableInventoryBatchesByItemIdsForUpdate = async (
         loose_d.created_at AS donation_created_at
       FROM donation_items loose_di
       INNER JOIN donations loose_d ON loose_d.id = loose_di.donation_id
+      INNER JOIN disaster_events donation_event
+        ON donation_event.id = loose_d.disaster_event_id
       WHERE loose_di.inventory_batch_id = ib.id
-        AND loose_d.disaster_event_id = $2
         AND loose_d.status <> 'CANCELLED'
         AND COALESCE(loose_di.remarks, '') NOT ILIKE 'Relief Pack:%'
+        AND (
+          loose_d.disaster_event_id = target_event.id
+          OR (
+            target_event.id IS NOT NULL
+            AND target_event.status = 'ACTIVE'
+            AND donation_event.status IN ('CLOSED', 'ARCHIVED')
+            AND (
+              target_event.created_at > donation_event.created_at
+              OR (
+                target_event.created_at = donation_event.created_at
+                AND target_event.id > donation_event.id
+              )
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM disaster_events next_event
+              WHERE next_event.status = 'ACTIVE'
+                AND (
+                  next_event.created_at > donation_event.created_at
+                  OR (
+                    next_event.created_at = donation_event.created_at
+                    AND next_event.id > donation_event.id
+                  )
+                )
+                AND (
+                  next_event.created_at < target_event.created_at
+                  OR (
+                    next_event.created_at = target_event.created_at
+                    AND next_event.id < target_event.id
+                  )
+                )
+            )
+          )
+        )
       ORDER BY
         loose_d.received_at ASC NULLS LAST,
         loose_d.created_at ASC,
@@ -364,6 +439,7 @@ const getDistributableInventoryBatchesByItemIdsForUpdate = async (
       LIMIT 1
     ) loose_donation ON TRUE
     WHERE ib.inventory_item_id = ANY($1::uuid[])
+      AND ($2::UUID IS NULL OR target_event.status = 'ACTIVE')
       AND COALESCE(ib.quantity_available, 0) > 0
       AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
       AND (

@@ -504,10 +504,7 @@ const InventoryItemFormModal = ({
   }, [isOpen, itemData]);
 
   const trimmedItemName = formValues.item_name.trim();
-  const eligibleExistingItems =
-    mode === "create"
-      ? inventoryItems.filter((item) => item?.is_active !== false)
-      : [];
+  const eligibleExistingItems = mode === "create" ? inventoryItems : [];
   const scannedBarcode =
     source === "scan" ? normalizeInventoryBarcode(itemData?.barcode) : "";
   const getEffectiveBarcode = (values) =>

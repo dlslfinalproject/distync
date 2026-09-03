@@ -985,7 +985,6 @@ const InventoryItemsPage = () => {
         payload?.existing_item_id
           ? inventoryItemsForInventoryManagement.find((item) => {
               return (
-                item?.is_active !== false &&
                 String(item?.id) === String(payload.existing_item_id)
               );
             }) || null

@@ -36,6 +36,8 @@ const mapInventoryBatch = (batch) => {
     source_donation_disaster_event_id:
       batch.source_donation_disaster_event_id || null,
     source_donation_status: batch.source_donation_status || null,
+    source_donation_received_at: batch.source_donation_received_at || null,
+    source_donation_created_at: batch.source_donation_created_at || null,
     source_donation_item_id: batch.source_donation_item_id || null,
     quantity_received: batch.quantity_received,
     quantity_available: batch.quantity_available,
@@ -58,7 +60,6 @@ const mapInventoryBatch = (batch) => {
       reorder_level: batch.reorder_level,
       barcode: batch.barcode,
       is_perishable: batch.is_perishable,
-      is_active: batch.is_active,
     },
     inventory_item_stock_form: batch.inventory_item_stock_form_id
       ? {
@@ -79,6 +80,8 @@ const mapInventoryBatch = (batch) => {
           disaster_event_id: batch.source_donation_disaster_event_id || null,
           status: batch.source_donation_status || null,
           donation_type: batch.source_donation_type || null,
+          received_at: batch.source_donation_received_at || null,
+          created_at: batch.source_donation_created_at || null,
         }
       : null,
     creator: batch.created_by

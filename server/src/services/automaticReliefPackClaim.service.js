@@ -12,7 +12,7 @@ const {
   isInventoryBatchNearExpiry,
 } = require("../utils/inventoryBatchStatus");
 const {
-  isCurrentlyPresentEvacuationAttendance,
+  isReliefPackClaimHouseholdCurrentlyEligible,
 } = require("../utils/reliefPackEligibility");
 
 const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
@@ -744,9 +744,7 @@ const recordAutomaticReliefPackClaim = async ({
       client,
     );
   if (
-    String(stub.current_stay_type || "").toUpperCase() !== "EVAC_CENTER" ||
-    stub.is_active === false ||
-    !isCurrentlyPresentEvacuationAttendance(latestAttendance)
+    !isReliefPackClaimHouseholdCurrentlyEligible(stub, latestAttendance)
   ) {
     const error = new Error(
       "Relief packs can only be claimed by households currently present in an evacuation center.",
@@ -888,7 +886,7 @@ const recordAutomaticReliefPackClaim = async ({
 
   await distributionTransactionRepository.insertDistributionTransactionReliefPackTemplates(
     distributionTransaction.id,
-    assignedReliefPackTemplates.map((template) => template.id),
+    assignedReliefPackTemplates,
     client,
   );
 
@@ -935,6 +933,9 @@ const recordAutomaticReliefPackClaim = async ({
           inventory_batch_id: allocation.inventory_batch_id,
           inventory_item_id: allocation.inventory_item_id,
           quantity_released: allocation.quantity_released,
+          item_code_snapshot: allocation.item_code,
+          item_name_snapshot: allocation.item_name,
+          unit_of_measure_snapshot: allocation.unit_of_measure,
         },
         client,
       );

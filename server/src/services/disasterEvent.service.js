@@ -9,7 +9,7 @@ const {
   resolveDisasterEventReportSelection,
 } = require("../utils/disasterEventReportSelection");
 
-const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED", "ARCHIVED"];
+const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED"];
 const nonResidentBarangayCode = "NON_RESIDENT_OUTSIDE_MALVAR";
 const PH_TIME_ZONE = "Asia/Manila";
 const DISASTER_EVENT_TYPE_OPTIONS = [
@@ -23,8 +23,7 @@ const DISASTER_EVENT_TYPE_OPTIONS = [
   "Tsunami",
   "Fire",
 ];
-const requiresCompletedEndDate = (status) =>
-  status === "CLOSED" || status === "ARCHIVED";
+const requiresCompletedEndDate = (status) => status === "CLOSED";
 const DISASTER_EVENT_RECONCILIATION_INTERVAL_MS = 60 * 1000;
 
 let disasterEventLifecycleMaintenanceInterval = null;
@@ -446,7 +445,7 @@ const createDisasterEvent = async (disasterEventData) => {
   await syncOverdueActiveDisasterEvents();
 
   if (!allowedStatuses.includes(disasterEventData.status)) {
-    const error = new Error("Status must be PLANNED, ACTIVE, CLOSED, or ARCHIVED");
+    const error = new Error("Status must be PLANNED, ACTIVE, or CLOSED");
     error.statusCode = 400;
     throw error;
   }
@@ -465,7 +464,7 @@ const createDisasterEvent = async (disasterEventData) => {
     !disasterEventData.end_date
   ) {
     const error = new Error(
-      "end_date is required when status is CLOSED or ARCHIVED",
+      "end_date is required when status is CLOSED",
     );
     error.statusCode = 400;
     throw error;
@@ -791,6 +790,7 @@ const isValidAffectedBarangay = (barangay) => {
 const formatDisasterEventStatusLabel = (status) => {
   const normalizedStatus = String(status || "").toUpperCase();
 
+  // Keep legacy ARCHIVED rows readable as ended until the cleanup migration is applied.
   if (normalizedStatus === "CLOSED" || normalizedStatus === "ARCHIVED") {
     return "ENDED";
   }

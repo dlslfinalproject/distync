@@ -183,7 +183,6 @@ const summarizeInventoryItem = (item) =>
     "expiration_date",
     "barcode",
     "is_perishable",
-    "is_active",
   ]);
 
 const summarizeInventoryItemStockForm = (stockForm) =>
@@ -245,14 +244,14 @@ const getUnitsPerPackagingValue = (itemData) => {
   return 1;
 };
 
-const buildStockFormPayloadFromItem = (item, itemData = item) => ({
+const buildStockFormPayloadFromItem = (item, itemData = item, stockForm = null) => ({
   inventory_item_id: item.id,
   barcode: itemData.barcode || null,
   packaging: itemData.packaging || "piece",
   units_per_packaging: getUnitsPerPackagingValue(itemData),
   unit_of_measure: itemData.unit_of_measure || item.unit_of_measure,
   unit_of_measure_value: itemData.unit_of_measure_value || null,
-  is_active: itemData.is_active ?? item.is_active ?? true,
+  is_active: stockForm?.is_active ?? true,
 });
 
 const buildInventoryTrackingMap = (inventoryItems, inventoryBatches, inventoryTransactions) => {
@@ -482,7 +481,6 @@ const buildLocalBarcodeLookupResult = (barcode, item, stockForm = null) => ({
     expiration_date: item.expiration_date,
     barcode: stockForm?.barcode || item.barcode || barcode,
     is_perishable: item.is_perishable,
-    is_active: item.is_active,
     stock_form: stockForm
       ? {
           id: stockForm.id,
@@ -501,7 +499,7 @@ const getLocalInventoryItemByBarcode = async (barcode) => {
   const itemByBarcode =
     await inventoryItemRepository.getInventoryItemByBarcode(barcode);
 
-  if (itemByBarcode && itemByBarcode.is_active !== false) {
+  if (itemByBarcode) {
     return buildLocalBarcodeLookupResult(barcode, itemByBarcode);
   }
 
@@ -518,7 +516,7 @@ const getLocalInventoryItemByBarcode = async (barcode) => {
     stockForm.inventory_item_id,
   );
 
-  if (!item || item.is_active === false) {
+  if (!item) {
     return null;
   }
 
@@ -1134,6 +1132,7 @@ const updateInventoryItem = async (id, itemData, actor = null, options = {}) => 
   const nextStockFormPayload = buildStockFormPayloadFromItem(
     updatedItem,
     inventoryItemToUpdate,
+    primaryStockForm,
   );
 
   if (primaryStockForm) {

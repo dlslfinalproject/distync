@@ -26,6 +26,14 @@ export const fetchReliefPackTemplates = async (filters = {}) => {
     searchParams.set("is_active", filters.is_active);
   }
 
+  if (filters.disaster_event_id) {
+    searchParams.set("disaster_event_id", filters.disaster_event_id);
+  }
+
+  if (filters.disaster_type) {
+    searchParams.set("disaster_type", filters.disaster_type);
+  }
+
   const queryString = searchParams.toString();
   const url = `${API_BASE_URL}/api/v1/relief-pack-templates${
     queryString ? `?${queryString}` : ""
@@ -107,9 +115,7 @@ export const replaceReliefPackTemplateItems = async (templateId, payload) => {
 };
 
 export const fetchInventoryItems = async () => {
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/inventory-items?is_active=true`,
-  );
+  const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items`);
 
   return handleJsonResponse(response, "Failed to fetch inventory items");
 };

@@ -170,16 +170,9 @@ const validateInventoryItemBarcodeLookup = (req, res, next) => {
 
 const validateGetInventoryItems = (req, res, next) => {
   try {
-    const { category, search, is_active, is_perishable } = req.query;
+    const { category, search, is_perishable } = req.query;
 
-    const parsedIsActive = parseOptionalBoolean(is_active);
     const parsedIsPerishable = parseOptionalBoolean(is_perishable);
-
-    if (parsedIsActive.value === "invalid") {
-      return res.status(400).json({
-        message: "is_active must be true or false when provided",
-      });
-    }
 
     if (parsedIsPerishable.value === "invalid") {
       return res.status(400).json({
@@ -190,7 +183,6 @@ const validateGetInventoryItems = (req, res, next) => {
     req.validatedQuery = {
       category: typeof category === "string" && category.trim() ? category.trim() : null,
       search: typeof search === "string" && search.trim() ? search.trim() : null,
-      is_active: parsedIsActive.isProvided ? parsedIsActive.value : null,
       is_perishable: parsedIsPerishable.isProvided ? parsedIsPerishable.value : null,
     };
 
@@ -209,7 +201,6 @@ const validateExportInventoryItems = (req, res, next) => {
       format,
       category,
       search,
-      is_active,
       is_perishable,
       status,
       report_type,
@@ -217,7 +208,6 @@ const validateExportInventoryItems = (req, res, next) => {
     } =
       req.query;
     const normalizedFormat = String(format || "").toLowerCase();
-    const parsedIsActive = parseOptionalBoolean(is_active);
     const parsedIsPerishable = parseOptionalBoolean(is_perishable);
     const normalizedStatus =
       typeof status === "string" && status.trim()
@@ -227,12 +217,6 @@ const validateExportInventoryItems = (req, res, next) => {
     if (!allowedExportFormats.includes(normalizedFormat)) {
       return res.status(400).json({
         message: "format must be one of: pdf, excel, csv",
-      });
-    }
-
-    if (parsedIsActive.value === "invalid") {
-      return res.status(400).json({
-        message: "is_active must be true or false when provided",
       });
     }
 
@@ -278,7 +262,6 @@ const validateExportInventoryItems = (req, res, next) => {
       format: normalizedFormat,
       category: typeof category === "string" && category.trim() ? category.trim() : null,
       search: typeof search === "string" && search.trim() ? search.trim() : null,
-      is_active: parsedIsActive.isProvided ? parsedIsActive.value : null,
       is_perishable: parsedIsPerishable.isProvided ? parsedIsPerishable.value : null,
       status: normalizedStatus,
       report_type: report_type || null,
@@ -309,7 +292,6 @@ const validateInventoryItemPayload = (req, res, next) => {
       expiration_date,
       barcode,
       is_perishable,
-      is_active,
       skip_opening_stock,
     } = req.body;
 
@@ -429,12 +411,6 @@ const validateInventoryItemPayload = (req, res, next) => {
       });
     }
 
-    if (is_active !== undefined && typeof is_active !== "boolean") {
-      return res.status(400).json({
-        message: "is_active must be a boolean when provided",
-      });
-    }
-
     if (
       skip_opening_stock !== undefined &&
       typeof skip_opening_stock !== "boolean"
@@ -469,7 +445,6 @@ const validateInventoryItemPayload = (req, res, next) => {
           : normalizedCategory === "Non-Perishable"
             ? false
             : false),
-      is_active: is_active ?? true,
       skip_opening_stock: skip_opening_stock ?? false,
     };
 

@@ -23,7 +23,7 @@ import {
   updateReliefPackTemplateStatus,
 } from "../../features/relief-pack-templates/reliefPackTemplateService";
 import {
-  fetchActiveDisasterEvents,
+  fetchAllDisasterEvents,
   fetchBarangays,
 } from "../../features/disaster-events/disasterEventService";
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
@@ -32,7 +32,10 @@ import { fetchConsolidatedMasterlist } from "../../features/mswdo-masterlist/msw
 import { DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
 import { isHouseholdEligibleForReliefPackDemand } from "../../features/relief-pack-templates/reliefPackDemand";
 import { allocateSharedReliefPackInventory } from "../../features/relief-pack-templates/reliefPackAvailability";
-import { isReliefPackInventoryBatchEligible } from "../../features/relief-pack-templates/reliefPackInventory";
+import {
+  isReliefPackInventoryBatchEligible,
+  sortDisasterEventsForReliefPackRollover,
+} from "../../features/relief-pack-templates/reliefPackInventory";
 import { useAuth } from "../../context/AuthContext";
 import {
   FiChevronDown,
@@ -883,22 +886,72 @@ const getTemplateItemRequiredQuantity = (templateItem) => {
     : 0;
 };
 
-const buildAvailabilityByItemId = (
-  inventoryBatches,
-  activeDisasterEventIds = [],
-) => {
-  const availabilityByItemId = new Map();
+const normalizeReliefPackInventoryIdentifier = (value) =>
+  String(value || "").trim();
 
-  (inventoryBatches || []).forEach((batch) => {
-    if (
-      !isReliefPackInventoryBatchEligible(batch, new Date(), {
-        activeDisasterEventIds,
-      })
-    ) {
-      return;
+const getRemainingBatchQuantity = (batch, remainingQuantityByBatchId) => {
+  const rawQuantity =
+    remainingQuantityByBatchId instanceof Map &&
+    remainingQuantityByBatchId.has(batch?.id)
+      ? remainingQuantityByBatchId.get(batch.id)
+      : batch?.quantity_available;
+  const quantity = Number(rawQuantity || 0);
+
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
+};
+
+const getEligibleBatchesForEvent = ({
+  inventoryBatches = [],
+  targetDisasterEventId,
+  disasterEvents = [],
+  remainingQuantityByBatchId,
+} = {}) => {
+  const targetEventId = normalizeReliefPackInventoryIdentifier(
+    targetDisasterEventId,
+  );
+  const targetEvent = (disasterEvents || []).find(
+    (event) =>
+      normalizeReliefPackInventoryIdentifier(event?.id) === targetEventId,
+  );
+
+  if (
+    !targetEventId ||
+    !targetEvent ||
+    String(targetEvent.status || "").trim().toUpperCase() !== "ACTIVE"
+  ) {
+    return [];
+  }
+
+  return (inventoryBatches || []).filter((batch) => {
+    if (getRemainingBatchQuantity(batch, remainingQuantityByBatchId) <= 0) {
+      return false;
     }
 
-    const totalAvailableQuantity = Number(batch.quantity_available || 0);
+    return isReliefPackInventoryBatchEligible(batch, new Date(), {
+      targetDisasterEventId: targetEventId,
+      disasterEvents,
+    });
+  });
+};
+
+const buildAvailabilityByItemId = ({
+  inventoryBatches = [],
+  targetDisasterEventId,
+  disasterEvents = [],
+  remainingQuantityByBatchId,
+} = {}) => {
+  const availabilityByItemId = new Map();
+
+  getEligibleBatchesForEvent({
+    inventoryBatches,
+    targetDisasterEventId,
+    disasterEvents,
+    remainingQuantityByBatchId,
+  }).forEach((batch) => {
+    const totalAvailableQuantity = getRemainingBatchQuantity(
+      batch,
+      remainingQuantityByBatchId,
+    );
 
     availabilityByItemId.set(
       batch.inventory_item_id,
@@ -908,6 +961,99 @@ const buildAvailabilityByItemId = (
   });
 
   return availabilityByItemId;
+};
+
+const getReliefPackBatchSourceRank = (batch) =>
+  String(batch?.source_type || "").trim().toUpperCase() === "DONATED" ? 0 : 1;
+
+const getReliefPackBatchSortTime = (batch) => {
+  const sourceRank = getReliefPackBatchSourceRank(batch);
+  const rawTimestamp =
+    sourceRank === 0
+      ? batch?.source_donation_received_at ||
+        batch?.source_donation_created_at ||
+        batch?.received_at ||
+        batch?.created_at
+      : batch?.received_at || batch?.created_at;
+  const timestamp = new Date(rawTimestamp || 0).getTime();
+
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const compareReliefPackBatchesForAllocation = (leftBatch, rightBatch) => {
+  const sourceDifference =
+    getReliefPackBatchSourceRank(leftBatch) -
+    getReliefPackBatchSourceRank(rightBatch);
+
+  if (sourceDifference !== 0) {
+    return sourceDifference;
+  }
+
+  const timeDifference =
+    getReliefPackBatchSortTime(leftBatch) -
+    getReliefPackBatchSortTime(rightBatch);
+
+  if (timeDifference !== 0) {
+    return timeDifference;
+  }
+
+  const batchNumberDifference = String(leftBatch?.batch_no || "").localeCompare(
+    String(rightBatch?.batch_no || ""),
+  );
+
+  if (batchNumberDifference !== 0) {
+    return batchNumberDifference;
+  }
+
+  return String(leftBatch?.id || "").localeCompare(String(rightBatch?.id || ""));
+};
+
+const consumeBatchQuantities = ({
+  inventoryBatches = [],
+  targetDisasterEventId,
+  disasterEvents = [],
+  itemId,
+  quantity,
+  remainingQuantityByBatchId,
+} = {}) => {
+  let remainingQuantity = Math.max(0, Number(quantity || 0));
+
+  if (
+    remainingQuantity <= 0 ||
+    !(remainingQuantityByBatchId instanceof Map)
+  ) {
+    return;
+  }
+
+  getEligibleBatchesForEvent({
+    inventoryBatches,
+    targetDisasterEventId,
+    disasterEvents,
+    remainingQuantityByBatchId,
+  })
+    .filter(
+      (batch) =>
+        normalizeReliefPackInventoryIdentifier(batch?.inventory_item_id) ===
+        normalizeReliefPackInventoryIdentifier(itemId),
+    )
+    .sort(compareReliefPackBatchesForAllocation)
+    .forEach((batch) => {
+      if (remainingQuantity <= 0) {
+        return;
+      }
+
+      const availableQuantity = getRemainingBatchQuantity(
+        batch,
+        remainingQuantityByBatchId,
+      );
+      const consumedQuantity = Math.min(availableQuantity, remainingQuantity);
+
+      remainingQuantityByBatchId.set(
+        batch.id,
+        Math.max(0, availableQuantity - consumedQuantity),
+      );
+      remainingQuantity -= consumedQuantity;
+    });
 };
 
 const buildTemplateMetrics = ({ template, demand, allocation }) => {
@@ -935,35 +1081,247 @@ const buildTemplateMetrics = ({ template, demand, allocation }) => {
   };
 };
 
-const buildSharedTemplateCards = ({
-  templates,
-  availabilityByItemId,
-  households,
-}) => {
-  const demandByTemplateId = new Map(
-    (templates || []).map((template) => [
-      template.id,
-      buildTemplateDemand(
-        template,
-        getTemplateApplicableHouseholds(template, households),
-      ),
+const mergeReliefPackDemandEntries = (targetMap, entries, keyBuilder) => {
+  (entries || []).forEach((entry) => {
+    const key = keyBuilder(entry);
+    const existingEntry = targetMap.get(key);
+
+    if (existingEntry) {
+      existingEntry.families_count += Number(entry.families_count || 0);
+      existingEntry.packs_needed += Number(entry.packs_needed || 0);
+      return;
+    }
+
+    targetMap.set(key, {
+      ...entry,
+      families_count: Number(entry.families_count || 0),
+      packs_needed: Number(entry.packs_needed || 0),
+    });
+  });
+};
+
+const mergeReliefPackShortageItems = (targetMap, shortageItems) => {
+  (shortageItems || []).forEach((item) => {
+    const itemId = item?.inventory_item_id;
+    const shortageQuantity = Number(item?.shortage_quantity || 0);
+
+    if (!itemId || !Number.isFinite(shortageQuantity) || shortageQuantity <= 0) {
+      return;
+    }
+
+    const existingItem = targetMap.get(itemId);
+
+    if (existingItem) {
+      existingItem.shortage_quantity += shortageQuantity;
+      return;
+    }
+
+    targetMap.set(itemId, {
+      ...item,
+      shortage_quantity: shortageQuantity,
+    });
+  });
+};
+
+const buildEventAwareTemplateCards = ({
+  templates = [],
+  inventoryBatches = [],
+  disasterEvents = [],
+  activeDisasterEvents = [],
+  households = [],
+  targetDisasterEventId = "",
+} = {}) => {
+  const normalizedTargetEventId = normalizeReliefPackInventoryIdentifier(
+    targetDisasterEventId,
+  );
+  const eventsToProcess = sortDisasterEventsForReliefPackRollover(
+    (activeDisasterEvents || []).filter((event) => {
+      if (String(event?.status || "").trim().toUpperCase() !== "ACTIVE") {
+        return false;
+      }
+
+      return (
+        !normalizedTargetEventId ||
+        normalizeReliefPackInventoryIdentifier(event?.id) ===
+          normalizedTargetEventId
+      );
+    }),
+  );
+  const remainingQuantityByBatchId = new Map(
+    (inventoryBatches || []).map((batch) => [
+      batch.id,
+      Math.max(0, Number(batch.quantity_available || 0)),
     ]),
   );
-  const { allocationByTemplateId } = allocateSharedReliefPackInventory({
-    templates,
-    availabilityByItemId,
-    demandByTemplateId,
-    getItemRequiredQuantity: getTemplateItemRequiredQuantity,
+  const startingAvailabilityByItemId = new Map();
+  const startingEligibleBatchIds = new Set();
+
+  eventsToProcess.forEach((disasterEvent) => {
+    getEligibleBatchesForEvent({
+      inventoryBatches,
+      targetDisasterEventId: disasterEvent?.id,
+      disasterEvents,
+      remainingQuantityByBatchId,
+    }).forEach((batch) => {
+      startingEligibleBatchIds.add(batch.id);
+    });
   });
 
-  return (templates || []).map((template) => ({
-    ...template,
-    metrics: buildTemplateMetrics({
-      template,
-      demand: demandByTemplateId.get(template.id),
-      allocation: allocationByTemplateId.get(template.id),
-    }),
-  }));
+  (inventoryBatches || []).forEach((batch) => {
+    if (!startingEligibleBatchIds.has(batch.id)) {
+      return;
+    }
+
+    const quantity = getRemainingBatchQuantity(
+      batch,
+      remainingQuantityByBatchId,
+    );
+
+    startingAvailabilityByItemId.set(
+      batch.inventory_item_id,
+      (startingAvailabilityByItemId.get(batch.inventory_item_id) || 0) +
+        quantity,
+    );
+  });
+  const aggregateByTemplateId = new Map(
+    (templates || []).map((template) => [
+      template.id,
+      {
+        demand: {
+          neededPacks: 0,
+          perBarangayDemand: new Map(),
+          perEventDemand: new Map(),
+        },
+        allocation: {
+          packsWeCanCreate: 0,
+          shortageItems: new Map(),
+        },
+      },
+    ]),
+  );
+
+  eventsToProcess.forEach((disasterEvent) => {
+    const disasterEventId = normalizeReliefPackInventoryIdentifier(
+      disasterEvent?.id,
+    );
+    const eventHouseholds = (households || []).filter(
+      (household) =>
+        normalizeReliefPackInventoryIdentifier(
+          household?.__reliefPackDemandDisasterEventId,
+        ) === disasterEventId,
+    );
+    const demandByTemplateId = new Map(
+      (templates || []).map((template) => [
+        template.id,
+        buildTemplateDemand(
+          template,
+          getTemplateApplicableHouseholds(template, eventHouseholds),
+        ),
+      ]),
+    );
+    const eventAvailabilityByItemId = buildAvailabilityByItemId({
+      inventoryBatches,
+      targetDisasterEventId: disasterEventId,
+      disasterEvents,
+      remainingQuantityByBatchId,
+    });
+    const { allocationByTemplateId } = allocateSharedReliefPackInventory({
+      templates,
+      availabilityByItemId: eventAvailabilityByItemId,
+      demandByTemplateId,
+      getItemRequiredQuantity: getTemplateItemRequiredQuantity,
+    });
+    const allocatedByItemId = new Map();
+
+    (templates || []).forEach((template) => {
+      const aggregate = aggregateByTemplateId.get(template.id);
+      const demand = demandByTemplateId.get(template.id);
+      const allocation = allocationByTemplateId.get(template.id);
+
+      if (!aggregate || !demand || !allocation) {
+        return;
+      }
+
+      aggregate.demand.neededPacks += Number(demand.neededPacks || 0);
+      mergeReliefPackDemandEntries(
+        aggregate.demand.perBarangayDemand,
+        demand.perBarangayDemand,
+        (entry) =>
+          `${disasterEventId}::${normalizeReliefPackInventoryIdentifier(
+            entry?.barangay_id || entry?.barangay_name,
+          )}`,
+      );
+      mergeReliefPackDemandEntries(
+        aggregate.demand.perEventDemand,
+        demand.perEventDemand,
+        (entry) =>
+          normalizeReliefPackInventoryIdentifier(
+            entry?.disaster_event_id || disasterEventId,
+          ),
+      );
+      aggregate.allocation.packsWeCanCreate += Number(
+        allocation.packsWeCanCreate || 0,
+      );
+      mergeReliefPackShortageItems(
+        aggregate.allocation.shortageItems,
+        allocation.shortageItems,
+      );
+
+      allocation.allocatedStockByItemId.forEach((quantity, itemId) => {
+        allocatedByItemId.set(
+          itemId,
+          (allocatedByItemId.get(itemId) || 0) + Number(quantity || 0),
+        );
+      });
+    });
+
+    allocatedByItemId.forEach((quantity, itemId) => {
+      consumeBatchQuantities({
+        inventoryBatches,
+        targetDisasterEventId: disasterEventId,
+        disasterEvents,
+        itemId,
+        quantity,
+        remainingQuantityByBatchId,
+      });
+    });
+  });
+
+  return (templates || []).map((template) => {
+    const aggregate = aggregateByTemplateId.get(template.id);
+
+    if (!aggregate) {
+      return {
+        ...template,
+        metrics: buildTemplateMetrics({ template }),
+      };
+    }
+
+    const demand = {
+      neededPacks: aggregate.demand.neededPacks,
+      perBarangayDemand: [...aggregate.demand.perBarangayDemand.values()].sort(
+        (leftEntry, rightEntry) =>
+          rightEntry.packs_needed - leftEntry.packs_needed,
+      ),
+      perEventDemand: [...aggregate.demand.perEventDemand.values()].sort(
+        (leftEntry, rightEntry) =>
+          rightEntry.packs_needed - leftEntry.packs_needed,
+      ),
+    };
+    const allocation = {
+      packsWeCanCreate: aggregate.allocation.packsWeCanCreate,
+      availableStockByItemId: new Map(startingAvailabilityByItemId),
+      shortageItems: [...aggregate.allocation.shortageItems.values()].sort(
+        (leftItem, rightItem) =>
+          rightItem.shortage_quantity - leftItem.shortage_quantity,
+      ),
+    };
+
+    return {
+      ...template,
+      metrics: buildTemplateMetrics({ template, demand, allocation }),
+    };
+  });
 };
 
 const getDemandHouseholdBarangayId = (household) =>
@@ -1762,6 +2120,7 @@ const ReliefPackTemplatesPage = () => {
   const [templates, setTemplates] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryBatches, setInventoryBatches] = useState([]);
+  const [allDisasterEvents, setAllDisasterEvents] = useState([]);
   const [activeDisasterEvents, setActiveDisasterEvents] = useState([]);
   const [barangayOptions, setBarangayOptions] = useState([]);
   const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
@@ -1811,14 +2170,14 @@ const ReliefPackTemplatesPage = () => {
         templateResponse,
         inventoryItemResponse,
         inventoryBatchResponse,
-        activeDisasterEventResponse,
+        disasterEventResponse,
         barangayResponse,
         sectorResponse,
       ] = await Promise.all([
         fetchReliefPackTemplates({ is_active: "" }),
         fetchInventoryItems(),
         fetchInventoryBatches(),
-        fetchActiveDisasterEvents(),
+        fetchAllDisasterEvents(),
         fetchBarangays(),
         fetchSectors(),
       ]);
@@ -1832,8 +2191,16 @@ const ReliefPackTemplatesPage = () => {
       setTemplates(sortTemplatesOldestFirst(templateDetails));
       setInventoryItems(inventoryItemResponse || []);
       setInventoryBatches(inventoryBatchResponse || []);
+      const normalizedDisasterEvents = Array.isArray(disasterEventResponse)
+        ? disasterEventResponse
+        : [];
+      setAllDisasterEvents(normalizedDisasterEvents);
       setActiveDisasterEvents(
-        sortDisasterEventsNewestFirst(activeDisasterEventResponse),
+        sortDisasterEventsNewestFirst(
+          normalizedDisasterEvents.filter(
+            (event) => String(event?.status || "").toUpperCase() === "ACTIVE",
+          ),
+        ),
       );
       setBarangayOptions(barangayResponse || []);
       setSectorOptions(
@@ -1924,11 +2291,17 @@ const ReliefPackTemplatesPage = () => {
 
     const refreshInventoryDrivenMetrics = async () => {
       try {
-        const [templateResponse, inventoryItemResponse, inventoryBatchResponse] =
+        const [
+          templateResponse,
+          inventoryItemResponse,
+          inventoryBatchResponse,
+          disasterEventResponse,
+        ] =
           await Promise.all([
             fetchReliefPackTemplates({ is_active: "" }),
             fetchInventoryItems(),
             fetchInventoryBatches(),
+            fetchAllDisasterEvents(),
           ]);
 
         const templateDetails = await Promise.all(
@@ -1944,6 +2317,17 @@ const ReliefPackTemplatesPage = () => {
         setTemplates(sortTemplatesOldestFirst(templateDetails));
         setInventoryItems(inventoryItemResponse || []);
         setInventoryBatches(inventoryBatchResponse || []);
+        const normalizedDisasterEvents = Array.isArray(disasterEventResponse)
+          ? disasterEventResponse
+          : [];
+        setAllDisasterEvents(normalizedDisasterEvents);
+        setActiveDisasterEvents(
+          sortDisasterEventsNewestFirst(
+            normalizedDisasterEvents.filter(
+              (event) => String(event?.status || "").toUpperCase() === "ACTIVE",
+            ),
+          ),
+        );
       } catch (_error) {
         // Keep the current view stable during background refresh attempts.
       }
@@ -2043,15 +2427,6 @@ const ReliefPackTemplatesPage = () => {
     };
   }, [scopedDisasterEvents]);
 
-  const availabilityByItemId = useMemo(
-    () =>
-      buildAvailabilityByItemId(
-        inventoryBatches,
-        activeDisasterEvents.map((event) => event.id),
-      ),
-    [activeDisasterEvents, inventoryBatches],
-  );
-
   const scopedDemandHouseholds = useMemo(
     () =>
       aggregatedDemand.households.filter((household) =>
@@ -2064,21 +2439,43 @@ const ReliefPackTemplatesPage = () => {
     [aggregatedDemand.households, selectedBarangayId, selectedDisasterEventId],
   );
 
-  const fullDemandTemplateCards = useMemo(() => {
-    return buildSharedTemplateCards({
+  const fullDemandTemplateCards = useMemo(
+    () =>
+      buildEventAwareTemplateCards({
+        templates,
+        inventoryBatches,
+        disasterEvents: allDisasterEvents,
+        activeDisasterEvents,
+        households: aggregatedDemand.households,
+      }),
+    [
+      activeDisasterEvents,
+      aggregatedDemand.households,
+      allDisasterEvents,
+      inventoryBatches,
       templates,
-      availabilityByItemId,
-      households: aggregatedDemand.households,
-    });
-  }, [aggregatedDemand.households, availabilityByItemId, templates]);
+    ],
+  );
 
-  const templateCards = useMemo(() => {
-    return buildSharedTemplateCards({
+  const templateCards = useMemo(
+    () =>
+      buildEventAwareTemplateCards({
+        templates,
+        inventoryBatches,
+        disasterEvents: allDisasterEvents,
+        activeDisasterEvents,
+        targetDisasterEventId: selectedDisasterEventId,
+        households: scopedDemandHouseholds,
+      }),
+    [
+      activeDisasterEvents,
+      allDisasterEvents,
+      inventoryBatches,
+      scopedDemandHouseholds,
+      selectedDisasterEventId,
       templates,
-      availabilityByItemId,
-      households: scopedDemandHouseholds,
-    });
-  }, [availabilityByItemId, scopedDemandHouseholds, templates]);
+    ],
+  );
 
   const filteredTemplateCards = useMemo(() => {
     const normalizedSearch = filters.search.trim().toLowerCase();

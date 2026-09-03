@@ -165,9 +165,7 @@ export const updateInventoryBatchExpiry = async (
 };
 
 export const fetchInventoryItems = async () => {
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/inventory-items?is_active=true`,
-  );
+  const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items`);
 
   return handleJsonResponse(response, "Failed to fetch inventory items");
 };
