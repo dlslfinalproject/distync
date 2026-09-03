@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   cacheRegistrationSectors,
   fetchSectors,
+  getCachedRegistrationReferenceData,
 } from "../household-registration/householdRegistrationService";
 import {
   getLatestHouseholdLifecycleEntry,
@@ -23,7 +24,15 @@ export const useBarangayMasterlistSync = ({
   reloadMasterlist,
 }) => {
   // HOUSEHOLD_RE_ADMISSION remains an optimistic Active occurrence.
-  const [sectorOptions, setSectorOptions] = useState([]);
+  const [sectorOptions, setSectorOptions] = useState(() => {
+    const cachedSectors = getCachedRegistrationReferenceData().sectors;
+    const sectors = Array.isArray(cachedSectors?.data)
+      ? cachedSectors.data
+      : Array.isArray(cachedSectors)
+        ? cachedSectors
+        : [];
+    return buildMasterlistFilterSectorOptions(sectors);
+  });
 
   const rowsWithSyncStatus = useMemo(() => {
     const syncedRows = rows.map((row) => ({
@@ -41,6 +50,7 @@ export const useBarangayMasterlistSync = ({
       selectedEventId: selectedEvent?.id,
       assignedBarangayId: assignedBarangay?.id,
       assignedBarangayName: assignedBarangay?.name || "",
+      sectorOptions,
       sortOrder,
     });
   }, [
@@ -49,6 +59,7 @@ export const useBarangayMasterlistSync = ({
     rows,
     recordStatus,
     sortOrder,
+    sectorOptions,
     selectedEvent?.id,
     syncQueueEntries,
   ]);
@@ -81,7 +92,13 @@ export const useBarangayMasterlistSync = ({
         cacheRegistrationSectors(normalizedSectors);
       } catch (_error) {
         if (isMounted) {
-          setSectorOptions([]);
+          const cachedSectors = getCachedRegistrationReferenceData().sectors;
+          const sectors = Array.isArray(cachedSectors?.data)
+            ? cachedSectors.data
+            : Array.isArray(cachedSectors)
+              ? cachedSectors
+              : [];
+          setSectorOptions(buildMasterlistFilterSectorOptions(sectors));
         }
       }
     };
