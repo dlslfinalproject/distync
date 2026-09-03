@@ -155,6 +155,33 @@ export const updateDonation = async (donationId, payload) => {
   });
 };
 
+export const updateDonationPublicName = async (
+  donationId,
+  donorNamePublic,
+) => {
+  return performOnlineOnlyMutation({
+    payload: { donor_name_public: donorNamePublic },
+    offlineMessage: DONATION_ONLINE_ONLY_MESSAGE,
+    request: async () => {
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/donations/${donationId}/public-name`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ donor_name_public: donorNamePublic }),
+        },
+      );
+
+      return handleJsonResponse(
+        response,
+        "Failed to update donor name visibility",
+      );
+    },
+  });
+};
+
 export const deleteDonation = async (donationId) => {
   const response = await fetch(`${API_BASE_URL}/api/v1/donations/${donationId}`, {
     method: "DELETE",
@@ -166,7 +193,7 @@ export const deleteDonation = async (donationId) => {
 export const createDonationItem = async (donationId, payload) => {
   return performOnlineOnlyMutation({
     payload,
-    requiredFields: ["inventory_item_id", "quantity_received"],
+    requiredFields: ["quantity_received"],
     offlineMessage: DONATION_ONLINE_ONLY_MESSAGE,
     request: async () => {
       const response = await fetch(

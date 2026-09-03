@@ -727,6 +727,13 @@ const buildDonationAuditActionLabel = (row) => {
   }
 
   if (
+    row.entity_type === "DONATION" &&
+    row.action === "DONATION_PUBLIC_NAME_UPDATE"
+  ) {
+    return "Donor Name Visibility Updated";
+  }
+
+  if (
     (row.entity_type === "DONATION" && row.action === "DONATION_UPDATE") ||
     (row.entity_type === "DONATION_ITEM" && row.action === "DONATION_ITEM_UPDATE")
   ) {

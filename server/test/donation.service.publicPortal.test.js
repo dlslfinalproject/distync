@@ -403,3 +403,74 @@ test("public portal scopes donation transparency to the three recent operations 
     },
   );
 });
+
+test("public portal reveals donor names only when explicitly published", async () => {
+  await withStubbedDonationService(
+    {
+      donationRepositoryOverrides: {
+        getPublicRecentDonationSummaries: async () => [
+          {
+            public_key: "anonymous-donation",
+            donor_name: null,
+            donor_name_public: false,
+            donor_type: "INDIVIDUAL",
+            donation_count: 1,
+            item_count: 1,
+            total_quantity_received: 5,
+            items: [],
+          },
+          {
+            public_key: "published-donation",
+            donor_name: "Open Hands Foundation",
+            donor_name_public: true,
+            donor_type: "NGO",
+            donation_count: 1,
+            item_count: 1,
+            total_quantity_received: 10,
+            items: [],
+          },
+        ],
+        getDonationItemTransparencySummary: async () => [
+          {
+            donation_id: "anonymous-donation",
+            inventory_item_id: "item-1",
+            donor_name: "Private Donor",
+            donor_name_public: false,
+            item_name: "Rice",
+            unit_of_measure: "kg",
+            quantity_received: 5,
+            quantity_distributed: 0,
+            quantity_written_off: 0,
+            quantity_remaining: 5,
+          },
+          {
+            donation_id: "published-donation",
+            inventory_item_id: "item-2",
+            donor_name: "Open Hands Foundation",
+            donor_name_public: true,
+            item_name: "Water",
+            unit_of_measure: "bottles",
+            quantity_received: 10,
+            quantity_distributed: 0,
+            quantity_written_off: 0,
+            quantity_remaining: 10,
+          },
+        ],
+      },
+    },
+    async ({ getPublicDonationPortal }) => {
+      const payload = await getPublicDonationPortal();
+
+      assert.deepEqual(
+        payload.recent_donations.map((donation) => donation.donor_name),
+        ["Donor #1", "Open Hands Foundation"],
+      );
+      assert.deepEqual(
+        payload.transparency_summary.received_vs_distributed.map(
+          (row) => row.donor_name,
+        ),
+        ["Donor #1", "Open Hands Foundation"],
+      );
+    },
+  );
+});

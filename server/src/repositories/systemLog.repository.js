@@ -193,7 +193,7 @@ const getAuditLogs = async (
         (
           (
             al.entity_type = 'DONATION'
-            AND al.action = 'DONATION_UPDATE'
+            AND al.action IN ('DONATION_UPDATE', 'DONATION_PUBLIC_NAME_UPDATE')
           )
           OR (
             al.entity_type = 'DONATION_ITEM'
@@ -518,7 +518,8 @@ const getAuditLogs = async (
           al.entity_type = 'DONATION'
           AND al.action IN (
             'DONATION_CREATE',
-            'DONATION_UPDATE'
+            'DONATION_UPDATE',
+            'DONATION_PUBLIC_NAME_UPDATE'
           )
         )
         OR (

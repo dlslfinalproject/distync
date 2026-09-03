@@ -33,7 +33,7 @@ const buildItemCodeSeed = (itemName) => {
   return normalizedName || "ITEM";
 };
 
-const generateInventoryItemCode = async (itemName) => {
+const generateInventoryItemCode = async (itemName, dbClient = pool) => {
   const itemCodeSeed = buildItemCodeSeed(itemName);
   let sequenceNumber = 1;
 
@@ -41,6 +41,7 @@ const generateInventoryItemCode = async (itemName) => {
     const candidateCode = `INV-${itemCodeSeed}-${String(sequenceNumber).padStart(3, "0")}`;
     const existingItem = await inventoryItemRepository.getInventoryItemByCode(
       candidateCode,
+      dbClient,
     );
 
     if (!existingItem) {
@@ -51,9 +52,14 @@ const generateInventoryItemCode = async (itemName) => {
   }
 };
 
-const ensureUniqueFields = async (itemData, currentItemId = null) => {
+const ensureUniqueFields = async (
+  itemData,
+  currentItemId = null,
+  dbClient = pool,
+) => {
   const existingItemByCode = await inventoryItemRepository.getInventoryItemByCode(
     itemData.item_code,
+    dbClient,
   );
 
   if (existingItemByCode && existingItemByCode.id !== currentItemId) {
@@ -64,6 +70,7 @@ const ensureUniqueFields = async (itemData, currentItemId = null) => {
 
   const existingItemByName = await inventoryItemRepository.getInventoryItemByName(
     itemData.item_name,
+    dbClient,
   );
 
   if (existingItemByName && existingItemByName.id !== currentItemId) {
@@ -80,7 +87,10 @@ const ensureUniqueFields = async (itemData, currentItemId = null) => {
 
   if (typeof inventoryItemRepository.getInventoryItemByBarcode === "function") {
     const existingItemByBarcode =
-      await inventoryItemRepository.getInventoryItemByBarcode(normalizedBarcode);
+      await inventoryItemRepository.getInventoryItemByBarcode(
+        normalizedBarcode,
+        dbClient,
+      );
 
     if (
       existingItemByBarcode &&
@@ -99,6 +109,7 @@ const ensureUniqueFields = async (itemData, currentItemId = null) => {
     const existingStockForm =
       await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
         normalizedBarcode,
+        dbClient,
       );
 
     if (
@@ -936,14 +947,17 @@ const getInventoryItemDetail = async (id) => {
 };
 
 const createInventoryItem = async (itemData, actor = null, options = {}) => {
+  const externalClient = options.dbClient || null;
+  const lookupClient = externalClient || pool;
   const inventoryItemToCreate = {
     ...itemData,
     barcode: normalizeAndValidateItemBarcode(itemData.barcode),
-    item_code: itemData.item_code || await generateInventoryItemCode(itemData.item_name),
+    item_code:
+      itemData.item_code ||
+      (await generateInventoryItemCode(itemData.item_name, lookupClient)),
   };
 
-  await ensureUniqueFields(inventoryItemToCreate);
-  const externalClient = options.dbClient || null;
+  await ensureUniqueFields(inventoryItemToCreate, null, lookupClient);
   const client = externalClient || await pool.connect();
 
   try {

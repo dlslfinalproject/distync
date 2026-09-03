@@ -16,11 +16,8 @@ import {
 import { normalizeDonorType } from "./donationFormatters";
 import { isReliefPackDonationItemRemark } from "./donationType";
 import {
-  createInventoryItem,
   lookupInventoryItemByBarcode,
 } from "../inventory-items/inventoryItemService";
-
-const getMutationData = (response) => response?.data || response;
 
 const createDraftKey = (prefix) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -229,7 +226,7 @@ const resolveSavedDonationItemStockDetails = (item) => {
   };
 };
 
-const resolveDonationInventoryItem = async ({ draft, inventoryItems }) => {
+const resolveDonationInventoryItem = ({ draft, inventoryItems }) => {
   const existingInventoryItemById = findInventoryItemById(
     inventoryItems,
     draft.inventory_item_id,
@@ -246,7 +243,7 @@ const resolveDonationInventoryItem = async ({ draft, inventoryItems }) => {
     return existingInventoryItem;
   }
 
-  return getMutationData(await createInventoryItem(buildDonationDefinedItemPayload(draft)));
+  return null;
 };
 
 const buildReliefPackRemark = (templateName, packQuantity) =>
@@ -399,24 +396,31 @@ const inferDonationEntryType = (items = []) => {
   return "ITEM";
 };
 
-const buildDonationItemSubmissionPayload = (item) => ({
-  inventory_item_id: item.inventory_item_id,
-  inventory_item_stock_form_id: item.inventory_item_stock_form_id || null,
-  quantity_received: Number(item.quantity_received || 0),
-  remarks: item.remarks || null,
-  expiration_date: item.expiration_date || null,
-  storage_location: null,
-  stock_form_barcode: item.barcode || null,
-  stock_form_packaging: item.packaging || null,
-  stock_form_units_per_packaging: isPiecePackaging(item.packaging)
-    ? 1
-    : Number(item.units_per_packaging || 0) || null,
-  stock_form_unit_of_measure: item.unit_of_measure || null,
-  stock_form_unit_of_measure_value:
-    item.unit_of_measure_value !== undefined && item.unit_of_measure_value !== null
-      ? Number(item.unit_of_measure_value)
-      : null,
-});
+const buildDonationItemSubmissionPayload = (item, resolvedInventoryItem = null) => {
+  const inventoryItemId = resolvedInventoryItem?.id || item.inventory_item_id || null;
+
+  return {
+    inventory_item_id: inventoryItemId,
+    new_inventory_item: inventoryItemId
+      ? null
+      : buildDonationDefinedItemPayload(item),
+    inventory_item_stock_form_id: item.inventory_item_stock_form_id || null,
+    quantity_received: Number(item.quantity_received || 0),
+    remarks: item.remarks || null,
+    expiration_date: item.expiration_date || null,
+    storage_location: null,
+    stock_form_barcode: item.barcode || null,
+    stock_form_packaging: item.packaging || null,
+    stock_form_units_per_packaging: isPiecePackaging(item.packaging)
+      ? 1
+      : Number(item.units_per_packaging || 0) || null,
+    stock_form_unit_of_measure: item.unit_of_measure || null,
+    stock_form_unit_of_measure_value:
+      item.unit_of_measure_value !== undefined && item.unit_of_measure_value !== null
+        ? Number(item.unit_of_measure_value)
+        : null,
+  };
+};
 
 const buildLooseDonationDraft = (draft) => ({
   draft_id: createDraftKey("donation-item"),
@@ -550,7 +554,7 @@ const resolveReliefPackDonationItemPayloads = async ({
   const resolvedDonationItems = [];
 
   for (const packItem of reliefPackItems || []) {
-    const createdInventoryItem = await resolveDonationInventoryItem({
+    const resolvedInventoryItem = resolveDonationInventoryItem({
       draft: {
         ...packItem,
         expiration_date: packItem.expiration_date || reliefPackExpirationDate,
@@ -558,13 +562,10 @@ const resolveReliefPackDonationItemPayloads = async ({
       inventoryItems,
     });
 
-    if (!createdInventoryItem?.id) {
-      throw new Error(`Failed to create inventory item for ${packItem.item_name}.`);
-    }
-
     resolvedDonationItems.push(
       buildDonationItemSubmissionPayload({
-        inventory_item_id: createdInventoryItem.id,
+        ...packItem,
+        inventory_item_id: resolvedInventoryItem?.id || packItem.inventory_item_id || "",
         inventory_item_stock_form_id: packItem.inventory_item_stock_form_id || null,
         quantity_received: computeReliefPackItemTotalQuantity(
           packItem,
@@ -581,7 +582,7 @@ const resolveReliefPackDonationItemPayloads = async ({
         unit_of_measure: packItem.unit_of_measure || null,
         unit_of_measure_value: packItem.unit_of_measure_value ?? null,
         barcode: packItem.barcode || null,
-      }),
+      }, resolvedInventoryItem),
     );
   }
 
@@ -1528,7 +1529,7 @@ export const useDonationManagementModals = ({
             continue;
           }
 
-          const createdInventoryItem = await resolveDonationInventoryItem({
+          const resolvedInventoryItem = resolveDonationInventoryItem({
             draft: {
               ...item,
               expiration_date: item.expiration_date,
@@ -1536,15 +1537,12 @@ export const useDonationManagementModals = ({
             inventoryItems,
           });
 
-          if (!createdInventoryItem?.id) {
-            throw new Error(`Failed to create inventory item for ${item.item_name}.`);
-          }
-
           resolvedDonationItems.push(
             buildDonationItemSubmissionPayload({
               ...item,
-              inventory_item_id: createdInventoryItem.id,
-            }),
+              inventory_item_id:
+                resolvedInventoryItem?.id || item.inventory_item_id || "",
+            }, resolvedInventoryItem),
           );
         }
 
@@ -1997,19 +1995,24 @@ export const useDonationManagementModals = ({
           await createDonationItem(donationForm.id, expandedItem);
         }
       } else {
-        const createdInventoryItem = await resolveDonationInventoryItem({
+        const resolvedInventoryItem = resolveDonationInventoryItem({
           draft: donationItemDraft,
           inventoryItems,
         });
-        const inventoryItemId = createdInventoryItem?.id;
-
-        if (!inventoryItemId) {
-          throw new Error("Define the inventory item before adding it.");
-        }
 
         await createDonationItem(donationForm.id, {
           ...buildDonationItemSubmissionPayload({
-            inventory_item_id: inventoryItemId,
+            inventory_item_id:
+              resolvedInventoryItem?.id || donationItemDraft.inventory_item_id || "",
+            new_item_name: donationItemDraft.new_item_name,
+            new_item_category: donationItemDraft.new_item_category,
+            new_item_tracking_method: donationItemDraft.new_item_tracking_method,
+            new_item_unit_of_measure: donationItemDraft.new_item_unit_of_measure,
+            new_item_unit_of_measure_value:
+              donationItemDraft.new_item_unit_of_measure_value,
+            new_item_packaging: donationItemDraft.new_item_packaging,
+            packaging_count: donationItemDraft.packaging_count,
+            units_per_packaging: donationItemDraft.units_per_packaging,
             inventory_item_stock_form_id:
               donationItemDraft.inventory_item_stock_form_id || null,
             quantity_received: computeDonationQuantityReceived(donationItemDraft),
@@ -2023,7 +2026,7 @@ export const useDonationManagementModals = ({
             unit_of_measure_value:
               donationItemDraft.new_item_unit_of_measure_value,
             barcode: donationItemDraft.barcode || null,
-          }),
+          }, resolvedInventoryItem),
         });
       }
 

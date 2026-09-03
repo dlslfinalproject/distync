@@ -1,5 +1,51 @@
 const pool = require("../config/db");
 
+const schemaColumnCache = new Map();
+
+const hasSchemaColumn = async (tableName, columnName, dbClient = pool) => {
+  const cacheKey = `${tableName}.${columnName}`;
+
+  if (schemaColumnCache.has(cacheKey)) {
+    return schemaColumnCache.get(cacheKey);
+  }
+
+  const result = await dbClient.query(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = $1
+          AND column_name = $2
+      ) AS has_column
+    `,
+    [tableName, columnName],
+  );
+
+  const hasColumn = Boolean(result.rows[0]?.has_column);
+  schemaColumnCache.set(cacheKey, hasColumn);
+  return hasColumn;
+};
+
+const hasInventoryItemReorderLevelColumn = (dbClient = pool) =>
+  hasSchemaColumn("inventory_items", "reorder_level", dbClient);
+
+const hasInventoryBatchStockVersionColumn = (dbClient = pool) =>
+  hasSchemaColumn("inventory_batches", "stock_version", dbClient);
+
+const hasInventoryTransactionOtherStatusColumn = (dbClient = pool) =>
+  hasSchemaColumn("inventory_transactions", "other_status", dbClient);
+
+const hasInventoryTransactionReferenceNoColumn = (dbClient = pool) =>
+  hasSchemaColumn(
+    "inventory_transactions",
+    "inventory_transaction_reference_no",
+    dbClient,
+  );
+
+const hasDonationDonorNamePublicColumn = (dbClient = pool) =>
+  hasSchemaColumn("donations", "donor_name_public", dbClient);
+
 const donationNeedSelect = `
   SELECT
     dn.id,
@@ -26,11 +72,12 @@ const donationNeedSelect = `
   LEFT JOIN users u ON u.id = dn.published_by
 `;
 
-const donationSelect = `
+const buildDonationSelect = (hasDonorNamePublicColumn) => `
   SELECT
     d.id,
     d.disaster_event_id,
     d.donor_name,
+    ${hasDonorNamePublicColumn ? "d.donor_name_public" : "FALSE"} AS donor_name_public,
     d.donor_type,
     d.donor_type_other,
     d.contact_information,
@@ -50,7 +97,10 @@ const donationSelect = `
   LEFT JOIN users u ON u.id = d.received_by
 `;
 
-const donationItemSelect = `
+const buildDonationItemSelect = (
+  hasReorderLevelColumn,
+  hasStockVersionColumn,
+) => `
   SELECT
     di.id,
     di.donation_id,
@@ -64,7 +114,7 @@ const donationItemSelect = `
     ii.item_name,
     ii.category,
     ii.unit_of_measure,
-    ii.reorder_level,
+    ${hasReorderLevelColumn ? "ii.reorder_level" : "NULL::integer"} AS reorder_level,
     CAST(COALESCE((
       SELECT SUM(COALESCE(item_stock.quantity_available, 0))
       FROM inventory_batches item_stock
@@ -74,7 +124,7 @@ const donationItemSelect = `
     ib.batch_no,
     ib.source_type,
     ib.quantity_available,
-    ib.stock_version,
+    ${hasStockVersionColumn ? "ib.stock_version" : "NULL::integer"} AS stock_version,
     ib.expiration_date,
     ib.storage_location,
     stock_forms.barcode AS stock_form_barcode,
@@ -111,6 +161,7 @@ const getDisasterEventById = async (id, dbClient = pool) => {
 };
 
 const getInventoryItemById = async (id, dbClient = pool) => {
+  const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn(dbClient);
   const result = await dbClient.query(
     `
       SELECT
@@ -123,13 +174,41 @@ const getInventoryItemById = async (id, dbClient = pool) => {
         packaging,
         packaging_count,
         quantity,
-        reorder_level,
+        ${hasReorderLevelColumn ? "reorder_level" : "NULL::integer AS reorder_level"},
         is_active,
         is_perishable
       FROM inventory_items
       WHERE id = $1
     `,
     [id],
+  );
+
+  return result.rows[0] || null;
+};
+
+const getInventoryItemByName = async (itemName, dbClient = pool) => {
+  const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn(dbClient);
+  const result = await dbClient.query(
+    `
+      SELECT
+        id,
+        item_code,
+        item_name,
+        category,
+        unit_of_measure,
+        unit_of_measure_value,
+        packaging,
+        packaging_count,
+        quantity,
+        ${hasReorderLevelColumn ? "reorder_level" : "NULL::integer AS reorder_level"},
+        is_active,
+        is_perishable
+      FROM inventory_items
+      WHERE LOWER(BTRIM(item_name)) = LOWER(BTRIM($1))
+      ORDER BY is_active DESC, created_at ASC, id ASC
+      LIMIT 1
+    `,
+    [itemName],
   );
 
   return result.rows[0] || null;
@@ -284,6 +363,9 @@ const deleteDonationNeed = async (id, dbClient) => {
 const getDonations = async (filters = {}, dbClient = pool) => {
   const values = [];
   const conditions = [];
+  const hasDonorNamePublicColumn = await hasDonationDonorNamePublicColumn(
+    dbClient,
+  );
 
   if (filters.disaster_event_id) {
     values.push(filters.disaster_event_id);
@@ -312,7 +394,7 @@ const getDonations = async (filters = {}, dbClient = pool) => {
 
   const result = await dbClient.query(
     `
-      ${donationSelect}
+      ${buildDonationSelect(hasDonorNamePublicColumn)}
       ${whereClause}
       ORDER BY d.received_at DESC, d.created_at DESC
     `,
@@ -323,9 +405,12 @@ const getDonations = async (filters = {}, dbClient = pool) => {
 };
 
 const getDonationById = async (id, dbClient = pool) => {
+  const hasDonorNamePublicColumn = await hasDonationDonorNamePublicColumn(
+    dbClient,
+  );
   const result = await dbClient.query(
     `
-      ${donationSelect}
+      ${buildDonationSelect(hasDonorNamePublicColumn)}
       WHERE d.id = $1
     `,
     [id],
@@ -335,12 +420,16 @@ const getDonationById = async (id, dbClient = pool) => {
 };
 
 const getDonationByIdForUpdate = async (id, dbClient) => {
+  const hasDonorNamePublicColumn = await hasDonationDonorNamePublicColumn(
+    dbClient,
+  );
   const result = await dbClient.query(
     `
       SELECT
         id,
         disaster_event_id,
         donor_name,
+        ${hasDonorNamePublicColumn ? "donor_name_public" : "FALSE"} AS donor_name_public,
         donor_type,
         donor_type_other,
         contact_information,
@@ -359,9 +448,13 @@ const getDonationByIdForUpdate = async (id, dbClient) => {
 };
 
 const getDonationItemsByDonationId = async (donationId, dbClient = pool) => {
+  const [hasReorderLevelColumn, hasStockVersionColumn] = await Promise.all([
+    hasInventoryItemReorderLevelColumn(dbClient),
+    hasInventoryBatchStockVersionColumn(dbClient),
+  ]);
   const result = await dbClient.query(
     `
-      ${donationItemSelect}
+      ${buildDonationItemSelect(hasReorderLevelColumn, hasStockVersionColumn)}
       WHERE di.donation_id = $1
       ORDER BY di.created_at ASC, ii.item_name ASC
     `,
@@ -372,9 +465,13 @@ const getDonationItemsByDonationId = async (donationId, dbClient = pool) => {
 };
 
 const getDonationItemById = async (id, dbClient = pool) => {
+  const [hasReorderLevelColumn, hasStockVersionColumn] = await Promise.all([
+    hasInventoryItemReorderLevelColumn(dbClient),
+    hasInventoryBatchStockVersionColumn(dbClient),
+  ]);
   const result = await dbClient.query(
     `
-      ${donationItemSelect}
+      ${buildDonationItemSelect(hasReorderLevelColumn, hasStockVersionColumn)}
       WHERE di.id = $1
     `,
     [id],
@@ -465,6 +562,38 @@ const updateDonation = async (id, payload, dbClient) => {
       payload.status,
       payload.remarks,
     ],
+  );
+
+  return result.rows[0] || null;
+};
+
+const updateDonationPublicName = async (
+  id,
+  donorNamePublic,
+  dbClient,
+) => {
+  const hasDonorNamePublicColumn = await hasDonationDonorNamePublicColumn(
+    dbClient,
+  );
+
+  if (!hasDonorNamePublicColumn) {
+    const error = new Error(
+      "Donor name visibility is unavailable until the donor_name_public migration is applied.",
+    );
+    error.code = "DONATION_PUBLIC_NAME_COLUMN_MISSING";
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const result = await dbClient.query(
+    `
+      UPDATE donations
+      SET donor_name_public = $2,
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING id, donor_name_public
+    `,
+    [id, donorNamePublic],
   );
 
   return result.rows[0] || null;
@@ -746,6 +875,8 @@ const updateInventoryBatchStock = async (
 };
 
 const insertInventoryTransaction = async (payload, dbClient) => {
+  const hasReferenceNoColumn =
+    await hasInventoryTransactionReferenceNoColumn(dbClient);
   const result = await dbClient.query(
     `
       INSERT INTO inventory_transactions (
@@ -761,7 +892,13 @@ const insertInventoryTransaction = async (payload, dbClient) => {
         created_at
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, NOW())
-      RETURNING id, inventory_transaction_reference_no
+      RETURNING
+        id,
+        ${
+          hasReferenceNoColumn
+            ? "inventory_transaction_reference_no"
+            : "NULL::text AS inventory_transaction_reference_no"
+        }
     `,
     [
       payload.disaster_event_id,
@@ -1047,6 +1184,9 @@ const getPublicRecentDonationSummaries = async (
     return [];
   }
 
+  const hasDonorNamePublicColumn = await hasDonationDonorNamePublicColumn(
+    dbClient,
+  );
   const values = [disasterEventIds, limit];
 
   const result = await dbClient.query(
@@ -1056,6 +1196,9 @@ const getPublicRecentDonationSummaries = async (
           MIN(d.id::text) AS donor_group_key,
           LOWER(BTRIM(d.donor_name)) AS normalized_donor_name,
           MIN(d.donor_name) AS donor_name,
+          ${hasDonorNamePublicColumn
+            ? "BOOL_OR(COALESCE(d.donor_name_public, FALSE))"
+            : "FALSE"} AS donor_name_public,
           d.donor_type,
           d.donor_type_other,
           d.disaster_event_id,
@@ -1082,7 +1225,11 @@ const getPublicRecentDonationSummaries = async (
       )
       SELECT
         MD5(CONCAT_WS(':', donor_groups.donor_group_key, donor_groups.disaster_event_id::text)) AS public_key,
-        donor_groups.donor_name,
+        CASE
+          WHEN donor_groups.donor_name_public THEN donor_groups.donor_name
+          ELSE NULL
+        END AS donor_name,
+        donor_groups.donor_name_public,
         donor_groups.donor_type,
         donor_groups.donor_type_other,
         donor_groups.disaster_event_id,
@@ -1183,43 +1330,41 @@ const getPublicRecentDonationSummaries = async (
 
 const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
   const values = [];
-  const donationConditions = [];
-  const distributionConditions = [`ib.source_type = 'DONATED'`, `it.transaction_type = 'OUTFLOW'`, `it.reference_type = 'DISTRIBUTION'`];
+  const donationConditions = [`d.status <> 'CANCELLED'`];
+  const distributionConditions = [
+    `ib.source_type = 'DONATED'`,
+    `it.transaction_type IN ('OUTFLOW', 'RETURN')`,
+    `it.reference_type = 'DISTRIBUTION'`,
+  ];
   const writeOffConditions = [
     `ib.source_type = 'DONATED'`,
     `it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN', 'OTHER')`,
   ];
   const batchConditions = [`ib.source_type = 'DONATED'`];
+  const donatedBatchDonationConditions = [`d.status <> 'CANCELLED'`];
   const disasterEventIds = normalizeDisasterEventFilter(disasterEventId);
 
   if (disasterEventIds.length > 0) {
     values.push(disasterEventIds);
     donationConditions.push(`d.disaster_event_id = ANY($${values.length}::uuid[])`);
+    donatedBatchDonationConditions.push(
+      `d.disaster_event_id = ANY($${values.length}::uuid[])`,
+    );
     distributionConditions.push(
       `it.disaster_event_id = ANY($${values.length}::uuid[])`,
     );
-    distributionConditions.push(`EXISTS (
-      SELECT 1
-      FROM donation_items di
-      INNER JOIN donations d ON d.id = di.donation_id
-      WHERE di.inventory_batch_id = ib.id
-        AND d.disaster_event_id = ANY($${values.length}::uuid[])
-    )`);
-    writeOffConditions.push(`EXISTS (
-      SELECT 1
-      FROM donation_items di
-      INNER JOIN donations d ON d.id = di.donation_id
-      WHERE di.inventory_batch_id = ib.id
-        AND d.disaster_event_id = ANY($${values.length}::uuid[])
-    )`);
-    batchConditions.push(`EXISTS (
-      SELECT 1
-      FROM donation_items di
-      INNER JOIN donations d ON d.id = di.donation_id
-      WHERE di.inventory_batch_id = ib.id
-        AND d.disaster_event_id = ANY($${values.length}::uuid[])
-    )`);
   }
+
+  const donatedBatchDonationCondition = `EXISTS (
+    SELECT 1
+    FROM donation_items di
+    INNER JOIN donations d ON d.id = di.donation_id
+    WHERE di.inventory_batch_id = ib.id
+      AND ${donatedBatchDonationConditions.join("\n      AND ")}
+  )`;
+  distributionConditions.push(donatedBatchDonationCondition);
+  writeOffConditions.push(donatedBatchDonationCondition);
+  batchConditions.push(donatedBatchDonationCondition);
 
   const donationWhere =
     donationConditions.length > 0 ? `WHERE ${donationConditions.join(" AND ")}` : "";
@@ -1234,14 +1379,26 @@ const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
           COUNT(DISTINCT d.id)::int AS total_donations_received,
           COALESCE(SUM(di.quantity_received), 0)::int AS total_quantity_received
         FROM donations d
-        LEFT JOIN donation_items di ON di.donation_id = d.id
+        INNER JOIN donation_items di ON di.donation_id = d.id
+        INNER JOIN inventory_batches ib
+          ON ib.id = di.inventory_batch_id
+         AND ib.source_type = 'DONATED'
         ${donationWhere}
       `,
       values,
     ),
     dbClient.query(
       `
-        SELECT COALESCE(SUM(it.quantity), 0)::int AS total_donated_items_distributed
+        SELECT GREATEST(
+          COALESCE(SUM(
+            CASE
+              WHEN it.transaction_type = 'OUTFLOW' THEN it.quantity
+              WHEN it.transaction_type = 'RETURN' THEN -it.quantity
+              ELSE 0
+            END
+          ), 0),
+          0
+        )::int AS total_donated_items_distributed
         FROM inventory_transactions it
         INNER JOIN inventory_batches ib ON ib.id = it.inventory_batch_id
         ${distributionWhere}
@@ -1285,7 +1442,10 @@ const getDonationItemTransparencySummary = async (
   dbClient = pool,
 ) => {
   const values = [];
-  const conditions = [`ib.source_type = 'DONATED'`];
+  const conditions = [
+    `ib.source_type = 'DONATED'`,
+    `d.status <> 'CANCELLED'`,
+  ];
   const disasterEventIds = normalizeDisasterEventFilter(disasterEventId);
 
   if (disasterEventIds.length > 0) {
@@ -1293,11 +1453,15 @@ const getDonationItemTransparencySummary = async (
     conditions.push(`d.disaster_event_id = ANY($${values.length}::uuid[])`);
   }
 
+  const hasDonorNamePublicColumn = await hasDonationDonorNamePublicColumn(
+    dbClient,
+  );
   const result = await dbClient.query(
     `
       SELECT
         d.id AS donation_id,
         d.donor_name,
+        ${hasDonorNamePublicColumn ? "d.donor_name_public" : "FALSE"} AS donor_name_public,
         d.disaster_event_id,
         de.title AS disaster_event_title,
         d.received_at,
@@ -1308,19 +1472,30 @@ const getDonationItemTransparencySummary = async (
         COALESCE(SUM(di.quantity_received), 0)::int AS quantity_received,
         COALESCE(SUM(ib.quantity_available), 0)::int AS quantity_remaining,
         COALESCE((
-          SELECT SUM(it.quantity)::int
+          SELECT GREATEST(
+            COALESCE(SUM(
+              CASE
+                WHEN it.transaction_type = 'OUTFLOW' THEN it.quantity
+                WHEN it.transaction_type = 'RETURN' THEN -it.quantity
+                ELSE 0
+              END
+            ), 0),
+            0
+          )::int
           FROM inventory_transactions it
           INNER JOIN inventory_batches ib2 ON ib2.id = it.inventory_batch_id
           WHERE ib2.inventory_item_id = ii.id
             AND ib2.source_type = 'DONATED'
-            AND it.transaction_type = 'OUTFLOW'
+            AND it.transaction_type IN ('OUTFLOW', 'RETURN')
             AND it.reference_type = 'DISTRIBUTION'
             AND EXISTS (
               SELECT 1
               FROM donation_items di2
+              INNER JOIN donations d2 ON d2.id = di2.donation_id
               WHERE di2.inventory_batch_id = ib2.id
                 AND di2.donation_id = d.id
                 AND di2.inventory_item_id = ii.id
+                AND d2.status <> 'CANCELLED'
             )
             ${
               disasterEventIds.length > 0
@@ -1331,6 +1506,7 @@ const getDonationItemTransparencySummary = async (
                      INNER JOIN donations d2 ON d2.id = di2.donation_id
                      WHERE di2.inventory_batch_id = ib2.id
                        AND d2.disaster_event_id = ANY($1::uuid[])
+                       AND d2.status <> 'CANCELLED'
                    )`
                 : ""
             }
@@ -1345,9 +1521,11 @@ const getDonationItemTransparencySummary = async (
             AND EXISTS (
               SELECT 1
               FROM donation_items di2
+              INNER JOIN donations d2 ON d2.id = di2.donation_id
               WHERE di2.inventory_batch_id = ib2.id
                 AND di2.donation_id = d.id
                 AND di2.inventory_item_id = ii.id
+                AND d2.status <> 'CANCELLED'
             )
             ${
               disasterEventIds.length > 0
@@ -1357,6 +1535,7 @@ const getDonationItemTransparencySummary = async (
                      INNER JOIN donations d2 ON d2.id = di2.donation_id
                      WHERE di2.inventory_batch_id = ib2.id
                        AND d2.disaster_event_id = ANY($1::uuid[])
+                       AND d2.status <> 'CANCELLED'
                    )`
                 : ""
             }
@@ -1381,9 +1560,11 @@ const getDonationItemTransparencySummary = async (
               AND EXISTS (
                 SELECT 1
                 FROM donation_items di2
+                INNER JOIN donations d2 ON d2.id = di2.donation_id
                 WHERE di2.inventory_batch_id = ib2.id
                   AND di2.donation_id = d.id
                   AND di2.inventory_item_id = ii.id
+                  AND d2.status <> 'CANCELLED'
               )
               ${
                 disasterEventIds.length > 0
@@ -1393,6 +1574,7 @@ const getDonationItemTransparencySummary = async (
                        INNER JOIN donations d2 ON d2.id = di2.donation_id
                        WHERE di2.inventory_batch_id = ib2.id
                          AND d2.disaster_event_id = ANY($1::uuid[])
+                         AND d2.status <> 'CANCELLED'
                      )`
                   : ""
               }
@@ -1428,7 +1610,7 @@ const getDonationTransparencyExportRows = async (
   dbClient = pool,
 ) => {
   const values = [];
-  const conditions = [];
+  const conditions = [`d.status <> 'CANCELLED'`];
 
   if (disasterEventId) {
     values.push(disasterEventId);
@@ -1446,6 +1628,7 @@ const getDonationTransparencyExportRows = async (
         d.received_at,
         d.created_at,
         ii.item_name,
+        ii.unit_of_measure,
         di.quantity_received,
         COALESCE(distributed.quantity_distributed, 0)::int AS quantity_distributed,
         COALESCE(written_off.quantity_written_off, 0)::int AS quantity_written_off,
@@ -1457,10 +1640,19 @@ const getDonationTransparencyExportRows = async (
       INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
       LEFT JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
       LEFT JOIN LATERAL (
-        SELECT COALESCE(SUM(it.quantity), 0)::int AS quantity_distributed
+        SELECT GREATEST(
+          COALESCE(SUM(
+            CASE
+              WHEN it.transaction_type = 'OUTFLOW' THEN it.quantity
+              WHEN it.transaction_type = 'RETURN' THEN -it.quantity
+              ELSE 0
+            END
+          ), 0),
+          0
+        )::int AS quantity_distributed
         FROM inventory_transactions it
         WHERE it.inventory_batch_id = di.inventory_batch_id
-          AND it.transaction_type = 'OUTFLOW'
+          AND it.transaction_type IN ('OUTFLOW', 'RETURN')
           AND it.reference_type = 'DISTRIBUTION'
       ) distributed ON TRUE
       LEFT JOIN LATERAL (
@@ -1494,6 +1686,8 @@ const getDonationTransparencyExportRows = async (
 };
 
 const getDonationInventoryTransactions = async (donationId, dbClient = pool) => {
+  const hasOtherStatusColumn =
+    await hasInventoryTransactionOtherStatusColumn(dbClient);
   const result = await dbClient.query(
     `
       SELECT
@@ -1507,7 +1701,7 @@ const getDonationInventoryTransactions = async (donationId, dbClient = pool) => 
         it.performed_by,
         it.performed_at,
         it.remarks,
-        it.other_status,
+        ${hasOtherStatusColumn ? "it.other_status" : "NULL::text"} AS other_status,
         it.created_at,
         ib.batch_no,
         ib.status AS batch_status,
@@ -1536,6 +1730,7 @@ const getDonationInventoryTransactions = async (donationId, dbClient = pool) => 
 module.exports = {
   getDisasterEventById,
   getInventoryItemById,
+  getInventoryItemByName,
   getUserById,
   getDonationNeeds,
   getDonationNeedById,
@@ -1550,6 +1745,7 @@ module.exports = {
   getDonationItemByIdForUpdate,
   insertDonation,
   updateDonation,
+  updateDonationPublicName,
   renameDonorAcrossDonations,
   deleteDonation,
   insertDonationItem,

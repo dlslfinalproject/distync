@@ -638,6 +638,7 @@ CREATE TABLE public.donations (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   disaster_event_id uuid NOT NULL,
   donor_name character varying NOT NULL,
+  donor_name_public boolean NOT NULL DEFAULT false,
   donor_type character varying NOT NULL DEFAULT 'INDIVIDUAL'::character varying CHECK (donor_type::text = ANY (ARRAY['INDIVIDUAL'::character varying, 'NGO'::character varying, 'PRIVATE_ORGANIZATION'::character varying, 'GOVERNMENT_PARTNER'::character varying, 'OTHER'::character varying]::text[])),
   donor_type_other character varying,
   contact_information character varying,

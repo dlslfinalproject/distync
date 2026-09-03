@@ -12,6 +12,7 @@ const {
   validateDonationFilters,
   validateDonationPayload,
   validateDonationUpdatePayload,
+  validateDonationPublicNamePayload,
   validateDonationItemId,
   validateDonationItemPayload,
   validateReassignLeftoverStockPayload,
@@ -185,6 +186,33 @@ router.put(
 
       return res.status(statusCode).json({
         message: error.message || "Failed to update donation need",
+      });
+    }
+  },
+);
+
+router.patch(
+  "/:id/public-name",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateDonationId,
+  validateDonationPublicNamePayload,
+  async (req, res) => {
+    try {
+      const donation = await donationService.updateDonationPublicName(
+        req.params.id,
+        req.validatedBody.donor_name_public,
+        req.auth,
+      );
+
+      return res.status(200).json({
+        message: "Donor name visibility updated successfully",
+        data: donation,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to update donor name visibility",
       });
     }
   },

@@ -5,6 +5,7 @@ const distributionTransactionRepository = require("../repositories/distributionT
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
 const inventoryItemStockFormRepository = require("../repositories/inventoryItemStockForm.repository");
+const inventoryItemService = require("./inventoryItem.service");
 const forecastService = require("./forecast.service");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
@@ -155,7 +156,7 @@ const getPublicContactConfig = () => {
     },
     notices: {
       privacy:
-        "Public information is aggregated and does not include private beneficiary records.",
+        "Donation information is public in aggregated form. Donor names appear only when the donor has chosen to publish them.",
       in_kind_only:
         "DISTYNC provides information for in-kind relief donations only. Cash donations and online payments are not processed through this portal.",
     },
@@ -253,6 +254,7 @@ const mapDonation = (row, items = []) => {
     id: row.id,
     disaster_event_id: row.disaster_event_id,
     donor_name: row.donor_name,
+    donor_name_public: Boolean(row.donor_name_public),
     donor_type: row.donor_type,
     donor_type_other: row.donor_type_other,
     contact_information: row.contact_information,
@@ -289,6 +291,7 @@ const summarizeDonation = (donation) =>
   pickDefined(donation, [
     "disaster_event_id",
     "donor_name",
+    "donor_name_public",
     "donor_type",
     "donor_type_other",
     "contact_information",
@@ -373,7 +376,8 @@ const mapAuditLogRow = (row) => ({
   new_values_json: row.new_values_json || {},
 });
 
-const resolvePublicDonorName = (_donorName, index) => `Donor #${index + 1}`;
+const resolvePublicDonorName = (donorName, index, isPublic = false) =>
+  isPublic && donorName ? donorName : `Donor #${index + 1}`;
 
 const mapPublicDisasterSummary = (row) => ({
   public_key: createPublicKey("event", row.id),
@@ -402,7 +406,11 @@ const mapPublicDisasterSummary = (row) => ({
 
 const mapPublicDonationSummary = (row, index) => ({
   public_key: row.public_key || `donation-${index + 1}`,
-  donor_name: resolvePublicDonorName(row.donor_name, index),
+  donor_name: resolvePublicDonorName(
+    row.donor_name,
+    index,
+    row.donor_name_public === true,
+  ),
   donor_type: row.donor_type || "OTHER",
   donor_type_label: donorTypeLabels[row.donor_type] || "Other",
   disaster_event_title: row.disaster_event_title || "Disaster event",
@@ -901,6 +909,74 @@ const ensureInventoryItem = async (inventoryItemId, dbClient) => {
   return inventoryItem;
 };
 
+const normalizeDonationInventoryItemName = (itemName) =>
+  String(itemName || "").trim().toLowerCase();
+
+const resolveDonationInventoryItem = async ({
+  donationItemPayload,
+  performedBy,
+  dbClient,
+  inventoryItemByNameCache,
+}) => {
+  if (donationItemPayload.inventory_item_id) {
+    return ensureInventoryItem(donationItemPayload.inventory_item_id, dbClient);
+  }
+
+  const itemDefinition = donationItemPayload.new_inventory_item;
+  const normalizedItemName = normalizeDonationInventoryItemName(
+    itemDefinition?.item_name,
+  );
+
+  if (!itemDefinition || !normalizedItemName) {
+    const error = new Error(
+      "Donation items must identify an existing inventory item or define a new inventory item",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (inventoryItemByNameCache?.has(normalizedItemName)) {
+    return inventoryItemByNameCache.get(normalizedItemName);
+  }
+
+  const existingInventoryItem = await donationRepository.getInventoryItemByName(
+    itemDefinition.item_name,
+    dbClient,
+  );
+
+  if (existingInventoryItem) {
+    inventoryItemByNameCache?.set(normalizedItemName, existingInventoryItem);
+    return existingInventoryItem;
+  }
+
+  const category = String(itemDefinition.category || "").trim();
+  const createdInventoryItem = await inventoryItemService.createInventoryItem(
+    {
+      ...itemDefinition,
+      category,
+      is_perishable:
+        typeof itemDefinition.is_perishable === "boolean"
+          ? itemDefinition.is_perishable
+          : category.toLowerCase() === "perishable",
+      is_active: true,
+      skip_opening_stock: true,
+    },
+    { userId: performedBy },
+    { dbClient },
+  );
+
+  if (!createdInventoryItem?.id) {
+    const error = new Error(
+      `Failed to create inventory item for ${itemDefinition.item_name}.`,
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  inventoryItemByNameCache?.set(normalizedItemName, createdInventoryItem);
+  return createdInventoryItem;
+};
+
 const ensureUser = async (userId, fieldName, dbClient) => {
   const user = await donationRepository.getUserById(userId, dbClient);
 
@@ -1052,11 +1128,14 @@ const createDonationItemWithInventory = async ({
   donationItemPayload,
   performedBy,
   dbClient,
+  inventoryItemByNameCache,
 }) => {
-  const inventoryItem = await ensureInventoryItem(
-    donationItemPayload.inventory_item_id,
+  const inventoryItem = await resolveDonationInventoryItem({
+    donationItemPayload,
+    performedBy,
     dbClient,
-  );
+    inventoryItemByNameCache,
+  });
 
   const inventoryBatchId = await createOrAttachDonationBatch({
     donation,
@@ -1358,6 +1437,7 @@ const createDonation = async (payload, actor) => {
       createdDonation.id,
       client,
     );
+    const inventoryItemByNameCache = new Map();
 
     for (const item of normalizedPayload.items || []) {
       await createDonationItemWithInventory({
@@ -1365,6 +1445,7 @@ const createDonation = async (payload, actor) => {
         donationItemPayload: item,
         performedBy: receivedBy,
         dbClient: client,
+        inventoryItemByNameCache,
       });
     }
 
@@ -1546,6 +1627,58 @@ const updateDonation = async (id, payload, actor = null) => {
   }
 };
 
+const updateDonationPublicName = async (id, donorNamePublic, actor = null) => {
+  const normalizedActor = normalizeActor(actor);
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const existingDonation = await donationRepository.getDonationByIdForUpdate(
+      id,
+      client,
+    );
+
+    if (!existingDonation) {
+      const error = new Error("Donation not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const nextDonorNamePublic = donorNamePublic === true;
+
+    await donationRepository.updateDonationPublicName(
+      id,
+      nextDonorNamePublic,
+      client,
+    );
+
+    await client.query("COMMIT");
+
+    const updatedDonation = await getDonationById(id);
+
+    await logAuditSafely({
+      actor: normalizedActor,
+      action: "DONATION_PUBLIC_NAME_UPDATE",
+      entityType: "DONATION",
+      entityId: id,
+      oldValues: {
+        donor_name_public: Boolean(existingDonation.donor_name_public),
+      },
+      newValues: {
+        donor_name_public: nextDonorNamePublic,
+      },
+    });
+
+    return updatedDonation;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 const createDonationItem = async (donationId, payload, performedBy) => {
   const normalizedActor = normalizeActor(performedBy);
   const client = await pool.connect();
@@ -1571,6 +1704,7 @@ const createDonationItem = async (donationId, payload, performedBy) => {
       donationItemPayload: payload,
       performedBy,
       dbClient: client,
+      inventoryItemByNameCache: new Map(),
     });
 
     await client.query("COMMIT");
@@ -2376,12 +2510,16 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
     recent_donations: recentDonationRows.map(mapPublicDonationSummary),
     transparency_summary: {
       ...summaryTotals,
-      received_vs_distributed: perItemSummary.map((row) => ({
+      received_vs_distributed: perItemSummary.map((row, index) => ({
         public_key: createPublicKey(
           "utilization-item",
           `${row.donation_id}:${row.inventory_item_id}`,
         ),
-        donor_name: row.donor_name,
+        donor_name: resolvePublicDonorName(
+          row.donor_name,
+          index,
+          row.donor_name_public === true,
+        ),
         disaster_event_id: row.disaster_event_id,
         disaster_event_title: row.disaster_event_title,
         item_name: row.item_name,
@@ -2631,6 +2769,7 @@ const exportDonationTransparencyReport = async (filters = {}, format) => {
       { key: "donor_name", label: "Donor Name", width: 24, pdfWidth: 100 },
       { key: "disaster_event", label: "Disaster Event", width: 28, pdfWidth: 118 },
       { key: "item_name", label: "Item Name", width: 28, pdfWidth: 124 },
+      { key: "unit_of_measure", label: "Unit", width: 14, pdfWidth: 64 },
       { key: "quantity_received", label: "Received", width: 14, pdfWidth: 70 },
       { key: "quantity_distributed", label: "Distributed", width: 14, pdfWidth: 78 },
       { key: "quantity_written_off", label: "Written Off", width: 14, pdfWidth: 78 },
@@ -2662,6 +2801,7 @@ module.exports = {
   getDonationDetail,
   createDonation,
   updateDonation,
+  updateDonationPublicName,
   createDonationItem,
   updateDonationItem,
   deleteDonationItem,

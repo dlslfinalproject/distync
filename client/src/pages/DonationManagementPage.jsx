@@ -9,6 +9,7 @@ import DonationPageTabs from "../components/donations/DonationPageTabs";
 import DonationModal from "../components/donations/DonationModal";
 import DonationsTab from "../components/donations/DonationsTab";
 import DonationDetailModal from "../components/donations/DonationDetailModal";
+import DonationDonorNameVisibilityModal from "../components/donations/DonationDonorNameVisibilityModal";
 import DonorTransparencyTab from "../components/donations/DonorTransparencyTab";
 import ConfirmationModal from "../components/shared/ConfirmationModal";
 import FeedbackToast from "../components/shared/FeedbackToast";
@@ -21,6 +22,7 @@ import {
   fetchDonationPortalData,
   fetchDonations,
   reassignLeftoverDonationStock,
+  updateDonationPublicName,
 } from "../features/donations/donationService";
 import { mergeDonationsWithSyncStatus } from "../features/donations/donationSync";
 import {
@@ -332,6 +334,12 @@ const DonationManagementPage = () => {
     perFamilyAllocation: "",
     errorMessage: "",
     fieldErrors: {},
+    isSubmitting: false,
+  });
+  const [donorNameVisibilityModal, setDonorNameVisibilityModal] = useState({
+    isOpen: false,
+    donation: null,
+    errorMessage: "",
     isSubmitting: false,
   });
 
@@ -798,6 +806,71 @@ const DonationManagementPage = () => {
     }
   };
 
+  const openDonorNameVisibilityModal = (donation) => {
+    if (!donation?.id || donation.is_local_only) {
+      return;
+    }
+
+    setDonorNameVisibilityModal({
+      isOpen: true,
+      donation,
+      errorMessage: "",
+      isSubmitting: false,
+    });
+  };
+
+  const closeDonorNameVisibilityModal = () => {
+    if (donorNameVisibilityModal.isSubmitting) {
+      return;
+    }
+
+    setDonorNameVisibilityModal({
+      isOpen: false,
+      donation: null,
+      errorMessage: "",
+      isSubmitting: false,
+    });
+  };
+
+  const confirmDonorNameVisibility = async () => {
+    const donation = donorNameVisibilityModal.donation;
+
+    if (!donation?.id || donorNameVisibilityModal.isSubmitting) {
+      return;
+    }
+
+    const nextDonorNamePublic = donation.donor_name_public !== true;
+
+    setDonorNameVisibilityModal((currentValues) => ({
+      ...currentValues,
+      isSubmitting: true,
+      errorMessage: "",
+    }));
+
+    try {
+      await updateDonationPublicName(donation.id, nextDonorNamePublic);
+      await loadPageData(selectedEventId);
+      setSuccessMessage(
+        nextDonorNamePublic
+          ? "Donor name published on the public donation page."
+          : "Donor name hidden from the public donation page.",
+      );
+      setDonorNameVisibilityModal({
+        isOpen: false,
+        donation: null,
+        errorMessage: "",
+        isSubmitting: false,
+      });
+    } catch (error) {
+      setDonorNameVisibilityModal((currentValues) => ({
+        ...currentValues,
+        isSubmitting: false,
+        errorMessage:
+          error.message || "Failed to update donor name visibility.",
+      }));
+    }
+  };
+
   const selectedEventLabel = useMemo(() => {
     return getSelectedDonationEventLabel(disasterEvents, selectedEventId);
   }, [disasterEvents, selectedEventId]);
@@ -1106,7 +1179,7 @@ const DonationManagementPage = () => {
           selectedEventLabel={selectedEventLabel}
           onOpenDonationDetail={openDonationDetailModal}
           onOpenDonationModal={openDonationModal}
-          onOpenReassignLeftoverStock={openReassignLeftoverStockModal}
+          onOpenDonorNameVisibility={openDonorNameVisibilityModal}
         />
       ) : null}
 
@@ -1150,6 +1223,15 @@ const DonationManagementPage = () => {
           onSubmit={submitDonation}
         />
       ) : null}
+
+      <DonationDonorNameVisibilityModal
+        isOpen={donorNameVisibilityModal.isOpen}
+        donation={donorNameVisibilityModal.donation}
+        isSubmitting={donorNameVisibilityModal.isSubmitting}
+        errorMessage={donorNameVisibilityModal.errorMessage}
+        onCancel={closeDonorNameVisibilityModal}
+        onConfirm={confirmDonorNameVisibility}
+      />
 
       {reassignModal.isOpen ? (
         <div

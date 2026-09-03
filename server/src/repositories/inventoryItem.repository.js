@@ -175,7 +175,7 @@ const getInventoryItemsByIdsForUpdate = async (ids, dbClient = pool) => {
   return result.rows;
 };
 
-const getInventoryItemByCode = async (itemCode) => {
+const getInventoryItemByCode = async (itemCode, dbClient = pool) => {
   const query = `
     SELECT
       id,
@@ -185,11 +185,11 @@ const getInventoryItemByCode = async (itemCode) => {
     WHERE item_code = $1
   `;
 
-  const result = await pool.query(query, [itemCode]);
+  const result = await dbClient.query(query, [itemCode]);
   return result.rows[0] || null;
 };
 
-const getInventoryItemByName = async (itemName) => {
+const getInventoryItemByName = async (itemName, dbClient = pool) => {
   const query = `
     SELECT
       id,
@@ -199,7 +199,7 @@ const getInventoryItemByName = async (itemName) => {
     WHERE item_name = $1
   `;
 
-  const result = await pool.query(query, [itemName]);
+  const result = await dbClient.query(query, [itemName]);
   return result.rows[0] || null;
 };
 
