@@ -665,7 +665,7 @@ export const useInventoryDistribution = () => {
           const payload = await fetchBarangayStubDashboard({
             userId: null,
             disasterEventId: selectedDisasterEventId,
-            overrideBarangayId: selectedBarangayId,
+            barangayId: selectedBarangayId,
           });
 
           if (isMounted) {
@@ -696,7 +696,7 @@ export const useInventoryDistribution = () => {
             fetchBarangayStubDashboard({
               userId: null,
               disasterEventId: selectedDisasterEventId,
-              overrideBarangayId: barangay.id,
+              barangayId: barangay.id,
             }).catch(() => emptyStubDashboardPayload),
           ),
         );
