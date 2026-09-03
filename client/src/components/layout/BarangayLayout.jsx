@@ -10,6 +10,7 @@ import { SettingsUnsavedChangesProvider } from "../../pages/settings/SettingsUns
 import { useBarangayDashboard } from "../../features/barangay-dashboard/useBarangayDashboard";
 import { useBarangayOfflinePreparation } from "../../features/offline/useBarangayOfflinePreparation";
 import OfflineDataReadiness from "./OfflineDataReadiness";
+import BarangayOfflineModeNotice from "./BarangayOfflineModeNotice";
 
 const SIDEBAR_EXPANDED_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "0px";
@@ -319,6 +320,7 @@ const BarangayLayout = () => {
         <main className="distync-shell__main" style={shellStyles.main}>
           <div className="distync-shell__content" style={shellStyles.content}>
             {shouldShowSyncStatusBanner ? <SyncStatusBanner /> : null}
+            {isBarangayPortal ? <BarangayOfflineModeNotice /> : null}
             {isBarangayPortal ? <OfflineDataReadiness {...offlinePreparation} /> : null}
             <Outlet />
           </div>
