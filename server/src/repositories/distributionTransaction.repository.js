@@ -1714,7 +1714,18 @@ const getDistributionHistoryExportRows = async ({
   });
 };
 
-const getInventoryDistributionDetailByStubId = async (stubId) => {
+const getInventoryDistributionDetailByStubId = async (
+  stubId,
+  barangayId = null,
+) => {
+  const values = [stubId];
+  const barangayScopeClause = barangayId
+    ? (() => {
+        values.push(barangayId);
+        return "AND h.barangay_id = $2";
+      })()
+    : "";
+
   const baseQuery = `
     SELECT
       s.id AS stub_id,
@@ -1758,8 +1769,9 @@ const getInventoryDistributionDetailByStubId = async (stubId) => {
     LEFT JOIN users registered_user ON registered_user.id = h.registered_by
     LEFT JOIN barangays b ON b.id = h.barangay_id
     WHERE s.id = $1
+      ${barangayScopeClause}
   `;
-  const baseResult = await pool.query(baseQuery, [stubId]);
+  const baseResult = await pool.query(baseQuery, values);
   const baseRow = baseResult.rows[0] || null;
 
   if (!baseRow) {

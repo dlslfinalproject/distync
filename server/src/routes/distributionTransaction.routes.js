@@ -121,6 +121,7 @@ router.get(
       const detail =
         await distributionTransactionService.getInventoryDistributionDetail({
           stubId: req.validatedParams.stubId,
+          requester: req.auth,
         });
 
       if (!detail) {

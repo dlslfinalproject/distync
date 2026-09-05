@@ -4,7 +4,6 @@ const disasterEventRepository = require("../repositories/disasterEvent.repositor
 const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate.repository");
 const notificationService = require("../modules/notifications/notification.service");
 const stubRepository = require("../repositories/stub.repository");
-const settingsRepository = require("../repositories/settings.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const masterlistService = require("./masterlist.service");
 const {
@@ -25,6 +24,7 @@ const {
 const {
   isReliefPackClaimHouseholdCurrentlyEligible,
 } = require("../utils/reliefPackEligibility");
+const { resolveRequesterBarangayId } = require("../utils/requesterScope");
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
@@ -449,10 +449,24 @@ const mapInventoryDistributionDetail = (detail) => {
   };
 };
 
-const getInventoryDistributionDetail = async ({ stubId }) => {
+const getInventoryDistributionDetail = async ({ stubId, requester }) => {
+  const isBarangay = requester?.roleCode === BARANGAY_ROLE_CODE;
+  const requesterBarangayId = isBarangay
+    ? await resolveRequesterBarangayId(requester)
+    : null;
+
+  if (isBarangay && !requesterBarangayId) {
+    const error = new Error(
+      "Barangay inventory distribution detail requires an account with an assigned barangay.",
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+
   const detail =
     await distributionTransactionRepository.getInventoryDistributionDetailByStubId(
       stubId,
+      requesterBarangayId,
     );
 
   return mapInventoryDistributionDetail(detail);
@@ -1069,19 +1083,6 @@ const throwStubAlreadyClaimedError = async (stub) => {
     stub,
     latestDistributionTransaction,
   });
-};
-
-const resolveRequesterBarangayId = async (requester) => {
-  if (requester?.defaultBarangayId) {
-    return requester.defaultBarangayId;
-  }
-
-  if (!requester?.userId) {
-    return null;
-  }
-
-  const user = await settingsRepository.getUserById(requester.userId);
-  return user?.default_barangay_id || null;
 };
 
 const assertBarangayDistributionScope = (stub, requester) => {

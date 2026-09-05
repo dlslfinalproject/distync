@@ -15,9 +15,11 @@ const {
 const {
   isReliefPackClaimHouseholdCurrentlyEligible,
 } = require("../utils/reliefPackEligibility");
+const { resolveRequesterBarangayId } = require("../utils/requesterScope");
 
 const isOverrideAllowed = process.env.NODE_ENV !== "production";
 const ACTIVE_QR_STATUS = "ACTIVE";
+const BARANGAY_ROLE_CODE = "BARANGAY";
 const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
 const ARCHIVED_HOUSEHOLD_CODE = "HOUSEHOLD_ARCHIVED";
 const HOUSEHOLD_NOT_PRESENT_CODE = "HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER";
@@ -351,11 +353,44 @@ const formatSearchResult = (stub) => {
   };
 };
 
-const getSearchResults = async (filters) => {
+const createBarangayScopeRequiredError = (resourceName) => {
+  const error = new Error(
+    "Barangay " +
+      resourceName +
+      " requires an account with an assigned barangay.",
+  );
+  error.statusCode = 403;
+  error.code = "NO_ASSIGNED_BARANGAY";
+  return error;
+};
+
+const getRequesterBarangayScope = async (requester, resourceName) => {
+  if (requester?.roleCode !== BARANGAY_ROLE_CODE) {
+    return null;
+  }
+
+  const barangayId = await resolveRequesterBarangayId(requester);
+
+  if (!barangayId) {
+    throw createBarangayScopeRequiredError(resourceName);
+  }
+
+  return barangayId;
+};
+
+const getSearchResults = async (filters, requester = null) => {
+  const requesterBarangayId = await getRequesterBarangayScope(
+    requester,
+    "stub search",
+  );
+  const effectiveBarangayId =
+    requester?.roleCode === BARANGAY_ROLE_CODE
+      ? requesterBarangayId
+      : filters.barangay_id;
   const stubs = await stubRepository.getStubSearchResults(
     filters.q,
     filters.disaster_event_id,
-    filters.barangay_id,
+    effectiveBarangayId,
   );
 
   return {
@@ -839,8 +874,13 @@ const claimBarangayStub = async (params) => {
   }
 };
 
-const getStubDetails = async (id) => {
-  const stub = await stubRepository.getStubById(id);
+const getStubDetails = async (id, requester = null) => {
+  const requesterBarangayId = await getRequesterBarangayScope(
+    requester,
+    "stub detail",
+  );
+
+  const stub = await stubRepository.getStubById(id, requesterBarangayId);
 
   if (!stub) {
     return null;
@@ -1126,7 +1166,12 @@ const getClaimabilityResult = ({
   };
 };
 
-const verifyStub = async (identifier) => {
+const verifyStub = async (identifier, requester = null) => {
+  const requesterBarangayId = await getRequesterBarangayScope(
+    requester,
+    "stub verification",
+  );
+
   if (
     identifier.qr_code_value &&
     !String(identifier.qr_code_value || "").trim().startsWith("DISTYNC-STUB|")
@@ -1140,8 +1185,14 @@ const verifyStub = async (identifier) => {
   }
 
   const stub = identifier.qr_code_value
-    ? await stubRepository.getStubByQrCodeValue(identifier.qr_code_value)
-    : await stubRepository.getStubByStubNoOrSerialNo(identifier);
+    ? await stubRepository.getStubByQrCodeValue(
+        identifier.qr_code_value,
+        requesterBarangayId,
+      )
+    : await stubRepository.getStubByStubNoOrSerialNo(
+        identifier,
+        requesterBarangayId,
+      );
 
   if (!stub) {
     throw buildQrValidationError({

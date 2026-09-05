@@ -109,7 +109,10 @@ router.get(
   validateStubSearch,
   async (req, res) => {
   try {
-    const results = await stubService.getSearchResults(req.validatedQuery);
+    const results = await stubService.getSearchResults(
+      req.validatedQuery,
+      req.auth,
+    );
 
     return res.status(200).json(results);
   } catch (error) {
@@ -229,7 +232,7 @@ router.get(
   validateStubId,
   async (req, res) => {
   try {
-    const stub = await stubService.getStubDetails(req.params.id);
+    const stub = await stubService.getStubDetails(req.params.id, req.auth);
 
     if (!stub) {
       return res.status(404).json({
@@ -254,7 +257,7 @@ router.post(
   validateStubVerify,
   async (req, res) => {
   try {
-    const result = await stubService.verifyStub(req.validatedBody);
+    const result = await stubService.verifyStub(req.validatedBody, req.auth);
 
     if (
       result?.data?.code &&

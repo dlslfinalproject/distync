@@ -447,7 +447,15 @@ const getStubSearchResults = async (q, disasterEventId = null, barangayId = null
   return result.rows;
 };
 
-const getStubById = async (id) => {
+const getStubById = async (id, barangayId = null) => {
+  const values = [id];
+  const barangayScopeClause = barangayId
+    ? (() => {
+        values.push(barangayId);
+        return "AND h.barangay_id = $2";
+      })()
+    : "";
+
   const query = `
     SELECT
       s.id,
@@ -493,9 +501,10 @@ const getStubById = async (id) => {
     INNER JOIN households h ON h.id = s.household_id
     LEFT JOIN barangays b ON b.id = h.barangay_id
     WHERE s.id = $1
+      ${barangayScopeClause}
   `;
 
-  const result = await pool.query(query, [id]);
+  const result = await pool.query(query, values);
   return result.rows[0] || null;
 };
 
@@ -535,9 +544,19 @@ const getScopedStubById = async (id, barangayId) => {
   return result.rows[0] || null;
 };
 
-const getStubByStubNoOrSerialNo = async ({ stub_no, serial_no }) => {
+const getStubByStubNoOrSerialNo = async (
+  { stub_no, serial_no },
+  barangayId = null,
+) => {
   const value = stub_no || serial_no;
   const field = stub_no ? "stub_no" : "serial_no";
+  const values = [value];
+  const barangayScopeClause = barangayId
+    ? (() => {
+        values.push(barangayId);
+        return "AND h.barangay_id = $2";
+      })()
+    : "";
 
   const query = `
     SELECT
@@ -576,13 +595,22 @@ const getStubByStubNoOrSerialNo = async ({ stub_no, serial_no }) => {
     INNER JOIN households h ON h.id = s.household_id
     LEFT JOIN barangays b ON b.id = h.barangay_id
     WHERE s.${field} = $1
+      ${barangayScopeClause}
   `;
 
-  const result = await pool.query(query, [value]);
+  const result = await pool.query(query, values);
   return result.rows[0] || null;
 };
 
-const getStubByQrCodeValue = async (qrCodeValue) => {
+const getStubByQrCodeValue = async (qrCodeValue, barangayId = null) => {
+  const values = [qrCodeValue];
+  const barangayScopeClause = barangayId
+    ? (() => {
+        values.push(barangayId);
+        return "AND h.barangay_id = $2";
+      })()
+    : "";
+
   const query = `
     SELECT
       s.id,
@@ -620,9 +648,10 @@ const getStubByQrCodeValue = async (qrCodeValue) => {
     INNER JOIN households h ON h.id = s.household_id
     LEFT JOIN barangays b ON b.id = h.barangay_id
     WHERE s.qr_code_value = $1
+      ${barangayScopeClause}
   `;
 
-  const result = await pool.query(query, [qrCodeValue]);
+  const result = await pool.query(query, values);
   return result.rows[0] || null;
 };
 
