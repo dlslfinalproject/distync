@@ -99,7 +99,11 @@ export const buildHouseholdDetailsSnapshot = (household = {}) => {
   };
 };
 
-export const buildQueuedHouseholdDetails = (entry, sectorOptions = []) => {
+export const buildQueuedHouseholdDetails = (
+  entry,
+  sectorOptions = [],
+  { disasterEventTitle = "", barangayName = "" } = {},
+) => {
   if (!entry) return null;
 
   const payload = entry?.payload || {};
@@ -130,12 +134,14 @@ export const buildQueuedHouseholdDetails = (entry, sectorOptions = []) => {
   return {
     household: {
       id: entry?.entityLocalId || entry?.id || null,
-      disaster_event_title: payload.disaster_event_title || "",
-      barangay_name: payload.barangay_name || "",
+      disaster_event_title: payload.disaster_event_title || disasterEventTitle || "",
+      barangay_name: payload.barangay_name || barangayName || "",
       current_stay_type: payload.current_stay_type || "",
       current_address_details: payload.current_address_details || "",
       contact_number: payload.contact_number || "",
       registered_at: entry?.clientTimestamp || null,
+      registered_by_name: payload.registered_by_name || payload.registered_by || "Not recorded",
+      registered_by: payload.registered_by || "",
       is_active: true,
       household_size: (hasPersonName(familyHead) ? 1 : 0) + members.length,
       family_head_first_name: familyHead.first_name || "",
@@ -143,6 +149,11 @@ export const buildQueuedHouseholdDetails = (entry, sectorOptions = []) => {
       family_head_last_name: familyHead.last_name || "",
       family_head_suffix: familyHead.suffix || "",
       family_head_photo_url: payload.family_head_photo_url || "",
+      family_head_photo_data_url:
+        payload.family_head_photo_data_url ||
+        (String(payload.family_head_photo_url || "").startsWith("data:image/")
+          ? payload.family_head_photo_url
+          : ""),
     },
     members: [familyHeadMember, ...members].filter(hasPersonName),
     household_sectors: (payload.household_sector_ids || []).map((sectorId) =>
@@ -151,7 +162,10 @@ export const buildQueuedHouseholdDetails = (entry, sectorOptions = []) => {
         code: sectorId,
       },
     ),
-    latest_attendance: null,
+    latest_attendance:
+      entry?.actionKey === "HOUSEHOLD_DEPART"
+        ? { status: "LEFT", time_out: entry?.clientTimestamp || null }
+        : { status: "PRESENT", time_in: entry?.clientTimestamp || null },
     privacy_consent: payload.privacy_consent || null,
   };
 };
@@ -224,6 +238,7 @@ export const buildQueuedHouseholdRow = (
   entry,
   assignedBarangayName,
   sectorOptions = [],
+  options = {},
 ) => {
   const payload = entry.payload || {};
   const familyHeadName = buildFamilyHeadName(payload.family_head);
@@ -250,7 +265,10 @@ export const buildQueuedHouseholdRow = (
     is_local_only: true,
     sync_status: entry.status,
     sync_entry_id: entry.id,
-    offline_household_details: buildQueuedHouseholdDetails(entry, sectorOptions),
+    offline_household_details: buildQueuedHouseholdDetails(entry, sectorOptions, {
+      disasterEventTitle: options.disasterEventTitle,
+      barangayName: assignedBarangayName,
+    }),
     is_active: entry.actionKey !== "HOUSEHOLD_DEPART",
     is_operationally_active: entry.actionKey !== "HOUSEHOLD_DEPART",
   };
@@ -351,6 +369,7 @@ export const resolveEffectiveMasterlistRows = ({
   recordStatus = "active",
   assignedBarangayName = "",
   selectedEventId = "",
+  selectedEventTitle = "",
   assignedBarangayId = "",
   sectorOptions = [],
   sortOrder = "newest",
@@ -390,6 +409,7 @@ export const resolveEffectiveMasterlistRows = ({
         entry,
         assignedBarangayName,
         sectorOptions,
+        { disasterEventTitle: selectedEventTitle },
       );
       if (matchesRecordStatus(queuedRow, recordStatus)) {
         resolvedRows.push(queuedRow);

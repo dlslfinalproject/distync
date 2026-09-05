@@ -37,6 +37,10 @@ test("queued CREATE payloads project into view-only modal details", () => {
       entityLocalId: "local-1",
       clientTimestamp: "2026-09-03T08:22:00Z",
       payload: {
+        disaster_event_title: "Typhoon Test Event",
+        barangay_name: "Barangay Test",
+        registered_by: "registrar-1",
+        family_head_photo_url: "data:image/jpeg;base64,local-photo",
         family_head: {
           first_name: "Alex",
           last_name: "Reyes",
@@ -54,6 +58,11 @@ test("queued CREATE payloads project into view-only modal details", () => {
   assert.equal(details.members.length, 2);
   assert.equal(details.members[0].is_family_head, true);
   assert.equal(details.members[0].sectors[0].code, "PWD");
+  assert.equal(details.household.disaster_event_title, "Typhoon Test Event");
+  assert.equal(details.household.barangay_name, "Barangay Test");
+  assert.equal(details.household.registered_by_name, "registrar-1");
+  assert.equal(details.household.family_head_photo_data_url, "data:image/jpeg;base64,local-photo");
+  assert.equal(details.latest_attendance.time_in, "2026-09-03T08:22:00Z");
 });
 
 test("missing queued entries do not fabricate household details", () => {

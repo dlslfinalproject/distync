@@ -42,7 +42,7 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
       const hasCompleteHouseholdDetails = cachedMasterlistRows.every(
         (row) => Boolean(
           row?.offline_household_details?.household?.id &&
-            row.offline_household_details.household.family_head_photo_url,
+            row.offline_household_details.household.family_head_photo_data_url,
         ),
       );
       const hasRequiredMasterlistCache =

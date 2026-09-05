@@ -48,6 +48,11 @@ export const useBarangayMasterlistSync = ({
       syncQueueEntries,
       recordStatus,
       selectedEventId: selectedEvent?.id,
+      selectedEventTitle:
+        selectedEvent?.disaster_event_title ||
+        selectedEvent?.title ||
+        selectedEvent?.name ||
+        "",
       assignedBarangayId: assignedBarangay?.id,
       assignedBarangayName: assignedBarangay?.name || "",
       sectorOptions,
@@ -61,6 +66,9 @@ export const useBarangayMasterlistSync = ({
     sortOrder,
     sectorOptions,
     selectedEvent?.id,
+    selectedEvent?.disaster_event_title,
+    selectedEvent?.title,
+    selectedEvent?.name,
     syncQueueEntries,
   ]);
 

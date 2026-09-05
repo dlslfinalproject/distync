@@ -448,9 +448,9 @@ const HouseholdDetailModal = ({
                 <div>
                   <p style={modalStyles.label}>Family Head Photo</p>
                   <div style={{ marginTop: "12px" }}>
-                    {household.family_head_photo_url ? (
+                    {(household.family_head_photo_data_url || household.family_head_photo_url) ? (
                       <img
-                        src={household.family_head_photo_url}
+                        src={household.family_head_photo_data_url || household.family_head_photo_url}
                         alt="Family head"
                         style={modalStyles.photo}
                       />

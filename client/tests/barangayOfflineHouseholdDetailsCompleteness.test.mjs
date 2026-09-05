@@ -14,6 +14,8 @@ test("offline preparation fetches complete details and gates READY on the requir
   assert.match(source, /fetchHouseholdDetailsWithBoundedConcurrency/);
   assert.match(source, /Math\.min\(4, queue\.length\)/);
   assert.match(source, /family_head_photo_url/);
+  assert.match(source, /family_head_photo_data_url/);
+  assert.match(source, /fetchOfflinePhotoDataUrl/);
   assert.match(source, /offline_household_details/);
 });
 

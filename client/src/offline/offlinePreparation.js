@@ -36,6 +36,37 @@ export const OFFLINE_CACHE_VERSION = 2;
 const jobs = new Map();
 let lastPreparationDiagnostics = null;
 const PAGE_REQUEST_TIMEOUT_MS = 45_000;
+const isImageDataUrl = (value) =>
+  typeof value === "string" && /^data:image\/[a-z0-9.+-]+;base64,/i.test(value);
+
+const blobToDataUrl = (blob) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Offline photo conversion failed"));
+    reader.readAsDataURL(blob);
+  });
+
+const fetchOfflinePhotoDataUrl = async (photoUrl, householdId) => {
+  if (isImageDataUrl(photoUrl)) return photoUrl;
+  if (!photoUrl) return "";
+  const response = await withTimeout(
+    fetch(photoUrl),
+    `Offline household photo ${householdId}`,
+  );
+  if (!response.ok) {
+    const error = new Error(`Offline household photo ${householdId} was unavailable`);
+    error.code = "OFFLINE_PREPARATION_HOUSEHOLD_PHOTO_UNAVAILABLE";
+    throw error;
+  }
+  const blob = await response.blob();
+  if (!String(blob.type || "").toLowerCase().startsWith("image/")) {
+    const error = new Error(`Offline household photo ${householdId} was not an image`);
+    error.code = "OFFLINE_PREPARATION_HOUSEHOLD_PHOTO_INVALID";
+    throw error;
+  }
+  return blobToDataUrl(blob);
+};
 const scopeKey = ({ eventId, barangayId }) => {
   const owner = getSyncQueueActorContext();
   return [owner.accessMode, owner.userId, owner.roleCode, eventId, barangayId].join("|");
@@ -155,11 +186,16 @@ const fetchHouseholdDetailsWithBoundedConcurrency = async (rows, onProgress) => 
         fetchHouseholdDetails(householdId),
         `Offline household details ${householdId}`,
       );
-      if (!details?.household?.id || !details.household.family_head_photo_url) {
+      const photoDataUrl = await fetchOfflinePhotoDataUrl(
+        details?.household?.family_head_photo_url,
+        householdId,
+      );
+      if (!details?.household?.id || !photoDataUrl) {
         const error = new Error("Offline household detail or required photo is unavailable");
         error.code = "OFFLINE_PREPARATION_HOUSEHOLD_DETAILS_INCOMPLETE";
         throw error;
       }
+      details.household.family_head_photo_data_url = photoDataUrl;
       detailsByHouseholdId.set(String(householdId), details);
       onProgress?.(detailsByHouseholdId.size);
     }
@@ -317,7 +353,7 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
       const masterlistReadBack = preparedMasterlistRows.every((row) =>
         masterlistRowsAfterWrite.some((cachedRow) =>
           cachedRow.household_id === row.household_id &&
-          cachedRow.offline_household_details?.household?.family_head_photo_url,
+          cachedRow.offline_household_details?.household?.family_head_photo_data_url,
         ),
       );
       const masterlistReadBackSucceeded = masterlistReadBack;
