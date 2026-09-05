@@ -676,7 +676,7 @@ CREATE TABLE public.donation_items (
   CONSTRAINT donation_items_pkey PRIMARY KEY (id),
   CONSTRAINT donation_items_donation_id_fkey FOREIGN KEY (donation_id) REFERENCES public.donations(id),
   CONSTRAINT donation_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
-  CONSTRAINT donation_items_inventory_batch_id_fkey FOREIGN KEY (inventory_batch_id) REFERENCES public.inventory_batches(id)
+  CONSTRAINT donation_items_inventory_batch_id_fkey FOREIGN KEY (inventory_batch_id) REFERENCES public.inventory_batches(id) ON UPDATE NO ACTION ON DELETE RESTRICT
 );
 
 CREATE TABLE public.donation_needs (
