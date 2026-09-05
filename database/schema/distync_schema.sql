@@ -614,8 +614,9 @@ CREATE TABLE public.relief_pack_template_items (
   quantity_required integer NOT NULL CHECK (quantity_required > 0),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT relief_pack_template_items_pkey PRIMARY KEY (id),
-  CONSTRAINT relief_pack_template_items_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.relief_pack_templates(id),
-  CONSTRAINT relief_pack_template_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id)
+  CONSTRAINT relief_pack_template_items_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.relief_pack_templates(id) ON DELETE CASCADE,
+  CONSTRAINT relief_pack_template_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id) ON DELETE RESTRICT,
+  CONSTRAINT uq_relief_pack_item UNIQUE (template_id, inventory_item_id)
 );
 
 CREATE TABLE public.relief_pack_template_disaster_types (
@@ -627,6 +628,9 @@ CREATE TABLE public.relief_pack_template_disaster_types (
   CONSTRAINT relief_pack_template_disaster_types_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.relief_pack_templates(id) ON DELETE CASCADE,
   CONSTRAINT relief_pack_template_disaster_types_unique UNIQUE (template_id, disaster_type)
 );
+
+CREATE INDEX idx_relief_pack_template_disaster_types_template_id
+ON public.relief_pack_template_disaster_types (template_id);
 
 CREATE TABLE public.distribution_transaction_relief_pack_templates (
   distribution_transaction_id uuid NOT NULL,
