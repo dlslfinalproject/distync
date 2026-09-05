@@ -152,6 +152,11 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
         userId,
         eventId,
         eventScope: scope,
+        // Online selections become durable only after the authoritative API
+        // response confirms them. Offline choices are already constrained to
+        // the locally prepared, owner-scoped contexts.
+        persistDurably:
+          typeof navigator !== "undefined" && navigator.onLine === false,
       });
     },
     [eventScope, userId],
@@ -260,6 +265,119 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
       });
       setErrorMessage("");
 
+      const restoreOfflineContext = async () => {
+        const storedEvent = readOperationalDisasterEventContext({
+          roleCode: ROLE_CODES.BARANGAY,
+          userId,
+          eventScope,
+        });
+        const preparedContexts = await getPreparedBarangayOfflineContexts({ userId });
+        const storedEventId = readOperationalDisasterEventId({
+          roleCode: ROLE_CODES.BARANGAY,
+          userId,
+        });
+        const rememberedEventIds = [
+          selectedDisasterEventId,
+          storedEvent?.id,
+          storedEventId,
+        ].filter(Boolean);
+        const selectedPreparedContext =
+          rememberedEventIds
+            .map((eventId) =>
+              preparedContexts.find(
+                (preparation) =>
+                  String(preparation.disaster_event_id) === String(eventId),
+              ),
+            )
+            .find(Boolean) ||
+          (preparedContexts.length === 1 ? preparedContexts[0] : null);
+        const retainedEventId = selectedPreparedContext?.disaster_event_id || "";
+
+        if (!retainedEventId && selectedPreparedContext?.disaster_event_id) {
+          retainedEventId = selectedPreparedContext.disaster_event_id;
+        }
+
+        const cachedReferenceData = getCachedRegistrationReferenceData();
+        const cachedEvents = Array.isArray(cachedReferenceData.activeDisasterEvents)
+          ? cachedReferenceData.activeDisasterEvents
+          : [];
+        const preparedEvents = preparedContexts.map((preparation) => {
+          const eventId = String(preparation.disaster_event_id);
+          return (
+            cachedEvents.find((event) => String(event?.id) === eventId) || {
+              id: eventId,
+            }
+          );
+        });
+        const retainedEvent = selectedPreparedContext
+          ? storedEvent?.id === selectedPreparedContext.disaster_event_id
+            ? storedEvent
+            : preparedEvents.find(
+                (event) => String(event.id) === String(selectedPreparedContext.disaster_event_id),
+              ) || { id: selectedPreparedContext.disaster_event_id }
+          : null;
+        const uniqueBarangayIds = [
+          ...new Set(
+            preparedContexts
+              .map((preparation) => String(preparation.barangay_id || "").trim())
+              .filter(Boolean),
+          ),
+        ];
+        const previousContext = lastResolvedContextRef.current;
+        const retainedBarangayId =
+          previousContext.assignedBarangayId ||
+          previousContext.assignedBarangay?.id ||
+          selectedPreparedContext?.barangay_id ||
+          (uniqueBarangayIds.length === 1 ? uniqueBarangayIds[0] : null) ||
+          overrideBarangayId ||
+          fallbackBarangayId ||
+          null;
+        const cachedBarangay = Array.isArray(cachedReferenceData.barangays)
+          ? cachedReferenceData.barangays.find(
+              (barangay) => String(barangay?.id) === String(retainedBarangayId),
+            )
+          : null;
+
+        setPayload({
+          ...emptyPayload,
+          assigned_barangay:
+            previousContext.assignedBarangay ||
+            cachedBarangay ||
+            (retainedBarangayId ? { id: retainedBarangayId } : null),
+          assigned_barangay_id: retainedBarangayId,
+          event_scope: eventScope,
+          available_events: preparedEvents,
+          selected_event: retainedEvent,
+          is_dev_override: previousContext.isDevOverride || Boolean(overrideBarangayId),
+        });
+
+        if (retainedEvent?.id && selectedPreparedContext) {
+          setSelectedDisasterEventIdState(retainedEvent.id);
+          persistOperationalDisasterEventSelection({
+            roleCode: ROLE_CODES.BARANGAY,
+            userId,
+            eventId: retainedEvent.id,
+            eventScope,
+            event: retainedEvent,
+          });
+        } else {
+          setSelectedDisasterEventIdState("");
+        }
+
+        return preparedContexts.length > 0;
+      };
+
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        const restored = await restoreOfflineContext();
+        if (!isMounted || requestSeqRef.current !== requestSeq) {
+          return;
+        }
+        setErrorMessage(restored ? "" : "Unable to load analytics.");
+        setIsContextResolved(true);
+        setIsLoading(false);
+        return;
+      }
+
       try {
         const response = await fetchBarangayDashboard({
           userId: userId || null,
@@ -319,62 +437,12 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
       } catch (error) {
         if (isMounted && requestSeqRef.current === requestSeq) {
           if (canRestoreOfflineContext(error)) {
-            const storedEvent = readOperationalDisasterEventContext({
-              roleCode: ROLE_CODES.BARANGAY,
-              userId,
-              eventScope,
-            });
-            let retainedEventId =
-              selectedDisasterEventId || storedEvent?.id || "";
-            const preparedContexts = await getPreparedBarangayOfflineContexts({ userId });
-            const selectedPreparedContext = retainedEventId
-              ? preparedContexts.find(
-                  (preparation) =>
-                    String(preparation.disaster_event_id) === String(retainedEventId),
-                )
-              : preparedContexts.length === 1
-                ? preparedContexts[0]
-                : null;
-            if (!retainedEventId && selectedPreparedContext?.disaster_event_id) {
-              retainedEventId = selectedPreparedContext.disaster_event_id;
+            const restored = await restoreOfflineContext();
+            if (!restored) {
+              setPayload(emptyPayload);
+              setSelectedDisasterEventIdState("");
             }
-            const cachedReferenceData = getCachedRegistrationReferenceData();
-            const cachedEvent = Array.isArray(cachedReferenceData.activeDisasterEvents)
-              ? cachedReferenceData.activeDisasterEvents.find(
-                  (event) => String(event?.id) === String(retainedEventId),
-                )
-              : null;
-            const retainedEvent = storedEvent || cachedEvent ||
-              (retainedEventId ? { id: retainedEventId } : null);
-            const previousContext = lastResolvedContextRef.current;
-            const retainedBarangayId =
-              previousContext.assignedBarangayId ||
-              previousContext.assignedBarangay?.id ||
-              selectedPreparedContext?.barangay_id ||
-              overrideBarangayId ||
-              fallbackBarangayId ||
-              null;
-            const cachedBarangay = Array.isArray(cachedReferenceData.barangays)
-              ? cachedReferenceData.barangays.find(
-                  (barangay) => String(barangay?.id) === String(retainedBarangayId),
-                )
-              : null;
-
-            setPayload({
-              ...emptyPayload,
-              assigned_barangay:
-                previousContext.assignedBarangay ||
-                cachedBarangay ||
-                (retainedBarangayId ? { id: retainedBarangayId } : null),
-              assigned_barangay_id: retainedBarangayId,
-              event_scope: eventScope,
-              available_events: retainedEvent ? [retainedEvent] : [],
-              selected_event: retainedEvent,
-              is_dev_override:
-                previousContext.isDevOverride ||
-                Boolean(overrideBarangayId),
-            });
-            setSelectedDisasterEventIdState(retainedEvent?.id || "");
+            setErrorMessage(restored ? "" : getFriendlyDashboardErrorMessage(error));
           } else {
             setPayload(emptyPayload);
             setSelectedDisasterEventIdState("");

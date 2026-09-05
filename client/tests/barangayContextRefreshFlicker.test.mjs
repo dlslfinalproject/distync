@@ -57,7 +57,7 @@ test("Barangay dashboard retains confirmed event context through offline refresh
   assert.match(source, /skipSelectedEventReloadRef\.current === selectedDisasterEventId/);
   assert.match(source, /const canRestoreOfflineContext = \(error\) =>/);
   assert.match(source, /readOperationalDisasterEventContext\(\{/);
-  assert.match(source, /available_events: retainedEvent \? \[retainedEvent\] : \[\]/);
+  assert.match(source, /available_events: preparedEvents/);
   assert.match(source, /selected_event: retainedEvent/);
   assert.match(source, /setPayload\(\{\s*\.\.\.emptyPayload,\s*event_scope: eventScope,\s*\}\)/s);
   assert.match(source, /nextSelectedEvent\.id !== selectedDisasterEventId[\s\S]*skipSelectedEventReloadRef\.current = nextSelectedEvent\.id/s);

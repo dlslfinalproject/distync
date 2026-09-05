@@ -23,6 +23,17 @@ const getSessionStorage = () => {
   return window.sessionStorage;
 };
 
+const getDurableStorage = () => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.localStorage;
+};
+
+const usesDurableOperationalSelection = (roleCode) =>
+  roleCode === ROLE_CODES.BARANGAY;
+
 const normalizeRoleCode = (roleCode) =>
   Object.values(ROLE_CODES).includes(roleCode) ? roleCode : "UNKNOWN";
 
@@ -91,31 +102,39 @@ export const readOperationalDisasterEventId = ({
   roleCode,
   userId = "",
   mode = getAccessMode(),
-} = {}) =>
-  readStorageValue(
-    getOperationalDisasterEventStorageKey({
-      roleCode,
-      userId,
-      field: EVENT_ID_FIELD,
-      mode,
-    }),
-    getSessionStorage(),
-  ) || "";
+} = {}) => {
+  const key = getOperationalDisasterEventStorageKey({
+    roleCode,
+    userId,
+    field: EVENT_ID_FIELD,
+    mode,
+  });
+  const sessionValue = readStorageValue(key, getSessionStorage());
+
+  if (sessionValue || !usesDurableOperationalSelection(roleCode)) {
+    return sessionValue || "";
+  }
+
+  return readStorageValue(key, getDurableStorage()) || "";
+};
 
 export const readOperationalDisasterEventScope = ({
   roleCode,
   userId = "",
   mode = getAccessMode(),
 } = {}) => {
-  const storedScope = readStorageValue(
-    getOperationalDisasterEventStorageKey({
-      roleCode,
-      userId,
-      field: EVENT_SCOPE_FIELD,
-      mode,
-    }),
-    getSessionStorage(),
-  );
+  const key = getOperationalDisasterEventStorageKey({
+    roleCode,
+    userId,
+    field: EVENT_SCOPE_FIELD,
+    mode,
+  });
+  const sessionStorage = getSessionStorage();
+  const storedScope =
+    readStorageValue(key, sessionStorage) ||
+    (usesDurableOperationalSelection(roleCode)
+      ? readStorageValue(key, getDurableStorage())
+      : "");
 
   return VALID_SCOPES.has(storedScope) ? storedScope : "";
 };
@@ -126,14 +145,16 @@ export const readOperationalDisasterEventContext = ({
   eventScope = "",
   mode = getAccessMode(),
 } = {}) => {
-  const contextValue = readStorageValue(
-    getOperationalDisasterEventContextStorageKey({
-      roleCode,
-      userId,
-      mode,
-    }),
-    getSessionStorage(),
-  );
+  const contextKey = getOperationalDisasterEventContextStorageKey({
+    roleCode,
+    userId,
+    mode,
+  });
+  const contextValue =
+    readStorageValue(contextKey, getSessionStorage()) ||
+    (usesDurableOperationalSelection(roleCode)
+      ? readStorageValue(contextKey, getDurableStorage())
+      : "");
 
   if (!contextValue) {
     return null;
@@ -182,8 +203,12 @@ export const persistOperationalDisasterEventSelection = ({
   eventScope = "",
   event = null,
   mode = getAccessMode(),
+  persistDurably = true,
 } = {}) => {
   const storage = getSessionStorage();
+  const durableStorage = persistDurably && usesDurableOperationalSelection(roleCode)
+    ? getDurableStorage()
+    : null;
   const eventIdKey = getOperationalDisasterEventStorageKey({
     roleCode,
     userId,
@@ -205,9 +230,12 @@ export const persistOperationalDisasterEventSelection = ({
 
   if (eventId) {
     writeStorageValue(eventIdKey, eventId, storage);
+    writeStorageValue(eventIdKey, eventId, durableStorage);
   } else {
     removeStorageKey(eventIdKey, storage);
     removeStorageKey(eventContextKey, storage);
+    removeStorageKey(eventIdKey, durableStorage);
+    removeStorageKey(eventContextKey, durableStorage);
   }
 
   const eventSnapshot = toOperationalDisasterEventSnapshot(event);
@@ -224,15 +252,25 @@ export const persistOperationalDisasterEventSelection = ({
       }),
       storage,
     );
+    writeStorageValue(
+      eventContextKey,
+      JSON.stringify({
+        event: eventSnapshot,
+        eventScope: VALID_SCOPES.has(eventScope) ? eventScope : "",
+      }),
+      durableStorage,
+    );
   } else if (
     !eventId ||
     normalizeEventId(previousEventId) !== normalizeEventId(eventId)
   ) {
     removeStorageKey(eventContextKey, storage);
+    removeStorageKey(eventContextKey, durableStorage);
   }
 
   if (VALID_SCOPES.has(eventScope)) {
     writeStorageValue(eventScopeKey, eventScope, storage);
+    writeStorageValue(eventScopeKey, eventScope, durableStorage);
   }
 };
 
@@ -245,6 +283,12 @@ export const clearOperationalDisasterEventSelection = ({
     getOperationalDisasterEventStoragePrefix({ roleCode, userId, mode }),
     getSessionStorage(),
   );
+  if (usesDurableOperationalSelection(roleCode)) {
+    removeStorageKeysByPrefix(
+      getOperationalDisasterEventStoragePrefix({ roleCode, userId, mode }),
+      getDurableStorage(),
+    );
+  }
 };
 
 export const clearUserOperationalDisasterEventSelections = ({

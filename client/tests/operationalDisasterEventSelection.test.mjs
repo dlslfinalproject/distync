@@ -168,6 +168,37 @@ test("operational disaster event context is persisted for offline restoration", 
   );
 });
 
+test("Barangay event selection survives a new runtime through owner-scoped durable storage", () => {
+  createWindow();
+
+  persistOperationalDisasterEventSelection({
+    roleCode: ROLE_CODES.BARANGAY,
+    userId: "user-1",
+    eventId: "event-b",
+    eventScope: "active",
+    mode: ACCESS_MODES.DEVELOPMENT,
+  });
+
+  globalThis.window.sessionStorage = new MemoryStorage();
+
+  assert.equal(
+    readOperationalDisasterEventId({
+      roleCode: ROLE_CODES.BARANGAY,
+      userId: "user-1",
+      mode: ACCESS_MODES.DEVELOPMENT,
+    }),
+    "event-b",
+  );
+  assert.equal(
+    readOperationalDisasterEventId({
+      roleCode: ROLE_CODES.BARANGAY,
+      userId: "user-2",
+      mode: ACCESS_MODES.DEVELOPMENT,
+    }),
+    "",
+  );
+});
+
 test("user operational disaster event selections can be cleared on logout", () => {
   createWindow();
 

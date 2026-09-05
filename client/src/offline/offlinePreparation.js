@@ -63,6 +63,7 @@ export const getPreparedBarangayOfflineContexts = async ({ userId = "" } = {}) =
       preparation.accessMode === owner.accessMode &&
       preparation.userId === userId &&
       preparation.roleCode === ROLE_CODES.BARANGAY &&
+      preparation.cache_version === OFFLINE_CACHE_VERSION &&
       [OFFLINE_PREPARATION_STATUS.READY, OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH].includes(
         preparation.status,
       ) &&
