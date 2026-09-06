@@ -10,6 +10,7 @@ import {
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
 import {
+  RELIEF_PACK_TEMPLATE_NAME_MAX_LENGTH,
   getReliefPackTemplateNameValidationError,
   getPositiveIntegerValidationError,
   parsePositiveInteger,
@@ -936,6 +937,7 @@ const ReliefPackTemplateFormModal = ({
                     onChange={handleInputChange}
                     onBlur={handlePackNameBlur}
                     placeholder="e.g. Standard Food Pack"
+                    maxLength={RELIEF_PACK_TEMPLATE_NAME_MAX_LENGTH}
                     disabled={areTemplateDefinitionFieldsLocked}
                     aria-invalid={Boolean(fieldErrors.packName)}
                   />

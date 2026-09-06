@@ -40,6 +40,17 @@ test("relief pack template names require a non-empty value", () => {
   );
 });
 
+test("relief pack template names enforce the 150-character limit after trimming", () => {
+  assert.equal(
+    getReliefPackTemplateNameValidationError(`  ${"x".repeat(150)}  `),
+    "",
+  );
+  assert.equal(
+    getReliefPackTemplateNameValidationError("x".repeat(151)),
+    "Pack name must not exceed 150 characters.",
+  );
+});
+
 test("relief pack quantity accepts positive whole numbers", () => {
   assert.equal(parsePositiveInteger("1"), 1);
   assert.equal(parsePositiveInteger("12"), 12);

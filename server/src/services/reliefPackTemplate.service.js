@@ -712,6 +712,10 @@ const updateReliefPackTemplate = async (id, templateData, actor = null) => {
     await reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId(id);
   const normalizedTemplateData = {
     ...templateData,
+    name:
+      templateData.name === undefined
+        ? existingTemplate.name
+        : templateData.name,
     is_active: requestedIsActive,
   };
   const itemsToPersist = Array.isArray(normalizedTemplateData.items)

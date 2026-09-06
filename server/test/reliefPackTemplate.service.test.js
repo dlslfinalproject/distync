@@ -509,7 +509,7 @@ test("createReliefPackTemplate refuses an active template without items", async 
   assert.equal(connectCalled, false);
 });
 
-test("updateReliefPackTemplate preserves an inactive status when is_active is omitted", async () => {
+test("updateReliefPackTemplate preserves an inactive status and existing name when omitted", async () => {
   const currentTemplate = {
     ...buildTemplateData("Original Inactive Pack"),
     id: "inactive-template",
@@ -554,6 +554,7 @@ test("updateReliefPackTemplate preserves an inactive status when is_active is om
     is_active: undefined,
   };
   delete updateData.items;
+  delete updateData.name;
 
   const result = await reliefPackTemplateService.updateReliefPackTemplate(
     currentTemplate.id,
@@ -561,6 +562,7 @@ test("updateReliefPackTemplate preserves an inactive status when is_active is om
   );
 
   assert.equal(updatePayload.payload.is_active, false);
+  assert.equal(updatePayload.payload.name, currentTemplate.name);
   assert.equal(result.is_active, false);
   assert.deepEqual(queries, ["BEGIN", "COMMIT"]);
 });
