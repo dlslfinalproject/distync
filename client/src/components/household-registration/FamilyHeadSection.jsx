@@ -499,7 +499,10 @@ const FamilyHeadSection = ({ form }) => {
       <div style={{ marginTop: "20px" }}>
         <DuplicateRegistrationSuggestionsSection
           groups={familyHeadSuggestionGroups}
-          isLoading={form.isLoadingDuplicateSuggestions}
+          isLoading={
+            form.isLoadingDuplicateSuggestions &&
+            form.duplicateSuggestionEligibleFields?.includes("family_head")
+          }
           errorMessage={form.duplicateSuggestionsError}
         />
       </div>

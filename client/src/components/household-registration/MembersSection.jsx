@@ -423,7 +423,12 @@ const MembersSection = ({ form }) => {
               <div style={{ marginTop: "16px" }}>
                 <DuplicateRegistrationSuggestionsSection
                   groups={memberSuggestionGroups}
-                  isLoading={form.isLoadingDuplicateSuggestions}
+                  isLoading={
+                    form.isLoadingDuplicateSuggestions &&
+                    form.duplicateSuggestionEligibleFields?.includes(
+                      `member_${index}`,
+                    )
+                  }
                   errorMessage={form.duplicateSuggestionsError}
                 />
               </div>
