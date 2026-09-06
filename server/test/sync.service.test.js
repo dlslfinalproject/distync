@@ -1542,14 +1542,6 @@ test("EE-FIX-02 HOUSEHOLD_UPDATE non-ACTIVE events fail before LATEST_TIMESTAMP 
       current_stay_type: "EVAC_CENTER",
       is_active: true,
     },
-    {
-      label: "archived",
-      disaster_event_status: "ARCHIVED",
-      serverUpdatedAt: "2026-08-08T01:00:00.000Z",
-      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
-      current_stay_type: "EVAC_CENTER",
-      is_active: true,
-    },
   ];
 
   for (const currentCase of cases) {

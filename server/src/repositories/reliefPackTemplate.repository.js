@@ -394,7 +394,7 @@ const getReliefPackTemplateUsageByTemplateId = async (templateId) => {
       )::integer AS distributions_count,
       COUNT(dt.id) FILTER (
         WHERE dt.distribution_status = 'CLAIMED'
-          AND COALESCE(UPPER(de.status), '') NOT IN ('CLOSED', 'ARCHIVED')
+          AND COALESCE(UPPER(de.status), '') <> 'CLOSED'
       )::integer AS active_event_distributions_count,
       COUNT(dt.id) FILTER (
         WHERE COALESCE(UPPER(dt.sync_status), 'SYNCED') <> 'SYNCED'
@@ -402,7 +402,7 @@ const getReliefPackTemplateUsageByTemplateId = async (templateId) => {
       COUNT(dt.id) FILTER (
         WHERE (
           dt.distribution_status = 'CLAIMED'
-          AND COALESCE(UPPER(de.status), '') NOT IN ('CLOSED', 'ARCHIVED')
+          AND COALESCE(UPPER(de.status), '') <> 'CLOSED'
         )
         OR COALESCE(UPPER(dt.sync_status), 'SYNCED') <> 'SYNCED'
       )::integer AS edit_blocking_distributions_count
@@ -433,7 +433,7 @@ const getReliefPackTemplateDeactivationBlockersByTemplateId = async (
     SELECT
       COUNT(*) FILTER (
         WHERE dt.distribution_status = 'CLAIMED'
-          AND COALESCE(UPPER(de.status), '') NOT IN ('CLOSED', 'ARCHIVED')
+          AND COALESCE(UPPER(de.status), '') <> 'CLOSED'
       )::integer AS active_event_distribution_count,
       COUNT(*) FILTER (
         WHERE COALESCE(UPPER(dt.sync_status), 'SYNCED') <> 'SYNCED'

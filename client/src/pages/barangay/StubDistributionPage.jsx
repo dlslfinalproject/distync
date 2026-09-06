@@ -141,7 +141,7 @@ const getFilteredRows = (rows, searchTerm) => {
 
 const isEndedDisasterEvent = (event, eventScope) => {
   const status = String(event?.status || "").toUpperCase();
-  return eventScope === "ended" || status === "CLOSED" || status === "ARCHIVED";
+  return eventScope === "ended" || status === "CLOSED";
 };
 
 const buildStubPrintRoute = ({

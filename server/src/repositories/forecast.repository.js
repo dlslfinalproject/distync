@@ -97,7 +97,7 @@ const getInventoryForecastItems = async (
                     COALESCE(di.remarks, '') NOT ILIKE 'Relief Pack:%'
                     AND target_event.id IS NOT NULL
                     AND target_event.status = 'ACTIVE'
-                    AND donation_event.status IN ('CLOSED', 'ARCHIVED')
+                    AND donation_event.status = 'CLOSED'
                     AND (
                       target_event.created_at > donation_event.created_at
                       OR (

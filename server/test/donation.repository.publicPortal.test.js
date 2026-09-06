@@ -87,3 +87,22 @@ test("public portal family and individual totals accumulate evacuation-center re
   assert.doesNotMatch(householdSummary, /latest_attendance/);
   assert.doesNotMatch(individualSummary, /latest_attendance/);
 });
+
+test("public donation utilization query preserves donation-item source metadata for unit conversion", async () => {
+  const source = await fs.readFile(repositoryPath, "utf8");
+  const startIndex = source.indexOf("const getDonationItemTransparencySummary");
+  const endIndex = source.indexOf("const getDonationTransparencyExportRows", startIndex);
+
+  assert.notEqual(startIndex, -1);
+  assert.notEqual(endIndex, -1);
+
+  const utilizationSource = source.slice(startIndex, endIndex);
+
+  assert.match(utilizationSource, /d\.donor_type/);
+  assert.match(utilizationSource, /di\.id AS donation_item_id/);
+  assert.match(utilizationSource, /di\.remarks AS donation_item_remarks/);
+  assert.match(utilizationSource, /it\.transaction_type = 'OUTFLOW'/);
+  assert.match(utilizationSource, /it\.reference_type = 'DISTRIBUTION'/);
+  assert.match(utilizationSource, /di\.quantity_received/);
+  assert.match(utilizationSource, /ib\.quantity_available/);
+});

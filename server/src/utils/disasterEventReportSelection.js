@@ -6,7 +6,7 @@ const DISASTER_EVENT_REPORT_SELECTIONS = {
 };
 
 const ACTIVE_DISASTER_EVENT_STATUSES = ["ACTIVE"];
-const ENDED_DISASTER_EVENT_STATUSES = ["CLOSED", "ARCHIVED"];
+const ENDED_DISASTER_EVENT_STATUSES = ["CLOSED"];
 const disasterEventUuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

@@ -91,17 +91,22 @@ test("insertDistributionTransactionReliefPackTemplates links each unique templat
     capturedQuery,
     /distribution_transaction_relief_pack_templates/i,
   );
-  assert.match(capturedQuery, /UNNEST\(\$2::uuid\[\],\s*\$3::text\[\]\)/i);
+  assert.match(
+    capturedQuery,
+    /UNNEST\([\s\S]*\$2::uuid\[\],[\s\S]*\$3::text\[\],[\s\S]*\$4::boolean\[\]/i,
+  );
   assert.match(capturedQuery, /name_snapshot/i);
+  assert.match(capturedQuery, /is_additional_pack_snapshot/i);
   assert.match(capturedQuery, /ON CONFLICT\s*\(distribution_transaction_id,\s*relief_pack_template_id\)/i);
   assert.deepEqual(capturedValues, [
     "distribution-1",
     ["template-1", "template-2"],
     ["Food Pack", "Hygiene Kit"],
+    [false, false],
   ]);
 });
 
-test("insertDistributionTransactionItem persists immutable released-item labels", async () => {
+test("insertDistributionTransactionItem persists immutable released-item and pack labels", async () => {
   let capturedQuery = "";
   let capturedValues = [];
   const dbClient = {
@@ -128,6 +133,15 @@ test("insertDistributionTransactionItem persists immutable released-item labels"
       item_code_snapshot: "RICE-001",
       item_name_snapshot: "Rice",
       unit_of_measure_snapshot: "sack",
+      category_snapshot: "Perishable",
+      relief_pack_type_snapshot: "STANDARD_RELIEF_PACK",
+      relief_pack_template_id_snapshot: "template-1",
+      source_type_snapshot: "LGU",
+      source_relief_type_snapshot: "LGU",
+      donation_id_snapshot: null,
+      donation_item_id_snapshot: null,
+      donor_name_snapshot: null,
+      donated_relief_pack_name_snapshot: null,
     },
     dbClient,
   );
@@ -136,6 +150,11 @@ test("insertDistributionTransactionItem persists immutable released-item labels"
   assert.match(capturedQuery, /item_code_snapshot/i);
   assert.match(capturedQuery, /item_name_snapshot/i);
   assert.match(capturedQuery, /unit_of_measure_snapshot/i);
+  assert.match(capturedQuery, /category_snapshot/i);
+  assert.match(capturedQuery, /relief_pack_template_id_snapshot/i);
+  assert.match(capturedQuery, /source_type_snapshot/i);
+  assert.match(capturedQuery, /source_relief_type_snapshot/i);
+  assert.match(capturedQuery, /donated_relief_pack_name_snapshot/i);
   assert.deepEqual(capturedValues, [
     "distribution-1",
     "batch-1",
@@ -144,6 +163,15 @@ test("insertDistributionTransactionItem persists immutable released-item labels"
     "RICE-001",
     "Rice",
     "sack",
+    "Perishable",
+    "STANDARD_RELIEF_PACK",
+    "template-1",
+    "LGU",
+    "LGU",
+    null,
+    null,
+    null,
+    null,
   ]);
 });
 
@@ -201,7 +229,7 @@ test("relief pack deactivation blockers include active events and unsynced linke
   });
   assert.deepEqual(capturedValues, ["template-2"]);
   assert.match(capturedQuery, /distribution_status\s*=\s*'CLAIMED'/i);
-  assert.match(capturedQuery, /NOT IN\s*\('CLOSED',\s*'ARCHIVED'\)/i);
+  assert.match(capturedQuery, /COALESCE\(UPPER\(de\.status\), ''\)\s*<>\s*'CLOSED'/i);
   assert.match(capturedQuery, /sync_status/i);
   assert.match(
     capturedQuery,

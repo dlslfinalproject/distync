@@ -6,7 +6,6 @@ import FamilyHeadSection from "./FamilyHeadSection";
 import MembersSection from "./MembersSection";
 import HouseholdConditionsSection from "./HouseholdConditionsSection";
 import DataPrivacyConsentModal from "./DataPrivacyConsentModal";
-import HouseholdDetailModal from "../masterlist/HouseholdDetailModal";
 import FormModalShell from "../shared/FormModalShell";
 import { FiX } from "react-icons/fi";
 import {
@@ -15,7 +14,6 @@ import {
   HOUSEHOLD_REGISTRATION_FLOW_STEPS,
   getInitialHouseholdRegistrationFlowStep,
 } from "../../features/household-registration/privacyNotice.mjs";
-import { fetchHouseholdDetails } from "../../features/masterlist/masterlistService";
 
 const modalStyles = {
   backdrop: {
@@ -141,15 +139,6 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
   const [privacyErrorMessage, setPrivacyErrorMessage] = useState("");
   const [pendingPrivacyAcknowledgment, setPendingPrivacyAcknowledgment] =
     useState(null);
-  const [viewingSuggestedHouseholdId, setViewingSuggestedHouseholdId] =
-    useState("");
-  const [suggestedHouseholdDetails, setSuggestedHouseholdDetails] =
-    useState(null);
-  const [isLoadingSuggestedHouseholdDetails, setIsLoadingSuggestedHouseholdDetails] =
-    useState(false);
-  const [suggestedHouseholdErrorMessage, setSuggestedHouseholdErrorMessage] =
-    useState("");
-
   useEffect(() => {
     const initialFlowStep = resolveInitialFlowStep(
       form.requiresPrivacyAcknowledgment,
@@ -160,10 +149,6 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
       setIsPrivacyConfirmed(false);
       setPrivacyErrorMessage("");
       setPendingPrivacyAcknowledgment(null);
-      setViewingSuggestedHouseholdId("");
-      setSuggestedHouseholdDetails(null);
-      setIsLoadingSuggestedHouseholdDetails(false);
-      setSuggestedHouseholdErrorMessage("");
       return;
     }
 
@@ -171,10 +156,6 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
     setIsPrivacyConfirmed(false);
     setPrivacyErrorMessage("");
     setPendingPrivacyAcknowledgment(null);
-    setViewingSuggestedHouseholdId("");
-    setSuggestedHouseholdDetails(null);
-    setIsLoadingSuggestedHouseholdDetails(false);
-    setSuggestedHouseholdErrorMessage("");
   }, [form.requiresPrivacyAcknowledgment, isOpen]);
 
   if (!isOpen) {
@@ -188,37 +169,8 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
     setIsPrivacyConfirmed(false);
     setPrivacyErrorMessage("");
     setPendingPrivacyAcknowledgment(null);
-    setViewingSuggestedHouseholdId("");
-    setSuggestedHouseholdDetails(null);
-    setIsLoadingSuggestedHouseholdDetails(false);
-    setSuggestedHouseholdErrorMessage("");
     form.resetForm();
     onClose();
-  };
-
-  const handleOpenSuggestedHouseholdDetails = async (householdId) => {
-    setViewingSuggestedHouseholdId(householdId);
-    setSuggestedHouseholdDetails(null);
-    setSuggestedHouseholdErrorMessage("");
-    setIsLoadingSuggestedHouseholdDetails(true);
-
-    try {
-      const details = await fetchHouseholdDetails(householdId);
-      setSuggestedHouseholdDetails(details);
-    } catch (error) {
-      setSuggestedHouseholdErrorMessage(
-        error.message || "Failed to load household details.",
-      );
-    } finally {
-      setIsLoadingSuggestedHouseholdDetails(false);
-    }
-  };
-
-  const handleCloseSuggestedHouseholdDetails = () => {
-    setViewingSuggestedHouseholdId("");
-    setSuggestedHouseholdDetails(null);
-    setSuggestedHouseholdErrorMessage("");
-    setIsLoadingSuggestedHouseholdDetails(false);
   };
 
   const handleSubmit = async (event) => {
@@ -318,14 +270,8 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
               ) : null}
 
               <HouseholdFormSection form={form} />
-              <FamilyHeadSection
-                form={form}
-                onViewSuggestedHousehold={handleOpenSuggestedHouseholdDetails}
-              />
-              <MembersSection
-                form={form}
-                onViewSuggestedHousehold={handleOpenSuggestedHouseholdDetails}
-              />
+              <FamilyHeadSection form={form} />
+              <MembersSection form={form} />
               <HouseholdConditionsSection form={form} />
 
               <section style={shellStyles.card}>
@@ -406,16 +352,6 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
           onConfirm={handleAcknowledgePrivacyNotice}
         />
       ) : null}
-
-      <HouseholdDetailModal
-        isOpen={Boolean(viewingSuggestedHouseholdId)}
-        isLoading={isLoadingSuggestedHouseholdDetails}
-        errorMessage={suggestedHouseholdErrorMessage}
-        householdDetails={suggestedHouseholdDetails}
-        onClose={handleCloseSuggestedHouseholdDetails}
-        showAdministrativeMetadata={false}
-        showDataPrivacyAcknowledgement={false}
-      />
 
       <FormModalShell
         isOpen={isDuplicateWarningOpen}

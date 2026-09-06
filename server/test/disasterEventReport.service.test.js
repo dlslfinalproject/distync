@@ -160,7 +160,7 @@ test("exportDisasterEventReportSummary maps ENDED to the canonical ended statuse
       format: "csv",
     });
 
-    assert.deepEqual(capturedCalls[0].statuses, ["CLOSED", "ARCHIVED"]);
+    assert.deepEqual(capturedCalls[0].statuses, ["CLOSED"]);
   } finally {
     harness.restore();
   }

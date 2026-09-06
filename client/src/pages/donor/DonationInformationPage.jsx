@@ -2843,6 +2843,8 @@ const TransparencySection = ({ recentDonations, transparencySummary }) => {
     ? {
         total_donations_received: 0,
         total_quantity_received: 0,
+        total_loose_items_received: 0,
+        total_relief_packs_received: 0,
       }
     : transparencySummary || {};
 
@@ -2874,13 +2876,24 @@ const TransparencySection = ({ recentDonations, transparencySummary }) => {
         </div>
         <div className="donor-portal-card-hover" style={styles.summaryCard}>
           <div style={styles.summaryTop}>
-            <p style={styles.label}>Items Received</p>
+            <p style={styles.label}>Loose Items Received</p>
             <span style={styles.summaryIcon} aria-hidden="true">
               <FaBoxOpen size={18} />
             </span>
           </div>
           <p style={styles.summaryValue}>
-            {formatNumber(displayedTransparencySummary.total_quantity_received)}
+            {formatNumber(displayedTransparencySummary.total_loose_items_received)} pc
+          </p>
+        </div>
+        <div className="donor-portal-card-hover" style={styles.summaryCard}>
+          <div style={styles.summaryTop}>
+            <p style={styles.label}>Relief Packs Received</p>
+            <span style={styles.summaryIcon} aria-hidden="true">
+              <FaBoxOpen size={18} />
+            </span>
+          </div>
+          <p style={styles.summaryValue}>
+            {formatNumber(displayedTransparencySummary.total_relief_packs_received)} pack
           </p>
         </div>
       </div>
@@ -2983,7 +2996,7 @@ const DonationUtilizationSection = ({ transparencySummary }) => {
                 color: COLORS.primaryDark,
               }}
             >
-              {formatNumber(donatedItemRows.length)} item
+              {formatNumber(donatedItemRows.length)} source
               {donatedItemRows.length === 1 ? "" : "s"}
             </span>
             <span
@@ -3007,7 +3020,9 @@ const DonationUtilizationSection = ({ transparencySummary }) => {
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    <th style={{ ...styles.th, ...styles.forecastTh }}>Item</th>
+                    <th style={{ ...styles.th, ...styles.forecastTh }}>
+                      Donation Source
+                    </th>
                     <th
                       style={{
                         ...styles.th,
@@ -3041,19 +3056,22 @@ const DonationUtilizationSection = ({ transparencySummary }) => {
                   {donatedItemRows.map((row) => (
                     <tr key={row.public_key || row.item_name}>
                       <td style={{ ...styles.td, ...styles.forecastItemCell }}>
-                        {row.item_name || "--"}
+                        <strong>{row.donor_name || "Donor"}</strong>{" "}
+                        <span>
+                          ({row.donor_type_label || row.donor_type || "Other"})
+                        </span>
+                        <div style={{ marginTop: "4px" }}>
+                          {row.item_name || "Donation source"}
+                        </div>
                       </td>
                       <td style={{ ...styles.td, ...styles.numericCell }}>
-                        {formatNumber(row.quantity_received)}{" "}
-                        {row.unit_of_measure || "items"}
+                        {formatNumber(row.quantity_received)} {row.unit_of_measure || "pc"}
                       </td>
                       <td style={{ ...styles.td, ...styles.numericCell }}>
-                        {formatNumber(row.quantity_distributed)}{" "}
-                        {row.unit_of_measure || "items"}
+                        {formatNumber(row.quantity_distributed)} {row.unit_of_measure || "pc"}
                       </td>
                       <td style={{ ...styles.td, ...styles.numericCell }}>
-                        {formatNumber(row.quantity_remaining)}{" "}
-                        {row.unit_of_measure || "items"}
+                        {formatNumber(row.quantity_remaining)} {row.unit_of_measure || "pc"}
                       </td>
                     </tr>
                   ))}

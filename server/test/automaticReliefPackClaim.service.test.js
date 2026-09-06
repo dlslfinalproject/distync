@@ -56,7 +56,7 @@ const withStubbedAutomaticClaimService = async (stubs, runTest) => {
   }
 };
 
-test("automatic claims link and consume inventory for standard and additional templates", async () => {
+test("automatic claims link and consume inventory for standard and multiple additional templates", async () => {
   const standardTemplate = {
     id: "standard-template",
     name: "Standard Pack",
@@ -67,6 +67,13 @@ test("automatic claims link and consume inventory for standard and additional te
   const additionalTemplate = {
     id: "additional-template",
     name: "Pregnant Mother Pack",
+    is_active: true,
+    is_additional_pack: true,
+    based_on_family_size: false,
+  };
+  const secondAdditionalTemplate = {
+    id: "additional-template-2",
+    name: "Vulnerable Pack",
     is_active: true,
     is_additional_pack: true,
     based_on_family_size: false,
@@ -97,6 +104,16 @@ test("automatic claims link and consume inventory for standard and additional te
         },
       ],
     ],
+    [
+      secondAdditionalTemplate.id,
+      [
+        {
+          inventory_item_id: "water-item",
+          item_name: "Water",
+          quantity_required: 1,
+        },
+      ],
+    ],
   ]);
   const availableBatches = [
     {
@@ -106,6 +123,7 @@ test("automatic claims link and consume inventory for standard and additional te
       batch_no: "DON-WATER-1",
       item_code: "WATER",
       item_name: "Water",
+      category: "Non-Perishable",
       unit_of_measure: "piece",
       reorder_level: 1,
       expiration_date: "2099-12-31",
@@ -122,6 +140,7 @@ test("automatic claims link and consume inventory for standard and additional te
       batch_no: "WATER-1",
       item_code: "WATER",
       item_name: "Water",
+      category: "Non-Perishable",
       unit_of_measure: "piece",
       reorder_level: 1,
       expiration_date: "2099-12-31",
@@ -135,6 +154,7 @@ test("automatic claims link and consume inventory for standard and additional te
       batch_no: "BLANKET-1",
       item_code: "BLANKET",
       item_name: "Blanket",
+      category: "Non-Perishable",
       unit_of_measure: "piece",
       reorder_level: 1,
       expiration_date: null,
@@ -289,6 +309,7 @@ test("automatic claims link and consume inventory for standard and additional te
         resolveAssignedReliefPackTemplatesForHousehold: async () => [
           standardTemplate,
           additionalTemplate,
+          secondAdditionalTemplate,
         ],
         getPrimaryAssignedReliefPackTemplate: (templates) => templates[0],
       },
@@ -305,30 +326,75 @@ test("automatic claims link and consume inventory for standard and additional te
       assert.deepEqual(linkedTemplateIds, [
         standardTemplate.id,
         additionalTemplate.id,
+        secondAdditionalTemplate.id,
       ]);
       assert.deepEqual(
-        releasedItems.map((item) => [item.inventory_item_id, item.quantity_released]),
+        releasedItems.map((item) => [
+          item.inventory_item_id,
+          item.quantity_released,
+          item.relief_pack_type_snapshot,
+          item.relief_pack_template_id_snapshot,
+        ]),
         [
-          ["water-item", 3],
-          ["blanket-item", 1],
+          ["water-item", 2, "STANDARD_RELIEF_PACK", standardTemplate.id],
+          ["water-item", 1, "ADDITIONAL_RELIEF_PACK", additionalTemplate.id],
+          [
+            "water-item",
+            1,
+            "ADDITIONAL_RELIEF_PACK",
+            secondAdditionalTemplate.id,
+          ],
+          ["blanket-item", 1, "ADDITIONAL_RELIEF_PACK", additionalTemplate.id],
         ],
       );
+      const donatedStandardWater = releasedItems.find(
+        (item) =>
+          item.inventory_batch_id === "water-donated-batch" &&
+          item.relief_pack_type_snapshot === "STANDARD_RELIEF_PACK",
+      );
+      assert.equal(donatedStandardWater.category_snapshot, "Non-Perishable");
+      assert.equal(donatedStandardWater.source_type_snapshot, "DONATED");
+      assert.equal(
+        donatedStandardWater.source_relief_type_snapshot,
+        "DONATED_LOOSE_ITEM",
+      );
+      assert.equal(donatedStandardWater.donation_id_snapshot, "donation-1");
+      assert.equal(
+        donatedStandardWater.donation_item_id_snapshot,
+        "donation-item-1",
+      );
+      const LGUBlanket = releasedItems.find(
+        (item) => item.inventory_batch_id === "blanket-batch",
+      );
+      assert.equal(LGUBlanket.category_snapshot, "Non-Perishable");
+      assert.equal(LGUBlanket.source_type_snapshot, "LGU");
+      assert.equal(LGUBlanket.source_relief_type_snapshot, "LGU");
       assert.deepEqual(
         inventoryOutflows.map((transaction) => [
           transaction.inventory_batch_id,
           transaction.quantity,
         ]),
         [
-          ["water-donated-batch", 3],
+          ["water-donated-batch", 2],
+          ["water-donated-batch", 1],
+          ["water-batch", 1],
           ["blanket-batch", 1],
         ],
       );
-      assert.equal(result.assignedReliefPackTemplates.length, 2);
+      assert.equal(result.assignedReliefPackTemplates.length, 3);
       assert.deepEqual(result.donatedLooseItems, []);
       assert.equal(
         result.releasedItems.find((item) => item.inventory_item_id === "water-item")
           .source_relief_type,
-        "MIXED_RELIEF_PACK",
+        "STANDARD_RELIEF_PACK",
+      );
+      assert.equal(
+        result.releasedItems.find(
+          (item) =>
+            item.inventory_item_id === "water-item" &&
+            item.relief_pack_type_snapshot === "ADDITIONAL_RELIEF_PACK",
+        ).source_relief_type,
+        "ADDITIONAL_RELIEF_PACK",
       );
       assert.equal(
         result.releasedItems.find((item) => item.inventory_item_id === "water-item")
@@ -341,16 +407,81 @@ test("automatic claims link and consume inventory for standard and additional te
         "ADDITIONAL_RELIEF_PACK",
       );
       assert.equal(
-        updatedBatches.find((batch) => batch.id === "water-donated-batch")
+        updatedBatches
+          .filter((batch) => batch.id === "water-donated-batch")
+          .at(-1)
           .quantity_available,
         0,
       );
       assert.equal(
-        updatedBatches.find((batch) => batch.id === "water-batch"),
-        undefined,
+        updatedBatches.find((batch) => batch.id === "water-batch")
+          .quantity_available,
+        9,
       );
       assert.equal(updatedBatches.find((batch) => batch.id === "blanket-batch").quantity_available, 4);
       assert.equal(updatedItemSnapshots.length, 2);
+    },
+  );
+});
+
+test("donated relief-pack previews never return a pack with a missing component", async () => {
+  const donatedPackRows = [
+    {
+      donation_id: "donation-1",
+      donor_name: "Community Donor",
+      donation_received_at: "2026-09-01T08:00:00.000Z",
+      donation_item_id: "donation-item-water",
+      inventory_item_id: "water-item",
+      inventory_batch_id: "water-donation-batch",
+      quantity_received: 1,
+      quantity_available: 1,
+      remarks: "Relief Pack: Family Care Pack x 1",
+      batch_no: "DON-WATER-1",
+      item_code: "WATER",
+      item_name: "Water",
+      category: "Non-Perishable",
+      unit_of_measure: "pc",
+      expiration_date: "2099-12-31",
+      status: "AVAILABLE",
+    },
+    {
+      donation_id: "donation-1",
+      donor_name: "Community Donor",
+      donation_received_at: "2026-09-01T08:00:00.000Z",
+      donation_item_id: "donation-item-rice",
+      inventory_item_id: "rice-item",
+      inventory_batch_id: "rice-donation-batch",
+      quantity_received: 1,
+      quantity_available: 0,
+      remarks: "Relief Pack: Family Care Pack x 1",
+      batch_no: "DON-RICE-1",
+      item_code: "RICE",
+      item_name: "Rice",
+      category: "Perishable",
+      unit_of_measure: "kg",
+      expiration_date: "2099-12-31",
+      status: "DEPLETED",
+    },
+  ];
+
+  await withStubbedAutomaticClaimService(
+    {
+      [distributionTransactionRepositoryPath]: {
+        getDonatedReliefPackItemsByDisasterEventId: async () =>
+          donatedPackRows,
+      },
+      [inventoryTransactionRepositoryPath]: {},
+      [inventoryItemRepositoryPath]: {},
+      [reliefPackTemplateRepositoryPath]: {},
+      [reliefPackAssignmentServicePath]: {},
+    },
+    async ({ getAvailableDonatedReliefPacksForClaimPreview }) => {
+      const result = await getAvailableDonatedReliefPacksForClaimPreview(
+        "event-1",
+        1,
+      );
+
+      assert.deepEqual(result, []);
     },
   );
 });

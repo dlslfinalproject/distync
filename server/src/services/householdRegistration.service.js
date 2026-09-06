@@ -243,9 +243,22 @@ const buildDuplicateSuggestionMatchSummary = (match) => ({
   match_reasons: match.match_reasons,
 });
 
-const buildRestrictedExternalBarangayDuplicateSuggestion = () => ({
+const buildRestrictedExternalBarangayDuplicateSuggestion = (match) => ({
   visibility: DUPLICATE_SUGGESTION_VISIBILITY.restrictedExternalBarangay,
   details_restricted: true,
+  barangay_name: match.barangay_name || null,
+  family_head_name: buildFullName({
+    first_name: match.household_family_head_first_name,
+    middle_name: match.household_family_head_middle_name,
+    last_name: match.household_family_head_last_name,
+    suffix: match.household_family_head_suffix,
+  }),
+  matched_as: match.matched_role,
+  matched_relationship_to_head: match.matched_relationship_to_head || null,
+  is_active: match.is_active !== false,
+  registered_at: match.registered_at || null,
+  match_confidence: match.match_confidence,
+  match_reasons: match.match_reasons,
 });
 
 const canViewDuplicateSuggestionMatch = ({ match, requester }) => {
@@ -261,7 +274,7 @@ const canViewDuplicateSuggestionMatch = ({ match, requester }) => {
 
 const buildVisibleDuplicateSuggestionMatches = ({ matches, requester }) => {
   const authorizedMatches = [];
-  let hasRestrictedExternalBarangayMatch = false;
+  let restrictedExternalBarangayMatch = null;
 
   for (const match of matches) {
     if (canViewDuplicateSuggestionMatch({ match, requester })) {
@@ -269,13 +282,13 @@ const buildVisibleDuplicateSuggestionMatches = ({ matches, requester }) => {
       continue;
     }
 
-    hasRestrictedExternalBarangayMatch = true;
+    restrictedExternalBarangayMatch ||= match;
   }
 
   return [
     ...authorizedMatches,
-    ...(hasRestrictedExternalBarangayMatch
-      ? [buildRestrictedExternalBarangayDuplicateSuggestion()]
+    ...(restrictedExternalBarangayMatch
+      ? [buildRestrictedExternalBarangayDuplicateSuggestion(restrictedExternalBarangayMatch)]
       : []),
   ];
 };
@@ -2353,6 +2366,14 @@ const registerHousehold = async (
     }
 
     if (requestDataWithDerivedAgeGroups.current_stay_type === "EVAC_CENTER") {
+      const assignedReliefPackSectorIds = deduplicateIds([
+        ...requestDataWithDerivedAgeGroups.household_sector_ids,
+        ...familyHeadSectorIds,
+        ...requestDataWithDerivedAgeGroups.members.flatMap((member) => [
+          ageSectorIdsByCode[member.derived_age_sector_code],
+          ...(member.sector_ids || []),
+        ]),
+      ]).filter(Boolean);
       const stubNumbers =
         await householdRegistrationRepository.generateStubNumbers(client);
 
@@ -2372,6 +2393,9 @@ const registerHousehold = async (
           qr_generated_by: requestDataWithDerivedAgeGroups.registered_by,
           qr_status: "ACTIVE",
           qr_notes: null,
+          disaster_type: lockedScope.disaster_type || null,
+          assigned_sector_ids: assignedReliefPackSectorIds,
+          household_size: createdHousehold.household_size,
         },
         client,
       );

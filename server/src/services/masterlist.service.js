@@ -2,6 +2,9 @@ const masterlistRepository = require("../repositories/masterlist.repository");
 const disasterEventService = require("./disasterEvent.service");
 const { ROLE_CODES } = require("../modules/auth/auth.middleware");
 const {
+  normalizeReliefPackAssignmentSnapshots,
+} = require("../utils/reliefPackAssignmentSnapshot");
+const {
   buildCsvBuffer,
   buildExcelBuffer,
   buildExportColumns,
@@ -16,7 +19,7 @@ const {
 } = require("../utils/masterlistExport");
 const BARANGAY_EVENT_STATUSES = {
   active: ["ACTIVE"],
-  ended: ["CLOSED", "ARCHIVED"],
+  ended: ["CLOSED"],
 };
 const isOverrideAllowed = process.env.NODE_ENV !== "production";
 
@@ -89,6 +92,7 @@ const getMasterlist = async (filters) => {
         id: disasterEvent.id,
         event_code: disasterEvent.event_code,
         title: disasterEvent.title,
+        disaster_type: disasterEvent.disaster_type,
       },
       filters: {
         disaster_event_id: filters.disaster_event_id,
@@ -156,6 +160,10 @@ const getMasterlist = async (filters) => {
     );
 
     const stub = stubsByHouseholdId[household.household_id] || null;
+    const assignedReliefPackSnapshots =
+      normalizeReliefPackAssignmentSnapshots(
+        stub?.assigned_relief_pack_snapshots,
+      );
     const attendance = household.attendance_log_id
       ? {
           id: household.attendance_log_id,
@@ -198,6 +206,8 @@ const getMasterlist = async (filters) => {
             stub_no: stub.stub_no,
             serial_no: stub.serial_no,
             status: stub.status,
+            assigned_relief_pack_snapshots: assignedReliefPackSnapshots,
+            assigned_relief_packs: assignedReliefPackSnapshots,
           }
         : null,
       household_sectors: (householdSectorsByHouseholdId[household.household_id] || []).map(
@@ -225,6 +235,7 @@ const getMasterlist = async (filters) => {
       id: disasterEvent.id,
       event_code: disasterEvent.event_code,
       title: disasterEvent.title,
+      disaster_type: disasterEvent.disaster_type,
     },
     filters: {
       disaster_event_id: filters.disaster_event_id,

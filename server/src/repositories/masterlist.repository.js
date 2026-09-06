@@ -1174,7 +1174,8 @@ const getStubsByHouseholdIds = async (householdIds) => {
       household_id,
       stub_no,
       serial_no,
-      status
+      status,
+      assigned_relief_pack_snapshots
     FROM stubs
     WHERE household_id = ANY($1::uuid[])
     ORDER BY household_id, issued_at DESC, updated_at DESC

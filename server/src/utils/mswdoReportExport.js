@@ -114,9 +114,38 @@ const applyCellBorder = (cell) => {
   };
 };
 
+const getReportTableTitle = (reportTitle, tableTitle) => {
+  if (tableTitle && String(tableTitle).trim()) {
+    return String(tableTitle).trim();
+  }
+
+  return (
+    String(reportTitle || "Report")
+      .replace(/\s+Report\s*$/i, "")
+      .trim() || "Report"
+  );
+};
+
+const getColumnAlignment = (column) => {
+  if (column.alignment) {
+    return column.alignment;
+  }
+
+  const centeredColumn = /(count|members|status|date|time)/i.test(
+    String(column.key || ""),
+  );
+
+  return {
+    vertical: "top",
+    horizontal: centeredColumn ? "center" : "left",
+    wrapText: true,
+  };
+};
+
 const buildExcelBuffer = async ({
   worksheetName,
   reportTitle,
+  tableTitle,
   metadata,
   columns,
   rows,
@@ -128,24 +157,39 @@ const buildExcelBuffer = async ({
   workbook.created = new Date();
   workbook.modified = new Date();
 
+  const normalizedColumns = columns.map((column) => ({
+    ...column,
+    alignment: getColumnAlignment(column),
+  }));
   const worksheet = workbook.addWorksheet(normalizeSheetName(worksheetName), {
-    views: [{ state: "frozen", ySplit: 10 }],
-    pageSetup: {
-      orientation: "landscape",
-      fitToPage: true,
-      fitToWidth: 1,
-      fitToHeight: 0,
-    },
+    properties: { defaultRowHeight: 20 },
   });
 
-  worksheet.columns = columns.map((column) => ({
+  worksheet.columns = normalizedColumns.map((column) => ({
     key: column.key,
     width: column.width || 24,
+    style: { alignment: column.alignment },
   }));
+
+  worksheet.pageSetup = {
+    orientation: "landscape",
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    margins: {
+      left: 0.35,
+      right: 0.35,
+      top: 0.5,
+      bottom: 0.5,
+      header: 0.25,
+      footer: 0.25,
+    },
+  };
 
   reportExport.addWorkbookLogo(workbook, worksheet);
 
-  const lastColumnIndex = Math.max(columns.length, 6);
+  const lastColumnIndex = Math.max(normalizedColumns.length, 6);
+  const lastColumnLetter = worksheet.getColumn(lastColumnIndex).letter;
   const headerEndRowNumber = reportExport.buildExcelReportHeader({
     worksheet,
     lastColumnIndex,
@@ -158,10 +202,24 @@ const buildExcelBuffer = async ({
     ],
   });
 
-  const headerRowNumber = headerEndRowNumber + 1;
+  const tableTitleRowNumber = headerEndRowNumber + 1;
+  worksheet.mergeCells(
+    `A${tableTitleRowNumber}:${lastColumnLetter}${tableTitleRowNumber}`,
+  );
+  const tableTitleCell = worksheet.getCell(`A${tableTitleRowNumber}`);
+  tableTitleCell.value = getReportTableTitle(reportTitle, tableTitle);
+  tableTitleCell.font = {
+    bold: true,
+    size: 13,
+    color: { argb: "FF17324D" },
+  };
+  tableTitleCell.alignment = { vertical: "middle", horizontal: "left" };
+  worksheet.getRow(tableTitleRowNumber).height = 24;
+
+  const headerRowNumber = tableTitleRowNumber + 1;
   worksheet.views = [{ state: "frozen", ySplit: headerRowNumber }];
   const headerRow = worksheet.getRow(headerRowNumber);
-  columns.forEach((column, index) => {
+  normalizedColumns.forEach((column, index) => {
     const cell = headerRow.getCell(index + 1);
     cell.value = column.label;
     cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
@@ -173,18 +231,15 @@ const buildExcelBuffer = async ({
     cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
     applyCellBorder(cell);
   });
+  headerRow.height = 24;
 
   rows.forEach((row, rowIndex) => {
     const worksheetRow = worksheet.getRow(headerRowNumber + 1 + rowIndex);
 
-    columns.forEach((column, columnIndex) => {
+    normalizedColumns.forEach((column, columnIndex) => {
       const cell = worksheetRow.getCell(columnIndex + 1);
       cell.value = row[column.key];
-      cell.alignment = {
-        vertical: "top",
-        horizontal: "left",
-        wrapText: true,
-      };
+      cell.alignment = column.alignment;
       applyCellBorder(cell);
 
       if (rowIndex % 2 === 1) {
@@ -195,12 +250,37 @@ const buildExcelBuffer = async ({
         };
       }
     });
+
+    const estimatedHeight = normalizedColumns.reduce((maxHeight, column) => {
+      if (!column.alignment?.wrapText) {
+        return maxHeight;
+      }
+
+      const cellValue = String(row[column.key] ?? "");
+      const charactersPerLine = Math.max(
+        12,
+        Math.floor((column.width || 20) * 1.15),
+      );
+      const lineCount = Math.max(
+        1,
+        Math.ceil(cellValue.length / charactersPerLine),
+      );
+      return Math.max(maxHeight, lineCount * 15);
+    }, 22);
+
+    worksheetRow.height = Math.min(Math.max(estimatedHeight, 22), 60);
+    worksheetRow.commit();
   });
 
-  worksheet.autoFilter = {
-    from: { row: headerRowNumber, column: 1 },
-    to: { row: headerRowNumber, column: columns.length },
-  };
+  if (rows.length > 0) {
+    worksheet.autoFilter = {
+      from: { row: headerRowNumber, column: 1 },
+      to: { row: headerRowNumber + rows.length, column: normalizedColumns.length },
+    };
+  }
+
+  worksheet.headerFooter.oddFooter =
+    `&L${getReportTableTitle(reportTitle, tableTitle)}&RPage &P of &N`;
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
@@ -252,13 +332,22 @@ const wrapText = (value, maxLength) => {
   return lines.length ? lines : ["--"];
 };
 
-const buildPdfBuffer = ({ reportTitle, metadata, columns, rows, sourceName = "MSWDO" }) => {
+const buildPdfBuffer = ({
+  reportTitle,
+  tableTitle,
+  metadata,
+  columns,
+  rows,
+  sourceName = "MSWDO",
+}) => {
   const pages = [];
   let page = null;
-  let cursorY = 555;
+  let cursorY = 0;
   const pageWidth = 842;
+  const pageHeight = 595;
   const marginX = 40;
   const contentWidth = 762;
+  const bottomY = 48;
   const baseColumnWidths = columns.map((column) => column.pdfWidth || 110);
   const totalColumnWidth = baseColumnWidths.reduce(
     (total, width) => total + width,
@@ -267,6 +356,7 @@ const buildPdfBuffer = ({ reportTitle, metadata, columns, rows, sourceName = "MS
   const widthScale =
     totalColumnWidth > 0 ? contentWidth / totalColumnWidth : 1;
   const columnWidths = baseColumnWidths.map((width) => width * widthScale);
+  const normalizedTableTitle = getReportTableTitle(reportTitle, tableTitle);
 
   const addText = (text, x, y, options = {}) => {
     page.drawText(text, x, y, {
@@ -276,6 +366,68 @@ const buildPdfBuffer = ({ reportTitle, metadata, columns, rows, sourceName = "MS
     });
   };
 
+  const drawTableHeader = () => {
+    const wrappedHeaders = columns.map((column, index) =>
+      wrapText(
+        column.label,
+        Math.max(8, Math.floor(columnWidths[index] / 5.5)),
+      ),
+    );
+    const headerHeight =
+      Math.max(...wrappedHeaders.map((lines) => lines.length), 1) * 11 + 8;
+    const headerTop = cursorY;
+
+    page.fillRect(
+      marginX,
+      headerTop - headerHeight,
+      contentWidth,
+      headerHeight,
+      reportExport.PDF_COLORS.blue,
+    );
+    page.strokeRect(
+      marginX,
+      headerTop - headerHeight,
+      contentWidth,
+      headerHeight,
+      reportExport.PDF_COLORS.border,
+      0.8,
+    );
+
+    let headerX = marginX;
+    wrappedHeaders.forEach((lines, index) => {
+      lines.forEach((line, lineIndex) => {
+        addText(line, headerX + 4, headerTop - 13 - lineIndex * 11, {
+          bold: true,
+          color: reportExport.PDF_COLORS.white,
+        });
+      });
+      headerX += columnWidths[index];
+      if (index < columns.length - 1) {
+        page.drawLine(
+          headerX,
+          headerTop,
+          headerX,
+          headerTop - headerHeight,
+          reportExport.PDF_COLORS.border,
+          0.6,
+        );
+      }
+    });
+
+    cursorY = headerTop - headerHeight;
+  };
+
+  const getWrappedPdfCells = (row) =>
+    columns.map((column, index) =>
+      wrapText(
+        row[column.key],
+        Math.max(8, Math.floor(columnWidths[index] / 5.5)),
+      ),
+    );
+
+  const getPdfRowHeight = (wrappedCells, bottomPadding = 9) =>
+    Math.max(...wrappedCells.map((lines) => lines.length), 1) * 11 + bottomPadding;
+
   const drawHeader = () => {
     const titleLines = buildHeaderLines({
       reportTitle,
@@ -284,12 +436,12 @@ const buildPdfBuffer = ({ reportTitle, metadata, columns, rows, sourceName = "MS
       sourceName,
     });
 
-    page = reportExport.createPdfBuilder({ width: pageWidth, height: 595 });
-    page.fillRect(marginX, 505, contentWidth, 70, reportExport.PDF_COLORS.navy);
-    page.fillRect(58, 519, 40, 40, reportExport.PDF_COLORS.white);
+    page = reportExport.createPdfBuilder({ width: pageWidth, height: pageHeight });
+    page.fillRect(marginX, 503, contentWidth, 72, reportExport.PDF_COLORS.navy);
+    page.fillRect(58, 517, 44, 44, reportExport.PDF_COLORS.white);
 
     if (reportExport.PDF_IMAGE_REGISTRY.distyncLogo) {
-      page.drawImage("distyncLogo", 60, 521, 36, 36);
+      page.drawImage("distyncLogo", 62, 521, 36, 36);
     }
 
     addText("DISTYNC", 112, 547, {
@@ -307,67 +459,140 @@ const buildPdfBuffer = ({ reportTitle, metadata, columns, rows, sourceName = "MS
       size: 11,
       color: reportExport.PDF_COLORS.white,
     });
-    addText(reportTitle, 420, 529, {
-      bold: true,
-      size: 12,
-      color: reportExport.PDF_COLORS.white,
-    });
+    wrapText(reportTitle, 42).forEach((line, lineIndex) =>
+      addText(line, 420, 535 - lineIndex * 13, {
+        bold: true,
+        size: 12,
+        color: reportExport.PDF_COLORS.white,
+      }),
+    );
 
     cursorY = 485;
     titleLines.slice(4).forEach((line) => {
-      addText(line, marginX, cursorY, { size: 9 });
-      cursorY -= 12;
-    });
-
-    cursorY -= 10;
-    let headerX = marginX;
-    const wrappedHeaders = columns.map((column, index) =>
-      wrapText(
-        column.label,
-        Math.max(8, Math.floor(columnWidths[index] / 5.5)),
-      ),
-    );
-    const headerHeight =
-      Math.max(...wrappedHeaders.map((lines) => lines.length), 1) * 11 + 6;
-
-    columns.forEach((column, index) => {
-      wrappedHeaders[index].forEach((line, lineIndex) => {
-        addText(line, headerX + 4, cursorY - lineIndex * 11, { bold: true });
+      wrapText(line, 118).forEach((wrappedLine) => {
+        addText(wrappedLine, marginX, cursorY, { size: 9 });
+        cursorY -= 12;
       });
-      headerX += columnWidths[index];
     });
-    cursorY -= headerHeight;
+
+    cursorY -= 8;
+    addText(normalizedTableTitle, marginX, cursorY, {
+      bold: true,
+      size: 13,
+      color: reportExport.PDF_COLORS.navy,
+    });
+    cursorY -= 15;
+    drawTableHeader();
   };
 
-  const finishPage = () => {
-    addText(`Page ${pages.length + 1}`, 760, 24, { size: 8 });
-    pages.push(page);
-    cursorY = 555;
-  };
+  const drawTableRow = (row, rowIndex) => {
+    const wrappedCells = getWrappedPdfCells(row);
+    const rowHeight = getPdfRowHeight(wrappedCells);
+    const rowTop = cursorY;
+    const rowBottom = rowTop - rowHeight;
 
-  drawHeader();
-
-  rows.forEach((row) => {
-    const wrappedCells = columns.map((column, index) =>
-      wrapText(row[column.key], Math.max(8, Math.floor(columnWidths[index] / 5.5))),
+    page.fillRect(
+      marginX,
+      rowBottom,
+      contentWidth,
+      rowHeight,
+      rowIndex % 2 === 0 ? reportExport.PDF_COLORS.white : reportExport.PDF_COLORS.lightBlue,
     );
-    const rowHeight =
-      Math.max(...wrappedCells.map((lines) => lines.length), 1) * 11 + 8;
-
-    if (cursorY - rowHeight < 42) {
-      finishPage();
-      drawHeader();
-    }
+    page.strokeRect(
+      marginX,
+      rowBottom,
+      contentWidth,
+      rowHeight,
+      reportExport.PDF_COLORS.border,
+      0.6,
+    );
 
     let cellX = marginX;
     wrappedCells.forEach((lines, index) => {
       lines.forEach((line, lineIndex) => {
-        addText(line, cellX + 4, cursorY - lineIndex * 11);
+        addText(line, cellX + 4, rowTop - 14 - lineIndex * 11, { size: 8 });
       });
       cellX += columnWidths[index];
+      if (index < columns.length - 1) {
+        page.drawLine(
+          cellX,
+          rowTop,
+          cellX,
+          rowBottom,
+          reportExport.PDF_COLORS.border,
+          0.5,
+        );
+      }
     });
 
-    cursorY -= rowHeight;
+    cursorY = rowBottom;
+  };
+
+  const drawEmptyTableRow = () => {
+    const rowHeight = 32;
+    const rowTop = cursorY;
+    const rowBottom = rowTop - rowHeight;
+
+    page.fillRect(
+      marginX,
+      rowBottom,
+      contentWidth,
+      rowHeight,
+      reportExport.PDF_COLORS.white,
+    );
+    page.strokeRect(
+      marginX,
+      rowBottom,
+      contentWidth,
+      rowHeight,
+      reportExport.PDF_COLORS.border,
+      0.6,
+    );
+    addText(
+      "No data available for the selected filters.",
+      marginX + 6,
+      rowTop - 20,
+      { size: 9, color: reportExport.PDF_COLORS.grayText },
+    );
+    cursorY = rowBottom;
+  };
+
+  const finishPage = () => {
+    page.drawLine(
+      marginX,
+      34,
+      marginX + contentWidth,
+      34,
+      reportExport.PDF_COLORS.border,
+      0.8,
+    );
+    addText(normalizedTableTitle, marginX, 22, {
+      size: 8,
+      color: reportExport.PDF_COLORS.grayText,
+    });
+    addText(`Page ${pages.length + 1}`, 760, 22, {
+      size: 8,
+      color: reportExport.PDF_COLORS.grayText,
+    });
+    pages.push(page);
+  };
+
+  drawHeader();
+
+  if (rows.length === 0) {
+    drawEmptyTableRow();
+  }
+
+  rows.forEach((row, rowIndex) => {
+    const wrappedCells = getWrappedPdfCells(row);
+    const rowHeight = getPdfRowHeight(wrappedCells);
+
+    if (cursorY - rowHeight < bottomY) {
+      finishPage();
+      drawHeader();
+    }
+
+    drawTableRow(row, rowIndex);
   });
 
   finishPage();
@@ -379,6 +604,7 @@ const buildExportFile = async ({
   filePrefix,
   worksheetName,
   reportTitle,
+  tableTitle,
   sourceName = "MSWDO",
   metadata = [],
   columns = [],
@@ -394,6 +620,7 @@ const buildExportFile = async ({
   const buffer = await builders[format]({
     worksheetName,
     reportTitle,
+    tableTitle,
     metadata,
     columns,
     rows,

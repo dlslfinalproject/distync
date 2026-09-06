@@ -228,12 +228,8 @@ const assertNoRestrictedExternalLeak = (match) => {
   const serializedMatch = JSON.stringify(match);
 
   [
-    "Santiago",
-    "barangay-santiago",
     "household-santiago",
     "evacuee-santiago",
-    "External",
-    "Santiago Head",
     "09179999999",
   ].forEach((protectedValue) => {
     assert.equal(
@@ -272,7 +268,7 @@ test("duplicate suggestions preserve same-barangay Barangay match details", asyn
   }
 });
 
-test("duplicate suggestions redact cross-barangay Barangay match details", async () => {
+test("duplicate suggestions expose only a limited cross-barangay Barangay summary", async () => {
   const harness = loadServiceWithMocks({
     getUserBarangayScopeById: async () => ({
       id: "barangay-user-1",
@@ -304,12 +300,13 @@ test("duplicate suggestions redact cross-barangay Barangay match details", async
     assert.equal(result.total_matches, 1);
     assert.equal(match.visibility, "RESTRICTED_EXTERNAL_BARANGAY");
     assert.equal(match.details_restricted, true);
-    assert.deepEqual(Object.keys(match).sort(), [
-      "details_restricted",
-      "visibility",
-    ]);
+    assert.equal(match.family_head_name, "External Head");
+    assert.equal(match.barangay_name, "Santiago");
+    assert.equal(match.household_id, undefined);
+    assert.equal(match.matched_person_name, undefined);
     assertNoRestrictedExternalLeak(match);
-    assertNoRestrictedExternalLeak(result);
+    assert.equal(JSON.stringify(result).includes("Santiago"), true);
+    assert.equal(JSON.stringify(result).includes("household-santiago"), false);
   } finally {
     harness.restore();
   }
@@ -346,7 +343,8 @@ test("duplicate suggestions keep authorized matches and aggregate external Baran
     assert.equal(matches[0].visibility, "AUTHORIZED");
     assert.equal(matches[0].household_id, "household-bagong-pook");
     assert.equal(matches[1].visibility, "RESTRICTED_EXTERNAL_BARANGAY");
-    assert.equal(JSON.stringify(result).includes("Santiago"), false);
+    assert.equal(matches[1].family_head_name, "External Head");
+    assert.equal(matches[1].barangay_name, "Santiago");
     assert.equal(JSON.stringify(result).includes("household-santiago"), false);
   } finally {
     harness.restore();
@@ -390,7 +388,12 @@ test("duplicate suggestions collapse multiple external Barangay matches into one
       result.groups[0].matches[0].visibility,
       "RESTRICTED_EXTERNAL_BARANGAY",
     );
-    assert.equal(serializedResult.includes("Santiago"), false);
+    assert.equal(
+      result.groups[0].matches[0].family_head_name,
+      "External Head",
+    );
+    assert.equal(result.groups[0].matches[0].barangay_name, "Santiago");
+    assert.equal(serializedResult.includes("household-santiago"), false);
     assert.equal(serializedResult.includes("San Andres"), false);
     assert.equal(serializedResult.includes("household-san-andres"), false);
   } finally {
@@ -663,7 +666,7 @@ test("H04-01/H04-02 registerHousehold locks scope before authoritative duplicate
 });
 
 test("EE-FIX-01 registerHousehold allows only ACTIVE locked disaster events before domain writes", async () => {
-  const blockedStatuses = ["PLANNED", "CLOSED", "ARCHIVED"];
+  const blockedStatuses = ["PLANNED", "CLOSED"];
 
   for (const status of blockedStatuses) {
     const events = [];
@@ -3096,7 +3099,7 @@ test("updateHouseholdDetails rejects direct edits to a departed historical occur
 });
 
 test("EE-FIX-02 updateHouseholdDetails blocks authorized non-ACTIVE disaster events before ordinary update validation", async () => {
-  for (const disasterEventStatus of ["PLANNED", "CLOSED", "ARCHIVED"]) {
+  for (const disasterEventStatus of ["PLANNED", "CLOSED"]) {
     let privacyReadCalled = false;
     let updateCalled = false;
     const harness = loadServiceWithMocks({

@@ -18,7 +18,7 @@ export const getDisasterEventReportStatusLabel = (status) => {
     return "Active";
   }
 
-  if (normalizedStatus === "CLOSED" || normalizedStatus === "ARCHIVED") {
+  if (normalizedStatus === "CLOSED") {
     return "Ended";
   }
 

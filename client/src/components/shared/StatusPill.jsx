@@ -3,7 +3,7 @@ import React from "react";
 const getNormalizedStatus = (status) => {
   const normalized = String(status || "").toUpperCase();
 
-  if (normalized === "CLOSED" || normalized === "ARCHIVED") {
+  if (normalized === "CLOSED") {
     return "ENDED";
   }
 

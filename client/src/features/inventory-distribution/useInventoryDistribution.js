@@ -11,6 +11,7 @@ import {
   fetchReliefPackTemplateById,
   fetchReliefPackTemplates,
 } from "../relief-pack-templates/reliefPackTemplateService";
+import { fetchInventoryBatches } from "../inventory-batches/inventoryBatchService";
 import {
   getAssignedReliefPackTemplatesForHousehold,
   getHouseholdSectorIds,
@@ -113,7 +114,7 @@ const getScopedDisasterEvents = ({ events, activeTab, barangayId }) => {
     (event) =>
       (activeTab === "active"
         ? event?.status === "ACTIVE"
-        : ["CLOSED", "ARCHIVED"].includes(event?.status)) &&
+        : event?.status === "CLOSED") &&
       eventIncludesBarangay(event, barangayId),
   );
 };
@@ -267,11 +268,13 @@ const mapMasterlistDistributionRow = (
   const sectorsText = buildSectorsText(household);
   const stub = household?.stub || null;
   const status = stub?.status || "";
-  const assignedTemplates = getAssignedReliefPackTemplatesForHousehold(
-    household,
-    templateDetails,
-    disasterEvent,
-  );
+  const assignedTemplates = Array.isArray(stub?.assigned_relief_packs)
+    ? stub.assigned_relief_packs
+    : getAssignedReliefPackTemplatesForHousehold(
+        household,
+        templateDetails,
+        disasterEvent,
+      );
 
   return {
     household_id: household.household_id,
@@ -375,6 +378,7 @@ export const useInventoryDistribution = () => {
   const [barangays, setBarangays] = useState([]);
   const [sectors, setSectors] = useState([]);
   const [reliefPackTemplates, setReliefPackTemplates] = useState([]);
+  const [inventoryBatches, setInventoryBatches] = useState([]);
   const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -407,11 +411,12 @@ export const useInventoryDistribution = () => {
       setTemplateNotice("");
 
       try {
-        const [eventsPayload, barangaysPayload, sectorsPayload] =
+        const [eventsPayload, barangaysPayload, sectorsPayload, inventoryBatchPayload] =
           await Promise.all([
             fetchAllDisasterEvents(),
             fetchBarangays(),
             fetchMswdoSectors(),
+            fetchInventoryBatches(),
           ]);
 
         if (!isMounted) {
@@ -425,6 +430,9 @@ export const useInventoryDistribution = () => {
         setDisasterEvents(eventRows);
         setBarangays(barangayRows);
         setSectors(sectorRows);
+        setInventoryBatches(
+          Array.isArray(inventoryBatchPayload) ? inventoryBatchPayload : [],
+        );
       } catch (error) {
         if (isMounted) {
           setErrorMessage(
@@ -442,6 +450,42 @@ export const useInventoryDistribution = () => {
 
     return () => {
       isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const refreshInventoryBatches = async () => {
+      try {
+        const inventoryBatchPayload = await fetchInventoryBatches();
+
+        if (isMounted) {
+          setInventoryBatches(
+            Array.isArray(inventoryBatchPayload) ? inventoryBatchPayload : [],
+          );
+        }
+      } catch (_error) {
+        // Keep the last known inventory snapshot if a background refresh fails.
+      }
+    };
+
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === "visible") {
+        void refreshInventoryBatches();
+      }
+    };
+
+    const refreshInterval = window.setInterval(refreshInventoryBatches, 30000);
+
+    window.addEventListener("focus", refreshInventoryBatches);
+    document.addEventListener("visibilitychange", handleVisibilityRefresh);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(refreshInterval);
+      window.removeEventListener("focus", refreshInventoryBatches);
+      document.removeEventListener("visibilitychange", handleVisibilityRefresh);
     };
   }, []);
 
@@ -766,7 +810,7 @@ export const useInventoryDistribution = () => {
     }
 
     if (
-      ["CLOSED", "ARCHIVED"].includes(selectedDisasterEvent?.status) &&
+      selectedDisasterEvent?.status === "CLOSED" &&
       activeTab !== "ended"
     ) {
       setActiveTab("ended");
@@ -909,6 +953,7 @@ export const useInventoryDistribution = () => {
     scopedDisasterEvents,
     selectableBarangays,
     sectorOptions,
+    inventoryBatches,
     selectedDisasterEvent,
     selectedBarangay,
     selectedDisasterEventId,

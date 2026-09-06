@@ -121,6 +121,7 @@ const createBaseStubs = ({
   },
   [stubRepositoryPath]: {
     getScopedStubById: async () => scopedStub,
+    getStubById: async () => scopedStub,
     getStubByQrCodeValue: async () => verificationStub,
     getStubByStubNoOrSerialNo: async () => verificationStub,
     getLatestDistributionTransactionByStubId: async (stubId) => ({
@@ -153,6 +154,90 @@ const createBaseStubs = ({
   [reliefPackAssignmentServicePath]: {
     getAssignedReliefPackTemplatesForSectorIds: () => [],
   },
+});
+
+test("Barangay stub search stays locked to the requester's assigned barangay", async () => {
+  let searchArguments = null;
+
+  await withStubbedStubService(
+    createBaseStubs({
+      stubRepositoryOverrides: {
+        getStubSearchResults: async (...args) => {
+          searchArguments = args;
+          return [];
+        },
+      },
+    }),
+    async ({ getSearchResults }) => {
+      await getSearchResults(
+        {
+          q: "STUB-001",
+          disaster_event_id: baseStub.disaster_event_id,
+          barangay_id: "foreign-barangay",
+        },
+        {
+          roleCode: "BARANGAY",
+          defaultBarangayId: baseBarangayId,
+        },
+      );
+    },
+  );
+
+  assert.equal(searchArguments[2], baseBarangayId);
+});
+
+test("Barangay stub details reject a record from another barangay", async () => {
+  await withStubbedStubService(
+    createBaseStubs({
+      stubRepositoryOverrides: {
+        getStubById: async () => ({
+          ...baseStub,
+          barangay_id: "foreign-barangay",
+        }),
+      },
+    }),
+    async ({ getStubDetails }) => {
+      await assert.rejects(
+        () =>
+          getStubDetails(baseStub.id, {
+            roleCode: "BARANGAY",
+            defaultBarangayId: baseBarangayId,
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 403);
+          assert.equal(error.code, "BARANGAY_SCOPE_FORBIDDEN");
+          return true;
+        },
+      );
+    },
+  );
+});
+
+test("Barangay QR verification rejects a stub from another barangay", async () => {
+  await withStubbedStubService(
+    createBaseStubs({
+      verificationStub: buildIssuedVerificationStub({
+        barangay_id: "foreign-barangay",
+      }),
+    }),
+    async ({ verifyStub }) => {
+      await assert.rejects(
+        () =>
+          verifyStub({
+            qr_code_value: "DISTYNC-STUB|test",
+            requester: {
+              roleCode: "BARANGAY",
+              defaultBarangayId: baseBarangayId,
+            },
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 403);
+          assert.equal(error.code, "BARANGAY_SCOPE_FORBIDDEN");
+          return true;
+        },
+      );
+    },
+  );
 });
 
 const withNodeEnv = async (nodeEnv, runTest) => {
@@ -458,7 +543,7 @@ test("verifyStub keeps a claimed stub permanently unclaimable", async () => {
 });
 
 test("EE-FIX-03 claimBarangayStub blocks new claims when the event is not ACTIVE", async () => {
-  for (const disasterEventStatus of ["PLANNED", "CLOSED", "ARCHIVED"]) {
+  for (const disasterEventStatus of ["PLANNED", "CLOSED"]) {
     const events = [];
     let claimHandlerCalled = false;
 

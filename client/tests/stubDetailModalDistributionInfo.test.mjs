@@ -48,6 +48,48 @@ test("inventory distribution detail modal shows authorized by beside receipt num
   assert.match(source, /row\?\.authorized_by_name/);
 });
 
+test("inventory distribution detail modal renders simple received and assigned relief-pack cards", async () => {
+  const source = await fs.readFile(
+    inventoryDistributionDetailModalSourcePath,
+    "utf8",
+  );
+
+  assert.match(source, /const isClaimed =/);
+  assert.match(source, /stubDetails\?\.distribution_transaction_items/);
+  assert.match(source, /Relief Packs \/ Items Received/);
+  assert.match(source, /Relief Packs \/ Items Assigned/);
+  assert.match(source, /const buildReceivedPackSections =/);
+  assert.match(source, /const buildAssignedPackSections =/);
+  assert.match(source, /STANDARD_RELIEF_PACK/);
+  assert.match(source, /ADDITIONAL_RELIEF_PACK/);
+  assert.match(source, /relief_pack_type_snapshot/);
+  assert.match(source, /relief_pack_template_id_snapshot/);
+  assert.match(source, /standardPackGroups/);
+  assert.match(source, /additionalPackGroups/);
+  assert.match(source, /templateSnapshotsById/);
+  assert.match(source, /const ReliefPackCard =/);
+  assert.match(source, /styles\.packCardHeader/);
+  assert.match(source, /styles\.packCardName/);
+  assert.match(source, /styles\.readinessStatus/);
+  assert.match(source, /<th style=\{styles\.th\}>Item Name<\/th>/);
+  assert.match(source, /<th style=\{styles\.th\}>Category<\/th>/);
+  assert.match(source, /<th style=\{styles\.th\}>Quantity<\/th>/);
+  assert.match(source, /source: "Malvar LGU"/);
+  assert.match(source, /name: "Donated Items"/);
+  assert.match(source, /showItemDonorAttribution/);
+  assert.match(source, /styles\.itemAttribution/);
+  assert.match(source, /\(\{item\.donorName\}\)/);
+  assert.doesNotMatch(source, /\{item\.donorName\} Donated/);
+  assert.doesNotMatch(source, /Relief Pack\(s\) in Transaction/);
+  assert.doesNotMatch(source, /Items Recorded at Claim/);
+  assert.doesNotMatch(source, /Matching donated loose stock is used first \(FIFO\)/);
+  assert.doesNotMatch(source, /Additional Donated Loose Items/);
+  assert.doesNotMatch(
+    source,
+    /These values come from the transaction snapshot and are not\s+changed by later template updates\./,
+  );
+});
+
 test("stub detail modal keeps safe hyphen fallback for empty distribution transaction fields", async () => {
   const source = await fs.readFile(stubDetailModalSourcePath, "utf8");
 

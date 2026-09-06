@@ -423,7 +423,7 @@ test("EE-FIX-04 ACTIVE event-specific manual OUTFLOW proceeds with existing vali
 });
 
 test("EE-FIX-04 non-ACTIVE event-specific manual OUTFLOW is rejected before inventory effects", async () => {
-  for (const disasterEventStatus of ["PLANNED", "CLOSED", "ARCHIVED"]) {
+  for (const disasterEventStatus of ["PLANNED", "CLOSED"]) {
     const events = [];
 
     await withStubbedInventoryService(

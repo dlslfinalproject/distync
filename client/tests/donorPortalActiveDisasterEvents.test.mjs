@@ -98,7 +98,7 @@ test("donor portal donation utilization table matches forecast table emphasis", 
   );
   assert.match(
     source,
-    /Donation Utilization[\s\S]*<th style=\{\{ \.\.\.styles\.th, \.\.\.styles\.forecastTh \}\}>Item<\/th>/,
+    /Donation Utilization[\s\S]*<th style=\{\{ \.\.\.styles\.th, \.\.\.styles\.forecastTh \}\}>[\s\S]*Donation Source[\s\S]*<\/th>/,
   );
   assert.match(
     source,

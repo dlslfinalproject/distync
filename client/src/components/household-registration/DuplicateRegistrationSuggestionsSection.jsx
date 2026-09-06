@@ -44,17 +44,8 @@ const sectionStyles = {
     display: "grid",
     gap: "8px",
   },
-  restrictedCard: {
-    border: "1px solid #f0d49b",
-    borderRadius: "16px",
-    backgroundColor: "#fff9ed",
-    padding: "12px 14px",
-    display: "grid",
-    gap: "6px",
-  },
   topRow: {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) auto",
     gap: "12px",
     alignItems: "center",
   },
@@ -87,18 +78,6 @@ const sectionStyles = {
     fontSize: "11px",
     fontWeight: 700,
     letterSpacing: "0.02em",
-  },
-  button: {
-    border: "1px solid #c8d7e7",
-    borderRadius: "12px",
-    backgroundColor: "#ffffff",
-    color: "#24496e",
-    padding: "9px 14px",
-    fontSize: "12px",
-    fontWeight: 700,
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-    justifySelf: "end",
   },
 };
 
@@ -189,7 +168,6 @@ const DuplicateRegistrationSuggestionsSection = ({
   groups,
   isLoading,
   errorMessage,
-  onViewHousehold,
 }) => {
   const suggestionGroups = Array.isArray(groups) ? groups : [];
 
@@ -231,49 +209,46 @@ const DuplicateRegistrationSuggestionsSection = ({
               return (
                 <div key={group.person_key} style={sectionStyles.groupCard}>
                   <div style={sectionStyles.suggestionList}>
-                    {visibleMatches.map((match) => (
-                      match.details_restricted ||
-                      match.visibility === RESTRICTED_EXTERNAL_BARANGAY_VISIBILITY ? (
+                    {visibleMatches.map((match) => {
+                      const isRestrictedExternalMatch =
+                        match.details_restricted ||
+                        match.visibility === RESTRICTED_EXTERNAL_BARANGAY_VISIBILITY;
+
+                      return (
                         <div
-                          key={`${group.person_key}-restricted-external-barangay`}
-                          style={sectionStyles.restrictedCard}
-                          role="status"
-                        >
-                          <p style={sectionStyles.suggestionTitle}>
-                            Possible match found outside your barangay
-                          </p>
-                          <p style={sectionStyles.compactMeta}>
-                            A possible matching record exists outside your authorized
-                            barangay. Its details are restricted. Review the information
-                            you entered before continuing.
-                          </p>
-                        </div>
-                      ) : (
-                        <div
-                          key={`${group.person_key}-${match.household_id}-${match.matched_as}`}
+                          key={
+                            isRestrictedExternalMatch
+                              ? `${group.person_key}-restricted-external-barangay`
+                              : `${group.person_key}-${match.household_id}-${match.matched_as}`
+                          }
                           style={sectionStyles.suggestionCard}
+                          role={isRestrictedExternalMatch ? "status" : undefined}
                         >
                           <div style={sectionStyles.topRow}>
                             <div>
                               <p style={sectionStyles.suggestionTitle}>
-                                {match.family_head_name || "Unnamed household"}
+                                {match.family_head_name || "Possible matching record"}
                               </p>
                               <p style={sectionStyles.suggestionMeta}>
                                 {match.barangay_name || "Unknown barangay"} | Registered{" "}
                                 {formatDateTime(match.registered_at)}
                               </p>
                             </div>
-
-                            <button
-                              type="button"
-                              onClick={() => onViewHousehold?.(match.household_id)}
-                              style={sectionStyles.button}
-                            >
-                              View Household Details
-                            </button>
                           </div>
 
                           <div style={sectionStyles.badgeRow}>
+                            {isRestrictedExternalMatch ? (
+                              <span
+                                style={{
+                                  ...sectionStyles.badge,
+                                  backgroundColor: "#fff9ed",
+                                  color: "#956416",
+                                  border: "1px solid #f0d49b",
+                                }}
+                              >
+                                Details restricted
+                              </span>
+                            ) : null}
                             <span
                               style={{
                                 ...sectionStyles.badge,
@@ -310,8 +285,8 @@ const DuplicateRegistrationSuggestionsSection = ({
                               : ""}
                           </p>
                         </div>
-                      )
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               );
