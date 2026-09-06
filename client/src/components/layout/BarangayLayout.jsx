@@ -9,7 +9,10 @@ import { initializeSyncService } from "../../offline/syncService";
 import { SettingsUnsavedChangesProvider } from "../../pages/settings/SettingsUnsavedChangesContext";
 import { useBarangayDashboard } from "../../features/barangay-dashboard/useBarangayDashboard";
 import { useBarangayOfflinePreparation } from "../../features/offline/useBarangayOfflinePreparation";
-import OfflineDataReadiness from "./OfflineDataReadiness";
+import OfflineDataReadiness, {
+  MayorOfflineReadyDismissalContext,
+} from "./OfflineDataReadiness";
+import BarangayOfflineModeNotice from "./BarangayOfflineModeNotice";
 
 const SIDEBAR_EXPANDED_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "0px";
@@ -128,6 +131,8 @@ const BarangayLayout = () => {
   const [isCompactNavigation, setIsCompactNavigation] = useState(() =>
     getInitialMediaQueryMatch(COMPACT_NAV_QUERY),
   );
+  const [isMayorInventoryReadyAcknowledged, setIsMayorInventoryReadyAcknowledged] =
+    useState(false);
   const lastNonSettingsCollapseStateRef = useRef(false);
   const location = useLocation();
   const { currentRole, authenticatedUser } = useAuth();
@@ -319,8 +324,16 @@ const BarangayLayout = () => {
         <main className="distync-shell__main" style={shellStyles.main}>
           <div className="distync-shell__content" style={shellStyles.content}>
             {shouldShowSyncStatusBanner ? <SyncStatusBanner /> : null}
-            {isBarangayPortal ? <OfflineDataReadiness {...offlinePreparation} /> : null}
-            <Outlet />
+            {isBarangayPortal ? <BarangayOfflineModeNotice /> : null}
+            <MayorOfflineReadyDismissalContext.Provider
+              value={{
+                isAcknowledged: isMayorInventoryReadyAcknowledged,
+                acknowledge: () => setIsMayorInventoryReadyAcknowledged(true),
+              }}
+            >
+              {isBarangayPortal ? <OfflineDataReadiness {...offlinePreparation} /> : null}
+              <Outlet />
+            </MayorOfflineReadyDismissalContext.Provider>
           </div>
         </main>
       </div>

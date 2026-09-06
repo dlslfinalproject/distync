@@ -14,6 +14,10 @@ const RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED_MESSAGE =
   "This relief pack cannot be deactivated while an event is active or a distribution is ongoing.";
 const RELIEF_PACK_TEMPLATE_EMPTY_MESSAGE =
   "Add at least one inventory item before activating this relief pack.";
+const RELIEF_PACK_TEMPLATE_STATUS_CHANGE_REQUIRES_STATUS_ENDPOINT_CODE =
+  "RELIEF_PACK_TEMPLATE_STATUS_CHANGE_REQUIRES_STATUS_ENDPOINT";
+const RELIEF_PACK_TEMPLATE_STATUS_CHANGE_REQUIRES_STATUS_ENDPOINT_MESSAGE =
+  "Relief pack template status changes must use PATCH /api/v1/relief-pack-templates/:id/status.";
 
 const createEmptyReliefPackTemplateError = () => {
   const error = new Error(RELIEF_PACK_TEMPLATE_EMPTY_MESSAGE);
@@ -29,6 +33,22 @@ const ensureActiveReliefPackTemplateHasItems = (isActive, items) => {
   if (isActive && (!Array.isArray(items) || items.length === 0)) {
     throw createEmptyReliefPackTemplateError();
   }
+};
+
+const ensureReliefPackTemplateConfigurationUpdateKeepsStatus = (
+  currentStatus,
+  requestedStatus,
+) => {
+  if (currentStatus === requestedStatus) {
+    return;
+  }
+
+  const error = new Error(
+    RELIEF_PACK_TEMPLATE_STATUS_CHANGE_REQUIRES_STATUS_ENDPOINT_MESSAGE,
+  );
+  error.statusCode = 409;
+  error.code = RELIEF_PACK_TEMPLATE_STATUS_CHANGE_REQUIRES_STATUS_ENDPOINT_CODE;
+  throw error;
 };
 
 const createDuplicateTemplateNameError = () => {
@@ -676,16 +696,26 @@ const updateReliefPackTemplate = async (id, templateData, actor = null) => {
     throw error;
   }
 
+  const currentStatus = existingTemplate.is_active !== false;
+  const requestedIsActive = resolveReliefPackTemplateActiveStatus(
+    templateData.is_active,
+    currentStatus,
+  );
+  ensureReliefPackTemplateConfigurationUpdateKeepsStatus(
+    currentStatus,
+    requestedIsActive,
+  );
+
   const previousTemplateDetails = await getReliefPackTemplateById(id);
 
   const existingItems =
     await reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId(id);
-  const requestedIsActive = resolveReliefPackTemplateActiveStatus(
-    templateData.is_active,
-    existingTemplate.is_active !== false,
-  );
   const normalizedTemplateData = {
     ...templateData,
+    name:
+      templateData.name === undefined
+        ? existingTemplate.name
+        : templateData.name,
     is_active: requestedIsActive,
   };
   const itemsToPersist = Array.isArray(normalizedTemplateData.items)

@@ -19,13 +19,14 @@ const {
 const {
   isReliefPackClaimHouseholdCurrentlyEligible,
 } = require("../utils/reliefPackEligibility");
+const { resolveRequesterBarangayId } = require("../utils/requesterScope");
 
 const isOverrideAllowed = process.env.NODE_ENV !== "production";
 const ACTIVE_QR_STATUS = "ACTIVE";
+const BARANGAY_ROLE_CODE = "BARANGAY";
 const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
 const ARCHIVED_HOUSEHOLD_CODE = "HOUSEHOLD_ARCHIVED";
 const HOUSEHOLD_NOT_PRESENT_CODE = "HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER";
-const BARANGAY_ROLE_CODE = "BARANGAY";
 
 const assertBarangayRecordViewScope = (record, requester) => {
   if (requester?.roleCode !== BARANGAY_ROLE_CODE) {
@@ -39,6 +40,13 @@ const assertBarangayRecordViewScope = (record, requester) => {
     error.statusCode = 403;
     error.code = "BARANGAY_SCOPE_FORBIDDEN";
     throw error;
+  }
+
+  // Scoped repository reads may intentionally omit the Barangay field from
+  // lightweight verification projections. In that case the SQL scope is the
+  // authorization check; an explicitly returned foreign ID is still denied.
+  if (record?.barangay_id === undefined || record?.barangay_id === null) {
+    return;
   }
 
   if (String(record?.barangay_id || "") !== String(requester.defaultBarangayId)) {
@@ -384,20 +392,44 @@ const formatSearchResult = (stub) => {
   };
 };
 
-const getSearchResults = async (filters, requester = null) => {
-  let scopedBarangayId = filters.barangay_id;
+const createBarangayScopeRequiredError = (resourceName) => {
+  const error = new Error(
+    "Barangay " +
+      resourceName +
+      " requires an account with an assigned barangay.",
+  );
+  error.statusCode = 403;
+  error.code = "NO_ASSIGNED_BARANGAY";
+  return error;
+};
 
-  if (requester?.roleCode === BARANGAY_ROLE_CODE) {
-    assertBarangayRecordViewScope(
-      { barangay_id: requester.defaultBarangayId },
-      requester,
-    );
-    scopedBarangayId = requester.defaultBarangayId;
+const getRequesterBarangayScope = async (requester, resourceName) => {
+  if (requester?.roleCode !== BARANGAY_ROLE_CODE) {
+    return null;
   }
+
+  const barangayId = await resolveRequesterBarangayId(requester);
+
+  if (!barangayId) {
+    throw createBarangayScopeRequiredError(resourceName);
+  }
+
+  return barangayId;
+};
+
+const getSearchResults = async (filters, requester = null) => {
+  const requesterBarangayId = await getRequesterBarangayScope(
+    requester,
+    "stub search",
+  );
+  const effectiveBarangayId =
+    requester?.roleCode === BARANGAY_ROLE_CODE
+      ? requesterBarangayId
+      : filters.barangay_id;
   const stubs = await stubRepository.getStubSearchResults(
     filters.q,
     filters.disaster_event_id,
-    scopedBarangayId,
+    effectiveBarangayId,
   );
 
   return {
@@ -901,13 +933,22 @@ const claimBarangayStub = async (params) => {
 };
 
 const getStubDetails = async (id, requester = null) => {
-  const stub = await stubRepository.getStubById(id);
+  const requesterBarangayId = await getRequesterBarangayScope(
+    requester,
+    "stub detail",
+  );
+
+  const stub = await stubRepository.getStubById(id, requesterBarangayId);
 
   if (!stub) {
     return null;
   }
 
-  assertBarangayRecordViewScope(stub, requester);
+  const scopedRequester =
+    requester?.roleCode === BARANGAY_ROLE_CODE && requesterBarangayId
+      ? { ...requester, defaultBarangayId: requesterBarangayId }
+      : requester;
+  assertBarangayRecordViewScope(stub, scopedRequester);
 
   const ensuredStub = await ensureStubQrMetadata(stub, null);
 
@@ -1210,10 +1251,29 @@ const getClaimabilityResult = ({
   };
 };
 
-const verifyStub = async (identifier) => {
+const verifyStub = async (identifier, requester = null) => {
+  let normalizedIdentifier = identifier || {};
+  let normalizedRequester = requester;
+
+  // Keep compatibility with the previous service call shape while the route
+  // and new callers pass the requester as a separate argument.
+  if (!requester && identifier?.requester) {
+    const { requester: embeddedRequester, ...identifierWithoutRequester } =
+      identifier;
+    normalizedIdentifier = identifierWithoutRequester;
+    normalizedRequester = embeddedRequester;
+  }
+
+  const requesterBarangayId = await getRequesterBarangayScope(
+    normalizedRequester,
+    "stub verification",
+  );
+
   if (
-    identifier.qr_code_value &&
-    !String(identifier.qr_code_value || "").trim().startsWith("DISTYNC-STUB|")
+    normalizedIdentifier.qr_code_value &&
+    !String(normalizedIdentifier.qr_code_value || "")
+      .trim()
+      .startsWith("DISTYNC-STUB|")
   ) {
     throw buildQrValidationError({
       code: "INVALID_QR_STUB",
@@ -1223,9 +1283,15 @@ const verifyStub = async (identifier) => {
     });
   }
 
-  const stub = identifier.qr_code_value
-    ? await stubRepository.getStubByQrCodeValue(identifier.qr_code_value)
-    : await stubRepository.getStubByStubNoOrSerialNo(identifier);
+  const stub = normalizedIdentifier.qr_code_value
+    ? await stubRepository.getStubByQrCodeValue(
+        normalizedIdentifier.qr_code_value,
+        requesterBarangayId,
+      )
+    : await stubRepository.getStubByStubNoOrSerialNo(
+        normalizedIdentifier,
+        requesterBarangayId,
+      );
 
   if (!stub) {
     throw buildQrValidationError({
@@ -1236,7 +1302,11 @@ const verifyStub = async (identifier) => {
   }
 
   const ensuredStub = await ensureStubQrMetadata(stub, null);
-  assertBarangayRecordViewScope(ensuredStub, identifier.requester);
+  const scopedRequester =
+    normalizedRequester?.roleCode === BARANGAY_ROLE_CODE && requesterBarangayId
+      ? { ...normalizedRequester, defaultBarangayId: requesterBarangayId }
+      : normalizedRequester;
+  assertBarangayRecordViewScope(ensuredStub, scopedRequester);
   const latestDistributionTransaction =
     ensuredStub.status === "ISSUED"
       ? null

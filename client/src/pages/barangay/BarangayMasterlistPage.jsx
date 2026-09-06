@@ -28,6 +28,7 @@ import {
 import {
   formatEventEndedDateTime,
   isEndedDisasterEvent,
+  buildQueuedHouseholdDetails,
 } from "../../features/masterlist/barangayMasterlistUi";
 import { useBarangayMasterlistSync } from "../../features/masterlist/useBarangayMasterlistSync";
 import {
@@ -131,6 +132,7 @@ const BarangayMasterlistPage = () => {
   });
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
+  const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
 
   const {
     accessMode,
@@ -195,7 +197,9 @@ const BarangayMasterlistPage = () => {
     localHouseholdDuplicateCandidates: data.rows,
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
-        response?.message || "Household registered successfully",
+        response?.queued_offline
+          ? ""
+          : response?.message || "Household registered successfully",
       );
       setAttendanceActionMessage("");
       setActiveCrossEventModalTitles(getActiveCrossEventTitles(response));
@@ -695,13 +699,33 @@ const BarangayMasterlistPage = () => {
     setHouseholdDetailsErrorMessage("");
 
     try {
-      const details = await fetchHouseholdDetails(householdId, {
-        evacuationLogId,
-      });
+      const selectedRow = filteredRows.find(
+        (row) => String(row.household_id) === String(householdId),
+      );
+      const localDetails = selectedRow?.offline_household_details ||
+        (selectedRow?.is_local_only
+          ? buildQueuedHouseholdDetails(
+              syncQueueEntries.find(
+                (entry) => String(entry.entityLocalId || entry.id) === String(householdId),
+              ),
+              sectorOptions,
+            )
+          : null);
+      const details = isOffline
+        ? localDetails
+        : await fetchHouseholdDetails(householdId, { evacuationLogId });
+      if (!details) {
+        throw new Error(
+          "Offline household details are not available for this record.",
+        );
+      }
       setHouseholdDetails(details);
     } catch (error) {
       setHouseholdDetailsErrorMessage(
-        error.message || "Failed to load household details.",
+        isOffline
+          ? error.message ||
+            "Offline household details are not available for this record."
+          : error.message || "Failed to load household details.",
       );
     } finally {
       setIsLoadingHouseholdDetails(false);
@@ -1081,6 +1105,7 @@ const BarangayMasterlistPage = () => {
         onMarkDeparted={handleOpenDepartureConfirmation}
         onViewHousehold={handleOpenHouseholdDetails}
         onEditHousehold={handleOpenEditHousehold}
+        isOffline={isOffline}
         onRestoreHousehold={handleOpenRestoreHousehold}
         isDepartureReadOnly={isSelectedEventEnded}
         departureReadOnlyText={selectedEventEndedText}
@@ -1135,8 +1160,11 @@ const BarangayMasterlistPage = () => {
         errorMessage={householdDetailsErrorMessage}
         householdDetails={householdDetails}
         onClose={handleCloseHouseholdDetails}
+        isOffline={isOffline}
         onEditHousehold={
-          isSelectedEventEnded ? undefined : handleEditHouseholdFromDetails
+          isSelectedEventEnded || isOffline
+            ? undefined
+            : handleEditHouseholdFromDetails
         }
         showAdministrativeMetadata={false}
         showDataPrivacyAcknowledgement={true}

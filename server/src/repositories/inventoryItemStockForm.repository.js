@@ -1,6 +1,31 @@
 const pool = require("../config/db");
 
-const stockFormSelectFields = `
+let hasInventoryItemStockFormIsActiveColumnCache = null;
+
+const hasInventoryItemStockFormIsActiveColumn = async (dbClient = pool) => {
+  if (hasInventoryItemStockFormIsActiveColumnCache !== null) {
+    return hasInventoryItemStockFormIsActiveColumnCache;
+  }
+
+  const result = await dbClient.query(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'inventory_item_stock_forms'
+          AND column_name = 'is_active'
+      ) AS has_column
+    `,
+  );
+
+  hasInventoryItemStockFormIsActiveColumnCache = Boolean(
+    result.rows[0]?.has_column,
+  );
+  return hasInventoryItemStockFormIsActiveColumnCache;
+};
+
+const buildStockFormSelectFields = (hasIsActiveColumn) => `
   id,
   inventory_item_id,
   barcode,
@@ -8,15 +33,16 @@ const stockFormSelectFields = `
   units_per_packaging,
   unit_of_measure,
   unit_of_measure_value,
-  is_active,
+  ${hasIsActiveColumn ? "is_active" : "TRUE AS is_active"},
   created_at,
   updated_at
 `;
 
 const getInventoryItemStockFormsByItemId = async (inventoryItemId, dbClient = pool) => {
+  const hasIsActiveColumn = await hasInventoryItemStockFormIsActiveColumn(dbClient);
   const query = `
     SELECT
-      ${stockFormSelectFields}
+      ${buildStockFormSelectFields(hasIsActiveColumn)}
     FROM inventory_item_stock_forms
     WHERE inventory_item_id = $1
     ORDER BY created_at ASC, packaging ASC
@@ -27,9 +53,10 @@ const getInventoryItemStockFormsByItemId = async (inventoryItemId, dbClient = po
 };
 
 const getInventoryItemStockFormById = async (id, dbClient = pool) => {
+  const hasIsActiveColumn = await hasInventoryItemStockFormIsActiveColumn(dbClient);
   const query = `
     SELECT
-      ${stockFormSelectFields}
+      ${buildStockFormSelectFields(hasIsActiveColumn)}
     FROM inventory_item_stock_forms
     WHERE id = $1
   `;
@@ -39,9 +66,10 @@ const getInventoryItemStockFormById = async (id, dbClient = pool) => {
 };
 
 const getInventoryItemStockFormByBarcode = async (barcode, dbClient = pool) => {
+  const hasIsActiveColumn = await hasInventoryItemStockFormIsActiveColumn(dbClient);
   const query = `
     SELECT
-      ${stockFormSelectFields}
+      ${buildStockFormSelectFields(hasIsActiveColumn)}
     FROM inventory_item_stock_forms
     WHERE barcode = $1
   `;
@@ -61,12 +89,13 @@ const getInventoryItemStockFormByDefinition = async (
   },
   dbClient = pool,
 ) => {
+  const hasIsActiveColumn = await hasInventoryItemStockFormIsActiveColumn(dbClient);
   const query = `
     SELECT
-      ${stockFormSelectFields}
+      ${buildStockFormSelectFields(hasIsActiveColumn)}
     FROM inventory_item_stock_forms
     WHERE inventory_item_id = $1
-      AND is_active = true
+      ${hasIsActiveColumn ? "AND is_active = true" : ""}
       AND (
         (barcode IS NULL AND $2::text IS NULL)
         OR barcode = $2
@@ -92,60 +121,78 @@ const getInventoryItemStockFormByDefinition = async (
 };
 
 const insertInventoryItemStockForm = async (stockFormData, dbClient = pool) => {
-  const query = `
-    INSERT INTO inventory_item_stock_forms (
-      inventory_item_id,
-      barcode,
-      packaging,
-      units_per_packaging,
-      unit_of_measure,
-      unit_of_measure_value,
-      is_active,
-      created_at,
-      updated_at
-    )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-    RETURNING
-      ${stockFormSelectFields}
-  `;
-
-  const result = await dbClient.query(query, [
+  const hasIsActiveColumn = await hasInventoryItemStockFormIsActiveColumn(dbClient);
+  const columns = [
+    "inventory_item_id",
+    "barcode",
+    "packaging",
+    "units_per_packaging",
+    "unit_of_measure",
+    "unit_of_measure_value",
+  ];
+  const values = [
     stockFormData.inventory_item_id,
     stockFormData.barcode,
     stockFormData.packaging,
     stockFormData.units_per_packaging,
     stockFormData.unit_of_measure,
     stockFormData.unit_of_measure_value,
-    stockFormData.is_active ?? true,
-  ]);
+  ];
+
+  if (hasIsActiveColumn) {
+    columns.push("is_active");
+    values.push(stockFormData.is_active ?? true);
+  }
+
+  const query = `
+    INSERT INTO inventory_item_stock_forms (
+      ${columns.join(",\n      ")},
+      created_at,
+      updated_at
+    )
+    VALUES (${values.map((_, index) => `$${index + 1}`).join(", ")}, NOW(), NOW())
+    RETURNING
+      ${buildStockFormSelectFields(hasIsActiveColumn)}
+  `;
+
+  const result = await dbClient.query(query, values);
 
   return result.rows[0];
 };
 
 const updateInventoryItemStockForm = async (id, stockFormData, dbClient = pool) => {
-  const query = `
-    UPDATE inventory_item_stock_forms
-    SET barcode = $2,
-        packaging = $3,
-        units_per_packaging = $4,
-        unit_of_measure = $5,
-        unit_of_measure_value = $6,
-        is_active = $7,
-        updated_at = NOW()
-    WHERE id = $1
-    RETURNING
-      ${stockFormSelectFields}
-  `;
-
-  const result = await dbClient.query(query, [
+  const hasIsActiveColumn = await hasInventoryItemStockFormIsActiveColumn(dbClient);
+  const values = [
     id,
     stockFormData.barcode,
     stockFormData.packaging,
     stockFormData.units_per_packaging,
     stockFormData.unit_of_measure,
     stockFormData.unit_of_measure_value,
-    stockFormData.is_active ?? true,
-  ]);
+  ];
+  const assignments = [
+    "barcode = $2",
+    "packaging = $3",
+    "units_per_packaging = $4",
+    "unit_of_measure = $5",
+    "unit_of_measure_value = $6",
+  ];
+
+  if (hasIsActiveColumn) {
+    assignments.push("is_active = $7");
+    values.push(stockFormData.is_active ?? true);
+  }
+
+  const query = `
+    UPDATE inventory_item_stock_forms
+    SET ${assignments.join(",\n        ")},
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      ${buildStockFormSelectFields(hasIsActiveColumn)}
+  `;
+
+  const result = await dbClient.query(query, values);
 
   return result.rows[0] || null;
 };

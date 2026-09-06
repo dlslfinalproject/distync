@@ -42,6 +42,8 @@ const tableStyles = {
 };
 
 const formatNumber = (value) => new Intl.NumberFormat().format(Number(value || 0));
+const formatQuantityWithUnit = (value, unit) =>
+  `${formatNumber(value)} ${unit || "items"}`;
 const formatWriteOffReason = (reason) => {
   const normalizedReason = String(reason || "").trim();
 
@@ -163,7 +165,10 @@ const DonorTransparencyTab = ({
                         ...tableStyles.centeredBodyCell,
                       }}
                     >
-                      {formatNumber(row.quantity_received)}
+                      {formatQuantityWithUnit(
+                        row.quantity_received,
+                        row.unit_of_measure,
+                      )}
                     </td>
                     <td
                       style={{
@@ -171,7 +176,10 @@ const DonorTransparencyTab = ({
                         ...tableStyles.centeredBodyCell,
                       }}
                     >
-                      {formatNumber(row.quantity_distributed)}
+                      {formatQuantityWithUnit(
+                        row.quantity_distributed,
+                        row.unit_of_measure,
+                      )}
                     </td>
                     <td
                       style={{
@@ -180,14 +188,22 @@ const DonorTransparencyTab = ({
                       }}
                     >
                       <div style={tableStyles.stackedList}>
-                        <div>{formatNumber(row.quantity_written_off)}</div>
+                        <div>
+                          {formatQuantityWithUnit(
+                            row.quantity_written_off,
+                            row.unit_of_measure,
+                          )}
+                        </div>
                         {(row.write_off_reasons || []).map((reasonRow) => (
                           <div
                             key={`${row.public_key}-${reasonRow.reason}`}
                             style={tableStyles.mutedText}
                           >
                             {formatWriteOffReason(reasonRow.reason)}:{" "}
-                            {formatNumber(reasonRow.quantity)}
+                            {formatQuantityWithUnit(
+                              reasonRow.quantity,
+                              row.unit_of_measure,
+                            )}
                           </div>
                         ))}
                       </div>
@@ -198,7 +214,10 @@ const DonorTransparencyTab = ({
                         ...tableStyles.centeredBodyCell,
                       }}
                     >
-                      {formatNumber(row.quantity_remaining)}
+                      {formatQuantityWithUnit(
+                        row.quantity_remaining,
+                        row.unit_of_measure,
+                      )}
                     </td>
                   </tr>
                 ))}

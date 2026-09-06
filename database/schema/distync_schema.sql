@@ -366,9 +366,12 @@ CREATE TABLE public.distribution_transactions (
   CONSTRAINT distribution_transactions_stub_id_fkey FOREIGN KEY (stub_id) REFERENCES public.stubs(id),
   CONSTRAINT distribution_transactions_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES public.users(id),
   CONSTRAINT distribution_transactions_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.devices(id),
-  CONSTRAINT distribution_transactions_relief_pack_template_id_fkey FOREIGN KEY (relief_pack_template_id) REFERENCES public.relief_pack_templates(id),
+  CONSTRAINT distribution_transactions_relief_pack_template_id_fkey FOREIGN KEY (relief_pack_template_id) REFERENCES public.relief_pack_templates(id) ON DELETE SET NULL,
   CONSTRAINT distribution_transactions_qr_scanned_by_fkey FOREIGN KEY (qr_scanned_by) REFERENCES public.users(id)
 );
+
+CREATE INDEX idx_distribution_transactions_household_event
+ON public.distribution_transactions (disaster_event_id, household_id);
 
 CREATE TABLE public.distribution_transaction_items (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -390,10 +393,14 @@ CREATE TABLE public.distribution_transaction_items (
   donated_relief_pack_name_snapshot text,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT distribution_transaction_items_pkey PRIMARY KEY (id),
-  CONSTRAINT distribution_transaction_items_distribution_transaction_id_fkey FOREIGN KEY (distribution_transaction_id) REFERENCES public.distribution_transactions(id),
-  CONSTRAINT distribution_transaction_items_inventory_batch_id_fkey FOREIGN KEY (inventory_batch_id) REFERENCES public.inventory_batches(id),
-  CONSTRAINT distribution_transaction_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id)
+  CONSTRAINT distribution_transaction_items_distribution_transaction_id_fkey FOREIGN KEY (distribution_transaction_id) REFERENCES public.distribution_transactions(id) ON DELETE CASCADE,
+  CONSTRAINT distribution_transaction_items_inventory_batch_id_fkey FOREIGN KEY (inventory_batch_id) REFERENCES public.inventory_batches(id) ON DELETE RESTRICT,
+  CONSTRAINT distribution_transaction_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id) ON DELETE RESTRICT
 );
+
+CREATE INDEX idx_distribution_transaction_items_batch
+ON public.distribution_transaction_items
+USING btree (inventory_batch_id);
 
 -- =========================================================
 -- 5) INVENTORY MANAGEMENT
@@ -591,7 +598,7 @@ EXECUTE FUNCTION public.assign_inventory_transaction_reference_no();
 
 CREATE TABLE public.relief_pack_templates (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  name character varying NOT NULL UNIQUE,
+  name character varying(150) NOT NULL UNIQUE,
   description text,
   based_on_family_size boolean NOT NULL DEFAULT false,
   based_on_sector boolean NOT NULL DEFAULT false,
@@ -603,7 +610,7 @@ CREATE TABLE public.relief_pack_templates (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT relief_pack_templates_pkey PRIMARY KEY (id),
-  CONSTRAINT relief_pack_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id),
+  CONSTRAINT relief_pack_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id) ON DELETE SET NULL,
   CONSTRAINT relief_pack_templates_sector_id_fkey FOREIGN KEY (sector_id) REFERENCES public.sectors(id)
 );
 
@@ -617,8 +624,9 @@ CREATE TABLE public.relief_pack_template_items (
   quantity_required integer NOT NULL CHECK (quantity_required > 0),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT relief_pack_template_items_pkey PRIMARY KEY (id),
-  CONSTRAINT relief_pack_template_items_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.relief_pack_templates(id),
-  CONSTRAINT relief_pack_template_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id)
+  CONSTRAINT relief_pack_template_items_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.relief_pack_templates(id) ON DELETE CASCADE,
+  CONSTRAINT relief_pack_template_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id) ON DELETE RESTRICT,
+  CONSTRAINT uq_relief_pack_item UNIQUE (template_id, inventory_item_id)
 );
 
 CREATE TABLE public.relief_pack_template_disaster_types (
@@ -630,6 +638,9 @@ CREATE TABLE public.relief_pack_template_disaster_types (
   CONSTRAINT relief_pack_template_disaster_types_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.relief_pack_templates(id) ON DELETE CASCADE,
   CONSTRAINT relief_pack_template_disaster_types_unique UNIQUE (template_id, disaster_type)
 );
+
+CREATE INDEX idx_relief_pack_template_disaster_types_template_id
+ON public.relief_pack_template_disaster_types (template_id);
 
 CREATE TABLE public.distribution_transaction_relief_pack_templates (
   distribution_transaction_id uuid NOT NULL,
@@ -653,6 +664,7 @@ CREATE TABLE public.donations (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   disaster_event_id uuid NOT NULL,
   donor_name character varying NOT NULL,
+  donor_name_public boolean NOT NULL DEFAULT false,
   donor_type character varying NOT NULL DEFAULT 'INDIVIDUAL'::character varying CHECK (donor_type::text = ANY (ARRAY['INDIVIDUAL'::character varying, 'NGO'::character varying, 'PRIVATE_ORGANIZATION'::character varying, 'GOVERNMENT_PARTNER'::character varying, 'OTHER'::character varying]::text[])),
   donor_type_other character varying,
   contact_information character varying,
@@ -679,7 +691,7 @@ CREATE TABLE public.donation_items (
   CONSTRAINT donation_items_pkey PRIMARY KEY (id),
   CONSTRAINT donation_items_donation_id_fkey FOREIGN KEY (donation_id) REFERENCES public.donations(id),
   CONSTRAINT donation_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
-  CONSTRAINT donation_items_inventory_batch_id_fkey FOREIGN KEY (inventory_batch_id) REFERENCES public.inventory_batches(id)
+  CONSTRAINT donation_items_inventory_batch_id_fkey FOREIGN KEY (inventory_batch_id) REFERENCES public.inventory_batches(id) ON UPDATE NO ACTION ON DELETE RESTRICT
 );
 
 CREATE TABLE public.donation_needs (

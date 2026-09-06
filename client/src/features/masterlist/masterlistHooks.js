@@ -96,11 +96,7 @@ export const useMasterlist = ({
             setData(fallbackData);
             lastSuccessfulDataRef.current = fallbackData;
             setErrorMessage("");
-            setInfoMessage(
-              isOffline
-                ? "Offline mode: showing the last saved Masterlist. Pending registrations remain available."
-                : error.message || "Showing the last saved Masterlist.",
-            );
+            setInfoMessage(isOffline ? "" : error.message || "Showing the last saved Masterlist.");
           } else {
             setData(emptyData);
             setInfoMessage("");

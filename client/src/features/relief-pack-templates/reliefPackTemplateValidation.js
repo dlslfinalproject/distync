@@ -1,4 +1,5 @@
 const POSITIVE_INTEGER_PATTERN = /^\d+$/;
+export const RELIEF_PACK_TEMPLATE_NAME_MAX_LENGTH = 150;
 
 export const normalizeReliefPackTemplateName = (value) =>
   String(value ?? "").trim().toLowerCase();
@@ -12,6 +13,10 @@ export const getReliefPackTemplateNameValidationError = (
 
   if (!normalizedName) {
     return "Pack name is required.";
+  }
+
+  if (normalizedName.length > RELIEF_PACK_TEMPLATE_NAME_MAX_LENGTH) {
+    return `Pack name must not exceed ${RELIEF_PACK_TEMPLATE_NAME_MAX_LENGTH} characters.`;
   }
 
   const templates = Array.isArray(existingTemplates) ? existingTemplates : [];

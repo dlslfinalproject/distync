@@ -79,6 +79,127 @@ const parsePerFamilyAllocationRemark = (remarks) => {
   return Number(matchedRemark?.[1] || 0);
 };
 
+const parsePositiveInteger = (value) => {
+  const parsedValue = Number(value);
+
+  return Number.isInteger(parsedValue) && parsedValue > 0 ? parsedValue : null;
+};
+
+const parsePositiveNumber = (value) => {
+  const parsedValue = Number(value);
+
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
+};
+
+const normalizeDonationInventoryItemDefinition = (definition, index) => {
+  const fieldPrefix = `items[${index}].new_inventory_item`;
+
+  if (!definition || typeof definition !== "object" || Array.isArray(definition)) {
+    throw new Error(`${fieldPrefix} must be an object`);
+  }
+
+  if (
+    typeof definition.item_name !== "string" ||
+    !definition.item_name.trim()
+  ) {
+    throw new Error(`${fieldPrefix}.item_name must be a non-empty string`);
+  }
+
+  if (
+    typeof definition.category !== "string" ||
+    !definition.category.trim()
+  ) {
+    throw new Error(`${fieldPrefix}.category must be a non-empty string`);
+  }
+
+  if (
+    typeof definition.unit_of_measure !== "string" ||
+    !definition.unit_of_measure.trim()
+  ) {
+    throw new Error(`${fieldPrefix}.unit_of_measure must be a non-empty string`);
+  }
+
+  if (
+    definition.packaging === undefined ||
+    definition.packaging === null ||
+    typeof definition.packaging !== "string" ||
+    !definition.packaging.trim()
+  ) {
+    throw new Error(`${fieldPrefix}.packaging must be a non-empty string`);
+  }
+
+  const unitOfMeasureValue =
+    definition.unit_of_measure_value === undefined ||
+    definition.unit_of_measure_value === null ||
+    definition.unit_of_measure_value === ""
+      ? 1
+      : parsePositiveNumber(definition.unit_of_measure_value);
+  const quantity = parsePositiveInteger(definition.quantity);
+  const packagingCount = parsePositiveInteger(definition.packaging_count);
+
+  if (!unitOfMeasureValue) {
+    throw new Error(
+      `${fieldPrefix}.unit_of_measure_value must be a positive number`,
+    );
+  }
+
+  if (!quantity) {
+    throw new Error(`${fieldPrefix}.quantity must be a positive integer`);
+  }
+
+  if (!packagingCount) {
+    throw new Error(
+      `${fieldPrefix}.packaging_count must be a positive integer`,
+    );
+  }
+
+  if (
+    definition.expiration_date !== undefined &&
+    definition.expiration_date !== null &&
+    !isValidDateTimeString(definition.expiration_date)
+  ) {
+    throw new Error(`${fieldPrefix}.expiration_date must be a valid date or null`);
+  }
+
+  if (
+    definition.barcode !== undefined &&
+    definition.barcode !== null &&
+    typeof definition.barcode !== "string"
+  ) {
+    throw new Error(`${fieldPrefix}.barcode must be a string or null`);
+  }
+
+  if (
+    definition.is_perishable !== undefined &&
+    typeof definition.is_perishable !== "boolean"
+  ) {
+    throw new Error(`${fieldPrefix}.is_perishable must be a boolean when provided`);
+  }
+
+  const normalizedCategory = definition.category.trim().toLowerCase();
+
+  return {
+    item_name: definition.item_name.trim(),
+    category:
+      normalizedCategory === "perishable"
+        ? "Perishable"
+        : normalizedCategory === "non-perishable"
+          ? "Non-Perishable"
+          : definition.category.trim(),
+    unit_of_measure: definition.unit_of_measure.trim(),
+    unit_of_measure_value: unitOfMeasureValue,
+    packaging: definition.packaging.trim(),
+    packaging_count: packagingCount,
+    quantity,
+    expiration_date: definition.expiration_date ?? null,
+    barcode: definition.barcode?.trim() || null,
+    is_perishable:
+      definition.is_perishable ?? normalizedCategory === "perishable",
+    is_active: true,
+    skip_opening_stock: true,
+  };
+};
+
 const validateDonationNeedId = (req, res, next) => {
   if (!isValidUuid(req.params.id)) {
     return res.status(400).json({
@@ -309,8 +430,31 @@ const normalizeDonationItem = (item, index) => {
     throw new Error(`items[${index}] must be an object`);
   }
 
-  if (!isValidUuid(item.inventory_item_id)) {
+  const inventoryItemId =
+    item.inventory_item_id === undefined ||
+    item.inventory_item_id === null ||
+    item.inventory_item_id === ""
+      ? null
+      : item.inventory_item_id;
+  const newInventoryItem =
+    item.new_inventory_item === undefined || item.new_inventory_item === null
+      ? null
+      : normalizeDonationInventoryItemDefinition(item.new_inventory_item, index);
+
+  if (inventoryItemId && !isValidUuid(inventoryItemId)) {
     throw new Error(`items[${index}].inventory_item_id must be a valid UUID`);
+  }
+
+  if (!inventoryItemId && !newInventoryItem) {
+    throw new Error(
+      `items[${index}] must include inventory_item_id or new_inventory_item`,
+    );
+  }
+
+  if (inventoryItemId && newInventoryItem) {
+    throw new Error(
+      `items[${index}] cannot include both inventory_item_id and new_inventory_item`,
+    );
   }
 
   if (
@@ -428,7 +572,8 @@ const normalizeDonationItem = (item, index) => {
   }
 
   return {
-    inventory_item_id: item.inventory_item_id,
+    inventory_item_id: inventoryItemId,
+    new_inventory_item: newInventoryItem,
     inventory_batch_id: item.inventory_batch_id ?? null,
     inventory_item_stock_form_id: item.inventory_item_stock_form_id ?? null,
     quantity_received: item.quantity_received,
@@ -553,6 +698,20 @@ const validateDonationUpdatePayload = (req, res, next) => {
   return validateDonationPayload(req, res, next);
 };
 
+const validateDonationPublicNamePayload = (req, res, next) => {
+  if (typeof req.body?.donor_name_public !== "boolean") {
+    return res.status(400).json({
+      message: "donor_name_public must be a boolean",
+    });
+  }
+
+  req.validatedBody = {
+    donor_name_public: req.body.donor_name_public,
+  };
+
+  return next();
+};
+
 const validateDonationItemPayload = (req, res, next) => {
   try {
     req.validatedBody = normalizeDonationItem(req.body, 0);
@@ -630,6 +789,7 @@ module.exports = {
   validateDonationTransparencyExportFilters,
   validateDonationPayload,
   validateDonationUpdatePayload,
+  validateDonationPublicNamePayload,
   validateDonationItemId,
   validateDonationItemPayload,
   validateReassignLeftoverStockPayload,

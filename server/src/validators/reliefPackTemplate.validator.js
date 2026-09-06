@@ -13,6 +13,7 @@ const RELIEF_PACK_DISASTER_TYPE_OPTIONS = [
   "Other",
 ];
 const POSITIVE_INTEGER_PATTERN = /^\d+$/;
+const RELIEF_PACK_TEMPLATE_NAME_MAX_LENGTH = 150;
 
 const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
@@ -303,6 +304,12 @@ const validateCreateReliefPackTemplate = (req, res, next) => {
       });
     }
 
+    if (name.trim().length > RELIEF_PACK_TEMPLATE_NAME_MAX_LENGTH) {
+      return res.status(400).json({
+        message: `name must not exceed ${RELIEF_PACK_TEMPLATE_NAME_MAX_LENGTH} characters`,
+      });
+    }
+
     if (
       description !== undefined &&
       description !== null &&
@@ -451,9 +458,21 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
       disaster_types,
     } = req.body;
 
-    if (!name || typeof name !== "string" || !name.trim()) {
+    if (
+      name !== undefined &&
+      (typeof name !== "string" || !name.trim())
+    ) {
       return res.status(400).json({
         message: "name is required and must be a non-empty string",
+      });
+    }
+
+    if (
+      name !== undefined &&
+      name.trim().length > RELIEF_PACK_TEMPLATE_NAME_MAX_LENGTH
+    ) {
+      return res.status(400).json({
+        message: `name must not exceed ${RELIEF_PACK_TEMPLATE_NAME_MAX_LENGTH} characters`,
       });
     }
 
@@ -559,7 +578,7 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
     const isAdditionalPack = is_additional_pack ?? false;
 
     req.validatedBody = {
-      name: name.trim(),
+      name: name === undefined ? undefined : name.trim(),
       description: description ?? null,
       based_on_family_size: based_on_family_size ?? false,
       based_on_sector: isAdditionalPack ? based_on_sector ?? true : false,

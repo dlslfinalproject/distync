@@ -256,6 +256,7 @@ const HouseholdDetailModal = ({
   householdDetails,
   onClose,
   onEditHousehold,
+  isOffline = false,
   showAdministrativeMetadata = true,
   showDataPrivacyAcknowledgement = false,
 }) => {
@@ -447,14 +448,18 @@ const HouseholdDetailModal = ({
                 <div>
                   <p style={modalStyles.label}>Family Head Photo</p>
                   <div style={{ marginTop: "12px" }}>
-                    {household.family_head_photo_url ? (
+                    {(household.family_head_photo_data_url || household.family_head_photo_url) ? (
                       <img
-                        src={household.family_head_photo_url}
+                        src={household.family_head_photo_data_url || household.family_head_photo_url}
                         alt="Family head"
                         style={modalStyles.photo}
                       />
                     ) : (
-                      <div style={modalStyles.placeholder}>No photo available</div>
+                      <div style={modalStyles.placeholder}>
+                        {isOffline
+                          ? "Family head photo is not available in the current offline data. Refresh offline data when connected."
+                          : "No photo available"}
+                      </div>
                     )}
                   </div>
                 </div>

@@ -13,6 +13,7 @@ import {
   getCachedMasterlistRows,
 } from "../../offline/masterlistCache.js";
 import { sortMasterlistRows } from "./masterlistSort.js";
+import { buildHouseholdDetailsSnapshot } from "./barangayMasterlistUi.js";
 
 export { sortMasterlistRows } from "./masterlistSort.js";
 
@@ -247,6 +248,7 @@ export const mapMasterlistRow = (household, households = [], options = {}) => {
       household,
       disasterEventId: options.disasterEventId || "",
     }),
+    offline_household_details: buildHouseholdDetailsSnapshot(household),
   };
 };
 

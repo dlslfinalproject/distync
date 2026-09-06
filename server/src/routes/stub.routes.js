@@ -257,10 +257,7 @@ router.post(
   validateStubVerify,
   async (req, res) => {
   try {
-    const result = await stubService.verifyStub({
-      ...req.validatedBody,
-      requester: req.auth,
-    });
+    const result = await stubService.verifyStub(req.validatedBody, req.auth);
 
     if (
       result?.data?.code &&

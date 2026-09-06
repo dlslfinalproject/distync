@@ -1,6 +1,6 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
-import { FiEdit2, FiEye, FiRepeat } from "react-icons/fi";
+import { FiEdit2, FiEye, FiPower } from "react-icons/fi";
 import {
   formatDonationDateTime,
   formatDonorType,
@@ -108,7 +108,7 @@ const DonationsTab = ({
   showDisasterEventColumn = false,
   onOpenDonationDetail,
   onOpenDonationModal,
-  onOpenReassignLeftoverStock,
+  onOpenDonorNameVisibility,
 }) => {
   const headerLabels = showDisasterEventColumn
     ? [
@@ -277,18 +277,19 @@ const DonationsTab = ({
                             title: donation.is_local_only ? "Available after sync" : undefined,
                           },
                           {
-                            key: "reassign-leftover",
-                            label: "Reassign Leftover Stock",
-                            icon: <FiRepeat size={18} />,
-                            onClick: (row) => onOpenReassignLeftoverStock(row),
-                            disabled:
-                              donation.is_local_only ||
-                              !donation.can_reassign_leftover_stock,
+                            key: "donor-name-visibility",
+                            label:
+                              donation.donor_name_public === true
+                                ? "Unpublish Donor Name"
+                                : "Publish Donor Name",
+                            icon: <FiPower size={18} />,
+                            onClick: (row) => onOpenDonorNameVisibility(row),
+                            disabled: donation.is_local_only,
                             title: donation.is_local_only
                               ? "Available after sync"
-                              : donation.can_reassign_leftover_stock
-                                ? undefined
-                                : "Available for remaining donated stock after the event is closed",
+                              : donation.donor_name_public === true
+                                ? "Unpublish Donor Name"
+                                : "Publish Donor Name",
                           },
                         ]}
                       />
