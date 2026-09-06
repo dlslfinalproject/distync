@@ -77,3 +77,28 @@ test("Inventory Distribution filter button sector options narrow displayed rows"
     true,
   );
 });
+
+test("Inventory Distribution sector filters follow the sectors displayed in each row", () => {
+  const rowWithHiddenSchoolAgeId = {
+    ...claimedRow,
+    sector_ids: ["SCHOOL_AGE"],
+    sectors_text: "Senior Citizen",
+  };
+
+  assert.equal(
+    matchesInventoryDistributionFilters(
+      rowWithHiddenSchoolAgeId,
+      "CLAIMED",
+      ["SCHOOL_AGE"],
+    ),
+    false,
+  );
+  assert.equal(
+    matchesInventoryDistributionFilters(
+      { ...rowWithHiddenSchoolAgeId, sectors_text: "School Age, Adult" },
+      "CLAIMED",
+      ["SCHOOL_AGE"],
+    ),
+    true,
+  );
+});

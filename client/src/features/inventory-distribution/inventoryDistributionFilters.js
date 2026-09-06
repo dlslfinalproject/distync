@@ -68,14 +68,10 @@ export const matchesInventoryDistributionFilters = (
     return true;
   }
 
-  const rowSectorIds = Array.isArray(row.sector_ids) ? row.sector_ids : [];
   const rowSectorCodes = String(row.sectors_text || "")
     .split(",")
     .map((sectorName) => getCanonicalSectorCodeFromText(sectorName))
     .filter(Boolean);
 
-  return selectedSectorIds.some(
-    (sectorId) =>
-      rowSectorIds.includes(sectorId) || rowSectorCodes.includes(sectorId),
-  );
+  return selectedSectorIds.some((sectorId) => rowSectorCodes.includes(sectorId));
 };

@@ -1,9 +1,15 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { FiEye } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
 import EmptyState from "../shared/EmptyState";
 import ErrorState from "../shared/ErrorState";
 import LoadingState from "../shared/LoadingState";
+import TablePagination from "../shared/TablePagination";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 
 const tableStyles = {
   table: {
@@ -35,16 +41,16 @@ const tableStyles = {
     width: "300px",
   },
   reliefPackColumn: {
-    width: "360px",
+    width: "260px",
   },
   reliefPackColumnWide: {
-    width: "420px",
+    width: "260px",
   },
   statusColumn: {
-    width: "130px",
+    width: "170px",
   },
   authorizedByColumn: {
-    width: "180px",
+    width: "260px",
   },
   actionColumn: {
     width: "96px",
@@ -71,6 +77,27 @@ const tableStyles = {
   },
   centeredCell: {
     textAlign: "center",
+  },
+  statusCell: {
+    textAlign: "center",
+    verticalAlign: "top",
+  },
+  statusContent: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    width: "100%",
+  },
+  authorizedByCell: {
+    textAlign: "center",
+    verticalAlign: "top",
+  },
+  authorizedByContent: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    minHeight: "36px",
   },
   actionButton: {
     border: "1px solid #c6d8ea",
@@ -209,7 +236,7 @@ const renderReliefPackItems = (row) => {
   return (
     <div style={{ display: "grid", gap: "6px" }}>
       {reliefPackLines.map((line) => (
-        <div key={line} style={{ fontWeight: 700 }}>
+        <div key={line} style={{ fontWeight: 400 }}>
           {line}
         </div>
       ))}
@@ -225,6 +252,62 @@ const InventoryDistributionTable = ({
   showBarangayColumn = false,
   onViewDetails,
 }) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const pagination = getTablePaginationState({
+    totalItems: safeRows.length,
+    currentPage,
+    pageSize,
+    pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+  });
+  const paginatedRows = safeRows.slice(
+    (pagination.currentPage - 1) * pagination.pageSize,
+    pagination.currentPage * pagination.pageSize,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [rows]);
+
+  useEffect(() => {
+    setCurrentPage((previousPage) => {
+      if (pagination.totalPages === 0) {
+        return 1;
+      }
+
+      return Math.min(Math.max(previousPage, 1), pagination.totalPages);
+    });
+  }, [pagination.totalPages]);
+
+  const handlePageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+      return;
+    }
+
+    setPageSize(nextPageSize);
+    setCurrentPage(1);
+  };
+
+  const showPagination =
+    !isLoading && !errorMessage && pagination.totalItems > 0;
+  const paginationBar = (
+    <TablePagination
+      totalItems={pagination.totalItems}
+      currentPage={pagination.currentPage}
+      pageSize={pagination.pageSize}
+      pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+      onPageChange={setCurrentPage}
+      onPageSizeChange={handlePageSizeChange}
+      isVisible={showPagination}
+      ariaLabel="Family distribution records pagination"
+      previousAriaLabel="Go to previous family distribution records page"
+      nextAriaLabel="Go to next family distribution records page"
+    />
+  );
+
   if (!hasSelectedEvent) {
     return (
       <section className="inventory-distribution-records-card" style={shellStyles.card}>
@@ -261,7 +344,7 @@ const InventoryDistributionTable = ({
     );
   }
 
-  if (rows.length === 0) {
+  if (safeRows.length === 0) {
     return (
       <section className="inventory-distribution-records-card" style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Distribution</h3>
@@ -280,6 +363,8 @@ const InventoryDistributionTable = ({
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Family Distribution Records</h3>
       </div>
+
+      {paginationBar}
 
       <div
         className="inventory-distribution-table-scroll"
@@ -348,14 +433,17 @@ const InventoryDistributionTable = ({
                 className="inventory-distribution-header-cell inventory-distribution-status-cell"
                 style={{
                   ...tableStyles.headerCell,
-                  ...tableStyles.centeredCell,
+                  ...tableStyles.statusCell,
                 }}
               >
                 Status
               </th>
               <th
                 className="inventory-distribution-header-cell"
-                style={tableStyles.headerCell}
+                style={{
+                  ...tableStyles.headerCell,
+                  ...tableStyles.authorizedByCell,
+                }}
               >
                 Authorized By
               </th>
@@ -371,7 +459,7 @@ const InventoryDistributionTable = ({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {paginatedRows.map((row) => {
               const statusMeta = getStatusMeta(
                 row.distribution_status,
                 row.distribution_status_label,
@@ -382,7 +470,11 @@ const InventoryDistributionTable = ({
                   : "";
 
               return (
-                <tr key={row.household_id}>
+                <tr
+                  key={
+                    row.masterlist_record_id || row.stub_id || row.household_id
+                  }
+                >
                   <td
                     className="inventory-distribution-table-cell inventory-distribution-text-cell"
                     style={tableStyles.bodyCell}
@@ -417,41 +509,48 @@ const InventoryDistributionTable = ({
                     className="inventory-distribution-table-cell inventory-distribution-status-cell"
                     style={{
                       ...tableStyles.bodyCell,
-                      ...tableStyles.centeredCell,
+                      ...tableStyles.statusCell,
                     }}
                   >
-                    <span
-                      className="inventory-distribution-status-badge"
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "8px",
-                        padding: "7px 12px",
-                        borderRadius: "999px",
-                        fontSize: "12px",
-                        fontWeight: 700,
-                        lineHeight: 1,
-                        ...statusMeta.style,
-                      }}
-                    >
-                      {statusMeta.label}
-                    </span>
-                    {claimedDateTime ? (
-                      <span style={tableStyles.claimedDate}>
-                        {claimedDateTime}
+                    <div style={tableStyles.statusContent}>
+                      <span
+                        className="inventory-distribution-status-badge"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "8px",
+                          padding: "7px 12px",
+                          borderRadius: "999px",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          lineHeight: 1,
+                          ...statusMeta.style,
+                        }}
+                      >
+                        {statusMeta.label}
                       </span>
-                    ) : null}
+                      {claimedDateTime ? (
+                        <span style={tableStyles.claimedDate}>
+                          {claimedDateTime}
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
                   <td
                     className="inventory-distribution-table-cell inventory-distribution-text-cell"
-                    style={tableStyles.bodyCell}
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...tableStyles.authorizedByCell,
+                    }}
                   >
-                    {row.authorized_by_name ? (
-                      row.authorized_by_name
-                    ) : (
-                      <span style={tableStyles.mutedText}>--</span>
-                    )}
+                    <div style={tableStyles.authorizedByContent}>
+                      {row.authorized_by_name ? (
+                        row.authorized_by_name
+                      ) : (
+                        <span style={tableStyles.mutedText}>--</span>
+                      )}
+                    </div>
                   </td>
                   <td
                     className="inventory-distribution-table-cell inventory-distribution-actions-cell"

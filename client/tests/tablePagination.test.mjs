@@ -122,6 +122,7 @@ test("all Barangay table surfaces use the shared paginator and Sync Center slice
   const [
     inventoryPageSource,
     inventoryTableSource,
+    distributionSource,
     paginationSource,
     masterlistSource,
     stubSource,
@@ -132,6 +133,11 @@ test("all Barangay table surfaces use the shared paginator and Sync Center slice
   ] = await Promise.all([
     readSource(["pages", "inventory", "InventoryItemsPage.jsx"]),
     readSource(["components", "inventory-items", "InventoryItemsTable.jsx"]),
+    readSource([
+      "components",
+      "inventory-distribution",
+      "InventoryDistributionTable.jsx",
+    ]),
     readSource(["components", "shared", "TablePagination.jsx"]),
     readSource(["components", "masterlist", "MasterlistTable.jsx"]),
     readSource(["components", "stubs", "StubResultsTable.jsx"]),
@@ -143,6 +149,7 @@ test("all Barangay table surfaces use the shared paginator and Sync Center slice
 
   const normalizedInventoryPageSource = normalizeSource(inventoryPageSource);
   const normalizedInventoryTableSource = normalizeSource(inventoryTableSource);
+  const normalizedDistributionSource = normalizeSource(distributionSource);
   const normalizedPaginationSource = normalizeSource(paginationSource);
   const normalizedMasterlistSource = normalizeSource(masterlistSource);
   const normalizedStubSource = normalizeSource(stubSource);
@@ -253,6 +260,7 @@ test("all Barangay table surfaces use the shared paginator and Sync Center slice
     normalizedStubSource,
     normalizedHistorySource,
     normalizedAnomalySource,
+    normalizedDistributionSource,
   ]) {
     assert.match(source, /<TablePagination/);
   }
@@ -269,6 +277,17 @@ test("all Barangay table surfaces use the shared paginator and Sync Center slice
     '<table className="inventory-items-table"',
     "<thead>",
   ]);
+  assertOrdered(normalizedDistributionSource, [
+    "const paginationBar = (",
+    "<TablePagination",
+    'className="inventory-distribution-table-scroll"',
+    "<table",
+    "<thead>",
+  ]);
+  assert.match(
+    normalizedDistributionSource,
+    /row\.masterlist_record_id \|\| row\.stub_id \|\| row\.household_id/,
+  );
 
   const masterlistPopulatedStart = normalizedMasterlistSource.indexOf(
     '  return (\n    <section style={shellStyles.card}>',

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchBarangays,
   fetchConsolidatedMasterlist,
@@ -109,14 +109,28 @@ const eventIncludesBarangay = (event, barangayId) => {
   );
 };
 
+const getDisasterEventRecency = (event) => {
+  const rawValue =
+    event?.start_date || event?.created_at || event?.updated_at || 0;
+  const timestamp = new Date(rawValue).getTime();
+
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
 const getScopedDisasterEvents = ({ events, activeTab, barangayId }) => {
-  return (events || []).filter(
-    (event) =>
-      (activeTab === "active"
-        ? event?.status === "ACTIVE"
-        : event?.status === "CLOSED") &&
-      eventIncludesBarangay(event, barangayId),
-  );
+  return [...(events || [])]
+    .filter(
+      (event) =>
+        (activeTab === "active"
+          ? event?.status === "ACTIVE"
+          : event?.status === "CLOSED") &&
+        eventIncludesBarangay(event, barangayId),
+    )
+    .sort(
+      (leftEvent, rightEvent) =>
+        getDisasterEventRecency(rightEvent) -
+        getDisasterEventRecency(leftEvent),
+    );
 };
 
 const mapStubDashboardRow = (row, fallbackBarangay = null) => {
@@ -208,6 +222,11 @@ const mergeMasterlistDataIntoRows = (rows, masterlistPayload) => {
 
     return {
       ...row,
+      masterlist_record_id:
+        household.masterlist_record_id ||
+        row.masterlist_record_id ||
+        household.attendance_log_id ||
+        row.household_id,
       family_head_name: household.family_head_name || row.family_head_name,
       address:
         household.current_address_details ||
@@ -278,6 +297,10 @@ const mapMasterlistDistributionRow = (
 
   return {
     household_id: household.household_id,
+    masterlist_record_id:
+      household.masterlist_record_id ||
+      household.attendance_log_id ||
+      household.household_id,
     family_head_name: household.family_head_name || "-",
     address:
       household.current_address_details ||
@@ -379,7 +402,11 @@ export const useInventoryDistribution = () => {
   const [sectors, setSectors] = useState([]);
   const [reliefPackTemplates, setReliefPackTemplates] = useState([]);
   const [inventoryBatches, setInventoryBatches] = useState([]);
-  const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
+  const [selectedDisasterEventIdsByTab, setSelectedDisasterEventIdsByTab] =
+    useState({
+      active: "",
+      ended: "",
+    });
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("");
@@ -398,6 +425,25 @@ export const useInventoryDistribution = () => {
   const [isLoadingTemplateDetails, setIsLoadingTemplateDetails] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [templateNotice, setTemplateNotice] = useState("");
+
+  const selectedDisasterEventId =
+    selectedDisasterEventIdsByTab[activeTab] || "";
+  const setSelectedDisasterEventId = useCallback(
+    (nextEventId) => {
+      setSelectedDisasterEventIdsByTab((currentSelections) => ({
+        ...currentSelections,
+        [activeTab]: nextEventId || "",
+      }));
+    },
+    [activeTab],
+  );
+
+  const resetDistributionFilters = () => {
+    setSearchTerm("");
+    setSelectedStatus("");
+    setSelectedSectorIds([]);
+    setSelectedSortOrder("oldest");
+  };
 
   const isLoadingTemplate =
     isLoadingTemplateList || isLoadingTemplateDetails;
@@ -818,22 +864,13 @@ export const useInventoryDistribution = () => {
   }, [activeTab, selectedDisasterEvent?.status]);
 
   const handleEventScopeChange = (nextTab) => {
+    const isScopeChange = nextTab !== activeTab;
+
+    if (isScopeChange) {
+      resetDistributionFilters();
+    }
+
     setActiveTab(nextTab);
-
-    const nextEvents = getScopedDisasterEvents({
-      events: disasterEvents,
-      activeTab: nextTab,
-      barangayId: selectedBarangayId,
-    });
-
-    if (nextEvents.length === 0) {
-      setSelectedDisasterEventId("");
-      return;
-    }
-
-    if (!nextEvents.some((event) => event.id === selectedDisasterEventId)) {
-      setSelectedDisasterEventId(nextEvents[0].id);
-    }
   };
 
   const selectedTemplate = useMemo(() => {
@@ -928,13 +965,13 @@ export const useInventoryDistribution = () => {
     const notDistributedCount = allRows.filter(
       (row) => !["CLAIMED", "ISSUED"].includes(row.distribution_status),
     ).length;
-    const affectedBarangayCount = Array.isArray(
-      selectedDisasterEvent?.affected_barangays,
-    )
-      ? selectedDisasterEvent.affected_barangays.filter(
-          (barangay) => barangay?.id,
-        ).length
-      : 0;
+    const affectedBarangayCount = selectedBarangayId
+      ? 1
+      : Array.isArray(selectedDisasterEvent?.affected_barangays)
+        ? selectedDisasterEvent.affected_barangays.filter(
+            (barangay) => barangay?.id,
+          ).length
+        : 0;
 
     return {
       barangaysCovered: affectedBarangayCount,
@@ -944,7 +981,7 @@ export const useInventoryDistribution = () => {
       pendingCount,
       notDistributedCount,
     };
-  }, [allRows, selectedDisasterEvent?.affected_barangays]);
+  }, [allRows, selectedBarangayId, selectedDisasterEvent?.affected_barangays]);
 
   return {
     activeTab,
