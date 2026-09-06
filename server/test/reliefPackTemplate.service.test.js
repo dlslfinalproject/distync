@@ -104,7 +104,7 @@ test("updateReliefPackTemplate rejects a duplicate name before changing the curr
     is_additional_pack: false,
     sector_id: null,
     applies_to_all_disasters: true,
-    is_active: true,
+    is_active: false,
   };
   let connectCalled = false;
 
@@ -163,6 +163,62 @@ test("setReliefPackTemplateStatus refuses to activate an empty template", async 
       return true;
     },
   );
+});
+
+test("setReliefPackTemplateStatus allows activation of a valid template", async () => {
+  const queries = [];
+  const inactiveTemplate = {
+    id: "inactive-template",
+    name: "Food Pack",
+    is_active: false,
+  };
+  const activeTemplate = {
+    ...inactiveTemplate,
+    is_active: true,
+  };
+  const fakeClient = {
+    async query(sql) {
+      queries.push(sql);
+      return { rows: [] };
+    },
+    release() {},
+  };
+  let getTemplateCallCount = 0;
+
+  pool.connect = async () => fakeClient;
+  pool.query = async () => ({ rows: [] });
+  reliefPackTemplateRepository.getReliefPackTemplateById = async () => {
+    getTemplateCallCount += 1;
+    return getTemplateCallCount >= 3 ? activeTemplate : inactiveTemplate;
+  };
+  reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId = async () => [
+    {
+      inventory_item_id: "item-1",
+      quantity_required: 1,
+    },
+  ];
+  reliefPackTemplateRepository.getReliefPackTemplateDisasterTypesByTemplateId =
+    async () => [];
+  reliefPackTemplateRepository.getReliefPackTemplateUsageByTemplateId = async () => [];
+  reliefPackTemplateRepository.getInventoryItemById = async () => ({
+    id: "item-1",
+  });
+  reliefPackTemplateRepository.updateReliefPackTemplateStatus = async (
+    id,
+    isActive,
+  ) => ({
+    id,
+    is_active: isActive,
+  });
+
+  const result = await reliefPackTemplateService.setReliefPackTemplateStatus(
+    inactiveTemplate.id,
+    true,
+  );
+
+  assert.equal(result.id, inactiveTemplate.id);
+  assert.equal(result.is_active, true);
+  assert.deepEqual(queries, ["BEGIN", "COMMIT"]);
 });
 
 test("setReliefPackTemplateStatus blocks deactivation during an active event", async () => {
@@ -509,7 +565,7 @@ test("updateReliefPackTemplate preserves an inactive status when is_active is om
   assert.deepEqual(queries, ["BEGIN", "COMMIT"]);
 });
 
-test("updateReliefPackTemplate refuses to activate an empty template", async () => {
+test("updateReliefPackTemplate rejects an activation transition through the general update", async () => {
   const currentTemplate = {
     ...buildTemplateData("Empty Inactive Pack"),
     id: "empty-template",
@@ -541,11 +597,107 @@ test("updateReliefPackTemplate refuses to activate an empty template", async () 
       ),
     (error) => {
       assert.equal(error.statusCode, 409);
-      assert.equal(error.code, "RELIEF_PACK_TEMPLATE_EMPTY");
+      assert.equal(
+        error.code,
+        "RELIEF_PACK_TEMPLATE_STATUS_CHANGE_REQUIRES_STATUS_ENDPOINT",
+      );
+      assert.match(error.message, /must use PATCH/i);
       return true;
     },
   );
 
+  assert.equal(connectCalled, false);
+});
+
+test("updateReliefPackTemplate rejects deactivation through PUT before an active-event blocker can be bypassed", async () => {
+  const currentTemplate = {
+    ...buildTemplateData("Active Event Pack"),
+    id: "active-event-template",
+    is_active: true,
+  };
+  let blockerCalled = false;
+  let connectCalled = false;
+
+  pool.connect = async () => {
+    connectCalled = true;
+    throw new Error("The database connection should not be needed");
+  };
+  reliefPackTemplateRepository.getReliefPackTemplateById = async () => currentTemplate;
+  reliefPackTemplateRepository.getReliefPackTemplateDeactivationBlockersByTemplateId =
+    async () => {
+      blockerCalled = true;
+      return {
+        active_event_distribution_count: 1,
+        unsynced_distribution_count: 0,
+      };
+    };
+
+  await assert.rejects(
+    () =>
+      reliefPackTemplateService.updateReliefPackTemplate(
+        currentTemplate.id,
+        {
+          ...buildTemplateData("Active Event Pack"),
+          is_active: false,
+        },
+      ),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.equal(
+        error.code,
+        "RELIEF_PACK_TEMPLATE_STATUS_CHANGE_REQUIRES_STATUS_ENDPOINT",
+      );
+      return true;
+    },
+  );
+
+  assert.equal(blockerCalled, false);
+  assert.equal(connectCalled, false);
+});
+
+test("updateReliefPackTemplate rejects deactivation through PUT before an unsynchronized-use blocker can be bypassed", async () => {
+  const currentTemplate = {
+    ...buildTemplateData("Unsynced Pack"),
+    id: "unsynced-template",
+    is_active: true,
+  };
+  let blockerCalled = false;
+  let connectCalled = false;
+
+  pool.connect = async () => {
+    connectCalled = true;
+    throw new Error("The database connection should not be needed");
+  };
+  reliefPackTemplateRepository.getReliefPackTemplateById = async () => currentTemplate;
+  reliefPackTemplateRepository.getReliefPackTemplateDeactivationBlockersByTemplateId =
+    async () => {
+      blockerCalled = true;
+      return {
+        active_event_distribution_count: 0,
+        unsynced_distribution_count: 1,
+      };
+    };
+
+  await assert.rejects(
+    () =>
+      reliefPackTemplateService.updateReliefPackTemplate(
+        currentTemplate.id,
+        {
+          ...buildTemplateData("Unsynced Pack"),
+          is_active: false,
+        },
+      ),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.equal(
+        error.code,
+        "RELIEF_PACK_TEMPLATE_STATUS_CHANGE_REQUIRES_STATUS_ENDPOINT",
+      );
+      return true;
+    },
+  );
+
+  assert.equal(blockerCalled, false);
   assert.equal(connectCalled, false);
 });
 
@@ -723,6 +875,12 @@ test("updateReliefPackTemplate still locks definition edits during active or uns
   const currentTemplate = {
     ...buildTemplateData("Original Food Pack"),
     id: "template-1",
+    items: [
+      {
+        inventory_item_id: "existing-item",
+        quantity_required: 1,
+      },
+    ],
   };
   const usageRows = [
     {
@@ -739,11 +897,15 @@ test("updateReliefPackTemplate still locks definition edits during active or uns
     throw new Error("The database connection should not be needed");
   };
   reliefPackTemplateRepository.getReliefPackTemplateById = async () => currentTemplate;
-  reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId = async () => [];
+  reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId = async () =>
+    currentTemplate.items;
   reliefPackTemplateRepository.getReliefPackTemplateDisasterTypesByTemplateId =
     async () => [];
   reliefPackTemplateRepository.getReliefPackTemplateUsageByTemplateId = async () =>
     usageRows;
+  reliefPackTemplateRepository.getInventoryItemById = async () => ({
+    id: "existing-item",
+  });
 
   await assert.rejects(
     () =>
@@ -751,7 +913,8 @@ test("updateReliefPackTemplate still locks definition edits during active or uns
         "template-1",
         {
           ...buildTemplateData("Renamed Food Pack"),
-          is_active: false,
+          is_active: true,
+          items: currentTemplate.items,
         },
       ),
     (error) => {
