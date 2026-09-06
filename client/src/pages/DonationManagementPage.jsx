@@ -5,7 +5,10 @@ import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
 import { shellStyles } from "../components/layout/BarangayLayout";
 import DonationFilters from "../components/donations/DonationFilters";
 import DonationPageStatus from "../components/donations/DonationPageStatus";
-import DonationPageTabs from "../components/donations/DonationPageTabs";
+import DonationPageTabs, {
+  DONATION_PAGE_PANEL_IDS,
+  DONATION_PAGE_TAB_IDS,
+} from "../components/donations/DonationPageTabs";
 import DonationModal from "../components/donations/DonationModal";
 import DonationsTab from "../components/donations/DonationsTab";
 import DonationDetailModal from "../components/donations/DonationDetailModal";
@@ -1158,38 +1161,53 @@ const DonationManagementPage = () => {
         showTransparencyActions
       />
 
-      <section className="mayor-donation-management-tabs-card" style={shellStyles.card}>
+      <section
+        className="mayor-donation-management-tabs-card"
+        style={{ ...shellStyles.card, padding: 0 }}
+      >
         <DonationPageTabs
           availableTabs={availableTabs}
           activeTab={activeTab}
           onTabChange={setActiveTab}
         />
 
-        <DonationPageStatus
-          successMessage={successMessage}
-          errorMessage={pageErrorMessage}
-        />
+        {successMessage || pageErrorMessage ? (
+          <div style={{ padding: "0 clamp(14px, 2vw, 24px) 18px" }}>
+            <DonationPageStatus
+              successMessage={successMessage}
+              errorMessage={pageErrorMessage}
+            />
+          </div>
+        ) : null}
+
+        {activeTab === "donations" ? (
+          <DonationsTab
+            isLoading={isLoading}
+            errorMessage={pageErrorMessage}
+            filteredDonations={filteredDonations}
+            showDisasterEventColumn={!selectedEventId}
+            embedded
+            panelId={DONATION_PAGE_PANEL_IDS.donations}
+            tabId={DONATION_PAGE_TAB_IDS.donations}
+            onOpenDonationDetail={openDonationDetailModal}
+            onOpenDonationModal={openDonationModal}
+            onOpenDonorNameVisibility={openDonorNameVisibilityModal}
+          />
+        ) : null}
+
+        {activeTab === "transparency" ? (
+          <DonorTransparencyTab
+            portalData={portalData}
+            isLoading={isLoading}
+            errorMessage={pageErrorMessage}
+            transparencyRows={filteredTransparencyRows}
+            showDisasterEventColumn={!selectedEventId}
+            embedded
+            panelId={DONATION_PAGE_PANEL_IDS.transparency}
+            tabId={DONATION_PAGE_TAB_IDS.transparency}
+          />
+        ) : null}
       </section>
-
-      {activeTab === "donations" ? (
-        <DonationsTab
-          isLoading={isLoading}
-          filteredDonations={filteredDonations}
-          showDisasterEventColumn={!selectedEventId}
-          selectedEventLabel={selectedEventLabel}
-          onOpenDonationDetail={openDonationDetailModal}
-          onOpenDonationModal={openDonationModal}
-          onOpenDonorNameVisibility={openDonorNameVisibilityModal}
-        />
-      ) : null}
-
-      {activeTab === "transparency" ? (
-        <DonorTransparencyTab
-          portalData={portalData}
-          transparencyRows={filteredTransparencyRows}
-          showDisasterEventColumn={!selectedEventId}
-        />
-      ) : null}
 
       {canManageDonations ? (
         <DonationModal
