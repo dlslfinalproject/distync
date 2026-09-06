@@ -1,4 +1,5 @@
 import React from "react";
+import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
 import DetailsModalShell from "../shared/DetailsModalShell";
 import EmptyState from "../shared/EmptyState";
 import ErrorState from "../shared/ErrorState";
@@ -952,6 +953,7 @@ const InventoryDistributionDetailModal = ({
   }
 
   const household = getHousehold(stubDetails, row);
+  const familyHeadPhotoUrl = resolveFamilyHeadPhoto(household);
   const members = getMembers(stubDetails, row);
   const latestAttendance =
     stubDetails?.latest_attendance ||
@@ -1121,9 +1123,9 @@ const InventoryDistributionDetailModal = ({
               <div>
                 <p style={styles.label}>Family Head Photo</p>
                 <div style={{ marginTop: "12px" }}>
-                  {household?.family_head_photo_url ? (
+                  {familyHeadPhotoUrl ? (
                     <img
-                      src={household.family_head_photo_url}
+                      src={familyHeadPhotoUrl}
                       alt="Registered family head"
                       style={styles.photo}
                     />

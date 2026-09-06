@@ -1,4 +1,5 @@
 import React from "react";
+import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
 import { FiX } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
 import { pageHeaderStyles } from "../layout/PageHeader";
@@ -448,9 +449,13 @@ const HouseholdDetailModal = ({
                 <div>
                   <p style={modalStyles.label}>Family Head Photo</p>
                   <div style={{ marginTop: "12px" }}>
-                    {(household.family_head_photo_data_url || household.family_head_photo_url) ? (
+                    {resolveFamilyHeadPhoto(household, {
+                      isOffline,
+                    }) ? (
                       <img
-                        src={household.family_head_photo_data_url || household.family_head_photo_url}
+                        src={resolveFamilyHeadPhoto(household, {
+                          isOffline,
+                        })}
                         alt="Family head"
                         style={modalStyles.photo}
                       />

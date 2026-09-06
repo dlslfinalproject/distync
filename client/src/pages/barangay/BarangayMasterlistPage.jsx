@@ -30,6 +30,7 @@ import {
   isEndedDisasterEvent,
   buildQueuedHouseholdDetails,
 } from "../../features/masterlist/barangayMasterlistUi";
+import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
 import { useBarangayMasterlistSync } from "../../features/masterlist/useBarangayMasterlistSync";
 import {
   cacheRegistrationActiveDisasterEvents,
@@ -286,7 +287,12 @@ const BarangayMasterlistPage = () => {
         .join(" ")
     : pendingDepartureRow?.family_head_name || "";
   const pendingDepartureFamilyHeadPhotoUrl =
-    pendingDepartureHouseholdDetails?.household?.family_head_photo_url || "";
+    resolveFamilyHeadPhoto(pendingDepartureHouseholdDetails, {
+      isOffline,
+    }) ||
+    resolveFamilyHeadPhoto(pendingDepartureRow?.offline_household_details, {
+      isOffline,
+    });
   const pendingRestoreRow = filteredRows.find(
     (row) => row.household_id === pendingRestoreHouseholdId,
   );
@@ -668,7 +674,24 @@ const BarangayMasterlistPage = () => {
     setIsLoadingDepartureHouseholdDetails(true);
 
     try {
-      const details = await fetchHouseholdDetails(householdId);
+      const selectedRow = filteredRows.find(
+        (row) => String(row.household_id) === String(householdId),
+      );
+      const localDetails = selectedRow?.offline_household_details ||
+        (selectedRow?.is_local_only
+          ? buildQueuedHouseholdDetails(
+              syncQueueEntries.find(
+                (entry) => String(entry.entityLocalId || entry.id) === String(householdId),
+              ),
+              sectorOptions,
+            )
+          : null);
+      const details = isOffline
+        ? localDetails
+        : await fetchHouseholdDetails(householdId);
+      if (!details) {
+        throw new Error("Offline household details are not available for this record.");
+      }
       setPendingDepartureHouseholdDetails(details);
     } catch (_error) {
       setPendingDepartureHouseholdDetails(null);

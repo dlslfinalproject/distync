@@ -1,4 +1,5 @@
 import React from "react";
+import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 import { RELATIONSHIP_OPTIONS } from "../../utils/registrationOptions";
@@ -436,6 +437,9 @@ const StubClaimConfirmModal = ({
   const reliefPackDisplay = reliefPackParts.reliefPackDisplay;
   const donatedReliefPackNames = getDonatedReliefPackNames(stubDetails);
   const availableDonatedLooseItems = getAvailableDonatedLooseItems(stubDetails);
+  const familyHeadPhotoUrl = resolveFamilyHeadPhoto(stubDetails?.household, {
+    isOffline: stubDetails?.is_cached_offline === true,
+  });
   const selectedStubSummaries = selectedStubs.map(getSelectedStubSummary);
   const canPickDonatedLooseItems =
     selectedCount === 1 && availableDonatedLooseItems.length > 0;
@@ -520,9 +524,9 @@ const StubClaimConfirmModal = ({
             >
               {isLoadingStubDetails ? (
                 <div style={modalStyles.photoPlaceholder}>Loading photo...</div>
-              ) : stubDetails?.household?.family_head_photo_url ? (
+              ) : familyHeadPhotoUrl ? (
                 <img
-                  src={stubDetails.household.family_head_photo_url}
+                  src={familyHeadPhotoUrl}
                   alt="Registered family head"
                   style={modalStyles.photoPreview}
                 />

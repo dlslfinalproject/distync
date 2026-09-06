@@ -48,6 +48,7 @@ import {
   getCachedStubDetailsByQrValue,
   upsertOfflineStubSnapshots,
 } from "../../features/stubs/stubCache";
+import { getCachedFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
 import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
 import { DEFAULT_TABLE_PAGE_SIZE } from "../../features/pagination/pagination.mjs";
 
@@ -895,6 +896,20 @@ const StubDistributionPage = () => {
         }
 
         resolvedStubId = stubDetails.id;
+        const cachedPhoto = await getCachedFamilyHeadPhoto({
+          householdId: stubDetails.household?.id,
+          disasterEventId: stubDetails.disaster_event?.id,
+          barangayId: selectedBarangayForPrintId,
+        });
+        if (cachedPhoto) {
+          stubDetails = {
+            ...stubDetails,
+            household: {
+              ...stubDetails.household,
+              family_head_photo_data_url: cachedPhoto,
+            },
+          };
+        }
       } else {
         verification = await verifyStub({ qrCodeValue });
         resolvedStubId = verification?.data?.stub?.id || "";
