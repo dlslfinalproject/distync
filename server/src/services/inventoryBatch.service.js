@@ -12,6 +12,10 @@ const {
   createDuplicateInventoryBatchError,
 } = require("../utils/inventoryBatchIdentity");
 const {
+  INVENTORY_BATCH_STORAGE_LOCATION_MAX_LENGTH,
+  isInventoryBatchStorageLocationLengthValid,
+} = require("../utils/inventoryBatchStorageLocation");
+const {
   isValidInventoryBarcode,
   normalizeInventoryBarcode,
 } = require("../utils/inventoryBarcode");
@@ -756,6 +760,24 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
 };
 
 const createInventoryBatch = async (batchData) => {
+  if (
+    batchData.storage_location !== undefined &&
+    batchData.storage_location !== null &&
+    typeof batchData.storage_location !== "string"
+  ) {
+    const error = new Error("storage_location must be a string or null");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!isInventoryBatchStorageLocationLengthValid(batchData.storage_location)) {
+    const error = new Error(
+      `storage_location must not exceed ${INVENTORY_BATCH_STORAGE_LOCATION_MAX_LENGTH} characters`,
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
   const requiresTransaction = !batchData.dbClient;
 
   if (!requiresTransaction) {

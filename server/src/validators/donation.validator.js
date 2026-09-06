@@ -19,6 +19,10 @@ const invalidDonorTypeOtherMessage =
   "Please specify the donor type when Other is selected.";
 
 const priorityLevels = ["LOW", "MEDIUM", "HIGH", "URGENT"];
+const {
+  INVENTORY_BATCH_STORAGE_LOCATION_MAX_LENGTH,
+  isInventoryBatchStorageLocationLengthValid,
+} = require("../utils/inventoryBatchStorageLocation");
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -509,6 +513,14 @@ const normalizeDonationItem = (item, index) => {
     throw new Error(`items[${index}].storage_location must be a string or null`);
   }
 
+  const normalizedStorageLocation = item.storage_location?.trim() || null;
+
+  if (!isInventoryBatchStorageLocationLengthValid(normalizedStorageLocation)) {
+    throw new Error(
+      `items[${index}].storage_location must not exceed ${INVENTORY_BATCH_STORAGE_LOCATION_MAX_LENGTH} characters`,
+    );
+  }
+
   if (
     item.inventory_item_stock_form_id !== undefined &&
     item.inventory_item_stock_form_id !== null &&
@@ -579,7 +591,7 @@ const normalizeDonationItem = (item, index) => {
     quantity_received: item.quantity_received,
     remarks: item.remarks?.trim() || null,
     expiration_date: item.expiration_date ?? null,
-    storage_location: item.storage_location?.trim() || null,
+    storage_location: normalizedStorageLocation,
     stock_form_barcode: item.stock_form_barcode?.trim() || null,
     stock_form_packaging: item.stock_form_packaging?.trim() || null,
     stock_form_units_per_packaging: item.stock_form_units_per_packaging ?? null,
