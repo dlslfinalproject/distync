@@ -110,6 +110,39 @@ test("PM-LC-05 match-relevant fields change the lookup key", () => {
   assert.notEqual(changedEvent.lookupKey, firstState.lookupKey);
 });
 
+test("PM-LC-05B non-name member fields do not change the lookup key", () => {
+  const firstState = buildPossibleMatchLookupState({
+    ...baseInput,
+    familyHead: { ...baseInput.familyHead, first_name: "", last_name: "" },
+    members: [
+      {
+        first_name: "Maria",
+        middle_name: "Santos",
+        last_name: "Reyes",
+        suffix: "",
+        sex: "FEMALE",
+        age_value: 12,
+        age_unit: "YEARS",
+        relationship_to_head: "DAUGHTER",
+      },
+    ],
+  });
+  const secondState = buildPossibleMatchLookupState({
+    ...baseInput,
+    familyHead: { ...baseInput.familyHead, first_name: "", last_name: "" },
+    members: [
+      {
+        ...firstState.payload.members[0],
+        sex: "MALE",
+        age_value: 13,
+        relationship_to_head: "SIBLING",
+      },
+    ],
+  });
+
+  assert.equal(secondState.lookupKey, firstState.lookupKey);
+});
+
 test("PM-LC-06 member first and last name make member lookup eligible", () => {
   const state = buildPossibleMatchLookupState({
     ...baseInput,

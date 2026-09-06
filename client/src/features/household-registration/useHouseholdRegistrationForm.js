@@ -695,7 +695,12 @@ export const useHouseholdRegistrationForm = ({
     }
 
     const { lookupKey, payload } = duplicateSuggestionLookupState;
+    const previousLookupKey = activeDuplicateSuggestionLookupKeyRef.current;
     activeDuplicateSuggestionLookupKeyRef.current = lookupKey;
+
+    if (previousLookupKey && previousLookupKey !== lookupKey) {
+      setDuplicateSuggestions(createEmptyDuplicateSuggestions());
+    }
 
     if (duplicateSuggestionCacheRef.current.has(lookupKey)) {
       setDuplicateSuggestions(
@@ -1654,6 +1659,8 @@ export const useHouseholdRegistrationForm = ({
     duplicateSuggestions,
     isLoadingDuplicateSuggestions,
     duplicateSuggestionsError,
+    duplicateSuggestionEligibleFields:
+      duplicateSuggestionLookupState.eligibleFields,
     errorMessage,
     errorCode,
     successMessage,
