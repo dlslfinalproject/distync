@@ -1,8 +1,8 @@
 import React from "react";
-import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 import { RELATIONSHIP_OPTIONS } from "../../utils/registrationOptions";
+import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
 import QrCodePanel from "./QrCodePanel";
 
 const modalStyles = {
@@ -451,6 +451,11 @@ const StubClaimConfirmModal = ({
       <div className="stub-claim-confirm-modal" style={modalStyles.modal}>
         <h3 style={modalStyles.title}>Confirm Relief Distribution</h3>
         <p style={modalStyles.message}>{message}</p>
+        {stubDetails?.offline_household_details_unavailable ? (
+          <p style={modalStyles.message}>
+            Complete household details are not available in the current offline data.
+          </p>
+        ) : null}
 
         {selectedCount === 1 ? (
           <div

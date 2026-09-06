@@ -41,3 +41,28 @@ export const getCachedMasterlistRows = async ({ disasterEventId, barangayId }) =
     .toArray();
   return entries.map((entry) => entry.row).filter(Boolean);
 };
+
+export const getCachedMasterlistRowByHouseholdId = async ({
+  disasterEventId,
+  barangayId,
+  householdId,
+}) => {
+  const scope = getScope({ disasterEventId, barangayId });
+  const normalizedHouseholdId = value(householdId);
+
+  if (!scope || !normalizedHouseholdId) return null;
+
+  const entry = await db.offlineMasterlistCache
+    .where("[accessMode+userId+roleCode+disaster_event_id+barangay_id+household_id]")
+    .equals([
+      scope.accessMode,
+      scope.userId,
+      scope.roleCode,
+      scope.disasterEventId,
+      scope.barangayId,
+      normalizedHouseholdId,
+    ])
+    .first();
+
+  return entry?.row || null;
+};
