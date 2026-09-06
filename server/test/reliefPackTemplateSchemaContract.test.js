@@ -38,6 +38,67 @@ test("canonical schema declares the proven relief-pack template-item contract", 
   assert.equal((schema.match(/\buq_relief_pack_item\b/g) || []).length, 1);
 });
 
+test("canonical schema declares the reconciled relief-pack template parent contract", () => {
+  const schema = readSchema();
+  const tableBlock = getTableBlock(schema, "relief_pack_templates");
+  const distributionTableBlock = getTableBlock(
+    schema,
+    "distribution_transactions",
+  );
+  const historicalJunctionBlock = getTableBlock(
+    schema,
+    "distribution_transaction_relief_pack_templates",
+  );
+
+  assert.ok(tableBlock, "relief_pack_templates schema block should exist");
+  assert.ok(
+    distributionTableBlock,
+    "distribution_transactions schema block should exist",
+  );
+  assert.ok(
+    historicalJunctionBlock,
+    "distribution_transaction_relief_pack_templates schema block should exist",
+  );
+
+  assert.match(tableBlock, /name character varying\(150\) NOT NULL UNIQUE/i);
+  assert.match(
+    tableBlock,
+    /CONSTRAINT relief_pack_templates_created_by_fkey FOREIGN KEY \(created_by\) REFERENCES public\.users\(id\) ON DELETE SET NULL/i,
+  );
+
+  const sectorForeignKey = tableBlock.match(
+    /CONSTRAINT relief_pack_templates_sector_id_fkey FOREIGN KEY \(sector_id\) REFERENCES public\.sectors\(id\)[^\r\n]*/i,
+  )?.[0];
+  assert.equal(
+    sectorForeignKey,
+    "CONSTRAINT relief_pack_templates_sector_id_fkey FOREIGN KEY (sector_id) REFERENCES public.sectors(id)",
+  );
+
+  assert.equal(
+    (
+      schema.match(
+        /CREATE UNIQUE INDEX relief_pack_templates_name_normalized_unique\s+ON public\.relief_pack_templates\s+\(LOWER\(BTRIM\(name\)\)\);/gi,
+      ) || []
+    ).length,
+    1,
+  );
+
+  assert.match(distributionTableBlock, /relief_pack_template_id uuid,/i);
+  assert.match(
+    distributionTableBlock,
+    /CONSTRAINT distribution_transactions_relief_pack_template_id_fkey FOREIGN KEY \(relief_pack_template_id\) REFERENCES public\.relief_pack_templates\(id\) ON DELETE SET NULL/i,
+  );
+
+  assert.match(
+    historicalJunctionBlock,
+    /CONSTRAINT distribution_transaction_relief_pack_templates_template_id_fkey FOREIGN KEY \(relief_pack_template_id\) REFERENCES public\.relief_pack_templates\(id\)(?:\r?\n|$)/i,
+  );
+  assert.doesNotMatch(
+    historicalJunctionBlock,
+    /distribution_transaction_relief_pack_templates_template_id_fkey[^\r\n]*ON DELETE/i,
+  );
+});
+
 test("canonical schema declares the proven disaster-applicability contract", () => {
   const schema = readSchema();
   const tableBlock = getTableBlock(

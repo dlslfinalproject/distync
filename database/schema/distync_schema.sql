@@ -365,7 +365,7 @@ CREATE TABLE public.distribution_transactions (
   CONSTRAINT distribution_transactions_stub_id_fkey FOREIGN KEY (stub_id) REFERENCES public.stubs(id),
   CONSTRAINT distribution_transactions_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES public.users(id),
   CONSTRAINT distribution_transactions_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.devices(id),
-  CONSTRAINT distribution_transactions_relief_pack_template_id_fkey FOREIGN KEY (relief_pack_template_id) REFERENCES public.relief_pack_templates(id),
+  CONSTRAINT distribution_transactions_relief_pack_template_id_fkey FOREIGN KEY (relief_pack_template_id) REFERENCES public.relief_pack_templates(id) ON DELETE SET NULL,
   CONSTRAINT distribution_transactions_qr_scanned_by_fkey FOREIGN KEY (qr_scanned_by) REFERENCES public.users(id)
 );
 
@@ -588,7 +588,7 @@ EXECUTE FUNCTION public.assign_inventory_transaction_reference_no();
 
 CREATE TABLE public.relief_pack_templates (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  name character varying NOT NULL UNIQUE,
+  name character varying(150) NOT NULL UNIQUE,
   description text,
   based_on_family_size boolean NOT NULL DEFAULT false,
   based_on_sector boolean NOT NULL DEFAULT false,
@@ -600,7 +600,7 @@ CREATE TABLE public.relief_pack_templates (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT relief_pack_templates_pkey PRIMARY KEY (id),
-  CONSTRAINT relief_pack_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id),
+  CONSTRAINT relief_pack_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id) ON DELETE SET NULL,
   CONSTRAINT relief_pack_templates_sector_id_fkey FOREIGN KEY (sector_id) REFERENCES public.sectors(id)
 );
 
