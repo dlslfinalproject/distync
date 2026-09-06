@@ -18,7 +18,6 @@ const FIXTURE_STUB_LABELS = [
   "cross_device",
   "online_vs_offline",
   "canonical_violation",
-  "status_reuse",
 ];
 
 const assertVerifiedTestDatabase = async () => {
@@ -1139,27 +1138,6 @@ test("distribution stub claims and offline replays remain exactly once after can
       },
     );
     await deleteRawDistribution(canonicalDistributionId);
-
-    const statusReuseDistributionId = await insertRawDistribution(
-      fixture,
-      fixture.stubIds.status_reuse,
-      "CANCELLED",
-    );
-    const cancelledDuplicateError = await insertDuplicateDistribution(
-      fixture,
-      fixture.stubIds.status_reuse,
-    );
-    assert.equal(cancelledDuplicateError.constraint, "uq_distribution_stub");
-    await pool.query(
-      "UPDATE public.distribution_transactions SET distribution_status = 'REVERSED' WHERE id = $1",
-      [statusReuseDistributionId],
-    );
-    const reversedDuplicateError = await insertDuplicateDistribution(
-      fixture,
-      fixture.stubIds.status_reuse,
-    );
-    assert.equal(reversedDuplicateError.constraint, "uq_distribution_stub");
-    await deleteRawDistribution(statusReuseDistributionId);
 
     const replayClientSyncId = `${fixture.tag}_SYNC_REPLAY`;
     fixture.syncClientIds.push(replayClientSyncId);

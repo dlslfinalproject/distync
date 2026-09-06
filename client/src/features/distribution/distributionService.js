@@ -13,7 +13,6 @@ const handleJsonResponse = async (response, fallbackMessage) => {
 
   return responseData;
 };
-
 export const fetchDistributionHistory = async (filters = {}) => {
   const searchParams = new URLSearchParams();
 
@@ -155,30 +154,5 @@ export const fetchInventoryDistributionExportOptions = async (filters = {}) => {
   return handleJsonResponse(
     response,
     "Failed to fetch inventory distribution export options",
-  );
-};
-
-export const updateDistributionLifecycle = async ({
-  transactionId,
-  action,
-  remarks,
-}) => {
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/distribution-transactions/${transactionId}/lifecycle`,
-    {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        action,
-        remarks,
-      }),
-    },
-  );
-
-  return handleJsonResponse(
-    response,
-    "Failed to update distribution transaction status",
   );
 };

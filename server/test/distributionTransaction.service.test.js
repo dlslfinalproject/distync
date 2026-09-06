@@ -195,6 +195,55 @@ test("H05-02 createDistributionTransaction emits STUB_ALREADY_CLAIMED for an acc
   assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
 });
 
+test("inventory distribution details allow the assigned Barangay and reject another Barangay", async () => {
+  const events = [];
+  const stubs = createBaseStubs({ events });
+  stubs[distributionTransactionRepositoryPath].getInventoryDistributionDetailByStubId =
+    async () => ({
+      base: {
+        stub_id: baseStub.id,
+        barangay_id: baseStub.barangay_id,
+      },
+      members: [],
+      household_sectors: [],
+      member_sectors: [],
+      latest_attendance: null,
+      distribution_transaction: null,
+      distribution_transaction_items: [],
+    });
+
+  await withStubbedDistributionService(
+    stubs,
+    async ({ getInventoryDistributionDetail }) => {
+      const detail = await getInventoryDistributionDetail({
+        stubId: baseStub.id,
+        requester: {
+          roleCode: "BARANGAY",
+          defaultBarangayId: baseStub.barangay_id,
+        },
+      });
+
+      assert.equal(detail.barangay.id, baseStub.barangay_id);
+
+      await assert.rejects(
+        () =>
+          getInventoryDistributionDetail({
+            stubId: baseStub.id,
+            requester: {
+              roleCode: "BARANGAY",
+              defaultBarangayId: "foreign-barangay",
+            },
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 403);
+          assert.equal(error.code, "BARANGAY_SCOPE_FORBIDDEN");
+          return true;
+        },
+      );
+    },
+  );
+});
+
 test("H05-03 claimDistributionTransactionFromQr emits STUB_ALREADY_CLAIMED for an accepted claimed stub", async () => {
   const events = [];
 
@@ -315,7 +364,7 @@ test("H05-06 unrelated unique violations remain technical errors", async () => {
 });
 
 test("EE-FIX-03 createDistributionTransaction blocks new distributions when the event is not ACTIVE", async () => {
-  for (const disasterEventStatus of ["PLANNED", "CLOSED", "ARCHIVED"]) {
+  for (const disasterEventStatus of ["PLANNED", "CLOSED"]) {
     const events = [];
     let attendanceChecked = false;
 
@@ -350,7 +399,7 @@ test("EE-FIX-03 createDistributionTransaction blocks new distributions when the 
 });
 
 test("EE-FIX-03 claimDistributionTransactionFromQr blocks new QR claims when the event is not ACTIVE", async () => {
-  for (const disasterEventStatus of ["PLANNED", "CLOSED", "ARCHIVED"]) {
+  for (const disasterEventStatus of ["PLANNED", "CLOSED"]) {
     const events = [];
     let claimHandlerCalled = false;
 
@@ -878,17 +927,45 @@ test("manual template distribution releases every assigned template with shared 
     "DONATED",
   );
   assert.deepEqual(
-    insertedItems.map(({ inventory_item_id, quantity_released }) => ({
+    insertedItems.map(({
       inventory_item_id,
       quantity_released,
+      relief_pack_type_snapshot,
+      relief_pack_template_id_snapshot,
+    }) => ({
+      inventory_item_id,
+      quantity_released,
+      relief_pack_type_snapshot,
+      relief_pack_template_id_snapshot,
     })),
     [
-      { inventory_item_id: sharedItemId, quantity_released: 5 },
-      { inventory_item_id: standardItemId, quantity_released: 1 },
-      { inventory_item_id: additionalItemId, quantity_released: 1 },
+      {
+        inventory_item_id: sharedItemId,
+        quantity_released: 2,
+        relief_pack_type_snapshot: "STANDARD_RELIEF_PACK",
+        relief_pack_template_id_snapshot: standardTemplateId,
+      },
+      {
+        inventory_item_id: standardItemId,
+        quantity_released: 1,
+        relief_pack_type_snapshot: "STANDARD_RELIEF_PACK",
+        relief_pack_template_id_snapshot: standardTemplateId,
+      },
+      {
+        inventory_item_id: sharedItemId,
+        quantity_released: 3,
+        relief_pack_type_snapshot: "ADDITIONAL_RELIEF_PACK",
+        relief_pack_template_id_snapshot: additionalTemplateId,
+      },
+      {
+        inventory_item_id: additionalItemId,
+        quantity_released: 1,
+        relief_pack_type_snapshot: "ADDITIONAL_RELIEF_PACK",
+        relief_pack_template_id_snapshot: additionalTemplateId,
+      },
     ],
   );
-  assert.equal(inventoryTransactions.length, 3);
+  assert.equal(inventoryTransactions.length, 4);
   assert.equal(
     inventoryTransactions.find(
       (transaction) => transaction.inventory_batch_id === sharedBatchId,

@@ -245,6 +245,7 @@ const InventoryDistributionPage = () => {
     selectedDisasterEvent,
     selectedDisasterEventId,
     selectedBarangayId,
+    inventoryBatches,
     selectedStatus,
     selectedSectorIds,
     selectedSortOrder,
@@ -566,6 +567,10 @@ const InventoryDistributionPage = () => {
           member_sectors: detail.member_sectors,
           latest_attendance: detail.latest_attendance,
           distribution_transaction: detail.distribution_transaction,
+          distribution_transaction_items:
+            Array.isArray(detail.distribution_transaction_items)
+              ? detail.distribution_transaction_items
+              : [],
         });
       }
     } catch (error) {
@@ -918,6 +923,10 @@ const InventoryDistributionPage = () => {
           row={selectedDistributionRow}
           stubDetails={selectedStubDetails}
           templateDetails={templateDetails}
+          inventoryBatches={inventoryBatches}
+          disasterEvents={disasterEvents}
+          disasterEventId={selectedDisasterEventId}
+          showReadinessStatus={selectedDisasterEvent?.status === "ACTIVE"}
           onClose={handleCloseDistributionDetails}
         />
 

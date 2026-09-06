@@ -49,7 +49,7 @@ test("getInventoryForecastItems totals only eligible LGU stock and event-scoped 
   assert.match(sql, /relief_pack_donation_items\.remarks.*ILIKE 'Relief Pack:%'/);
   assert.match(sql, /d\.disaster_event_id = target_event\.id/);
   assert.match(sql, /COALESCE\(di\.remarks, ''\) NOT ILIKE 'Relief Pack:%'/);
-  assert.match(sql, /donation_event\.status IN \('CLOSED', 'ARCHIVED'\)/);
+  assert.match(sql, /donation_event\.status\s*=\s*'CLOSED'/);
   assert.match(sql, /FROM disaster_events next_event/);
   assert.match(sql, /next_event\.status = 'ACTIVE'/);
   assert.match(sql, /target_event\.created_at > donation_event\.created_at/);

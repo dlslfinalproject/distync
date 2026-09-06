@@ -14,6 +14,9 @@ const {
 const {
   isReliefPackClaimHouseholdCurrentlyEligible,
 } = require("../utils/reliefPackEligibility");
+const {
+  getDistributionItemSourceReliefTypeSnapshot,
+} = require("../utils/distributionTransactionItemSnapshot");
 
 const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
   const normalizedOnHandQuantity = Math.max(Number(onHandQuantity || 0), 0);
@@ -54,6 +57,14 @@ const getTemplateFamilySizeCoverage = (template) => {
 };
 
 const getTemplatePackMultiplier = (template, householdSize) => {
+  if (
+    template?.assignment_snapshot &&
+    Number.isInteger(Number(template?.pack_multiplier)) &&
+    Number(template.pack_multiplier) > 0
+  ) {
+    return Number(template.pack_multiplier);
+  }
+
   if (!template?.based_on_family_size) {
     return 1;
   }
@@ -134,10 +145,6 @@ const buildDonatedReliefPackGroups = (donatedRows) => {
       Number(row.quantity_received || 0) / packMeta.packQuantity,
     );
 
-    if (quantityPerPack <= 0) {
-      continue;
-    }
-
     existingGroup.items.push({
       donation_item_id: row.donation_item_id,
       inventory_batch_id: row.inventory_batch_id,
@@ -147,6 +154,7 @@ const buildDonatedReliefPackGroups = (donatedRows) => {
       batch_no: row.batch_no,
       item_code: row.item_code,
       item_name: row.item_name,
+      category: row.category,
       unit_of_measure: row.unit_of_measure,
       expiration_date: row.expiration_date || null,
       previous_status: row.status,
@@ -194,7 +202,11 @@ const isDonatedReliefPackItemCurrentlyAvailable = (item) => {
     .trim()
     .toUpperCase();
 
-  if (!item || !["AVAILABLE", "LOW_STOCK"].includes(normalizedStatus)) {
+  if (
+    !item ||
+    !["AVAILABLE", "LOW_STOCK"].includes(normalizedStatus) ||
+    Number(item.quantity_per_pack || 0) <= 0
+  ) {
     return false;
   }
 
@@ -282,14 +294,17 @@ const buildDonatedReliefPackClaimPlan = async (
       batch_no: item.batch_no,
       item_code: item.item_code,
       item_name: item.item_name,
+      category: item.category,
       unit_of_measure: item.unit_of_measure,
       previous_quantity_available: item.quantity_available,
       previous_status: item.previous_status,
       expiration_date: item.expiration_date,
       source_type: "DONATED",
       source_relief_type: "DONATED_RELIEF_PACK",
+      relief_pack_type_snapshot: "DONATED_RELIEF_PACK",
       donated_relief_pack_name: group.pack_name,
       donation_id: group.donation_id,
+      donation_item_id: item.donation_item_id,
       donor_name: group.donor_name,
     })),
   );
@@ -331,6 +346,7 @@ const getAvailableDonatedReliefPacksForClaimPreview = async (
     items: group.items.map((item) => ({
       inventory_item_id: item.inventory_item_id,
       item_name: item.item_name,
+      category: item.category,
       quantity_released: item.quantity_per_pack,
       unit_of_measure: item.unit_of_measure,
     })),
@@ -395,6 +411,7 @@ const mapDonatedLooseItemPreview = (
     inventory_item_id: row.inventory_item_id,
     item_code: row.item_code,
     item_name: row.item_name,
+    category: row.category,
     unit_of_measure: row.unit_of_measure,
     batch_no: row.batch_no,
     quantity_available: quantityAvailable,
@@ -503,6 +520,7 @@ const buildDonatedLooseItemClaimPlan = async (
       batch_no: row.batch_no,
       item_code: row.item_code,
       item_name: row.item_name,
+      category: row.category,
       unit_of_measure: row.unit_of_measure,
       reorder_level: row.reorder_level,
       previous_quantity_available: availableQuantity,
@@ -510,6 +528,7 @@ const buildDonatedLooseItemClaimPlan = async (
       expiration_date: row.expiration_date || null,
       source_type: "DONATED",
       source_relief_type: "DONATED_LOOSE_ITEM",
+      relief_pack_type_snapshot: "DONATED_LOOSE_ITEM",
       donation_id: row.donation_id,
       donor_name: row.donor_name,
       donation_item_id: row.donation_item_id,
@@ -524,6 +543,7 @@ const buildDonatedLooseItemClaimPlan = async (
       inventory_batch_id: row.inventory_batch_id,
       inventory_item_id: row.inventory_item_id,
       item_name: row.item_name,
+      category: row.category,
       unit_of_measure: row.unit_of_measure,
       quantity_released: quantityReleased,
       per_family_allocation: perFamilyAllocation,
@@ -568,15 +588,41 @@ const buildAutomaticClaimAllocations = async (
         existingItem.requiredQuantity += requiredQuantity;
         existingItem.sourceTemplateNames.push(template.name);
         existingItem.sourceReliefTypes.add(sourceReliefType);
+        existingItem.sourceReliefTypeQuantities.set(
+          sourceReliefType,
+          (existingItem.sourceReliefTypeQuantities.get(sourceReliefType) || 0) +
+            requiredQuantity,
+        );
+        const existingTemplateQuantity =
+          existingItem.sourceTemplateQuantities.get(template.id);
+        existingItem.sourceTemplateQuantities.set(template.id, {
+          sourceReliefType,
+          quantity:
+            Number(existingTemplateQuantity?.quantity || 0) +
+            requiredQuantity,
+        });
         continue;
       }
 
       requiredItemsByInventoryItemId.set(templateItem.inventory_item_id, {
         inventory_item_id: templateItem.inventory_item_id,
+        item_code: templateItem.item_code || null,
         item_name: templateItem.item_name,
+        category: templateItem.category || null,
+        unit_of_measure: templateItem.unit_of_measure || null,
         requiredQuantity,
         sourceTemplateNames: [template.name],
         sourceReliefTypes: new Set([sourceReliefType]),
+        sourceReliefTypeQuantities: new Map([[sourceReliefType, requiredQuantity]]),
+        sourceTemplateQuantities: new Map([
+          [
+            template.id,
+            {
+              sourceReliefType,
+              quantity: requiredQuantity,
+            },
+          ],
+        ]),
       });
     }
   }
@@ -622,46 +668,103 @@ const buildAutomaticClaimAllocations = async (
       }) !== "EXPIRED";
     });
 
-    let remainingQuantity = requiredQuantity;
+    const remainingQuantityByTemplate = new Map(
+      [...requiredItem.sourceTemplateQuantities.entries()].map(
+        ([templateId, templateQuantity]) => [templateId, { ...templateQuantity }],
+      ),
+    );
+    const allocatedQuantityByBatch = new Map();
 
     for (const batch of eligibleBatches) {
-      if (remainingQuantity <= 0) {
-        break;
-      }
-
-      const quantityToRelease = Math.min(
-        remainingQuantity,
-        Number(batch.quantity_available || 0),
+      const alreadyAllocatedFromBatch = Number(
+        allocatedQuantityByBatch.get(batch.id) || 0,
+      );
+      let remainingBatchQuantity = Math.max(
+        0,
+        Number(batch.quantity_available || 0) - alreadyAllocatedFromBatch,
       );
 
-      if (quantityToRelease <= 0) {
+      if (remainingBatchQuantity <= 0) {
         continue;
       }
 
-      allocations.push({
-        inventory_batch_id: batch.id,
-        inventory_item_id: batch.inventory_item_id,
-        quantity_released: quantityToRelease,
-        batch_no: batch.batch_no,
-        item_code: batch.item_code,
-        item_name: batch.item_name,
-        unit_of_measure: batch.unit_of_measure,
-        reorder_level: batch.reorder_level,
-        previous_quantity_available: Number(batch.quantity_available || 0),
-        previous_status: batch.status,
-        expiration_date: batch.expiration_date || null,
-        source_type: batch.source_type || "LGU",
-        donation_id: batch.donation_id || null,
-        donor_name: batch.donor_name || null,
-        donation_item_id: batch.donation_item_id || null,
-        source_relief_type:
-          requiredItem.sourceReliefTypes.size === 1
-            ? [...requiredItem.sourceReliefTypes][0]
-            : "MIXED_RELIEF_PACK",
-      });
+      while (remainingBatchQuantity > 0) {
+        const nextTemplate = [...remainingQuantityByTemplate.entries()].find(
+          ([, templateQuantity]) =>
+            Number(templateQuantity?.quantity || 0) > 0,
+        );
 
-      remainingQuantity -= quantityToRelease;
+        if (!nextTemplate) {
+          break;
+        }
+
+        const [reliefPackTemplateId, templateQuantity] = nextTemplate;
+        const sourceReliefType = templateQuantity.sourceReliefType;
+        const typeRemainingQuantity = Number(templateQuantity.quantity || 0);
+        const quantityToRelease = Math.min(
+          remainingBatchQuantity,
+          typeRemainingQuantity,
+        );
+
+        if (quantityToRelease <= 0) {
+          break;
+        }
+
+        const previouslyAllocatedFromBatch = Number(
+          allocatedQuantityByBatch.get(batch.id) || 0,
+        );
+
+        allocations.push({
+          inventory_batch_id: batch.id,
+          inventory_item_id: batch.inventory_item_id,
+          quantity_released: quantityToRelease,
+          batch_no: batch.batch_no,
+          item_code: requiredItem.item_code || batch.item_code,
+          item_name: requiredItem.item_name || batch.item_name,
+          category: requiredItem.category || batch.category || null,
+          unit_of_measure:
+            requiredItem.unit_of_measure || batch.unit_of_measure,
+          reorder_level: batch.reorder_level,
+          previous_quantity_available:
+            Number(batch.quantity_available || 0) - previouslyAllocatedFromBatch,
+          previous_status: batch.status,
+          expiration_date: batch.expiration_date || null,
+          source_type: batch.source_type || "LGU",
+          donation_id: batch.donation_id || null,
+          donor_name: batch.donor_name || null,
+          donation_item_id: batch.donation_item_id || null,
+          source_relief_type: sourceReliefType,
+          relief_pack_type_snapshot: sourceReliefType,
+          relief_pack_template_id_snapshot: reliefPackTemplateId,
+        });
+
+        allocatedQuantityByBatch.set(
+          batch.id,
+          previouslyAllocatedFromBatch + quantityToRelease,
+        );
+        remainingQuantityByTemplate.set(reliefPackTemplateId, {
+          ...templateQuantity,
+          quantity: typeRemainingQuantity - quantityToRelease,
+        });
+        remainingBatchQuantity -= quantityToRelease;
+      }
+
+      if (
+        [...remainingQuantityByTemplate.values()].reduce(
+          (total, templateQuantity) =>
+            total + Number(templateQuantity?.quantity || 0),
+          0,
+        ) <= 0
+      ) {
+        break;
+      }
     }
+
+    const remainingQuantity = [...remainingQuantityByTemplate.values()].reduce(
+      (total, templateQuantity) =>
+        total + Number(templateQuantity?.quantity || 0),
+      0,
+    );
 
     if (remainingQuantity > 0) {
       const error = new Error(
@@ -754,6 +857,9 @@ const recordAutomaticReliefPackClaim = async ({
     throw error;
   }
 
+  // A claim is the point at which the current assignment becomes historical.
+  // Resolve it immediately from the active templates so a snapshot created
+  // when the stub was issued cannot make a later valid pack change stale.
   const assignedReliefPackTemplates =
     await resolveAssignedReliefPackTemplatesForHousehold(
       stub.household_id,
@@ -774,10 +880,11 @@ const recordAutomaticReliefPackClaim = async ({
   const assignedTemplateItems = await Promise.all(
     assignedReliefPackTemplates.map(async (template) => ({
       template,
-      templateItems:
-        await reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId(
-          template.id,
-        ),
+      templateItems: Array.isArray(template?.items)
+        ? template.items
+        : await reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId(
+            template.id,
+          ),
     })),
   );
 
@@ -924,6 +1031,7 @@ const recordAutomaticReliefPackClaim = async ({
       Number(row.total_quantity || 0),
     ]),
   );
+  const remainingQuantityByBatch = new Map();
 
   for (const allocation of combinedAllocations) {
     const insertedItem =
@@ -936,6 +1044,18 @@ const recordAutomaticReliefPackClaim = async ({
           item_code_snapshot: allocation.item_code,
           item_name_snapshot: allocation.item_name,
           unit_of_measure_snapshot: allocation.unit_of_measure,
+          category_snapshot: allocation.category,
+          relief_pack_type_snapshot: allocation.relief_pack_type_snapshot,
+          relief_pack_template_id_snapshot:
+            allocation.relief_pack_template_id_snapshot,
+          source_type_snapshot: allocation.source_type || "LGU",
+          source_relief_type_snapshot:
+            getDistributionItemSourceReliefTypeSnapshot(allocation),
+          donation_id_snapshot: allocation.donation_id,
+          donation_item_id_snapshot: allocation.donation_item_id,
+          donor_name_snapshot: allocation.donor_name,
+          donated_relief_pack_name_snapshot:
+            allocation.donated_relief_pack_name,
         },
         client,
       );
@@ -954,8 +1074,17 @@ const recordAutomaticReliefPackClaim = async ({
       client,
     );
 
+    const previousQuantityAvailable = remainingQuantityByBatch.has(
+      allocation.inventory_batch_id,
+    )
+      ? remainingQuantityByBatch.get(allocation.inventory_batch_id)
+      : Number(allocation.previous_quantity_available || 0);
     const remainingQuantity =
-      allocation.previous_quantity_available - allocation.quantity_released;
+      previousQuantityAvailable - Number(allocation.quantity_released || 0);
+    remainingQuantityByBatch.set(
+      allocation.inventory_batch_id,
+      remainingQuantity,
+    );
     const nextItemQuantity = Math.max(
       0,
       (currentItemStockById.get(allocation.inventory_item_id) || 0) -
@@ -983,7 +1112,11 @@ const recordAutomaticReliefPackClaim = async ({
       batch_no: allocation.batch_no,
       item_code: allocation.item_code,
       item_name: allocation.item_name,
+      category: allocation.category || null,
       unit_of_measure: allocation.unit_of_measure,
+      relief_pack_type_snapshot: allocation.relief_pack_type_snapshot,
+      relief_pack_template_id_snapshot:
+        allocation.relief_pack_template_id_snapshot || null,
       source_type: allocation.source_type || "LGU",
       source_relief_type: allocation.source_relief_type,
       donated_relief_pack_name: allocation.donated_relief_pack_name || null,
@@ -1001,7 +1134,7 @@ const recordAutomaticReliefPackClaim = async ({
         item_total_stock: nextItemQuantity,
         item_name: allocation.item_name,
       },
-      previousQuantityAvailable: allocation.previous_quantity_available,
+      previousQuantityAvailable,
       previousStatus: allocation.previous_status,
     });
 

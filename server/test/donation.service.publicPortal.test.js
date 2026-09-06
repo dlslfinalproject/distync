@@ -191,6 +191,104 @@ test("public portal uses forecast suggestions before default emergency donation 
   );
 });
 
+test("public portal reports relief-pack utilization in packs and loose utilization in pieces", async () => {
+  const eventId = "00000000-0000-0000-0000-000000000001";
+
+  await withStubbedDonationService(
+    {
+      donationRepositoryOverrides: {
+        getDonationItemTransparencySummary: async () => [
+          {
+            donation_id: "donation-pack",
+            donor_name: "Relief Partner",
+            donor_type: "NGO",
+            disaster_event_id: eventId,
+            disaster_event_title: "Active Flood Response",
+            inventory_item_id: "water-item",
+            item_name: "Bottled Water",
+            quantity_received: 10,
+            quantity_distributed: 5,
+            quantity_remaining: 5,
+            quantity_written_off: 0,
+            donation_item_remarks: "Relief Pack: Family Pack x 2",
+          },
+          {
+            donation_id: "donation-pack",
+            donor_name: "Relief Partner",
+            donor_type: "NGO",
+            disaster_event_id: eventId,
+            disaster_event_title: "Active Flood Response",
+            inventory_item_id: "tuna-item",
+            item_name: "Canned Tuna",
+            quantity_received: 4,
+            quantity_distributed: 2,
+            quantity_remaining: 2,
+            quantity_written_off: 0,
+            donation_item_remarks: "Relief Pack: Family Pack x 2",
+          },
+          {
+            donation_id: "donation-loose",
+            donor_name: "Community Group",
+            donor_type: "NGO",
+            disaster_event_id: eventId,
+            disaster_event_title: "Active Flood Response",
+            inventory_item_id: "shampoo-item",
+            item_name: "Sunsilk Shampoo",
+            quantity_received: 12,
+            quantity_distributed: 3,
+            quantity_remaining: 9,
+            quantity_written_off: 0,
+            donation_item_remarks: "Per Family Allocation: 1",
+          },
+        ],
+      },
+    },
+    async ({ getPublicDonationPortal }) => {
+      const payload = await getPublicDonationPortal();
+      const rows = payload.transparency_summary.received_vs_distributed;
+      const packRow = rows.find((row) => row.source_type === "RELIEF_PACK");
+      const looseRow = rows.find((row) => row.source_type === "LOOSE_ITEM");
+
+      assert.deepEqual(
+        {
+          item_name: packRow.item_name,
+          unit_of_measure: packRow.unit_of_measure,
+          quantity_received: packRow.quantity_received,
+          quantity_distributed: packRow.quantity_distributed,
+          quantity_remaining: packRow.quantity_remaining,
+        },
+        {
+          item_name: "Family Pack",
+          unit_of_measure: "pack",
+          quantity_received: 2,
+          quantity_distributed: 1,
+          quantity_remaining: 1,
+        },
+      );
+      assert.deepEqual(
+        {
+          item_name: looseRow.item_name,
+          unit_of_measure: looseRow.unit_of_measure,
+          quantity_received: looseRow.quantity_received,
+          quantity_distributed: looseRow.quantity_distributed,
+          quantity_remaining: looseRow.quantity_remaining,
+        },
+        {
+          item_name: "Sunsilk Shampoo",
+          unit_of_measure: "pc",
+          quantity_received: 12,
+          quantity_distributed: 3,
+          quantity_remaining: 9,
+        },
+      );
+      assert.equal(packRow.donor_name, "Donor #1");
+      assert.equal(packRow.donor_type_label, "NGO");
+      assert.equal(looseRow.donor_name, "Donor #2");
+      assert.equal(looseRow.donor_type_label, "NGO");
+    },
+  );
+});
+
 test("public portal does not show preparedness defaults when a current forecast has no stock shortfall", async () => {
   await withStubbedDonationService(
     {

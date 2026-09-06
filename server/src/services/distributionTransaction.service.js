@@ -24,6 +24,13 @@ const {
 const {
   isReliefPackClaimHouseholdCurrentlyEligible,
 } = require("../utils/reliefPackEligibility");
+const {
+  isLiveUnclaimedReliefPackAssignment,
+  normalizeReliefPackAssignmentSnapshots,
+} = require("../utils/reliefPackAssignmentSnapshot");
+const {
+  getDistributionItemSourceReliefTypeSnapshot,
+} = require("../utils/distributionTransactionItemSnapshot");
 const { resolveRequesterBarangayId } = require("../utils/requesterScope");
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
@@ -36,6 +43,14 @@ const getTemplateFamilySizeCoverage = (template) => {
 };
 
 const getTemplatePackMultiplier = (template, householdSize) => {
+  if (
+    template?.assignment_snapshot &&
+    Number.isInteger(Number(template?.pack_multiplier)) &&
+    Number(template.pack_multiplier) > 0
+  ) {
+    return Number(template.pack_multiplier);
+  }
+
   if (!template?.based_on_family_size) {
     return 1;
   }
@@ -59,30 +74,6 @@ const formatStubDisplayNo = (sequenceNo, fallbackStubNo = null) => {
   return parsedSequenceNo > 0 ? `STUB#${parsedSequenceNo}` : fallbackStubNo || "--";
 };
 
-const getHistoryRowTime = (row) => {
-  const parsedTime = new Date(row?.distribution_date || 0).getTime();
-  return Number.isNaN(parsedTime) ? 0 : parsedTime;
-};
-
-const sortDistributionHistoryRows = (rows, sortOrder = "newest") => {
-  return [...rows].sort((leftRow, rightRow) => {
-    if (sortOrder === "az" || sortOrder === "za") {
-      const comparison = String(leftRow.family_head_name || "").localeCompare(
-        String(rightRow.family_head_name || ""),
-        undefined,
-        { sensitivity: "base" },
-      );
-
-      return sortOrder === "za" ? -comparison : comparison;
-    }
-
-    const leftTime = getHistoryRowTime(leftRow);
-    const rightTime = getHistoryRowTime(rightRow);
-
-    return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
-  });
-};
-
 const buildReportSourceName = (requester, rows = []) => {
   if (requester?.roleCode !== ROLE_CODES.BARANGAY) {
     return "MSWDO";
@@ -94,118 +85,6 @@ const buildReportSourceName = (requester, rows = []) => {
 
 const formatDisasterEventStatusLabel = (status) =>
   String(status || "").toUpperCase() === "ACTIVE" ? "Active" : "Ended";
-
-const buildDistributionHistorySummaryRows = ({
-  rows,
-  disasterEvents = [],
-  selectedBarangayId = null,
-}) => {
-  const summaryByEventId = new Map();
-
-  (Array.isArray(disasterEvents) ? disasterEvents : []).forEach((event) => {
-    const affectedBarangays = Array.isArray(event?.affected_barangays)
-      ? event.affected_barangays
-      : [];
-    const affectedBarangayIds = affectedBarangays
-      .map((barangay) => barangay?.id || barangay?.barangay_id || "")
-      .filter(Boolean);
-
-    if (
-      selectedBarangayId &&
-      affectedBarangayIds.length > 0 &&
-      !affectedBarangayIds.includes(selectedBarangayId)
-    ) {
-      return;
-    }
-
-    const barangayNames = selectedBarangayId
-      ? affectedBarangays
-          .filter(
-            (barangay) =>
-              (barangay?.id || barangay?.barangay_id || "") === selectedBarangayId,
-          )
-          .map((barangay) => barangay?.name)
-          .filter(Boolean)
-      : affectedBarangays.map((barangay) => barangay?.name).filter(Boolean);
-
-    summaryByEventId.set(event.id, {
-      disaster_event_id: event.id,
-      event_code: event.event_code || "",
-      disaster_event_title: event.title || "--",
-      disaster_event_status: event.status || "",
-      start_date: event.start_date || null,
-      barangayNames: new Set(barangayNames),
-      reliefPacks: new Set(),
-      latest_distribution_date: null,
-      issued_stubs_count: 0,
-      claimed_stubs_count: 0,
-      unclaimed_stubs_count: 0,
-    });
-  });
-
-  rows.forEach((row) => {
-    const eventId = row.disaster_event_id || "unknown-event";
-    const existingSummary = summaryByEventId.get(eventId) || {
-      disaster_event_id: eventId,
-      event_code: row.event_code || "",
-      disaster_event_title: row.disaster_event_title || "--",
-      disaster_event_status: row.disaster_event_status || "",
-      start_date: row.start_date || null,
-      barangayNames: new Set(),
-      reliefPacks: new Set(),
-      latest_distribution_date: null,
-      issued_stubs_count: Number(row.issued_stubs_count || 0),
-      claimed_stubs_count: Number(row.claimed_stubs_count || 0),
-      unclaimed_stubs_count: Number(row.unclaimed_stubs_count || 0),
-    };
-
-    if (row.barangay_name) {
-      existingSummary.barangayNames.add(row.barangay_name);
-    }
-
-    const reliefPackName =
-      row.relief_pack_template_name || row.released_items_summary || "";
-    if (reliefPackName) {
-      existingSummary.reliefPacks.add(reliefPackName);
-    }
-
-    existingSummary.issued_stubs_count = Number(
-      row.issued_stubs_count || existingSummary.issued_stubs_count || 0,
-    );
-    existingSummary.claimed_stubs_count = Number(
-      row.claimed_stubs_count || existingSummary.claimed_stubs_count || 0,
-    );
-    existingSummary.unclaimed_stubs_count = Number(
-      row.unclaimed_stubs_count || existingSummary.unclaimed_stubs_count || 0,
-    );
-
-    const currentLatestTime = getHistoryRowTime({
-      distribution_date: existingSummary.latest_distribution_date,
-    });
-    const rowTime = getHistoryRowTime(row);
-
-    if (rowTime > currentLatestTime) {
-      existingSummary.latest_distribution_date = row.distribution_date;
-    }
-
-    summaryByEventId.set(eventId, existingSummary);
-  });
-
-  return Array.from(summaryByEventId.values()).map((summary) => ({
-    disaster_event_id: summary.disaster_event_id,
-    event_code: summary.event_code,
-    disaster_event_title: summary.disaster_event_title,
-    disaster_event_status: summary.disaster_event_status,
-    start_date: summary.start_date,
-    barangay_summary: Array.from(summary.barangayNames).sort().join(", ") || "--",
-    barangay_count: summary.barangayNames.size,
-    issued_stubs_count: summary.issued_stubs_count,
-    claimed_stubs_count: summary.claimed_stubs_count,
-    unclaimed_stubs_count: summary.unclaimed_stubs_count,
-    relief_pack_summary: Array.from(summary.reliefPacks).sort().join(", ") || "--",
-    latest_distribution_date: summary.latest_distribution_date,
-  }));
-};
 
 const attachDistributionHistoryStubCounts = async ({
   rows,
@@ -247,42 +126,6 @@ const attachDistributionHistoryStubCounts = async ({
   });
 };
 
-const sortDistributionHistorySummaryRows = (rows, sortOrder = "newest") => {
-  return [...rows].sort((leftRow, rightRow) => {
-    if (sortOrder === "az" || sortOrder === "za") {
-      const comparison = String(leftRow.disaster_event_title || "").localeCompare(
-        String(rightRow.disaster_event_title || ""),
-        undefined,
-        { sensitivity: "base" },
-      );
-
-      return sortOrder === "za" ? -comparison : comparison;
-    }
-
-    const leftTime = getHistoryRowTime({
-      distribution_date: leftRow.latest_distribution_date,
-    });
-    const rightTime = getHistoryRowTime({
-      distribution_date: rightRow.latest_distribution_date,
-    });
-
-    if (leftTime !== rightTime) {
-      return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
-    }
-
-    const leftStartTime = new Date(leftRow?.start_date || 0).getTime();
-    const rightStartTime = new Date(rightRow?.start_date || 0).getTime();
-
-    if (leftStartTime !== rightStartTime) {
-      return sortOrder === "oldest"
-        ? leftStartTime - rightStartTime
-        : rightStartTime - leftStartTime;
-    }
-
-    return 0;
-  });
-};
-
 const buildPaginationMetadata = ({ page, pageSize, totalItems }) => {
   const safePage = Number.isInteger(page) && page > 0 ? page : 1;
   const safePageSize =
@@ -299,48 +142,6 @@ const buildPaginationMetadata = ({ page, pageSize, totalItems }) => {
     hasPreviousPage: safeTotalItems > 0 && safePage > 1,
     hasNextPage: totalPages > 0 && safePage < totalPages,
   };
-};
-
-const attachAffectedBarangaysToEvents = async (events) => {
-  if (!Array.isArray(events) || events.length === 0) {
-    return [];
-  }
-
-  const affectedBarangays =
-    await disasterEventRepository.getAffectedBarangaysByDisasterEventIds(
-      events.map((event) => event.id).filter(Boolean),
-    );
-  const affectedBarangaysByEventId = affectedBarangays.reduce((grouped, row) => {
-    if (!grouped[row.disaster_event_id]) {
-      grouped[row.disaster_event_id] = [];
-    }
-
-    grouped[row.disaster_event_id].push(row);
-    return grouped;
-  }, {});
-
-  return events.map((event) => ({
-    ...event,
-    affected_barangays: affectedBarangaysByEventId[event.id] || [],
-  }));
-};
-
-const getDistributionHistorySummaryEvents = async ({ requester, filters }) => {
-  if (requester?.roleCode === BARANGAY_ROLE_CODE) {
-    const barangayId = await resolveRequesterBarangayId(requester);
-
-    if (!barangayId) {
-      return [];
-    }
-
-    const events = await disasterEventRepository.getDisasterEventsByBarangayId(
-      barangayId,
-    );
-    return attachAffectedBarangaysToEvents(events);
-  }
-
-  const events = await disasterEventRepository.getAllDisasterEvents();
-  return attachAffectedBarangaysToEvents(events);
 };
 
 const groupByKey = (rows, key) => {
@@ -389,6 +190,30 @@ const mapInventoryDistributionDetail = (detail) => {
       code: sector.code,
       name: sector.name,
     })),
+  }));
+  const distributionTransactionItems = (
+    detail.distribution_transaction_items || []
+  ).map((item) => ({
+    id: item.id,
+    distribution_transaction_id: item.distribution_transaction_id,
+    inventory_batch_id: item.inventory_batch_id,
+    inventory_item_id: item.inventory_item_id,
+    quantity_released: item.quantity_released,
+    item_code: item.item_code,
+    item_name: item.item_name,
+    category: item.category || null,
+    unit_of_measure: item.unit_of_measure,
+    relief_pack_type_snapshot: item.relief_pack_type_snapshot || null,
+    relief_pack_template_id_snapshot:
+      item.relief_pack_template_id_snapshot || null,
+    source_type: item.source_type || "LGU",
+    source_relief_type:
+      item.source_relief_type || item.source_type || "LGU",
+    donation_id: item.donation_id || null,
+    donation_item_id: item.donation_item_id || null,
+    donor_name: item.donor_name || null,
+    donated_relief_pack_name: item.donated_relief_pack_name || null,
+    created_at: item.created_at,
   }));
 
   return {
@@ -446,10 +271,11 @@ const mapInventoryDistributionDetail = (detail) => {
     member_sectors: detail.member_sectors || [],
     latest_attendance: detail.latest_attendance || null,
     distribution_transaction: detail.distribution_transaction || null,
+    distribution_transaction_items: distributionTransactionItems,
   };
 };
 
-const getInventoryDistributionDetail = async ({ stubId, requester }) => {
+const getInventoryDistributionDetail = async ({ stubId, requester = null }) => {
   const isBarangay = requester?.roleCode === BARANGAY_ROLE_CODE;
   const requesterBarangayId = isBarangay
     ? await resolveRequesterBarangayId(requester)
@@ -460,6 +286,7 @@ const getInventoryDistributionDetail = async ({ stubId, requester }) => {
       "Barangay inventory distribution detail requires an account with an assigned barangay.",
     );
     error.statusCode = 403;
+    error.code = "BARANGAY_SCOPE_FORBIDDEN";
     throw error;
   }
 
@@ -468,6 +295,16 @@ const getInventoryDistributionDetail = async ({ stubId, requester }) => {
       stubId,
       requesterBarangayId,
     );
+
+  if (!detail) {
+    return null;
+  }
+
+  const scopedRequester =
+    isBarangay && requesterBarangayId
+      ? { ...requester, defaultBarangayId: requesterBarangayId }
+      : requester;
+  assertBarangayRecordViewScope(detail.base, scopedRequester);
 
   return mapInventoryDistributionDetail(detail);
 };
@@ -520,18 +357,36 @@ const getAssignedTemplatesForExport = (
   );
 };
 
-const parseDonatedReliefPackName = (remarks) => {
-  const normalizedRemarks = String(remarks || "").trim();
-
-  if (!normalizedRemarks.toLowerCase().startsWith("relief pack:")) {
-    return "";
+const getEffectiveAssignedTemplatesForExport = ({
+  household,
+  templates,
+  disasterType,
+  disasterEventStatus,
+  stubStatus,
+  sourceRows = [],
+}) => {
+  if (
+    isLiveUnclaimedReliefPackAssignment({
+      status: stubStatus,
+      disasterEventStatus,
+    })
+  ) {
+    return getAssignedTemplatesForExport(household, templates, disasterType);
   }
 
-  return normalizedRemarks
-    .replace(/^Relief Pack:\s*/i, "")
-    .split(".")[0]
-    .replace(/\sx\s\d+$/i, "")
-    .trim();
+  // Claimed rows are represented by transaction snapshots. Do not append
+  // current template names after the transaction has already been recorded.
+  if (stubStatus === "CLAIMED" && sourceRows.length > 0) {
+    return [];
+  }
+
+  const storedAssignedReliefPacks =
+    normalizeReliefPackAssignmentSnapshots(
+      household?.stub?.assigned_relief_pack_snapshots,
+    );
+
+  return storedAssignedReliefPacks ??
+    getAssignedTemplatesForExport(household, templates, disasterType);
 };
 
 const addUniqueInventoryExportLine = (lineMap, value) => {
@@ -562,7 +417,7 @@ const formatInventoryExportReliefPack = ({
     if (row.is_relief_pack_donation) {
       addUniqueInventoryExportLine(
         lineMap,
-        parseDonatedReliefPackName(row.donation_item_remarks),
+        row.donated_relief_pack_name,
       );
       return;
     }
@@ -654,6 +509,7 @@ const loadInventoryExportTemplates = async (disasterEvent) => {
       return {
         ...template,
         items: items.map((item) => ({
+          inventory_item_id: item.inventory_item_id,
           quantity_required: item.quantity_required,
           inventory_item: {
             item_name: item.item_name,
@@ -663,6 +519,15 @@ const loadInventoryExportTemplates = async (disasterEvent) => {
     }),
   );
 };
+
+const getReliefPackComponentItemIdsForExport = (templates = []) => [
+  ...new Set(
+    (templates || [])
+      .flatMap((template) => (Array.isArray(template?.items) ? template.items : []))
+      .map((item) => item?.inventory_item_id)
+      .filter(Boolean),
+  ),
+];
 
 const filterInventoryExportByBarangays = (rows, barangayIds = []) => {
   if (!Array.isArray(barangayIds) || barangayIds.length === 0) {
@@ -844,32 +709,42 @@ const exportInventoryDistribution = async ({ requester, filters }) => {
     );
   const reliefSourceRowsByStubId = groupByKey(reliefSourceRows, "stub_id");
   const mappedRows = await Promise.all(context.exportRows.map(async (household) => {
-    const assignedTemplates = getAssignedTemplatesForExport(
-      household,
-      templates,
-      disasterEvent?.disaster_type,
-    );
     const stubStatus = getInventoryExportRowStatus(household);
     const sourceRows = reliefSourceRowsByStubId[household?.stub?.id] || [];
+    const assignedTemplates = getEffectiveAssignedTemplatesForExport({
+      household,
+      templates,
+      disasterType: disasterEvent?.disaster_type,
+      disasterEventStatus: disasterEvent?.status,
+      stubStatus,
+      sourceRows,
+    });
+    const showLiveClaimPreview = isLiveUnclaimedReliefPackAssignment({
+      status: stubStatus,
+      disasterEventStatus: disasterEvent?.status,
+    });
+    const assignedReliefPackComponentItemIds =
+      getReliefPackComponentItemIdsForExport(assignedTemplates);
     const stubQueueContext =
-      stubStatus === "ISSUED" && household?.stub?.id
+      showLiveClaimPreview && household?.stub?.id
         ? await distributionTransactionRepository.getPresentUnclaimedStubQueueContext(
             household.stub.id,
           )
         : { queue_position: 0, eligible_households_count: 0 };
     const donatedReliefPacks =
-      stubStatus === "ISSUED"
+      showLiveClaimPreview
         ? await getAvailableDonatedReliefPacksForClaimPreview(
             filters.disaster_event_id,
             stubQueueContext.queue_position,
           )
         : [];
     const donatedLooseItems =
-      stubStatus === "ISSUED"
+      showLiveClaimPreview
         ? await getAvailableDonatedLooseItemsForClaimPreview(
             filters.disaster_event_id,
             stubQueueContext.queue_position,
             stubQueueContext.eligible_households_count,
+            { excludedInventoryItemIds: assignedReliefPackComponentItemIds },
           )
         : [];
 
@@ -945,6 +820,7 @@ const exportInventoryDistribution = async ({ requester, filters }) => {
         : "mswdo-inventory-distribution",
     worksheetName: "Inventory Distribution",
     reportTitle: "Inventory Distribution Report",
+    tableTitle: "Household Distribution Records",
     sourceName,
     metadata: [
       { label: "Disaster Event", value: eventLabel },
@@ -1107,6 +983,30 @@ const assertBarangayDistributionScope = (stub, requester) => {
   }
 };
 
+const assertBarangayRecordViewScope = (record, requester) => {
+  if (requester?.roleCode !== BARANGAY_ROLE_CODE) {
+    return;
+  }
+
+  if (!requester.defaultBarangayId) {
+    const error = new Error(
+      "Barangay access requires an account with an assigned barangay.",
+    );
+    error.statusCode = 403;
+    error.code = "BARANGAY_SCOPE_FORBIDDEN";
+    throw error;
+  }
+
+  if (String(record?.barangay_id || "") !== String(requester.defaultBarangayId)) {
+    const error = new Error(
+      "You can only view records under your assigned barangay.",
+    );
+    error.statusCode = 403;
+    error.code = "BARANGAY_SCOPE_FORBIDDEN";
+    throw error;
+  }
+};
+
 const STANDARD_DISASTER_TYPES = [
   "Typhoon",
   "Flood",
@@ -1189,21 +1089,6 @@ const buildDistributionInventoryRemarks = ({
   return remarkParts.join(" | ");
 };
 
-const buildReturnInventoryRemarks = ({
-  transactionId,
-  batchNo,
-  quantityRestored,
-}) => {
-  return [
-    "Relief distribution stock restored",
-    transactionId ? `distribution_transaction_id: ${transactionId}` : null,
-    batchNo ? `batch: ${batchNo}` : null,
-    quantityRestored ? `quantity: ${quantityRestored}` : null,
-  ]
-    .filter(Boolean)
-    .join(" | ");
-};
-
 const recomputeAndUpdateInventoryItemSnapshots = async (
   inventoryItemsById,
   dbClient,
@@ -1265,20 +1150,25 @@ const buildTemplateReleasePlan = async ({
   householdSize,
   reservedQuantityByBatch = new Map(),
   allowEmptyTemplate = false,
+  assignmentSnapshot = null,
 }) => {
-  const reliefPackTemplate =
-    await distributionTransactionRepository.getReliefPackTemplateByIdForUpdate(
+  const reliefPackTemplate = assignmentSnapshot ||
+    (await distributionTransactionRepository.getReliefPackTemplateByIdForUpdate(
       reliefPackTemplateId,
       client,
-    );
+    ));
 
-  if (!reliefPackTemplate || reliefPackTemplate.is_active === false) {
+  if (
+    !reliefPackTemplate ||
+    (!assignmentSnapshot && reliefPackTemplate.is_active === false)
+  ) {
     const error = new Error("Selected relief pack template is no longer available");
     error.statusCode = 404;
     throw error;
   }
 
   if (
+    !assignmentSnapshot &&
     reliefPackTemplate.applies_to_all_disasters === false &&
     String(disasterType || "").trim()
   ) {
@@ -1300,11 +1190,12 @@ const buildTemplateReleasePlan = async ({
     }
   }
 
-  const templateItems =
-    await distributionTransactionRepository.getReliefPackTemplateItemsByTemplateIdForUpdate(
-      reliefPackTemplateId,
-      client,
-    );
+  const templateItems = Array.isArray(assignmentSnapshot?.items)
+    ? assignmentSnapshot.items
+    : await distributionTransactionRepository.getReliefPackTemplateItemsByTemplateIdForUpdate(
+        reliefPackTemplateId,
+        client,
+      );
 
   if (!Array.isArray(templateItems) || templateItems.length === 0) {
     if (allowEmptyTemplate) {
@@ -1404,10 +1295,21 @@ const buildTemplateReleasePlan = async ({
         inventory_item_id: templateItem.inventory_item_id,
         quantity_released: quantityReleased,
         batch_no: batch.batch_no,
-        item_code: batch.item_code,
-        item_name: batch.item_name,
-        unit_of_measure: batch.unit_of_measure,
+        item_code: templateItem.item_code || batch.item_code,
+        item_name: templateItem.item_name || batch.item_name,
+        category:
+          templateItem.category || inventoryItem.category || batch.category || null,
+        unit_of_measure:
+          templateItem.unit_of_measure || batch.unit_of_measure,
         source_type: batch.source_type || "LGU",
+        source_relief_type:
+          batch.source_type === "DONATED"
+            ? "DONATED_LOOSE_ITEM"
+            : batch.source_type || "LGU",
+        relief_pack_type_snapshot: reliefPackTemplate.is_additional_pack
+          ? "ADDITIONAL_RELIEF_PACK"
+          : "STANDARD_RELIEF_PACK",
+        relief_pack_template_id_snapshot: reliefPackTemplate.id,
         donation_id: batch.donation_id || null,
         donor_name: batch.donor_name || null,
         donation_item_id: batch.donation_item_id || null,
@@ -1437,12 +1339,19 @@ const buildAssignedTemplateReleasePlan = async ({
   inventoryItemsById,
   disasterType,
   householdSize,
+  assignedReliefPackSnapshots = null,
+  preferCurrentAssignment = false,
 }) => {
-  const assignedReliefPackTemplates =
+  const storedAssignedReliefPackTemplates =
+    normalizeReliefPackAssignmentSnapshots(assignedReliefPackSnapshots);
+  const currentAssignedReliefPackTemplates =
     await resolveAssignedReliefPackTemplatesForHousehold(
       householdId,
       disasterEventId,
     );
+  const assignedReliefPackTemplates = preferCurrentAssignment
+    ? currentAssignedReliefPackTemplates
+    : storedAssignedReliefPackTemplates ?? currentAssignedReliefPackTemplates;
   const primaryAssignedReliefPackTemplate =
     getPrimaryAssignedReliefPackTemplate(assignedReliefPackTemplates);
 
@@ -1485,6 +1394,10 @@ const buildAssignedTemplateReleasePlan = async ({
       householdSize,
       reservedQuantityByBatch,
       allowEmptyTemplate: true,
+      assignmentSnapshot:
+        storedAssignedReliefPackTemplates && !preferCurrentAssignment
+        ? template
+        : null,
     });
 
     templatePlans.push(templatePlan);
@@ -1516,12 +1429,17 @@ const buildAssignedTemplateReleasePlan = async ({
     throw error;
   }
 
-  const releasePlanByBatch = new Map();
+  const releasePlanByBatchTypeAndTemplate = new Map();
 
   templatePlans.forEach((templatePlan) => {
     templatePlan.releasePlan.forEach((releaseItem) => {
-      const existingReleaseItem = releasePlanByBatch.get(
+      const releaseKey = [
         releaseItem.inventory_batch_id,
+        releaseItem.relief_pack_type_snapshot || "STANDARD_RELIEF_PACK",
+        releaseItem.relief_pack_template_id_snapshot || "UNASSIGNED",
+      ].join("|");
+      const existingReleaseItem = releasePlanByBatchTypeAndTemplate.get(
+        releaseKey,
       );
 
       if (existingReleaseItem) {
@@ -1531,7 +1449,7 @@ const buildAssignedTemplateReleasePlan = async ({
         return;
       }
 
-      releasePlanByBatch.set(releaseItem.inventory_batch_id, {
+      releasePlanByBatchTypeAndTemplate.set(releaseKey, {
         ...releaseItem,
         quantity_released: Number(releaseItem.quantity_released || 0),
       });
@@ -1547,7 +1465,7 @@ const buildAssignedTemplateReleasePlan = async ({
       .map((templatePlan) => templatePlan.reliefPackTemplate.name)
       .filter(Boolean),
     packMultiplier: primaryTemplatePlan.packMultiplier,
-    releasePlan: [...releasePlanByBatch.values()],
+    releasePlan: [...releasePlanByBatchTypeAndTemplate.values()],
   };
 };
 
@@ -1567,62 +1485,6 @@ const summarizeDistributionTransaction = (transaction) =>
     "relief_pack_template_id",
     "remarks",
   ]);
-
-const summarizeDistributionItems = (items) =>
-  (Array.isArray(items) ? items : []).map((item) =>
-    pickDefined(item, [
-      "id",
-      "inventory_batch_id",
-      "inventory_item_id",
-      "quantity_released",
-      "batch_no",
-      "item_code",
-      "item_name",
-      "unit_of_measure",
-      "source_type",
-      "donation_id",
-      "donor_name",
-      "donation_item_id",
-    ]),
-  );
-
-const formatDistributionActionRemarks = ({
-  actionType,
-  reason,
-  previousRemarks,
-}) => {
-  const actionLabel = actionType === "REVERSED" ? "Reversal" : "Cancellation";
-  const normalizedReason = String(reason || "").trim();
-  const normalizedPreviousRemarks = String(previousRemarks || "").trim();
-
-  if (!normalizedPreviousRemarks) {
-    return `${actionLabel} reason: ${normalizedReason}`;
-  }
-
-  return `${actionLabel} reason: ${normalizedReason}\nPrevious remarks: ${normalizedPreviousRemarks}`;
-};
-
-const normalizeRestoredBatchStatus = (
-  batch,
-  restoredQuantity,
-  reorderLevel,
-  totalQuantityAvailable,
-) => {
-  if (!batch) {
-    return "AVAILABLE";
-  }
-
-  if (batch.status === "EXPIRED") {
-    return "EXPIRED";
-  }
-
-  return getInventoryBatchStatus({
-    quantityAvailable: restoredQuantity,
-    expirationDate: batch.expiration_date,
-    reorderLevel,
-    totalQuantityAvailable,
-  });
-};
 
 const createDistributionTransaction = async (requestData) => {
   const externalClient = requestData.dbClient || null;
@@ -1739,6 +1601,8 @@ const createDistributionTransaction = async (requestData) => {
       inventoryItemsById,
       disasterType: disasterEvent.disaster_type,
       householdSize: stub.household_size,
+      assignedReliefPackSnapshots: stub.assigned_relief_pack_snapshots,
+      preferCurrentAssignment: true,
     });
     const releasePlan = templateReleasePlan.releasePlan;
     const releaseQuantityByItemId = releasePlan.reduce(
@@ -1825,6 +1689,17 @@ const createDistributionTransaction = async (requestData) => {
             item_code_snapshot: item.item_code,
             item_name_snapshot: item.item_name,
             unit_of_measure_snapshot: item.unit_of_measure,
+            category_snapshot: item.category,
+            relief_pack_type_snapshot: item.relief_pack_type_snapshot,
+            relief_pack_template_id_snapshot:
+              item.relief_pack_template_id_snapshot,
+            source_type_snapshot: item.source_type || "LGU",
+            source_relief_type_snapshot:
+              getDistributionItemSourceReliefTypeSnapshot(item),
+            donation_id_snapshot: item.donation_id,
+            donation_item_id_snapshot: item.donation_item_id,
+            donor_name_snapshot: item.donor_name,
+            donated_relief_pack_name_snapshot: item.donated_relief_pack_name,
           },
           client,
         );
@@ -1844,7 +1719,13 @@ const createDistributionTransaction = async (requestData) => {
         item_code: batchDetails.item_code,
         item_name: batchDetails.item_name,
         unit_of_measure: batchDetails.unit_of_measure,
+        category: item.category || batchDetails.category || null,
         source_type: item.source_type || batchDetails.source_type || "LGU",
+        source_relief_type:
+          item.source_relief_type || item.source_type || batchDetails.source_type || "LGU",
+        relief_pack_type_snapshot: item.relief_pack_type_snapshot,
+        relief_pack_template_id_snapshot:
+          item.relief_pack_template_id_snapshot || null,
         donation_id: item.donation_id || null,
         donor_name: item.donor_name || null,
         donation_item_id: item.donation_item_id || null,
@@ -2526,238 +2407,6 @@ const exportDistributionHistory = async ({ requester, filters }) => {
   });
 };
 
-const updateDistributionTransactionLifecycle = async ({
-  transactionId,
-  actionType,
-  remarks,
-  requester,
-}) => {
-  const normalizedActionType = String(actionType || "").toUpperCase();
-  const normalizedRemarks = String(remarks || "").trim();
-
-  if (!["CANCELLED", "REVERSED"].includes(normalizedActionType)) {
-    const error = new Error("distribution action must be CANCELLED or REVERSED");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (!normalizedRemarks) {
-    const error = new Error("remarks are required for distribution cancel/reversal");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (
-    requester?.roleCode !== ROLE_CODES.BARANGAY &&
-    requester?.roleCode !== ROLE_CODES.MSWDO
-  ) {
-    const error = new Error("Only Barangay and MSWDO can cancel or reverse distributions.");
-    error.statusCode = 403;
-    throw error;
-  }
-
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-
-    const distributionTransaction =
-      await distributionTransactionRepository.getDistributionTransactionByIdForUpdate(
-        transactionId,
-        client,
-      );
-
-    if (!distributionTransaction) {
-      const error = new Error("Distribution transaction not found");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    assertBarangayDistributionScope(
-      {
-        barangay_id: distributionTransaction.barangay_id,
-      },
-      requester,
-    );
-
-    if (distributionTransaction.distribution_status === normalizedActionType) {
-      const duplicateActionLabel =
-        normalizedActionType === "REVERSED" ? "reversed" : "cancelled";
-      const error = new Error(
-        `This distribution record has already been ${duplicateActionLabel}.`,
-      );
-      error.statusCode = 409;
-      throw error;
-    }
-
-    if (distributionTransaction.distribution_status !== "CLAIMED") {
-      const error = new Error(
-        "Only currently claimed distribution records can be cancelled or reversed.",
-      );
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const transactionItems =
-      await distributionTransactionRepository.getDistributionTransactionItemsForUpdate(
-        distributionTransaction.id,
-        client,
-      );
-    const inventoryItemsById = new Map();
-    const restoredQuantityByItemId = transactionItems.reduce(
-      (totals, item) => {
-        totals.set(
-          item.inventory_item_id,
-          (totals.get(item.inventory_item_id) || 0) +
-            Number(item.quantity_released || 0),
-        );
-        return totals;
-      },
-      new Map(),
-    );
-
-    const batchSummaries = [];
-
-    for (const item of transactionItems) {
-      const inventoryItem = await inventoryItemRepository.getInventoryItemByIdForUpdate(
-        item.inventory_item_id,
-        client,
-      );
-
-      if (inventoryItem) {
-        inventoryItemsById.set(item.inventory_item_id, inventoryItem);
-      }
-
-      const restoredQuantity =
-        Number(item.quantity_available || 0) + Number(item.quantity_released || 0);
-      const nextItemTotalStock =
-        item.item_total_stock === undefined || item.item_total_stock === null
-          ? undefined
-          : Number(item.item_total_stock || 0) +
-            (restoredQuantityByItemId.get(item.inventory_item_id) || 0);
-      const nextStatus = normalizeRestoredBatchStatus(
-        item,
-        restoredQuantity,
-        inventoryItem?.reorder_level,
-        nextItemTotalStock,
-      );
-
-      await distributionTransactionRepository.updateInventoryBatchQuantityAndStatus(
-        item.inventory_batch_id,
-        restoredQuantity,
-        nextStatus,
-        client,
-      );
-
-      batchSummaries.push({
-        inventory_batch_id: item.inventory_batch_id,
-        batch_no: item.batch_no,
-        item_name: item.item_name,
-        restored_quantity: item.quantity_released,
-        next_quantity_available: restoredQuantity,
-        next_status: nextStatus,
-      });
-
-      await distributionTransactionRepository.insertInventoryTransaction(
-        {
-          disaster_event_id: distributionTransaction.disaster_event_id,
-          inventory_batch_id: item.inventory_batch_id,
-          transaction_type: "RETURN",
-          quantity: item.quantity_released,
-          reference_type: "DISTRIBUTION",
-          reference_id: distributionTransaction.id,
-          performed_by: requester?.userId || null,
-          remarks: buildReturnInventoryRemarks({
-            transactionId: distributionTransaction.id,
-            batchNo: item.batch_no,
-            quantityRestored: item.quantity_released,
-          }),
-        },
-        client,
-      );
-    }
-
-    const nextReceiptStatus =
-      normalizedActionType === "REVERSED" ? "VOIDED" : "CANCELLED";
-    const nextRemarks = formatDistributionActionRemarks({
-      actionType: normalizedActionType,
-      reason: normalizedRemarks,
-      previousRemarks: distributionTransaction.remarks,
-    });
-
-    const updatedTransaction =
-      await distributionTransactionRepository.updateDistributionTransactionStatus(
-        distributionTransaction.id,
-        {
-          distribution_status: normalizedActionType,
-          receipt_status: nextReceiptStatus,
-          remarks: nextRemarks,
-        },
-        client,
-      );
-
-    const updatedStub = await distributionTransactionRepository.updateStubStatus(
-      distributionTransaction.stub_id,
-      "CANCELLED",
-      client,
-    );
-
-    await recomputeAndUpdateInventoryItemSnapshots(inventoryItemsById, client);
-
-    await client.query("COMMIT");
-
-    await logAuditSafely({
-      actor: requester,
-      action:
-        normalizedActionType === "REVERSED"
-          ? "DISTRIBUTION_REVERSE"
-          : "DISTRIBUTION_CANCEL",
-      entityType: "DISTRIBUTION_TRANSACTION",
-      entityId: updatedTransaction.id,
-      oldValues: {
-        transaction: summarizeDistributionTransaction(distributionTransaction),
-        items: summarizeDistributionItems(transactionItems),
-        stub: pickDefined(distributionTransaction, [
-          "stub_id",
-          "stub_no",
-          "serial_no",
-          "stub_status",
-        ]),
-      },
-      newValues: {
-        transaction: summarizeDistributionTransaction(updatedTransaction),
-        stub: pickDefined(updatedStub, [
-          "id",
-          "stub_no",
-          "serial_no",
-          "status",
-        ]),
-        reason: normalizedRemarks,
-        restored_batches: batchSummaries,
-      },
-    });
-
-    return {
-      id: updatedTransaction.id,
-      distribution_status: updatedTransaction.distribution_status,
-      receipt_status: updatedTransaction.receipt_status,
-      remarks: updatedTransaction.remarks,
-      stub: pickDefined(updatedStub, [
-        "id",
-        "stub_no",
-        "serial_no",
-        "status",
-      ]),
-      restored_batches: batchSummaries,
-    };
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-};
-
 module.exports = {
   createDistributionTransaction,
   claimDistributionTransactionFromQr,
@@ -2766,5 +2415,4 @@ module.exports = {
   getDistributionHistory,
   exportInventoryDistribution,
   exportDistributionHistory,
-  updateDistributionTransactionLifecycle,
 };

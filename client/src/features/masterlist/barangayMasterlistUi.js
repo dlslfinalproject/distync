@@ -425,7 +425,7 @@ export const resolveEffectiveMasterlistRows = ({
 
 export const isEndedDisasterEvent = (event, eventScope) => {
   const status = String(event?.status || "").toUpperCase();
-  return eventScope === "ended" || status === "CLOSED" || status === "ARCHIVED";
+  return eventScope === "ended" || status === "CLOSED";
 };
 
 export const formatEventEndedDateTime = (value) => {

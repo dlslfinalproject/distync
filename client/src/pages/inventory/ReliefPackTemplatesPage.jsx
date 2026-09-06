@@ -447,27 +447,6 @@ const reliefPackPageStyles = {
   },
 };
 
-const staticCardGridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-  gap: "16px",
-  alignItems: "stretch",
-  width: "100%",
-};
-
-const staticCardStyle = {
-  border: "1px solid #b7c7d8",
-  borderRadius: "10px",
-  backgroundColor: "#f8fbfe",
-  padding: "16px",
-  boxShadow: "0 2px 6px rgba(23, 50, 77, 0.10)",
-  display: "flex",
-  flexDirection: "column",
-  minHeight: "100%",
-  boxSizing: "border-box",
-  width: "100%",
-};
-
 const tableStyles = {
   table: {
     width: "100%",
@@ -595,32 +574,6 @@ const tableStyles = {
     width: "88px",
     whiteSpace: "nowrap",
   },
-};
-
-const staticInnerBoxStyle = {
-  backgroundColor: "#eef2f6",
-  borderRadius: "10px",
-  padding: "14px 16px",
-  marginBottom: "8px",
-  minHeight: "270px",
-  display: "flex",
-  flexDirection: "column",
-  boxSizing: "border-box",
-};
-
-const secondaryCardButtonStyle = {
-  flex: 1,
-  minHeight: "42px",
-  borderRadius: "12px",
-  border: "1px solid #c6d8ea",
-  backgroundColor: "#f8fbfe",
-  color: "#2a4c6f",
-  fontSize: "14px",
-  fontWeight: 700,
-  cursor: "pointer",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
 };
 
 const alertBoxStyle = {

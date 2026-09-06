@@ -162,7 +162,7 @@ const stopMediaStream = (stream) => {
   });
 };
 
-const FamilyHeadSection = ({ form, onViewSuggestedHousehold }) => {
+const FamilyHeadSection = ({ form }) => {
   const videoRef = useRef(null);
   const [cameraStream, setCameraStream] = useState(null);
   const [isStartingCamera, setIsStartingCamera] = useState(false);
@@ -501,7 +501,6 @@ const FamilyHeadSection = ({ form, onViewSuggestedHousehold }) => {
           groups={familyHeadSuggestionGroups}
           isLoading={form.isLoadingDuplicateSuggestions}
           errorMessage={form.duplicateSuggestionsError}
-          onViewHousehold={onViewSuggestedHousehold}
         />
       </div>
 

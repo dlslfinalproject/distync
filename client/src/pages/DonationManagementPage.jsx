@@ -145,7 +145,7 @@ const getDonationLeftoverItems = (donation) => {
 const canReassignDonationLeftoverStock = (donation) => {
   const status = String(donation?.disaster_event?.status || "").toUpperCase();
   return (
-    ["CLOSED", "ARCHIVED"].includes(status) &&
+    status === "CLOSED" &&
     getDonationLeftoverItems(donation).length > 0
   );
 };
@@ -632,7 +632,7 @@ const DonationManagementPage = () => {
       return (
         eventRow?.id &&
         String(eventRow.id) !== String(sourceDonation?.disaster_event_id) &&
-        !["CLOSED", "ARCHIVED"].includes(status)
+        status !== "CLOSED"
       );
     });
   };

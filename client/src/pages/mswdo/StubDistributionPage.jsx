@@ -321,8 +321,7 @@ const StubDistributionPage = () => {
   }, [displayedRowsWithSyncStatus, selectedStubIds]);
 
   const scopedDisasterEvents = useMemo(() => {
-    const allowedStatuses =
-      activeTab === "active" ? ["ACTIVE"] : ["CLOSED", "ARCHIVED"];
+    const allowedStatuses = activeTab === "active" ? ["ACTIVE"] : ["CLOSED"];
 
     return disasterEvents.filter((event) => allowedStatuses.includes(event.status));
   }, [activeTab, disasterEvents]);
@@ -351,7 +350,7 @@ const StubDistributionPage = () => {
     }
 
     if (
-      ["CLOSED", "ARCHIVED"].includes(selectedDisasterEvent?.status) &&
+      selectedDisasterEvent?.status === "CLOSED" &&
       activeTab !== "ended"
     ) {
       setActiveTab("ended");
@@ -442,8 +441,7 @@ const StubDistributionPage = () => {
   const handleEventScopeChange = (nextTab) => {
     setActiveTab(nextTab);
 
-    const allowedStatuses =
-      nextTab === "active" ? ["ACTIVE"] : ["CLOSED", "ARCHIVED"];
+    const allowedStatuses = nextTab === "active" ? ["ACTIVE"] : ["CLOSED"];
     const nextEvents = disasterEvents.filter((event) =>
       allowedStatuses.includes(event.status),
     );

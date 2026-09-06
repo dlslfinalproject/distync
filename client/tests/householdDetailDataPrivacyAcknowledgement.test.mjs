@@ -97,9 +97,7 @@ test("DP-HD-04 normal Barangay and MSWDO details opt in to privacy but keep admi
   );
 });
 
-test("DP-HD-05 possible-match details explicitly opt out of the privacy section", () => {
-  assert.match(
-    registerModalSource,
-    /<HouseholdDetailModal[\s\S]*isOpen=\{Boolean\(viewingSuggestedHouseholdId\)\}[\s\S]*showAdministrativeMetadata=\{false\}[\s\S]*showDataPrivacyAcknowledgement=\{false\}/,
-  );
+test("DP-HD-05 duplicate suggestions no longer open a household-details modal", () => {
+  assert.doesNotMatch(registerModalSource, /HouseholdDetailModal/);
+  assert.doesNotMatch(registerModalSource, /viewingSuggestedHouseholdId/);
 });

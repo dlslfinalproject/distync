@@ -106,7 +106,8 @@ const lockHouseholdRegistrationScope = async (disasterEventId, dbClient) => {
   const query = `
     SELECT
       id,
-      status
+      status,
+      disaster_type
     FROM disaster_events
     WHERE id = $1
     FOR UPDATE
@@ -1078,6 +1079,151 @@ const insertHouseholdSectors = async (householdId, sectorIds, dbClient) => {
 
 const insertStub = async (stubData, dbClient) => {
   const query = `
+    WITH assigned_templates AS (
+      SELECT
+        rpt.id AS relief_pack_template_id,
+        rpt.name,
+        CASE
+          WHEN rpt.is_additional_pack = TRUE
+           AND LEFT(
+             COALESCE(rpt.description, ''),
+             LENGTH('__relief_pack_sector_ids__:')
+           ) = '__relief_pack_sector_ids__:'
+          THEN NULL
+          ELSE rpt.description
+        END AS description,
+        rpt.based_on_family_size,
+        rpt.based_on_sector,
+        rpt.is_additional_pack,
+        rpt.sector_id,
+        rpt.applies_to_all_disasters,
+        NULLIF(BTRIM(COALESCE($11::text, '')), '') AS disaster_type,
+        CASE
+          WHEN rpt.based_on_family_size = TRUE
+           AND NULLIF(BTRIM(rpt.description), '') ~ '^[0-9]+$'
+           AND NULLIF(BTRIM(rpt.description), '')::numeric > 0
+           AND COALESCE($13::integer, 0) > 0
+          THEN GREATEST(
+            1,
+            CEIL(
+              COALESCE($13::integer, 0)::numeric /
+              NULLIF(BTRIM(rpt.description), '')::numeric
+            )
+          )::integer
+          ELSE 1
+        END AS pack_multiplier,
+        COALESCE(
+          JSONB_AGG(
+            JSONB_BUILD_OBJECT(
+              'inventory_item_id', rpti.inventory_item_id,
+              'item_code', ii.item_code,
+              'item_name', ii.item_name,
+              'category', ii.category,
+              'unit_of_measure', ii.unit_of_measure,
+              'quantity_required', rpti.quantity_required
+            )
+            ORDER BY ii.item_name ASC, rpti.id ASC
+          ) FILTER (WHERE rpti.id IS NOT NULL),
+          '[]'::jsonb
+        ) AS items
+      FROM relief_pack_templates rpt
+      LEFT JOIN relief_pack_template_items rpti
+        ON rpti.template_id = rpt.id
+      LEFT JOIN inventory_items ii
+        ON ii.id = rpti.inventory_item_id
+      WHERE rpt.is_active = TRUE
+        AND (
+          NULLIF(BTRIM(COALESCE($11::text, '')), '') IS NULL
+          OR rpt.applies_to_all_disasters = TRUE
+          OR EXISTS (
+            SELECT 1
+            FROM relief_pack_template_disaster_types rptdt
+            WHERE rptdt.template_id = rpt.id
+              AND (
+                rptdt.disaster_type = BTRIM($11::text)
+                OR (
+                  BTRIM($11::text) NOT IN (
+                    'Typhoon',
+                    'Flood',
+                    'Earthquake',
+                    'Landslide',
+                    'Volcanic Eruption',
+                    'Storm Surge',
+                    'Drought / El Niño',
+                    'Tsunami',
+                    'Fire'
+                  )
+                  AND rptdt.disaster_type = 'Other'
+                )
+              )
+          )
+        )
+        AND (
+          rpt.is_additional_pack = FALSE
+          OR rpt.sector_id = ANY(
+            COALESCE($12::uuid[], ARRAY[]::uuid[])
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM JSONB_ARRAY_ELEMENTS_TEXT(
+              CASE
+                WHEN LEFT(
+                  COALESCE(rpt.description, ''),
+                  LENGTH('__relief_pack_sector_ids__:')
+                ) = '__relief_pack_sector_ids__:'
+                THEN SUBSTRING(
+                  rpt.description
+                  FROM LENGTH('__relief_pack_sector_ids__:') + 1
+                )::jsonb
+                ELSE '[]'::jsonb
+              END
+            ) encoded_sector(sector_id)
+            WHERE encoded_sector.sector_id = ANY(
+              ARRAY(
+                SELECT sector_id::text
+                FROM UNNEST(
+                  COALESCE($12::uuid[], ARRAY[]::uuid[])
+                ) AS sector_value(sector_id)
+              )
+            )
+          )
+        )
+      GROUP BY
+        rpt.id,
+        rpt.name,
+        rpt.description,
+        rpt.based_on_family_size,
+        rpt.based_on_sector,
+        rpt.is_additional_pack,
+        rpt.sector_id,
+        rpt.applies_to_all_disasters
+    ), assignment_snapshot AS (
+      SELECT COALESCE(
+        JSONB_AGG(
+          JSONB_BUILD_OBJECT(
+            'relief_pack_template_id', relief_pack_template_id,
+            'name', name,
+            'description', description,
+            'based_on_family_size', based_on_family_size,
+            'based_on_sector', based_on_sector,
+            'is_additional_pack', is_additional_pack,
+            'sector_id', sector_id,
+            'applies_to_all_disasters', applies_to_all_disasters,
+            'disaster_type', disaster_type,
+            'pack_multiplier', pack_multiplier,
+            'items', items,
+            'assigned_at', NOW()
+          )
+          ORDER BY
+            is_additional_pack ASC,
+            based_on_family_size DESC,
+            name ASC,
+            relief_pack_template_id ASC
+        ),
+        '[]'::jsonb
+      ) AS snapshots
+      FROM assigned_templates
+    )
     INSERT INTO stubs (
       disaster_event_id,
       household_id,
@@ -1090,10 +1236,26 @@ const insertStub = async (stubData, dbClient) => {
       qr_generated_by,
       qr_status,
       qr_notes,
+      assigned_relief_pack_snapshots,
       issued_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, NOW(), NOW())
+    VALUES (
+      $1,
+      $2,
+      $3,
+      $4,
+      $5,
+      $6,
+      $7,
+      NOW(),
+      $8,
+      $9,
+      $10,
+      (SELECT snapshots FROM assignment_snapshot),
+      NOW(),
+      NOW()
+    )
     RETURNING
       id,
       disaster_event_id,
@@ -1107,6 +1269,7 @@ const insertStub = async (stubData, dbClient) => {
       qr_generated_by,
       qr_status,
       qr_notes,
+      assigned_relief_pack_snapshots,
       issued_at,
       claimed_at,
       updated_at
@@ -1123,6 +1286,11 @@ const insertStub = async (stubData, dbClient) => {
     stubData.qr_generated_by,
     stubData.qr_status,
     stubData.qr_notes ?? null,
+    stubData.disaster_type ?? null,
+    Array.isArray(stubData.assigned_sector_ids)
+      ? stubData.assigned_sector_ids
+      : [],
+    stubData.household_size ?? null,
   ];
 
   const result = await dbClient.query(query, values);

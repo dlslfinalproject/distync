@@ -432,6 +432,134 @@ const mapPublicDonationSummary = (row, index) => ({
     : [],
 });
 
+const parsePublicReliefPackDonationRemark = (remarks) => {
+  const normalizedRemarks = String(remarks || "").trim();
+
+  if (!isReliefPackDonationItemRemark(normalizedRemarks)) {
+    return null;
+  }
+
+  const remarkBody = normalizedRemarks
+    .replace(/^Relief Pack:\s*/i, "")
+    .trim();
+  const quantityMatch = remarkBody.match(/^(.*?)(?:\s+x\s+(\d+))$/i);
+  const packName = (quantityMatch ? quantityMatch[1] : "").trim();
+  const packQuantity = quantityMatch ? Number(quantityMatch[2]) : 0;
+
+  if (!packName || !Number.isInteger(packQuantity) || packQuantity <= 0) {
+    return null;
+  }
+
+  return {
+    packName,
+    packQuantity,
+  };
+};
+
+const buildPublicDonationUtilizationRows = (rows) => {
+  const groups = new Map();
+
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const packMeta = parsePublicReliefPackDonationRemark(
+      row.donation_item_remarks,
+    );
+    const isPackDonation = isReliefPackDonationItemRemark(
+      row.donation_item_remarks,
+    );
+
+    if (isPackDonation && !packMeta) {
+      return;
+    }
+
+    const sourceType = packMeta ? "RELIEF_PACK" : "LOOSE_ITEM";
+    const sourceKey = packMeta
+      ? [
+          row.donation_id,
+          sourceType,
+          packMeta.packName.toLowerCase(),
+          packMeta.packQuantity,
+        ].join(":")
+      : [row.donation_id, sourceType, row.inventory_item_id].join(":");
+    const existingGroup = groups.get(sourceKey) || {
+      source_key: sourceKey,
+      source_type: sourceType,
+      donation_id: row.donation_id,
+      donor_name: row.donor_name,
+      donor_name_public: row.donor_name_public === true,
+      donor_type: row.donor_type || "OTHER",
+      disaster_event_id: row.disaster_event_id,
+      disaster_event_title: row.disaster_event_title,
+      item_name: packMeta?.packName || row.item_name,
+      relief_pack_name: packMeta?.packName || null,
+      unit_of_measure: packMeta ? "pack" : "pc",
+      pack_quantity: packMeta?.packQuantity || 0,
+      quantity_received: 0,
+      quantity_distributed: 0,
+      quantity_written_off: 0,
+      quantity_remaining: 0,
+      components: [],
+    };
+
+    if (packMeta) {
+      const quantityPerPack = Math.floor(
+        Number(row.quantity_received || 0) / packMeta.packQuantity,
+      );
+
+      if (quantityPerPack <= 0) {
+        return;
+      }
+
+      existingGroup.components.push({
+        quantity_per_pack: quantityPerPack,
+        quantity_distributed: Number(row.quantity_distributed || 0),
+        quantity_written_off: Number(row.quantity_written_off || 0),
+        quantity_remaining: Number(row.quantity_remaining || 0),
+      });
+    } else {
+      existingGroup.quantity_received += Number(row.quantity_received || 0);
+      existingGroup.quantity_distributed += Number(
+        row.quantity_distributed || 0,
+      );
+      existingGroup.quantity_written_off += Number(
+        row.quantity_written_off || 0,
+      );
+      existingGroup.quantity_remaining += Number(row.quantity_remaining || 0);
+    }
+
+    groups.set(sourceKey, existingGroup);
+  });
+
+  return [...groups.values()].map((group) => {
+    if (group.source_type !== "RELIEF_PACK") {
+      return group;
+    }
+
+    const getCompletePackCount = (fieldName) => {
+      if (group.components.length === 0) {
+        return 0;
+      }
+
+      return Math.min(
+        ...group.components.map((component) =>
+          Math.floor(
+            Number(component[fieldName] || 0) /
+              Number(component.quantity_per_pack || 1),
+          ),
+        ),
+      );
+    };
+
+    return {
+      ...group,
+      quantity_received: group.pack_quantity,
+      quantity_distributed: getCompletePackCount("quantity_distributed"),
+      quantity_written_off: getCompletePackCount("quantity_written_off"),
+      quantity_remaining: getCompletePackCount("quantity_remaining"),
+      components: undefined,
+    };
+  });
+};
+
 const getDateOnlyTime = (value) => {
   if (!value) {
     return null;
@@ -2163,7 +2291,7 @@ const reassignLeftoverDonationStock = async (
     }
 
     if (
-      !["CLOSED", "ARCHIVED"].includes(String(sourceEvent.status).toUpperCase())
+      String(sourceEvent.status).toUpperCase() === "CLOSED"
     ) {
       const error = new Error(
         "Leftover stock can only be reassigned after the source disaster event is closed.",
@@ -2181,7 +2309,7 @@ const reassignLeftoverDonationStock = async (
     }
 
     if (
-      ["CLOSED", "ARCHIVED"].includes(String(targetEvent.status).toUpperCase())
+      String(targetEvent.status).toUpperCase() === "CLOSED"
     ) {
       const error = new Error("Target disaster event must be planned or active.");
       error.statusCode = 400;
@@ -2498,6 +2626,48 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
     latestForecasts,
     defaultEmergencyNeeds: defaultEmergencyNeedRows,
   });
+  const publicUtilizationRows = buildPublicDonationUtilizationRows(
+    perItemSummary,
+  );
+  const publicUtilizationTotals = publicUtilizationRows.reduce(
+    (totals, row) => {
+      const isReliefPack = row.source_type === "RELIEF_PACK";
+      const quantityKey = isReliefPack ? "relief_packs" : "loose_items";
+
+      totals[`${quantityKey}_received`] += Number(row.quantity_received || 0);
+      totals[`${quantityKey}_distributed`] += Number(
+        row.quantity_distributed || 0,
+      );
+      totals[`${quantityKey}_remaining`] += Number(
+        row.quantity_remaining || 0,
+      );
+      return totals;
+    },
+    {
+      loose_items_received: 0,
+      loose_items_distributed: 0,
+      loose_items_remaining: 0,
+      relief_packs_received: 0,
+      relief_packs_distributed: 0,
+      relief_packs_remaining: 0,
+    },
+  );
+  const publicDonorLabels = new Map();
+  const getPublicUtilizationDonorLabel = (row) => {
+    const donorKey = [
+      row.donor_name,
+      row.donor_type,
+      row.disaster_event_id,
+    ]
+      .map((value) => String(value || "").trim().toLowerCase())
+      .join("|");
+
+    if (!publicDonorLabels.has(donorKey)) {
+      publicDonorLabels.set(donorKey, `Donor #${publicDonorLabels.size + 1}`);
+    }
+
+    return publicDonorLabels.get(donorKey);
+  };
 
   return {
     public_contact_config: getPublicContactConfig(),
@@ -2510,18 +2680,30 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
     recent_donations: recentDonationRows.map(mapPublicDonationSummary),
     transparency_summary: {
       ...summaryTotals,
-      received_vs_distributed: perItemSummary.map((row, index) => ({
+      total_loose_items_received: publicUtilizationTotals.loose_items_received,
+      total_loose_items_distributed:
+        publicUtilizationTotals.loose_items_distributed,
+      total_loose_items_remaining: publicUtilizationTotals.loose_items_remaining,
+      total_relief_packs_received:
+        publicUtilizationTotals.relief_packs_received,
+      total_relief_packs_distributed:
+        publicUtilizationTotals.relief_packs_distributed,
+      total_relief_packs_remaining: publicUtilizationTotals.relief_packs_remaining,
+      received_vs_distributed: publicUtilizationRows.map((row) => ({
         public_key: createPublicKey(
-          "utilization-item",
-          `${row.donation_id}:${row.inventory_item_id}`,
+          "utilization-source",
+          row.source_key,
         ),
-        donor_name: resolvePublicDonorName(
-          row.donor_name,
-          index,
-          row.donor_name_public === true,
-        ),
+        donor_name:
+          row.donor_name_public === true && row.donor_name
+            ? row.donor_name
+            : getPublicUtilizationDonorLabel(row),
+        donor_type: row.donor_type,
+        donor_type_label: donorTypeLabels[row.donor_type] || "Other",
         disaster_event_id: row.disaster_event_id,
         disaster_event_title: row.disaster_event_title,
+        source_type: row.source_type,
+        relief_pack_name: row.relief_pack_name,
         item_name: row.item_name,
         unit_of_measure: row.unit_of_measure,
         quantity_received: row.quantity_received,

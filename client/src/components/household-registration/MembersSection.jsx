@@ -54,7 +54,7 @@ const fieldStyles = {
   },
 };
 
-const MembersSection = ({ form, onViewSuggestedHousehold }) => {
+const MembersSection = ({ form }) => {
   return (
     <section style={shellStyles.card}>
       <div
@@ -425,7 +425,6 @@ const MembersSection = ({ form, onViewSuggestedHousehold }) => {
                   groups={memberSuggestionGroups}
                   isLoading={form.isLoadingDuplicateSuggestions}
                   errorMessage={form.duplicateSuggestionsError}
-                  onViewHousehold={onViewSuggestedHousehold}
                 />
               </div>
             </div>

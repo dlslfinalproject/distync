@@ -42,76 +42,38 @@ const unwantedAdministrativeLabels = [
   "Recorded Offline",
 ];
 
-test("PM-HD-01 possible-match household details uses the shared details modal without administrative metadata", () => {
-  assert.match(
-    registerModalSource,
-    /<HouseholdDetailModal[\s\S]*isOpen=\{Boolean\(viewingSuggestedHouseholdId\)\}[\s\S]*householdDetails=\{suggestedHouseholdDetails\}[\s\S]*showAdministrativeMetadata=\{false\}/,
-  );
-  assert.match(
-    registerModalSource,
-    /<HouseholdDetailModal[\s\S]*isOpen=\{Boolean\(viewingSuggestedHouseholdId\)\}[\s\S]*householdDetails=\{suggestedHouseholdDetails\}[\s\S]*showDataPrivacyAcknowledgement=\{false\}/,
-  );
+test("PM-HD-01 duplicate suggestions do not open a household-details modal", () => {
+  assert.doesNotMatch(registerModalSource, /HouseholdDetailModal/);
+  assert.doesNotMatch(registerModalSource, /fetchHouseholdDetails/);
+  assert.doesNotMatch(suggestionsSource, /View Household Details/);
 });
 
-test("PM-HD-02 family-head and member possible matches open the same suggested-household handler", () => {
-  assert.match(
-    registerModalSource,
-    /<FamilyHeadSection[\s\S]*onViewSuggestedHousehold=\{handleOpenSuggestedHouseholdDetails\}/,
-  );
-  assert.match(
-    registerModalSource,
-    /<MembersSection[\s\S]*onViewSuggestedHousehold=\{handleOpenSuggestedHouseholdDetails\}/,
-  );
-  assert.match(
-    familyHeadSource,
-    /<DuplicateRegistrationSuggestionsSection[\s\S]*onViewHousehold=\{onViewSuggestedHousehold\}/,
-  );
-  assert.match(
-    membersSource,
-    /<DuplicateRegistrationSuggestionsSection[\s\S]*onViewHousehold=\{onViewSuggestedHousehold\}/,
-  );
-  assert.match(
-    suggestionsSource,
-    /onClick=\{\(\) => onViewHousehold\?\.\(match\.household_id\)\}/,
-  );
+test("PM-HD-02 family-head and member suggestions keep the shared card without navigation", () => {
+  assert.match(familyHeadSource, /<DuplicateRegistrationSuggestionsSection/);
+  assert.match(membersSource, /<DuplicateRegistrationSuggestionsSection/);
+  assert.doesNotMatch(familyHeadSource, /onViewHousehold/);
+  assert.doesNotMatch(membersSource, /onViewHousehold/);
+  assert.doesNotMatch(suggestionsSource, /onClick=/);
 });
 
-test("PM-HD-08 restricted external Barangay matches render generic notice only", () => {
-  assert.match(
-    suggestionsSource,
-    /RESTRICTED_EXTERNAL_BARANGAY/,
-  );
-  assert.match(
-    suggestionsSource,
-    /Possible match found outside your barangay/,
-  );
-  assert.match(
-    suggestionsSource,
-    /A possible matching record exists outside your authorized\s+barangay\. Its details are restricted\. Review the information\s+you entered before continuing\./,
-  );
-  assert.match(
-    suggestionsSource,
-    /match\.details_restricted \|\|[\s\S]*match\.visibility === RESTRICTED_EXTERNAL_BARANGAY_VISIBILITY[\s\S]*Possible match found outside your barangay/,
-  );
+test("PM-HD-08 restricted external Barangay matches use a limited card summary", () => {
+  assert.match(suggestionsSource, /RESTRICTED_EXTERNAL_BARANGAY/);
+  assert.match(suggestionsSource, /match\.family_head_name/);
+  assert.match(suggestionsSource, /match\.barangay_name/);
+  assert.match(suggestionsSource, /formatDateTime\(match\.registered_at\)/);
+  assert.match(suggestionsSource, /Details restricted/);
 });
 
 test("PM-HD-09 restricted external Barangay matches do not receive household navigation", () => {
-  assert.match(
-    suggestionsSource,
-    /match\.details_restricted[\s\S]*\? \([\s\S]*Possible match found outside your barangay[\s\S]*\) : \([\s\S]*onClick=\{\(\) => onViewHousehold\?\.\(match\.household_id\)\}/,
-  );
-  const restrictedBranch = suggestionsSource.slice(
-    suggestionsSource.indexOf("restricted-external-barangay"),
-    suggestionsSource.indexOf(") : (", suggestionsSource.indexOf("restricted-external-barangay")),
-  );
-
-  assert.doesNotMatch(restrictedBranch, /onViewHousehold|household_id|View Household Details/);
+  assert.doesNotMatch(suggestionsSource, /onViewHousehold/);
+  assert.doesNotMatch(suggestionsSource, /View Household Details/);
+  assert.doesNotMatch(suggestionsSource, /onClick=/);
 });
 
 test("PM-HD-10 add-member possible matches use the restricted-aware shared section", () => {
   assert.match(
     membersSource,
-    /form\.members\.map\(\(member, index\) => \{[\s\S]*<DuplicateRegistrationSuggestionsSection[\s\S]*groups=\{memberSuggestionGroups\}[\s\S]*onViewHousehold=\{onViewSuggestedHousehold\}/,
+    /form\.members\.map\(\(member, index\) => \{[\s\S]*<DuplicateRegistrationSuggestionsSection[\s\S]*groups=\{memberSuggestionGroups\}/,
   );
   assert.match(
     suggestionsSource,
@@ -184,12 +146,9 @@ test("PM-HD-06 administrative labels remain gated by the shared visibility prop"
   });
 });
 
-test("PM-HD-07 possible-match household details does not enable the data privacy acknowledgement section", () => {
+test("PM-HD-07 duplicate suggestions do not expose household-detail controls", () => {
   assert.match(detailModalSource, /showDataPrivacyAcknowledgement = false/);
-  assert.match(
-    registerModalSource,
-    /<HouseholdDetailModal[\s\S]*showAdministrativeMetadata=\{false\}[\s\S]*showDataPrivacyAcknowledgement=\{false\}/,
-  );
+  assert.doesNotMatch(registerModalSource, /HouseholdDetailModal/);
 
   unwantedAdministrativeLabels.forEach((label) => {
     assert.doesNotMatch(registerModalSource, new RegExp(label));

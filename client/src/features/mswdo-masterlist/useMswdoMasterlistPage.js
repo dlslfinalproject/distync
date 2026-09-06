@@ -641,7 +641,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     }
 
     if (
-      ["CLOSED", "ARCHIVED"].includes(selectedDisasterEvent?.status) &&
+      selectedDisasterEvent?.status === "CLOSED" &&
       activeTab !== "ended"
     ) {
       setActiveTab("ended");

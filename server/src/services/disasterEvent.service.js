@@ -790,8 +790,7 @@ const isValidAffectedBarangay = (barangay) => {
 const formatDisasterEventStatusLabel = (status) => {
   const normalizedStatus = String(status || "").toUpperCase();
 
-  // Keep legacy ARCHIVED rows readable as ended until the cleanup migration is applied.
-  if (normalizedStatus === "CLOSED" || normalizedStatus === "ARCHIVED") {
+  if (normalizedStatus === "CLOSED") {
     return "ENDED";
   }
 

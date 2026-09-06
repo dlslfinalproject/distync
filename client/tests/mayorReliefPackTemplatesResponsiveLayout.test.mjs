@@ -31,6 +31,9 @@ test("Mayor relief pack templates page exposes scoped responsive hooks", async (
     /<p style=\{reliefPackDetailModalStyles\.label\}>Status<\/p>[\s\S]*?<p style=\{reliefPackDetailModalStyles\.value\}>[\s\S]*?isTemplateInactive\s*\?\s*"Inactive"\s*:\s*"Active"/,
   );
   assert.match(pageSource, /fetchInventoryBatches\(\)/);
+  assert.doesNotMatch(pageSource, /getReliefPackReadinessFromMetrics/);
+  assert.doesNotMatch(pageSource, /RELIEF_PACK_READINESS_STATUS/);
+  assert.doesNotMatch(pageSource, /reliefPackCardReadiness/);
   assert.doesNotMatch(pageSource, /isDonatedReliefPackTemplate|isDonatedTemplate/);
   assert.doesNotMatch(pageSource, /Donated relief pack/);
   assert.doesNotMatch(

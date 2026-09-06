@@ -78,7 +78,7 @@ export const isReliefPackDonationEligibleForDisasterEvent = ({
 
   if (
     !sourceEvent ||
-    !["CLOSED", "ARCHIVED"].includes(normalizeValue(sourceEvent.status))
+    normalizeValue(sourceEvent.status) !== "CLOSED"
   ) {
     return false;
   }

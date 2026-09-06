@@ -71,7 +71,7 @@ const assertStandardReliefPackInventoryQuery = (query) => {
 
 const assertEventAwareLooseDonationQuery = (query) => {
   assert.match(query, /target_event\.status\s*=\s*'ACTIVE'/i);
-  assert.match(query, /donation_event\.status\s+IN\s*\('CLOSED',\s*'ARCHIVED'\)/i);
+  assert.match(query, /donation_event\.status\s*=\s*'CLOSED'/i);
   assert.match(query, /next_event\.status\s*=\s*'ACTIVE'/i);
   assert.match(query, /target_event\.created_at/i);
   assert.match(query, /donation_event\.created_at/i);
@@ -136,7 +136,7 @@ test("manual template relief-pack allocation queries allow loose donations befor
   );
 });
 
-test("donated relief-pack and loose-item allocation queries exclude unusable donated stock", async () => {
+test("donated relief-pack queries keep every component so incomplete packs cannot look complete", async () => {
   await withStubbedRepositories(
     async ({ distributionTransactionRepository }) => {
       const capturedQueries = [];
@@ -157,18 +157,34 @@ test("donated relief-pack and loose-item allocation queries exclude unusable don
       );
 
       assert.equal(capturedQueries.length, 2);
-      capturedQueries.forEach((query) => {
-        assert.match(query, /d\.status <> 'CANCELLED'/i);
-        assert.match(query, /ib\.source_type\s*=\s*'DONATED'/i);
-        assert.match(query, /COALESCE\(ib\.quantity_available, 0\) > 0/i);
-        assert.match(query, /ib\.status\s+IN\s*\('AVAILABLE',\s*'LOW_STOCK'\)/i);
-        assert.match(
-          query,
-          /ib\.expiration_date\s+IS\s+NULL\s+OR\s+ib\.expiration_date\s*>\s*\(CURRENT_DATE\s*\+\s*INTERVAL\s*'30 days'\)/i,
-        );
-      });
+      const donatedReliefPackQuery = capturedQueries[0];
+      assert.match(donatedReliefPackQuery, /d\.status <> 'CANCELLED'/i);
+      assert.match(donatedReliefPackQuery, /ib\.source_type\s*=\s*'DONATED'/i);
+      assert.match(
+        donatedReliefPackQuery,
+        /COALESCE\(di\.remarks, ''\)\s+ILIKE\s+'Relief Pack:%'/i,
+      );
+      assert.doesNotMatch(donatedReliefPackQuery, /COALESCE\(ib\.quantity_available, 0\) > 0/i);
+      assert.doesNotMatch(
+        donatedReliefPackQuery,
+        /ib\.status\s+IN\s*\('AVAILABLE',\s*'LOW_STOCK'\)/i,
+      );
+      assert.doesNotMatch(
+        donatedReliefPackQuery,
+        /ib\.expiration_date\s+IS\s+NULL\s+OR\s+ib\.expiration_date\s*>\s*\(CURRENT_DATE\s*\+\s*INTERVAL\s*'30 days'\)/i,
+      );
 
-      assertEventAwareLooseDonationQuery(capturedQueries[1]);
+      const donatedLooseItemQuery = capturedQueries[1];
+      assert.match(donatedLooseItemQuery, /d\.status <> 'CANCELLED'/i);
+      assert.match(donatedLooseItemQuery, /ib\.source_type\s*=\s*'DONATED'/i);
+      assert.match(donatedLooseItemQuery, /COALESCE\(ib\.quantity_available, 0\) > 0/i);
+      assert.match(donatedLooseItemQuery, /ib\.status\s+IN\s*\('AVAILABLE',\s*'LOW_STOCK'\)/i);
+      assert.match(
+        donatedLooseItemQuery,
+        /ib\.expiration_date\s+IS\s+NULL\s+OR\s+ib\.expiration_date\s*>\s*\(CURRENT_DATE\s*\+\s*INTERVAL\s*'30 days'\)/i,
+      );
+
+      assertEventAwareLooseDonationQuery(donatedLooseItemQuery);
     },
   );
 });

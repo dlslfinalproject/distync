@@ -228,7 +228,7 @@ const validateGetDistributionHistory = (req, res, next) => {
       mode,
     } = req.query;
 
-    const allowedDistributionStatuses = ["CLAIMED", "CANCELLED", "REVERSED"];
+    const allowedDistributionStatuses = ["CLAIMED"];
     const allowedSortOrders = ["newest", "oldest", "az", "za"];
     const allowedModes = ["detail", "summary"];
 
@@ -246,7 +246,7 @@ const validateGetDistributionHistory = (req, res, next) => {
 
     if (status && !allowedDistributionStatuses.includes(status)) {
       return res.status(400).json({
-        message: "status must be one of: CLAIMED, CANCELLED, REVERSED",
+        message: "status must be CLAIMED",
       });
     }
 
@@ -506,47 +506,6 @@ const validateInventoryDistributionDetail = (req, res, next) => {
   }
 };
 
-const validateUpdateDistributionLifecycle = (req, res, next) => {
-  try {
-    const { transactionId } = req.params;
-    const { action, remarks } = req.body;
-    const normalizedAction = String(action || "").toUpperCase();
-
-    if (!isValidUuid(transactionId)) {
-      return res.status(400).json({
-        message: "transactionId must be a valid UUID",
-      });
-    }
-
-    if (!["CANCELLED", "REVERSED"].includes(normalizedAction)) {
-      return res.status(400).json({
-        message: "action must be either CANCELLED or REVERSED",
-      });
-    }
-
-    if (!remarks || typeof remarks !== "string" || !remarks.trim()) {
-      return res.status(400).json({
-        message: "remarks are required for distribution cancel/reversal",
-      });
-    }
-
-    req.validatedParams = {
-      transactionId,
-    };
-    req.validatedBody = {
-      action: normalizedAction,
-      remarks: remarks.trim(),
-    };
-
-    return next();
-  } catch (error) {
-    return res.status(500).json({
-      message: "Failed to validate distribution cancel/reversal request",
-      error: error.message,
-    });
-  }
-};
-
 module.exports = {
   validateCreateDistributionTransaction,
   validateClaimDistributionFromQr,
@@ -555,5 +514,4 @@ module.exports = {
   validateExportInventoryDistribution,
   validateInventoryDistributionExportOptions,
   validateInventoryDistributionDetail,
-  validateUpdateDistributionLifecycle,
 };

@@ -13,6 +13,10 @@ const {
   getAssignedReliefPackTemplatesForSectorIds,
 } = require("./reliefPackAssignment.service");
 const {
+  isLiveUnclaimedReliefPackAssignment,
+  normalizeReliefPackAssignmentSnapshots,
+} = require("../utils/reliefPackAssignmentSnapshot");
+const {
   isReliefPackClaimHouseholdCurrentlyEligible,
 } = require("../utils/reliefPackEligibility");
 const { resolveRequesterBarangayId } = require("../utils/requesterScope");
@@ -23,6 +27,37 @@ const BARANGAY_ROLE_CODE = "BARANGAY";
 const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
 const ARCHIVED_HOUSEHOLD_CODE = "HOUSEHOLD_ARCHIVED";
 const HOUSEHOLD_NOT_PRESENT_CODE = "HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER";
+
+const assertBarangayRecordViewScope = (record, requester) => {
+  if (requester?.roleCode !== BARANGAY_ROLE_CODE) {
+    return;
+  }
+
+  if (!requester.defaultBarangayId) {
+    const error = new Error(
+      "Barangay access requires an account with an assigned barangay.",
+    );
+    error.statusCode = 403;
+    error.code = "BARANGAY_SCOPE_FORBIDDEN";
+    throw error;
+  }
+
+  // Scoped repository reads may intentionally omit the Barangay field from
+  // lightweight verification projections. In that case the SQL scope is the
+  // authorization check; an explicitly returned foreign ID is still denied.
+  if (record?.barangay_id === undefined || record?.barangay_id === null) {
+    return;
+  }
+
+  if (String(record?.barangay_id || "") !== String(requester.defaultBarangayId)) {
+    const error = new Error(
+      "You can only view records under your assigned barangay.",
+    );
+    error.statusCode = 403;
+    error.code = "BARANGAY_SCOPE_FORBIDDEN";
+    throw error;
+  }
+};
 
 const DISTRIBUTION_STUB_UNIQUE_CONSTRAINTS = new Set([
   "uq_distribution_stub",
@@ -84,6 +119,10 @@ const getReliefPackComponentItemIds = async (
 
       if (!templateId) {
         return [];
+      }
+
+      if (Array.isArray(template?.items)) {
+        return template.items;
       }
 
       if (templateItemsByTemplateId.has(templateId)) {
@@ -626,18 +665,33 @@ const getBarangayStubDashboard = async (filters) => {
         householdSectorsByHouseholdId,
         memberSectorsByHouseholdId,
       );
-      const assignedReliefPacks = getAssignedReliefPackTemplatesForSectorIds(
-        sectorIds,
-        reliefPackTemplates,
-        scopedDisasterEvent.disaster_type,
-      ).map((template) => ({
-        id: template.id,
-        name: template.name,
-        description: template.description || null,
-        based_on_family_size: Boolean(template.based_on_family_size),
-        is_additional_pack: Boolean(template.is_additional_pack),
-        sector_id: template.sector_id || null,
-      }));
+      const storedAssignedReliefPacks =
+        normalizeReliefPackAssignmentSnapshots(
+          row.assigned_relief_pack_snapshots,
+        );
+      const liveAssignedReliefPacks =
+        getAssignedReliefPackTemplatesForSectorIds(
+          sectorIds,
+          reliefPackTemplates,
+          scopedDisasterEvent.disaster_type,
+        ).map((template) => ({
+          id: template.id,
+          name: template.name,
+          description: template.description || null,
+          based_on_family_size: Boolean(template.based_on_family_size),
+          is_additional_pack: Boolean(template.is_additional_pack),
+          sector_id: template.sector_id || null,
+        }));
+      const assignedReliefPacks = isLiveUnclaimedReliefPackAssignment({
+        status: row.status,
+        disasterEventStatus: scopedDisasterEvent.status,
+      })
+        ? liveAssignedReliefPacks
+        : storedAssignedReliefPacks ?? liveAssignedReliefPacks;
+      const showLiveClaimPreview = isLiveUnclaimedReliefPackAssignment({
+        status: row.status,
+        disasterEventStatus: scopedDisasterEvent.status,
+      });
       const reliefPackName = assignedReliefPacks
         .map((template) => template.name)
         .filter(Boolean)
@@ -700,14 +754,18 @@ const getBarangayStubDashboard = async (filters) => {
         sector_ids: sectorIds,
         assigned_relief_packs: assignedReliefPacks,
         available_donated_relief_packs:
-          await getDonatedReliefPackPreviewForQueuePosition(
-            row.unclaimed_queue_position,
-          ),
+          showLiveClaimPreview
+            ? await getDonatedReliefPackPreviewForQueuePosition(
+                row.unclaimed_queue_position,
+              )
+            : [],
         available_donated_loose_items:
-          await getDonatedLooseItemPreviewForQueuePosition(
-            row.unclaimed_queue_position,
-            assignedReliefPackComponentItemIds,
-          ),
+          showLiveClaimPreview
+            ? await getDonatedLooseItemPreviewForQueuePosition(
+                row.unclaimed_queue_position,
+                assignedReliefPackComponentItemIds,
+              )
+            : [],
         relief_pack_name: reliefPackName || "--",
       };
     })),
@@ -886,6 +944,12 @@ const getStubDetails = async (id, requester = null) => {
     return null;
   }
 
+  const scopedRequester =
+    requester?.roleCode === BARANGAY_ROLE_CODE && requesterBarangayId
+      ? { ...requester, defaultBarangayId: requesterBarangayId }
+      : requester;
+  assertBarangayRecordViewScope(stub, scopedRequester);
+
   const ensuredStub = await ensureStubQrMetadata(stub, null);
 
   const householdSectors = await stubRepository.getHouseholdSectorsByHouseholdId(
@@ -948,19 +1012,39 @@ const getStubDetails = async (id, requester = null) => {
       [ensuredStub.household_id]: memberSectors,
     },
   );
-  const assignedReliefPackTemplates = getAssignedReliefPackTemplatesForSectorIds(
-    householdSectorIds,
-    reliefPackTemplates,
-    ensuredStub.disaster_type,
+  const storedAssignedReliefPacks = normalizeReliefPackAssignmentSnapshots(
+    ensuredStub.assigned_relief_pack_snapshots,
   );
-  const assignedReliefPacks = assignedReliefPackTemplates.map((template) => ({
-    id: template.id,
-    name: template.name,
-    description: template.description || null,
-    based_on_family_size: Boolean(template.based_on_family_size),
-    is_additional_pack: Boolean(template.is_additional_pack),
-    sector_id: template.sector_id || null,
-  }));
+  const liveAssignedReliefPackTemplates =
+    getAssignedReliefPackTemplatesForSectorIds(
+      householdSectorIds,
+      reliefPackTemplates,
+      ensuredStub.disaster_type,
+    );
+  const useLiveAssignment = isLiveUnclaimedReliefPackAssignment({
+    status: ensuredStub.status,
+    disasterEventStatus: ensuredStub.disaster_event_status,
+  });
+  const assignedReliefPackTemplates = useLiveAssignment
+    ? liveAssignedReliefPackTemplates
+    : storedAssignedReliefPacks ?? liveAssignedReliefPackTemplates;
+  const assignedReliefPacks = useLiveAssignment
+    ? assignedReliefPackTemplates.map((template) => ({
+        id: template.id,
+        name: template.name,
+        description: template.description || null,
+        based_on_family_size: Boolean(template.based_on_family_size),
+        is_additional_pack: Boolean(template.is_additional_pack),
+        sector_id: template.sector_id || null,
+      }))
+    : storedAssignedReliefPacks ?? assignedReliefPackTemplates.map((template) => ({
+      id: template.id,
+      name: template.name,
+      description: template.description || null,
+      based_on_family_size: Boolean(template.based_on_family_size),
+      is_additional_pack: Boolean(template.is_additional_pack),
+      sector_id: template.sector_id || null,
+    }));
   const assignedReliefPackComponentItemIds =
     await getReliefPackComponentItemIds(assignedReliefPacks);
   const assignedReliefPackNames = assignedReliefPacks
@@ -968,20 +1052,20 @@ const getStubDetails = async (id, requester = null) => {
     .filter(Boolean)
     .join(", ");
   const stubQueueContext =
-    ensuredStub.status === "ISSUED"
+    useLiveAssignment
       ? await distributionTransactionRepository.getPresentUnclaimedStubQueueContext(
           ensuredStub.id,
         )
       : { queue_position: 0, eligible_households_count: 0 };
   const availableDonatedReliefPacks =
-    ensuredStub.status === "ISSUED"
+    useLiveAssignment
       ? await getAvailableDonatedReliefPacksForClaimPreview(
           ensuredStub.disaster_event_id,
           stubQueueContext.queue_position,
         )
       : [];
   const availableDonatedLooseItems =
-    ensuredStub.status === "ISSUED"
+    useLiveAssignment
       ? await getAvailableDonatedLooseItemsForClaimPreview(
           ensuredStub.disaster_event_id,
           stubQueueContext.queue_position,
@@ -1010,6 +1094,7 @@ const getStubDetails = async (id, requester = null) => {
       event_code: ensuredStub.event_code,
       title: ensuredStub.disaster_event_title,
       disaster_type: ensuredStub.disaster_type,
+      status: ensuredStub.disaster_event_status,
     },
     household: {
       id: ensuredStub.household_id,
@@ -1167,14 +1252,28 @@ const getClaimabilityResult = ({
 };
 
 const verifyStub = async (identifier, requester = null) => {
+  let normalizedIdentifier = identifier || {};
+  let normalizedRequester = requester;
+
+  // Keep compatibility with the previous service call shape while the route
+  // and new callers pass the requester as a separate argument.
+  if (!requester && identifier?.requester) {
+    const { requester: embeddedRequester, ...identifierWithoutRequester } =
+      identifier;
+    normalizedIdentifier = identifierWithoutRequester;
+    normalizedRequester = embeddedRequester;
+  }
+
   const requesterBarangayId = await getRequesterBarangayScope(
-    requester,
+    normalizedRequester,
     "stub verification",
   );
 
   if (
-    identifier.qr_code_value &&
-    !String(identifier.qr_code_value || "").trim().startsWith("DISTYNC-STUB|")
+    normalizedIdentifier.qr_code_value &&
+    !String(normalizedIdentifier.qr_code_value || "")
+      .trim()
+      .startsWith("DISTYNC-STUB|")
   ) {
     throw buildQrValidationError({
       code: "INVALID_QR_STUB",
@@ -1184,13 +1283,13 @@ const verifyStub = async (identifier, requester = null) => {
     });
   }
 
-  const stub = identifier.qr_code_value
+  const stub = normalizedIdentifier.qr_code_value
     ? await stubRepository.getStubByQrCodeValue(
-        identifier.qr_code_value,
+        normalizedIdentifier.qr_code_value,
         requesterBarangayId,
       )
     : await stubRepository.getStubByStubNoOrSerialNo(
-        identifier,
+        normalizedIdentifier,
         requesterBarangayId,
       );
 
@@ -1203,6 +1302,11 @@ const verifyStub = async (identifier, requester = null) => {
   }
 
   const ensuredStub = await ensureStubQrMetadata(stub, null);
+  const scopedRequester =
+    normalizedRequester?.roleCode === BARANGAY_ROLE_CODE && requesterBarangayId
+      ? { ...normalizedRequester, defaultBarangayId: requesterBarangayId }
+      : normalizedRequester;
+  assertBarangayRecordViewScope(ensuredStub, scopedRequester);
   const latestDistributionTransaction =
     ensuredStub.status === "ISSUED"
       ? null
