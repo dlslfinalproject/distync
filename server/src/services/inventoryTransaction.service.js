@@ -46,39 +46,6 @@ const buildFullName = (firstName, lastName) => {
   return [firstName, lastName].filter(Boolean).join(" ");
 };
 
-const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
-  const normalizedOnHandQuantity = Math.max(Number(onHandQuantity || 0), 0);
-  const normalizedPackaging = String(inventoryItem?.packaging || "").toLowerCase();
-  const unitsPerPackage = Number(inventoryItem?.quantity || 0);
-  const existingPackagingCount = Number(inventoryItem?.packaging_count || 0);
-
-  if (normalizedPackaging === "piece" || unitsPerPackage <= 1) {
-    return {
-      quantity: 1,
-      packaging_count: normalizedOnHandQuantity > 0 ? normalizedOnHandQuantity : null,
-    };
-  }
-
-  if (normalizedOnHandQuantity === 0) {
-    return {
-      quantity: inventoryItem?.quantity || null,
-      packaging_count: null,
-    };
-  }
-
-  if (normalizedOnHandQuantity % unitsPerPackage === 0) {
-    return {
-      quantity: inventoryItem?.quantity || null,
-      packaging_count: normalizedOnHandQuantity / unitsPerPackage,
-    };
-  }
-
-  return {
-    quantity: inventoryItem?.quantity || null,
-    packaging_count: existingPackagingCount > 0 ? existingPackagingCount : null,
-  };
-};
-
 const mapInventoryTransaction = (transaction) => {
   return {
     id: transaction.id,
@@ -611,28 +578,6 @@ const createInventoryTransaction = async (transactionData) => {
       inventoryBatch.id,
       newQuantityAvailable,
       newBatchStatus,
-      client,
-    );
-
-    const recomputedQuantityResult = await client.query(
-      `
-        SELECT COALESCE(SUM(quantity_available), 0)::integer AS total_quantity
-        FROM inventory_batches
-        WHERE inventory_item_id = $1
-      `,
-      [inventoryBatch.inventory_item_id],
-    );
-    const nextItemQuantity = Number(
-      recomputedQuantityResult.rows[0]?.total_quantity || 0,
-    );
-    const nextItemSnapshot = buildUpdatedItemStockSnapshot(
-      inventoryItem,
-      nextItemQuantity,
-    );
-
-    await inventoryItemRepository.updateInventoryItemStockSnapshot(
-      inventoryBatch.inventory_item_id,
-      nextItemSnapshot,
       client,
     );
 

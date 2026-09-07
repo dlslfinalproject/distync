@@ -308,8 +308,10 @@ test("automatic claims link and consume inventory for standard and multiple addi
       },
       [inventoryItemRepositoryPath]: {
         getInventoryItemsByIdsForUpdate: async () => inventoryItems,
-        updateInventoryItemStockSnapshot: async (_id, snapshot) => {
-          updatedItemSnapshots.push(snapshot);
+        updateInventoryItemStockSnapshot: async () => {
+          throw new Error(
+            "stock movements must not update inventory item packaging metadata",
+          );
         },
       },
       [reliefPackTemplateRepositoryPath]: {
@@ -430,7 +432,7 @@ test("automatic claims link and consume inventory for standard and multiple addi
         9,
       );
       assert.equal(updatedBatches.find((batch) => batch.id === "blanket-batch").quantity_available, 4);
-      assert.equal(updatedItemSnapshots.length, 2);
+      assert.equal(updatedItemSnapshots.length, 0);
     },
   );
 });

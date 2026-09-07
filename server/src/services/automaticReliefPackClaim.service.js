@@ -36,39 +36,6 @@ const lockInventoryItemsForUpdate = async (inventoryItemIds, client) => {
   }
 };
 
-const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
-  const normalizedOnHandQuantity = Math.max(Number(onHandQuantity || 0), 0);
-  const normalizedPackaging = String(inventoryItem?.packaging || "").toLowerCase();
-  const unitsPerPackage = Number(inventoryItem?.quantity || 0);
-  const existingPackagingCount = Number(inventoryItem?.packaging_count || 0);
-
-  if (normalizedPackaging === "piece" || unitsPerPackage <= 1) {
-    return {
-      quantity: 1,
-      packaging_count: normalizedOnHandQuantity > 0 ? normalizedOnHandQuantity : null,
-    };
-  }
-
-  if (normalizedOnHandQuantity === 0) {
-    return {
-      quantity: inventoryItem?.quantity || null,
-      packaging_count: null,
-    };
-  }
-
-  if (normalizedOnHandQuantity % unitsPerPackage === 0) {
-    return {
-      quantity: inventoryItem?.quantity || null,
-      packaging_count: normalizedOnHandQuantity / unitsPerPackage,
-    };
-  }
-
-  return {
-    quantity: inventoryItem?.quantity || null,
-    packaging_count: existingPackagingCount > 0 ? existingPackagingCount : null,
-  };
-};
-
 const getTemplateFamilySizeCoverage = (template) => {
   const parsedCoverage = Number.parseInt(String(template?.description || "").trim(), 10);
   return Number.isInteger(parsedCoverage) && parsedCoverage > 0 ? parsedCoverage : 0;
@@ -820,52 +787,6 @@ const buildAutomaticClaimAllocations = async (
   return allocations;
 };
 
-const syncTouchedInventoryItems = async (inventoryItemIds, client) => {
-  const uniqueInventoryItemIds = [...new Set(inventoryItemIds || [])].filter(Boolean);
-
-  if (uniqueInventoryItemIds.length === 0) {
-    return;
-  }
-
-  const inventoryItems =
-    await inventoryItemRepository.getInventoryItemsByIdsForUpdate(
-      uniqueInventoryItemIds,
-      client,
-    );
-  const recomputedQuantityResult = await client.query(
-    `
-      SELECT
-        inventory_item_id,
-        COALESCE(SUM(quantity_available), 0)::integer AS total_quantity
-      FROM inventory_batches
-      WHERE inventory_item_id = ANY($1::uuid[])
-      GROUP BY inventory_item_id
-    `,
-    [uniqueInventoryItemIds],
-  );
-  const quantityByInventoryItemId = new Map(
-    recomputedQuantityResult.rows.map((row) => [
-      row.inventory_item_id,
-      Number(row.total_quantity || 0),
-    ]),
-  );
-
-  for (const inventoryItem of inventoryItems) {
-    if (!inventoryItem) {
-      continue;
-    }
-
-    const nextItemQuantity =
-      quantityByInventoryItemId.get(inventoryItem.id) || 0;
-
-    await inventoryItemRepository.updateInventoryItemStockSnapshot(
-      inventoryItem.id,
-      buildUpdatedItemStockSnapshot(inventoryItem, nextItemQuantity),
-      client,
-    );
-  }
-};
-
 const recordAutomaticReliefPackClaim = async ({
   client,
   stub,
@@ -1186,7 +1107,6 @@ const recordAutomaticReliefPackClaim = async ({
     touchedInventoryItemIds.add(allocation.inventory_item_id);
   }
 
-  await syncTouchedInventoryItems([...touchedInventoryItemIds], client);
   await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItems(
     [...touchedInventoryItemIds],
     { dbClient: client },
