@@ -5,6 +5,22 @@ const INVENTORY_BATCH_STATUS = Object.freeze({
   DEPLETED: "DEPLETED",
 });
 
+const INVENTORY_BATCH_MANUAL_STATUS = Object.freeze({
+  MISSING: "MISSING",
+  DAMAGED: "DAMAGED",
+});
+
+const DERIVED_INVENTORY_BATCH_STATUSES = Object.freeze(
+  Object.values(INVENTORY_BATCH_STATUS),
+);
+
+const MANUAL_INVENTORY_BATCH_STATUSES = Object.freeze(
+  Object.values(INVENTORY_BATCH_MANUAL_STATUS),
+);
+
+const isInventoryBatchDerivedStatus = (status) =>
+  DERIVED_INVENTORY_BATCH_STATUSES.includes(String(status || "").toUpperCase());
+
 const normalizeQuantity = (value) => {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : 0;
@@ -115,6 +131,10 @@ const getInventoryBatchStatus = ({
 
 module.exports = {
   INVENTORY_BATCH_STATUS,
+  INVENTORY_BATCH_MANUAL_STATUS,
+  DERIVED_INVENTORY_BATCH_STATUSES,
+  MANUAL_INVENTORY_BATCH_STATUSES,
+  isInventoryBatchDerivedStatus,
   isInventoryBatchExpired,
   isInventoryBatchNearExpiry,
   isInventoryBatchLowStock,

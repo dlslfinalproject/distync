@@ -31,6 +31,9 @@ const systemLogPath = require.resolve("../src/utils/systemLog");
 const systemLogRepositoryPath = require.resolve(
   "../src/repositories/systemLog.repository",
 );
+const inventoryBatchStatusServicePath = require.resolve(
+  "../src/services/inventoryBatchStatus.service",
+);
 
 const dependencyPaths = [
   dbPath,
@@ -45,6 +48,7 @@ const dependencyPaths = [
   notificationServicePath,
   systemLogPath,
   systemLogRepositoryPath,
+  inventoryBatchStatusServicePath,
 ];
 
 const buildDonationPayload = (items) => ({
@@ -267,6 +271,16 @@ const withStubbedDonationService = async (overrides, runTest) => {
           };
         },
         ...overrides.inventoryItemService,
+      },
+    };
+    require.cache[inventoryBatchStatusServicePath] = {
+      id: inventoryBatchStatusServicePath,
+      filename: inventoryBatchStatusServicePath,
+      loaded: true,
+      exports: {
+        refreshDerivedInventoryBatchStatusesForItem: async () => {},
+        refreshDerivedInventoryBatchStatusesForItems: async () => {},
+        ...(overrides.inventoryBatchStatusService || {}),
       },
     };
     require.cache[forecastServicePath] = {

@@ -2,6 +2,7 @@ const distributionTransactionRepository = require("../repositories/distributionT
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate.repository");
+const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
 const {
   getPrimaryAssignedReliefPackTemplate,
   resolveAssignedReliefPackTemplatesForHousehold,
@@ -10,6 +11,7 @@ const {
   getInventoryBatchStatus,
   isInventoryBatchExpired,
   isInventoryBatchNearExpiry,
+  isInventoryBatchDerivedStatus,
 } = require("../utils/inventoryBatchStatus");
 const {
   isReliefPackClaimHouseholdCurrentlyEligible,
@@ -17,6 +19,22 @@ const {
 const {
   getDistributionItemSourceReliefTypeSnapshot,
 } = require("../utils/distributionTransactionItemSnapshot");
+
+const lockInventoryItemsForUpdate = async (inventoryItemIds, client) => {
+  const uniqueInventoryItemIds = [
+    ...new Set((inventoryItemIds || []).filter(Boolean).map(String)),
+  ].sort();
+
+  if (
+    uniqueInventoryItemIds.length > 0 &&
+    typeof inventoryItemRepository.getInventoryItemsByIdsForUpdate === "function"
+  ) {
+    await inventoryItemRepository.getInventoryItemsByIdsForUpdate(
+      uniqueInventoryItemIds,
+      client,
+    );
+  }
+};
 
 const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
   const normalizedOnHandQuantity = Math.max(Number(onHandQuantity || 0), 0);
@@ -275,6 +293,15 @@ const buildDonatedReliefPackClaimPlan = async (
   client,
   queuePosition,
 ) => {
+  const candidateRows =
+    await distributionTransactionRepository.getDonatedReliefPackItemsByDisasterEventId(
+      disasterEventId,
+      client,
+    );
+  await lockInventoryItemsForUpdate(
+    candidateRows.map((row) => row.inventory_item_id),
+    client,
+  );
   const donatedRows =
     await distributionTransactionRepository.getDonatedReliefPackItemsByDisasterEventId(
       disasterEventId,
@@ -480,6 +507,16 @@ const buildDonatedLooseItemClaimPlan = async (
       .filter(Boolean),
   );
 
+  const candidateRows =
+    await distributionTransactionRepository.getAvailableDonatedLooseItemsByDisasterEventId(
+      disasterEventId,
+      client,
+    );
+  await lockInventoryItemsForUpdate(
+    candidateRows.map((row) => row.inventory_item_id),
+    client,
+  );
+
   const availableRows =
     await distributionTransactionRepository.getAvailableDonatedLooseItemsByDisasterEventId(
       disasterEventId,
@@ -628,6 +665,10 @@ const buildAutomaticClaimAllocations = async (
   }
 
   const availableBatchesByInventoryItemId = new Map();
+  await lockInventoryItemsForUpdate(
+    [...requiredItemsByInventoryItemId.keys()],
+    client,
+  );
   const availableBatches =
     await inventoryTransactionRepository.getDistributableInventoryBatchesByItemIdsForUpdate(
       [...requiredItemsByInventoryItemId.keys()],
@@ -1090,12 +1131,16 @@ const recordAutomaticReliefPackClaim = async ({
       (currentItemStockById.get(allocation.inventory_item_id) || 0) -
         (releasedQuantityByItemId.get(allocation.inventory_item_id) || 0),
     );
-    const nextBatchStatus = getInventoryBatchStatus({
-      quantityAvailable: remainingQuantity,
-      expirationDate: allocation.expiration_date,
-      reorderLevel: allocation.reorder_level,
-      totalQuantityAvailable: nextItemQuantity,
-    });
+    const nextBatchStatus = isInventoryBatchDerivedStatus(
+      allocation.previous_status,
+    )
+      ? getInventoryBatchStatus({
+          quantityAvailable: remainingQuantity,
+          expirationDate: allocation.expiration_date,
+          reorderLevel: allocation.reorder_level,
+          totalQuantityAvailable: nextItemQuantity,
+        })
+      : allocation.previous_status;
     const updatedBatch =
       await distributionTransactionRepository.updateInventoryBatchQuantityAndStatus(
         allocation.inventory_batch_id,
@@ -1142,6 +1187,10 @@ const recordAutomaticReliefPackClaim = async ({
   }
 
   await syncTouchedInventoryItems([...touchedInventoryItemIds], client);
+  await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItems(
+    [...touchedInventoryItemIds],
+    { dbClient: client },
+  );
 
   const touchedDonationIds = [
     ...new Set(

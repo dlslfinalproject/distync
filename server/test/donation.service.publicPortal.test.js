@@ -25,6 +25,9 @@ const systemLogPath = require.resolve("../src/utils/systemLog");
 const systemLogRepositoryPath = require.resolve(
   "../src/repositories/systemLog.repository",
 );
+const inventoryBatchStatusServicePath = require.resolve(
+  "../src/services/inventoryBatchStatus.service",
+);
 
 const formatDateOnly = (date) => date.toISOString().slice(0, 10);
 
@@ -50,6 +53,7 @@ const withStubbedDonationService = async (
     notificationServicePath,
     systemLogPath,
     systemLogRepositoryPath,
+    inventoryBatchStatusServicePath,
   ];
   const originalEntries = new Map(
     dependencyPaths.map((modulePath) => [modulePath, require.cache[modulePath]]),
@@ -119,6 +123,15 @@ const withStubbedDonationService = async (
         exports: {},
       };
     });
+    require.cache[inventoryBatchStatusServicePath] = {
+      id: inventoryBatchStatusServicePath,
+      filename: inventoryBatchStatusServicePath,
+      loaded: true,
+      exports: {
+        refreshDerivedInventoryBatchStatusesForItem: async () => {},
+        refreshDerivedInventoryBatchStatusesForItems: async () => {},
+      },
+    };
     require.cache[systemLogPath] = {
       id: systemLogPath,
       filename: systemLogPath,

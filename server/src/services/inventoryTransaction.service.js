@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
+const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
 const {
@@ -13,7 +14,10 @@ const {
   isValidInventoryTransactionReferenceNo,
   normalizeInventoryTransactionReferenceNo,
 } = require("../utils/inventoryTransactionReference");
-const { getInventoryBatchStatus } = require("../utils/inventoryBatchStatus");
+const {
+  getInventoryBatchStatus,
+  isInventoryBatchDerivedStatus,
+} = require("../utils/inventoryBatchStatus");
 const additiveTransactionTypes = new Set(["INFLOW", "RETURN", "ADJUSTMENT"]);
 const subtractiveTransactionTypes = new Set([
   "OUTFLOW",
@@ -487,17 +491,55 @@ const createInventoryTransaction = async (transactionData) => {
     }
 
     if (transactionData.inventory_batch_id) {
-      inventoryBatch =
-        await inventoryTransactionRepository.getInventoryBatchByIdForUpdate(
-          transactionData.inventory_batch_id,
-          client,
-        );
+      if (
+        typeof inventoryTransactionRepository.getInventoryBatchById ===
+        "function"
+      ) {
+        const batchIdentity =
+          await inventoryTransactionRepository.getInventoryBatchById(
+            transactionData.inventory_batch_id,
+            client,
+          );
 
-      if (inventoryBatch?.inventory_item_id) {
-        inventoryItem = await inventoryItemRepository.getInventoryItemByIdForUpdate(
-          inventoryBatch.inventory_item_id,
-          client,
-        );
+        if (batchIdentity?.inventory_item_id) {
+          inventoryItem =
+            typeof inventoryItemRepository.getInventoryItemByIdForUpdate ===
+            "function"
+              ? await inventoryItemRepository.getInventoryItemByIdForUpdate(
+                  batchIdentity.inventory_item_id,
+                  client,
+                )
+              : await inventoryItemRepository.getInventoryItemById(
+                  batchIdentity.inventory_item_id,
+                  client,
+                );
+        }
+
+        inventoryBatch =
+          await inventoryTransactionRepository.getInventoryBatchByIdForUpdate(
+            transactionData.inventory_batch_id,
+            client,
+          );
+      } else {
+        inventoryBatch =
+          await inventoryTransactionRepository.getInventoryBatchByIdForUpdate(
+            transactionData.inventory_batch_id,
+            client,
+          );
+
+        if (inventoryBatch?.inventory_item_id) {
+          inventoryItem =
+            typeof inventoryItemRepository.getInventoryItemByIdForUpdate ===
+            "function"
+              ? await inventoryItemRepository.getInventoryItemByIdForUpdate(
+                  inventoryBatch.inventory_item_id,
+                  client,
+                )
+              : await inventoryItemRepository.getInventoryItemById(
+                  inventoryBatch.inventory_item_id,
+                  client,
+                );
+        }
       }
     } else if (transactionData.inventory_item_id) {
       const error = new Error(
@@ -545,12 +587,14 @@ const createInventoryTransaction = async (transactionData) => {
       currentItemQuantity - Number(inventoryBatch.quantity_available || 0) +
         Number(newQuantityAvailable || 0),
     );
-    const newBatchStatus = getInventoryBatchStatus({
-      quantityAvailable: newQuantityAvailable,
-      totalQuantityAvailable: projectedItemQuantity,
-      expirationDate: inventoryBatch.expiration_date,
-      reorderLevel: inventoryItem.reorder_level,
-    });
+    const newBatchStatus = isInventoryBatchDerivedStatus(inventoryBatch.status)
+      ? getInventoryBatchStatus({
+          quantityAvailable: newQuantityAvailable,
+          totalQuantityAvailable: projectedItemQuantity,
+          expirationDate: inventoryBatch.expiration_date,
+          reorderLevel: inventoryItem.reorder_level,
+        })
+      : inventoryBatch.status;
 
     const createdTransaction =
       await inventoryTransactionRepository.insertInventoryTransaction(
@@ -590,6 +634,11 @@ const createInventoryTransaction = async (transactionData) => {
       inventoryBatch.inventory_item_id,
       nextItemSnapshot,
       client,
+    );
+
+    await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
+      inventoryBatch.inventory_item_id,
+      { dbClient: client },
     );
 
     const domainSideEffect = {

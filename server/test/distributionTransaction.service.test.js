@@ -28,6 +28,9 @@ const reliefPackAssignmentServicePath = require.resolve(
 );
 const systemLogPath = require.resolve("../src/utils/systemLog");
 const mswdoReportExportPath = require.resolve("../src/utils/mswdoReportExport");
+const inventoryBatchStatusServicePath = require.resolve(
+  "../src/services/inventoryBatchStatus.service",
+);
 
 const withStubbedDistributionService = async (stubs, runTest) => {
   const dependencyPaths = Object.keys(stubs);
@@ -171,6 +174,9 @@ const createBaseStubs = ({
       Object.fromEntries(keys.map((key) => [key, value?.[key]]).filter(([, item]) => item !== undefined)),
   },
   [mswdoReportExportPath]: {},
+  [inventoryBatchStatusServicePath]: {
+    refreshDerivedInventoryBatchStatusesForItems: async () => {},
+  },
 });
 
 test("H05-02 createDistributionTransaction emits STUB_ALREADY_CLAIMED for an accepted claimed stub", async () => {

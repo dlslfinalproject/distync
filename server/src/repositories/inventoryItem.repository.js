@@ -159,6 +159,7 @@ const getInventoryItemsByIdsForUpdate = async (ids, dbClient = pool) => {
       updated_at
     FROM inventory_items
     WHERE id = ANY($1::uuid[])
+    ORDER BY id ASC
     FOR UPDATE
   `;
 

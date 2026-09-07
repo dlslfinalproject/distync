@@ -21,6 +21,9 @@ const notificationServicePath = require.resolve(
 const mayorReportExportPath = require.resolve("../src/utils/mayorReportExport");
 const systemLogPath = require.resolve("../src/utils/systemLog");
 const inventoryStateBasisPath = require.resolve("../src/utils/inventoryStateBasis");
+const inventoryBatchStatusServicePath = require.resolve(
+  "../src/services/inventoryBatchStatus.service",
+);
 const dbPath = require.resolve("../src/config/db");
 
 const withStubbedInventoryBatchService = async (stubs, runTest) => {
@@ -34,6 +37,7 @@ const withStubbedInventoryBatchService = async (stubs, runTest) => {
     mayorReportExportPath,
     systemLogPath,
     inventoryStateBasisPath,
+    inventoryBatchStatusServicePath,
     dbPath,
   ];
   const originalEntries = new Map(
@@ -173,6 +177,9 @@ const baseStubs = (repositoryOverrides = {}) => ({
   },
   [inventoryStateBasisPath]: {
     createInventoryStateBasis: () => ({ basisVersion: 1 }),
+  },
+  [inventoryBatchStatusServicePath]: {
+    refreshDerivedInventoryBatchStatusesForItem: async () => {},
   },
   [dbPath]: {
     connect: async () => ({

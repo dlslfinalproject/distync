@@ -6,6 +6,7 @@ const inventoryTransactionRepository = require("../repositories/inventoryTransac
 const systemLogRepository = require("../repositories/systemLog.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
+const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
 const { createInventoryStateBasis } = require("../utils/inventoryStateBasis");
 const {
@@ -24,6 +25,7 @@ const {
   isInventoryBatchExpired,
   isInventoryBatchNearExpiry,
   isInventoryBatchLowStock,
+  isInventoryBatchDerivedStatus,
 } = require("../utils/inventoryBatchStatus");
 
 const buildFullName = (firstName, lastName) =>
@@ -400,10 +402,16 @@ const emitInventoryBatchCreatedSideEffects = async (mappedBatch, batchData) => {
 
 const createInventoryBatchWithoutTransaction = async (batchData) => {
   const dbClient = batchData.dbClient || null;
-  const inventoryItem = await inventoryBatchRepository.getInventoryItemById(
-    batchData.inventory_item_id,
-    dbClient || undefined,
-  );
+  const inventoryItem =
+    typeof inventoryItemRepository.getInventoryItemByIdForUpdate === "function"
+      ? await inventoryItemRepository.getInventoryItemByIdForUpdate(
+          batchData.inventory_item_id,
+          dbClient || undefined,
+        )
+      : await inventoryBatchRepository.getInventoryItemById(
+          batchData.inventory_item_id,
+          dbClient || undefined,
+        );
 
   if (!inventoryItem) {
     const error = new Error("inventory_item_id does not refer to an existing inventory item");
@@ -745,6 +753,11 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
     dbClient || undefined,
   );
 
+  await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
+    batchData.inventory_item_id,
+    { dbClient },
+  );
+
   const fullBatch = await inventoryBatchRepository.getInventoryBatchById(
     createdBatch.id,
     dbClient || undefined,
@@ -810,50 +823,87 @@ const createInventoryBatch = async (batchData) => {
 };
 
 const updateInventoryBatchExpiry = async (id, payload, actor = null) => {
-  const existingBatch = await inventoryBatchRepository.getInventoryBatchById(id);
+  const client = await pool.connect();
+  let transactionStarted = false;
 
-  if (!existingBatch) {
-    const error = new Error("Inventory batch not found");
-    error.statusCode = 404;
+  try {
+    await client.query("BEGIN");
+    transactionStarted = true;
+
+    const existingBatch = await inventoryBatchRepository.getInventoryBatchById(
+      id,
+      client,
+    );
+
+    if (!existingBatch) {
+      const error = new Error("Inventory batch not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (typeof inventoryItemRepository.getInventoryItemByIdForUpdate === "function") {
+      await inventoryItemRepository.getInventoryItemByIdForUpdate(
+        existingBatch.inventory_item_id,
+        client,
+      );
+    }
+
+    const nextStatus = isInventoryBatchDerivedStatus(existingBatch.status)
+      ? getInventoryBatchStatus({
+          quantityAvailable: existingBatch.quantity_available,
+          totalQuantityAvailable: existingBatch.item_total_stock,
+          expirationDate: payload.expiration_date,
+          reorderLevel: existingBatch.reorder_level,
+        })
+      : existingBatch.status;
+
+    const updatedBatch =
+      await inventoryBatchRepository.updateInventoryBatchExpiry(
+        id,
+        {
+          expiration_date: payload.expiration_date,
+          status: nextStatus,
+        },
+        client,
+      );
+
+    await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
+      existingBatch.inventory_item_id,
+      { dbClient: client },
+    );
+
+    await client.query("COMMIT");
+    transactionStarted = false;
+
+    const fullBatch = await inventoryBatchRepository.getInventoryBatchById(
+      updatedBatch.id,
+    );
+    const mappedBatch = mapInventoryBatch(fullBatch);
+
+    await notificationService.emitSafely(() =>
+      notificationService.emitBatchAlerts({
+        batch: mappedBatch,
+      }),
+    );
+
+    await logAuditSafely({
+      actor,
+      action: "INVENTORY_BATCH_UPDATE",
+      entityType: "INVENTORY_BATCH",
+      entityId: mappedBatch.id,
+      oldValues: summarizeInventoryBatch(existingBatch),
+      newValues: summarizeInventoryBatch(mappedBatch),
+    });
+
+    return mappedBatch;
+  } catch (error) {
+    if (transactionStarted) {
+      await client.query("ROLLBACK");
+    }
     throw error;
+  } finally {
+    client.release();
   }
-
-  const nextStatus = getInventoryBatchStatus({
-    quantityAvailable: existingBatch.quantity_available,
-    totalQuantityAvailable: existingBatch.item_total_stock,
-    expirationDate: payload.expiration_date,
-    reorderLevel: existingBatch.reorder_level,
-  });
-
-  const updatedBatch = await inventoryBatchRepository.updateInventoryBatchExpiry(
-    id,
-    {
-      expiration_date: payload.expiration_date,
-      status: nextStatus,
-    },
-  );
-
-  const fullBatch = await inventoryBatchRepository.getInventoryBatchById(
-    updatedBatch.id,
-  );
-  const mappedBatch = mapInventoryBatch(fullBatch);
-
-  await notificationService.emitSafely(() =>
-    notificationService.emitBatchAlerts({
-      batch: mappedBatch,
-    }),
-  );
-
-  await logAuditSafely({
-    actor,
-    action: "INVENTORY_BATCH_UPDATE",
-    entityType: "INVENTORY_BATCH",
-    entityId: mappedBatch.id,
-    oldValues: summarizeInventoryBatch(existingBatch),
-    newValues: summarizeInventoryBatch(mappedBatch),
-  });
-
-  return mappedBatch;
 };
 
 const exportInventoryBatches = async (filters, format) => {

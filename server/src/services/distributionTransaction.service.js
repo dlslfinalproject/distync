@@ -5,6 +5,7 @@ const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate
 const notificationService = require("../modules/notifications/notification.service");
 const stubRepository = require("../repositories/stub.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
+const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
 const masterlistService = require("./masterlist.service");
 const {
   getAvailableDonatedLooseItemsForClaimPreview,
@@ -20,6 +21,7 @@ const { logAuditSafely, pickDefined } = require("../utils/systemLog");
 const mswdoReportExport = require("../utils/mswdoReportExport");
 const {
   getInventoryBatchStatus,
+  isInventoryBatchDerivedStatus,
 } = require("../utils/inventoryBatchStatus");
 const {
   isReliefPackClaimHouseholdCurrentlyEligible,
@@ -1755,15 +1757,17 @@ const createDistributionTransaction = async (requestData) => {
         throw error;
       }
 
-      const nextStatus = getInventoryBatchStatus({
-        quantityAvailable: remainingQuantity,
-        expirationDate: batchDetails.expiration_date,
-        reorderLevel:
-          inventoryItemsById.get(batchDetails.inventory_item_id)?.reorder_level,
-        totalQuantityAvailable: nextItemStockById.get(
-          batchDetails.inventory_item_id,
-        ),
-      });
+      const nextStatus = isInventoryBatchDerivedStatus(batchDetails.status)
+        ? getInventoryBatchStatus({
+            quantityAvailable: remainingQuantity,
+            expirationDate: batchDetails.expiration_date,
+            reorderLevel:
+              inventoryItemsById.get(batchDetails.inventory_item_id)?.reorder_level,
+            totalQuantityAvailable: nextItemStockById.get(
+              batchDetails.inventory_item_id,
+            ),
+          })
+        : batchDetails.status;
 
       const updatedBatch =
         await distributionTransactionRepository.updateInventoryBatchQuantityAndStatus(
@@ -1812,6 +1816,11 @@ const createDistributionTransaction = async (requestData) => {
     }
 
     await recomputeAndUpdateInventoryItemSnapshots(inventoryItemsById, client);
+
+    await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItems(
+      [...inventoryItemsById.keys()],
+      { dbClient: client },
+    );
 
     const updatedStub = await distributionTransactionRepository.updateStubAsClaimed(
       requestData.stub_id,

@@ -20,6 +20,9 @@ const notificationServicePath = require.resolve(
 const systemLogRepositoryPath = require.resolve(
   "../src/repositories/systemLog.repository",
 );
+const inventoryBatchStatusServicePath = require.resolve(
+  "../src/services/inventoryBatchStatus.service",
+);
 
 const withStubbedInventoryRepository = async (poolStub, runTest) => {
   const originalRepository = require.cache[repositoryPath];
@@ -59,6 +62,7 @@ const withStubbedInventoryService = async (stubs, runTest) => {
     inventoryItemRepositoryPath,
     notificationServicePath,
     systemLogRepositoryPath,
+    inventoryBatchStatusServicePath,
     dbPath,
   ];
   const originalEntries = new Map(
@@ -76,6 +80,15 @@ const withStubbedInventoryService = async (stubs, runTest) => {
         exports: stubs[modulePath] || {},
       };
     });
+    require.cache[inventoryBatchStatusServicePath] = {
+      id: inventoryBatchStatusServicePath,
+      filename: inventoryBatchStatusServicePath,
+      loaded: true,
+      exports: {
+        refreshDerivedInventoryBatchStatusesForItem: async () => {},
+        refreshDerivedInventoryBatchStatusesForItems: async () => {},
+      },
+    };
 
     const service = require(servicePath);
     await runTest(service);

@@ -182,6 +182,36 @@ const getInventoryItemById = async (id, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
+const getInventoryItemByIdForUpdate = async (id, dbClient = pool) => {
+  const [hasReorderLevelColumn, hasIsActiveColumn] = await Promise.all([
+    hasInventoryItemReorderLevelColumn(dbClient),
+    hasInventoryItemIsActiveColumn(dbClient),
+  ]);
+  const result = await dbClient.query(
+    `
+      SELECT
+        id,
+        item_code,
+        item_name,
+        category,
+        unit_of_measure,
+        unit_of_measure_value,
+        packaging,
+        packaging_count,
+        quantity,
+        ${hasReorderLevelColumn ? "reorder_level" : "NULL::integer AS reorder_level"},
+        ${hasIsActiveColumn ? "is_active" : "TRUE AS is_active"},
+        is_perishable
+      FROM inventory_items
+      WHERE id = $1
+      FOR UPDATE
+    `,
+    [id],
+  );
+
+  return result.rows[0] || null;
+};
+
 const getInventoryItemByName = async (itemName, dbClient = pool) => {
   const [hasReorderLevelColumn, hasIsActiveColumn] = await Promise.all([
     hasInventoryItemReorderLevelColumn(dbClient),
@@ -1694,6 +1724,7 @@ const getDonationInventoryTransactions = async (donationId, dbClient = pool) => 
 module.exports = {
   getDisasterEventById,
   getInventoryItemById,
+  getInventoryItemByIdForUpdate,
   getInventoryItemByName,
   getUserById,
   getDonationNeeds,

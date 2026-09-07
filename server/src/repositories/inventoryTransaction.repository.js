@@ -171,6 +171,19 @@ const getInventoryBatchByIdForUpdate = async (id, dbClient) => {
   return result.rows[0] || null;
 };
 
+const getInventoryBatchById = async (id, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      SELECT id, inventory_item_id
+      FROM inventory_batches
+      WHERE id = $1
+    `,
+    [id],
+  );
+
+  return result.rows[0] || null;
+};
+
 const getAvailableInventoryBatchesByItemIdForUpdate = async (inventoryItemId, dbClient) => {
   const query = `
     SELECT
@@ -735,6 +748,7 @@ module.exports = {
   getInventoryTransactions,
   getInventoryTransactionById,
   getInventoryTransactionByReferenceNo,
+  getInventoryBatchById,
   getInventoryBatchByIdForUpdate,
   getAvailableInventoryBatchesByItemIdForUpdate,
   getDistributableInventoryBatchesByItemIdForUpdate,

@@ -6,12 +6,14 @@ const inventoryItemRepository = require("../repositories/inventoryItem.repositor
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
 const inventoryItemStockFormRepository = require("../repositories/inventoryItemStockForm.repository");
 const inventoryItemService = require("./inventoryItem.service");
+const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
 const forecastService = require("./forecast.service");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
 const {
   getInventoryBatchStatus,
   isInventoryBatchExpired,
+  isInventoryBatchDerivedStatus,
 } = require("../utils/inventoryBatchStatus");
 const {
   logAuditSafely,
@@ -1037,6 +1039,26 @@ const ensureInventoryItem = async (inventoryItemId, dbClient) => {
   return inventoryItem;
 };
 
+const ensureInventoryItemForUpdate = async (inventoryItemId, dbClient) => {
+  const inventoryItem =
+    typeof donationRepository.getInventoryItemByIdForUpdate === "function"
+      ? await donationRepository.getInventoryItemByIdForUpdate(
+          inventoryItemId,
+          dbClient,
+        )
+      : await ensureInventoryItem(inventoryItemId, dbClient);
+
+  if (!inventoryItem) {
+    const error = new Error(
+      "inventory_item_id does not refer to an existing inventory item",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return inventoryItem;
+};
+
 const normalizeDonationInventoryItemName = (itemName) =>
   String(itemName || "").trim().toLowerCase();
 
@@ -1258,12 +1280,16 @@ const createDonationItemWithInventory = async ({
   dbClient,
   inventoryItemByNameCache,
 }) => {
-  const inventoryItem = await resolveDonationInventoryItem({
+  const resolvedInventoryItem = await resolveDonationInventoryItem({
     donationItemPayload,
     performedBy,
     dbClient,
     inventoryItemByNameCache,
   });
+  const inventoryItem = await ensureInventoryItemForUpdate(
+    resolvedInventoryItem.id,
+    dbClient,
+  );
 
   const inventoryBatchId = await createOrAttachDonationBatch({
     donation,
@@ -1304,6 +1330,10 @@ const createDonationItemWithInventory = async ({
   );
 
   await refreshInventoryItemStockSnapshot(inventoryItem.id, dbClient);
+  await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
+    inventoryItem.id,
+    { dbClient },
+  );
 
   return createdDonationItem.id;
 };
@@ -1314,6 +1344,10 @@ const removeDonationItemWithinTransaction = async ({
   performedBy,
   dbClient,
 }) => {
+  const inventoryItem = await ensureInventoryItemForUpdate(
+    donationItem.inventory_item_id,
+    dbClient,
+  );
   const batch = await donationRepository.getInventoryBatchByIdForUpdate(
     donationItem.inventory_batch_id,
     dbClient,
@@ -1339,10 +1373,6 @@ const removeDonationItemWithinTransaction = async ({
   const nextAvailable = currentAvailable - quantityReceived;
   const nextReceived = Number(batch.quantity_received) - quantityReceived;
   const nextItemTotalStock = getProjectedItemStock(batch, -quantityReceived);
-  const inventoryItem = await ensureInventoryItem(
-    donationItem.inventory_item_id,
-    dbClient,
-  );
 
   await donationRepository.updateInventoryBatchStock(
     batch.id,
@@ -1351,12 +1381,14 @@ const removeDonationItemWithinTransaction = async ({
       quantity_available: nextAvailable,
       expiration_date: batch.expiration_date,
       storage_location: batch.storage_location,
-      status: getBatchStatus(
-        batch.expiration_date,
-        nextAvailable,
-        inventoryItem.reorder_level,
-        nextItemTotalStock,
-      ),
+      status: isInventoryBatchDerivedStatus(batch.status)
+        ? getBatchStatus(
+            batch.expiration_date,
+            nextAvailable,
+            inventoryItem.reorder_level,
+            nextItemTotalStock,
+          )
+        : batch.status,
     },
     dbClient,
   );
@@ -1381,6 +1413,10 @@ const removeDonationItemWithinTransaction = async ({
   );
 
   await refreshInventoryItemStockSnapshot(inventoryItem.id, dbClient);
+  await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
+    inventoryItem.id,
+    { dbClient },
+  );
 
   await donationRepository.deleteDonationItem(donationItem.id, dbClient);
 
@@ -1932,6 +1968,10 @@ const updateDonationItem = async (id, payload, performedBy) => {
       throw error;
     }
 
+    const inventoryItem = await ensureInventoryItemForUpdate(
+      existingDonationItem.inventory_item_id,
+      client,
+    );
     const batch = await donationRepository.getInventoryBatchByIdForUpdate(
       existingDonationItem.inventory_batch_id,
       client,
@@ -1980,11 +2020,6 @@ const updateDonationItem = async (id, payload, performedBy) => {
       nextReceived -= quantityToRemove;
     }
 
-    const inventoryItem = await ensureInventoryItem(
-      existingDonationItem.inventory_item_id,
-      client,
-    );
-
     await donationRepository.updateInventoryBatchStock(
       batch.id,
       {
@@ -1992,12 +2027,14 @@ const updateDonationItem = async (id, payload, performedBy) => {
         quantity_available: nextAvailable,
         expiration_date: payload.expiration_date || batch.expiration_date,
         storage_location: payload.storage_location || batch.storage_location,
-        status: getBatchStatus(
-          payload.expiration_date || batch.expiration_date,
-          nextAvailable,
-          inventoryItem.reorder_level,
-          getProjectedItemStock(batch, quantityDelta),
-        ),
+        status: isInventoryBatchDerivedStatus(batch.status)
+          ? getBatchStatus(
+              payload.expiration_date || batch.expiration_date,
+              nextAvailable,
+              inventoryItem.reorder_level,
+              getProjectedItemStock(batch, quantityDelta),
+            )
+          : batch.status,
       },
       client,
     );
@@ -2044,6 +2081,10 @@ const updateDonationItem = async (id, payload, performedBy) => {
     await refreshInventoryItemStockSnapshot(
       existingDonationItem.inventory_item_id,
       client,
+    );
+    await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
+      existingDonationItem.inventory_item_id,
+      { dbClient: client },
     );
 
     await client.query("COMMIT");
@@ -2360,6 +2401,10 @@ const reassignLeftoverDonationStock = async (
       throw error;
     }
 
+    const inventoryItem = await ensureInventoryItemForUpdate(
+      sourceDonationItem.inventory_item_id,
+      client,
+    );
     const sourceBatch = await donationRepository.getInventoryBatchByIdForUpdate(
       sourceDonationItem.inventory_batch_id,
       client,
@@ -2395,10 +2440,6 @@ const reassignLeftoverDonationStock = async (
       throw error;
     }
 
-    const inventoryItem = await ensureInventoryItem(
-      sourceDonationItem.inventory_item_id,
-      client,
-    );
     const nextSourceQuantityAvailable =
       sourceQuantityAvailable - quantityToReassign;
     const nextItemTotalStock = getProjectedItemStock(
@@ -2413,12 +2454,14 @@ const reassignLeftoverDonationStock = async (
         quantity_available: nextSourceQuantityAvailable,
         expiration_date: sourceBatch.expiration_date,
         storage_location: sourceBatch.storage_location,
-        status: getBatchStatus(
-          sourceBatch.expiration_date,
-          nextSourceQuantityAvailable,
-          inventoryItem.reorder_level,
-          getProjectedItemStock(sourceBatch, -quantityToReassign),
-        ),
+        status: isInventoryBatchDerivedStatus(sourceBatch.status)
+          ? getBatchStatus(
+              sourceBatch.expiration_date,
+              nextSourceQuantityAvailable,
+              inventoryItem.reorder_level,
+              getProjectedItemStock(sourceBatch, -quantityToReassign),
+            )
+          : sourceBatch.status,
       },
       client,
     );
@@ -2504,6 +2547,10 @@ const reassignLeftoverDonationStock = async (
     await refreshInventoryItemStockSnapshot(
       sourceDonationItem.inventory_item_id,
       client,
+    );
+    await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
+      sourceDonationItem.inventory_item_id,
+      { dbClient: client },
     );
     await distributionTransactionRepository.updateDonationStatusesByIds(
       [sourceDonation.id, createdDonation.id],
