@@ -72,6 +72,8 @@ test("Barangay queue changes are consumed by the reactive Masterlist path", asyn
   assert.match(pageSource, /useLiveQuery\(\(\) => getVisibleSyncQueueEntries\(\), \[\], \[\]\)/);
   assert.match(syncSource, /syncQueueEntries/);
   assert.match(syncSource, /resolveEffectiveMasterlistRows/);
+  assert.match(pageSource, /getCachedMasterlistRows/);
+  assert.match(syncSource, /cachedMasterlistRows/);
 });
 
 test("offline Barangay context restores only an authorized prepared event scope", async () => {

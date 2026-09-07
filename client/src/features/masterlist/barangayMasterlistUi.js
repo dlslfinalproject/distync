@@ -387,20 +387,38 @@ const isActiveLifecycleAction = (actionKey, row) => {
 const isReconciledDuplicate = (entry) =>
   entry?.resolutionStatus === "DUPLICATE_HOUSEHOLD";
 
+// A terminal registration conflict remains in the queue for Sync Center and
+// Conflict Review, but its optimistic local household is not a valid
+// Masterlist occurrence. Failed entries remain projected because they retain
+// the existing retry/error behavior.
+const isRejectedHouseholdRegistration = (entry) =>
+  entry?.actionKey === "HOUSEHOLD_REGISTER" &&
+  entry?.status === "CONFLICT";
+
+const isRejectedHouseholdDeparture = (entry) =>
+  entry?.actionKey === "HOUSEHOLD_DEPART" &&
+  entry?.status === "CONFLICT";
+
 const applyLifecycleOverlay = (row, lifecycleEntry) => {
   if (!lifecycleEntry) {
     return row;
   }
 
   const isActive = isActiveLifecycleAction(lifecycleEntry.actionKey, row);
+  const isConflictedDeparture =
+    lifecycleEntry.actionKey === "HOUSEHOLD_DEPART" &&
+    lifecycleEntry.status === LOCAL_SYNC_STATUS.CONFLICT;
+  const projectedIsActive = isConflictedDeparture
+    ? row.is_operationally_active !== false
+    : isActive;
 
   return {
     ...row,
     sync_status: lifecycleEntry.status || row.sync_status,
-    is_active: isActive,
-    is_operationally_active: isActive,
-    can_record_departure: isActive && row.can_record_departure,
-    ...(isActive
+    is_active: projectedIsActive,
+    is_operationally_active: projectedIsActive,
+    can_record_departure: projectedIsActive && row.can_record_departure,
+    ...(projectedIsActive || isConflictedDeparture
       ? {}
       : {
           departure_time_value: lifecycleEntry.clientTimestamp || row.departure_time_value,
@@ -474,12 +492,30 @@ export const resolveEffectiveMasterlistRows = ({
   );
 
   scopedEntries
-    .filter((entry) => ["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION", "HOUSEHOLD_DEPART"].includes(entry.actionKey) && !isReconciledDuplicate(entry))
+    .filter(
+      (entry) =>
+        ["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION", "HOUSEHOLD_DEPART"].includes(
+          entry.actionKey,
+        ) &&
+        !isReconciledDuplicate(entry) &&
+        !isRejectedHouseholdRegistration(entry) &&
+        !isRejectedHouseholdDeparture(entry),
+    )
     .sort((left, right) => getEntryTimestamp(right) - getEntryTimestamp(left))
     .forEach((entry) => {
       const localId = entry.entityLocalId || entry.entityServerId || entry.id;
 
-      if (!localId || representedIds.has(String(localId))) {
+      const entryProjectionIds = [
+        ...getEntryIdentityValues(entry),
+        entry?.id,
+      ]
+        .filter(Boolean)
+        .map(String);
+
+      if (
+        !localId ||
+        entryProjectionIds.some((entryId) => representedIds.has(entryId))
+      ) {
         return;
       }
 
