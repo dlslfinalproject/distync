@@ -534,6 +534,7 @@ export const resolveEffectiveMasterlistRows = ({
   return sortMasterlistRows(
     resolvedRows.filter((row) => matchesRecordStatus(row, recordStatus)),
     sortOrder,
+    { recordStatus },
   );
 };
 

@@ -6,6 +6,7 @@ import {
   resolveDepartureSyncStatus,
   resolveEffectiveMasterlistRows,
 } from "../src/features/masterlist/barangayMasterlistUi.js";
+import { sortMasterlistRows } from "../src/features/masterlist/masterlistSort.js";
 
 const activeRow = (id) => ({
   household_id: id,
@@ -152,6 +153,51 @@ test("pending departure overlays the server Active occurrence into Archived exac
     syncQueueEntries: [departure],
   });
   assert.equal(activeRows.length, 0);
+});
+
+test("archived Masterlist sorts by actual departure time regardless of sync status", () => {
+  const rows = [
+    { household_id: "a", family_head_name: "Ara Mina", departure_time_value: "2026-09-07T06:05:00.000Z", registered_at: "2026-09-07T08:00:00.000Z", departure_sync_status: "PENDING" },
+    { household_id: "b", family_head_name: "Bea Alonzo", departure_time_value: "2026-09-07T05:20:00.000Z", registered_at: "2026-09-07T09:00:00.000Z", departure_sync_status: "FAILED" },
+    { household_id: "c", family_head_name: "Khalil Ramos", departure_time_value: "2026-09-07T03:48:00.000Z", registered_at: "2026-09-07T10:00:00.000Z", departure_sync_status: "SYNCED" },
+  ];
+
+  assert.deepEqual(
+    sortMasterlistRows(rows, "newest", { recordStatus: "archived" }).map(
+      (row) => row.household_id,
+    ),
+    ["a", "b", "c"],
+  );
+});
+
+test("archived sorting places missing departures last with stable ties", () => {
+  const rows = [
+    { household_id: "missing-a", departure_time_value: null },
+    { household_id: "old", departure_time_value: "2026-09-06T15:59:00.000Z" },
+    { household_id: "missing-b", departure_time_value: "not-a-date" },
+    { household_id: "new", departure_time_value: "2026-09-07T16:01:00.000Z" },
+  ];
+
+  assert.deepEqual(
+    sortMasterlistRows(rows, "newest", { recordStatus: "archived" }).map(
+      (row) => row.household_id,
+    ),
+    ["new", "old", "missing-a", "missing-b"],
+  );
+});
+
+test("active Masterlist keeps its existing registration-time ordering", () => {
+  const rows = [
+    { household_id: "older", family_head_name: "Zed", registered_at: "2026-09-07T01:00:00.000Z" },
+    { household_id: "newer", family_head_name: "Amy", registered_at: "2026-09-07T02:00:00.000Z" },
+  ];
+
+  assert.deepEqual(
+    sortMasterlistRows(rows, "newest", { recordStatus: "active" }).map(
+      (row) => row.household_id,
+    ),
+    ["newer", "older"],
+  );
 });
 
 test("pending departure with a generated local queue id does not duplicate the server household", () => {
