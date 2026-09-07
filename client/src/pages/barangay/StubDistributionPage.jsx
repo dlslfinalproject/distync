@@ -50,6 +50,7 @@ import {
 } from "../../features/stubs/stubCache";
 import { getCachedFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
 import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
+import { resolveStubDetailsForOfflineDisplay } from "../../features/stubs/offlineHouseholdHydration";
 import { DEFAULT_TABLE_PAGE_SIZE } from "../../features/pagination/pagination.mjs";
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
@@ -233,6 +234,20 @@ const getStubEventId = (stubDetails) =>
 
 const getStubBarangayId = (stubDetails) =>
   stubDetails?.barangay_id || stubDetails?.barangay?.id || "";
+
+const resolveDetailsForDisplay = async (
+  stubDetails,
+  { disasterEventId = "", barangayId = "" } = {},
+) => {
+  if (typeof navigator === "undefined" || navigator.onLine !== false) {
+    return stubDetails;
+  }
+
+  return resolveStubDetailsForOfflineDisplay(stubDetails, {
+    disasterEventId,
+    barangayId,
+  });
+};
 
 const isOfflineQueuedClaimResult = (result) =>
   result?.data?.status === "PENDING_SYNC";
@@ -619,9 +634,13 @@ const StubDistributionPage = () => {
         const stubDetails = await fetchStubDetails(pendingClaimStubId, {
           currentBarangayId: selectedBarangayForPrintId,
         });
+        const hydratedStubDetails = await resolveDetailsForDisplay(stubDetails, {
+          disasterEventId: selectedDisasterEventId || selectedEvent?.id || "",
+          barangayId: selectedBarangayForPrintId,
+        });
 
         if (isMounted) {
-          setPendingClaimStubDetails(stubDetails);
+          setPendingClaimStubDetails(hydratedStubDetails);
         }
       } catch (error) {
         if (isMounted) {
@@ -1047,7 +1066,11 @@ const StubDistributionPage = () => {
       }
 
       setPendingClaimStubId(resolvedStubId);
-      setPendingClaimStubDetails(stubDetails);
+      const hydratedStubDetails = await resolveDetailsForDisplay(stubDetails, {
+        disasterEventId: selectedEventId,
+        barangayId: selectedBarangayForPrintId,
+      });
+      setPendingClaimStubDetails(hydratedStubDetails);
       setIsBulkClaimConfirmOpen(false);
       setSelectedStubIds([]);
       setIsQrScanModalOpen(false);
@@ -1104,7 +1127,11 @@ const StubDistributionPage = () => {
       const details = await fetchStubDetails(row.id, {
         currentBarangayId: selectedBarangayForPrintId,
       });
-      setSelectedStubDetails(details);
+      const hydratedDetails = await resolveDetailsForDisplay(details, {
+        disasterEventId: selectedDisasterEventId || selectedEvent?.id || "",
+        barangayId: selectedBarangayForPrintId,
+      });
+      setSelectedStubDetails(hydratedDetails);
     } catch (error) {
       setStubDetailsErrorMessage(
         error.message || "Unable to load the selected stub details.",

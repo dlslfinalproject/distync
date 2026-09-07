@@ -1,5 +1,12 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { shellStyles } from "../layout/BarangayLayout";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
+import TablePagination from "../shared/TablePagination";
+import { DONATION_PAGE_PANEL_STYLE } from "./DonationPageTabs";
 
 const tableStyles = {
   table: {
@@ -60,15 +67,78 @@ const formatWriteOffReason = (reason) => {
 const DonorTransparencyTab = ({
   portalData,
   transparencyRows: providedTransparencyRows,
+  isLoading = false,
+  errorMessage = "",
   showDisasterEventColumn = false,
+  embedded = false,
+  panelId = "donation-management-transparency-panel",
+  tabId = "donation-management-transparency-tab",
 }) => {
-  const transparencyRows =
-    providedTransparencyRows ||
-    portalData.transparency_summary?.received_vs_distributed ||
-    [];
+  const transparencyRows = Array.isArray(providedTransparencyRows)
+    ? providedTransparencyRows
+    : portalData.transparency_summary?.received_vs_distributed || [];
+  const safeRows = Array.isArray(transparencyRows) ? transparencyRows : [];
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const pagination = getTablePaginationState({
+    totalItems: safeRows.length,
+    currentPage,
+    pageSize,
+    pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+  });
+  const paginatedTransparencyRows = safeRows.slice(
+    (pagination.currentPage - 1) * pagination.pageSize,
+    pagination.currentPage * pagination.pageSize,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [safeRows]);
+
+  useEffect(() => {
+    setCurrentPage((previousPage) => {
+      if (pagination.totalPages === 0) {
+        return 1;
+      }
+
+      return Math.min(Math.max(previousPage, 1), pagination.totalPages);
+    });
+  }, [pagination.totalPages]);
+
+  const handlePageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+      return;
+    }
+
+    setPageSize(nextPageSize);
+    setCurrentPage(1);
+  };
+
+  const paginationBar = (
+    <TablePagination
+      totalItems={pagination.totalItems}
+      currentPage={pagination.currentPage}
+      pageSize={pagination.pageSize}
+      pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+      onPageChange={setCurrentPage}
+      onPageSizeChange={handlePageSizeChange}
+      isVisible={!isLoading && !errorMessage && pagination.totalItems > 0}
+      ariaLabel="Transparency summary pagination"
+      previousAriaLabel="Go to previous transparency summary page"
+      nextAriaLabel="Go to next transparency summary page"
+    />
+  );
 
   return (
-    <section className="mayor-donation-management-records-card" style={shellStyles.card}>
+    <section
+      id={panelId}
+      role="tabpanel"
+      aria-labelledby={tabId}
+      className="mayor-donation-management-records-card"
+      style={embedded ? DONATION_PAGE_PANEL_STYLE : shellStyles.card}
+    >
         <div
           style={{
             marginBottom: "20px",
@@ -81,7 +151,11 @@ const DonorTransparencyTab = ({
           </h3>
         </div>
 
-        {transparencyRows.length === 0 ? (
+        {paginationBar}
+
+        {isLoading ? (
+          <p style={shellStyles.mutedText}>Loading transparency summary...</p>
+        ) : safeRows.length === 0 ? (
           <p style={shellStyles.mutedText}>
             No donated inventory summaries are available yet.
           </p>
@@ -137,7 +211,7 @@ const DonorTransparencyTab = ({
                 </tr>
               </thead>
               <tbody>
-                {transparencyRows.map((row) => (
+                {paginatedTransparencyRows.map((row) => (
                   <tr
                     key={row.public_key || `${row.donor_name}-${row.item_name}`}
                   >

@@ -26,7 +26,7 @@ const normalizePersonForLookup = (person = {}, defaults = {}) => ({
     person.relationship_to_head || defaults.relationship_to_head || null,
 });
 
-const hasComparableName = (person) =>
+export const hasComparableName = (person) =>
   Boolean(
     normalizePossibleMatchText(person?.first_name).length >= 2 &&
       normalizePossibleMatchText(person?.last_name).length >= 2,
@@ -38,10 +38,6 @@ const buildComparablePersonKey = (person = {}) =>
     normalizePossibleMatchText(person.middle_name),
     normalizePossibleMatchText(person.last_name),
     normalizePossibleMatchText(person.suffix),
-    String(person.sex || "").toUpperCase(),
-    person.age_value === "" || person.age_value === null ? "" : String(person.age_value),
-    String(person.age_unit || "").toUpperCase(),
-    normalizePossibleMatchText(person.relationship_to_head),
   ].join("|");
 
 const buildFamilyHeadLookupKey = (familyHead, contactNumber) =>

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { FiEdit2, FiEye, FiPower } from "react-icons/fi";
 import {
@@ -6,8 +6,15 @@ import {
   formatDonorType,
 } from "../../features/donations/donationFormatters";
 import { getDonationTypeKey } from "../../features/donations/donationType";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 import SyncStatusIcon from "../shared/SyncStatusIcon";
 import TableActionsMenu from "../shared/TableActionsMenu";
+import TablePagination from "../shared/TablePagination";
+import { DONATION_PAGE_PANEL_STYLE } from "./DonationPageTabs";
 
 const tableStyles = {
   table: {
@@ -104,12 +111,70 @@ const getDonationTypeLabel = (donation) => {
 
 const DonationsTab = ({
   isLoading,
+  errorMessage = "",
   filteredDonations,
   showDisasterEventColumn = false,
+  embedded = false,
+  panelId = "donation-management-donations-panel",
+  tabId = "donation-management-donations-tab",
   onOpenDonationDetail,
   onOpenDonationModal,
   onOpenDonorNameVisibility,
 }) => {
+  const safeRows = Array.isArray(filteredDonations) ? filteredDonations : [];
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const pagination = getTablePaginationState({
+    totalItems: safeRows.length,
+    currentPage,
+    pageSize,
+    pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+  });
+  const paginatedDonations = safeRows.slice(
+    (pagination.currentPage - 1) * pagination.pageSize,
+    pagination.currentPage * pagination.pageSize,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [safeRows]);
+
+  useEffect(() => {
+    setCurrentPage((previousPage) => {
+      if (pagination.totalPages === 0) {
+        return 1;
+      }
+
+      return Math.min(Math.max(previousPage, 1), pagination.totalPages);
+    });
+  }, [pagination.totalPages]);
+
+  const handlePageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+      return;
+    }
+
+    setPageSize(nextPageSize);
+    setCurrentPage(1);
+  };
+
+  const paginationBar = (
+    <TablePagination
+      totalItems={pagination.totalItems}
+      currentPage={pagination.currentPage}
+      pageSize={pagination.pageSize}
+      pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+      onPageChange={setCurrentPage}
+      onPageSizeChange={handlePageSizeChange}
+      isVisible={!isLoading && !errorMessage && pagination.totalItems > 0}
+      ariaLabel="Donations pagination"
+      previousAriaLabel="Go to previous donations page"
+      nextAriaLabel="Go to next donations page"
+    />
+  );
+
   const headerLabels = showDisasterEventColumn
     ? [
         "Donor",
@@ -128,14 +193,22 @@ const DonationsTab = ({
       ];
 
   return (
-    <section className="mayor-donation-management-records-card" style={shellStyles.card}>
+    <section
+      id={panelId}
+      role="tabpanel"
+      aria-labelledby={tabId}
+      className="mayor-donation-management-records-card"
+      style={embedded ? DONATION_PAGE_PANEL_STYLE : shellStyles.card}
+    >
       <div style={{ marginBottom: "16px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Received Donations</h3>
       </div>
 
+      {paginationBar}
+
       {isLoading ? (
         <p style={shellStyles.mutedText}>Loading donation records...</p>
-      ) : filteredDonations.length === 0 ? (
+      ) : safeRows.length === 0 ? (
         <p style={shellStyles.mutedText}>
           No matching records found. Try adjusting your search or filters.
         </p>
@@ -173,7 +246,7 @@ const DonationsTab = ({
               </tr>
             </thead>
             <tbody>
-              {filteredDonations.map((donation) => {
+              {paginatedDonations.map((donation) => {
                 const itemDetails = getDonationItemDetails(donation);
                 const donationTypeLabel = getDonationTypeLabel(donation);
 

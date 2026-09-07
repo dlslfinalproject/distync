@@ -20,6 +20,7 @@ const TablePagination = ({
   ariaLabel = "Table pagination",
   previousAriaLabel = "Go to previous page",
   nextAriaLabel = "Go to next page",
+  pageSizeLabel = "Rows per page",
   className = "",
 }) => {
   const pagination = getTablePaginationState({
@@ -62,7 +63,7 @@ const TablePagination = ({
       </p>
       <div className="table-pagination-controls">
         <label className="table-pagination-size">
-          <span>Rows per page</span>
+          <span>{pageSizeLabel}</span>
           <select
             value={pagination.pageSize}
             onChange={handlePageSizeChange}

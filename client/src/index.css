@@ -73,6 +73,9 @@ body {
 .mayor-relief-pack-search-wrap,
 .mayor-relief-pack-action-group,
 .mayor-relief-pack-card-grid,
+.mayor-relief-pack-tabs-module,
+.mayor-relief-pack-tabs,
+.mayor-relief-pack-tabpanel,
 .mayor-relief-pack-customization-card,
 .mayor-relief-pack-template-table,
 .mayor-relief-pack-detail-grid,
@@ -82,6 +85,24 @@ body {
 .mayor-relief-pack-chip-grid,
 .mayor-relief-pack-item-preview {
   min-width: 0;
+}
+
+.mayor-relief-pack-tabs {
+  scrollbar-width: thin;
+}
+
+.mayor-relief-pack-tabs > button {
+  flex: 0 0 auto;
+}
+
+.mayor-relief-pack-tabs > button:hover:not(:disabled) {
+  color: #17324d !important;
+}
+
+.mayor-relief-pack-tabs > button:focus-visible {
+  outline: 2px solid rgba(40, 120, 191, 0.34);
+  outline-offset: -2px;
+  border-radius: 6px 6px 0 0;
 }
 
 .mayor-relief-pack-template-table-scroll,
@@ -375,6 +396,24 @@ body {
   max-width: 100%;
 }
 
+.mayor-donation-management-tabs {
+  scrollbar-width: thin;
+}
+
+.mayor-donation-management-tabs > button {
+  flex: 0 0 auto;
+}
+
+.mayor-donation-management-tabs > button:hover:not(:disabled) {
+  color: #17324d !important;
+}
+
+.mayor-donation-management-tabs > button:focus-visible {
+  outline: 2px solid rgba(40, 120, 191, 0.34);
+  outline-offset: -2px;
+  border-radius: 6px 6px 0 0;
+}
+
 .mayor-donation-management-table-scroll,
 .mayor-donation-management-detail-table-scroll {
   max-width: 100%;
@@ -637,9 +676,9 @@ body {
     -webkit-overflow-scrolling: touch;
   }
 
-  .mayor-donation-management-tabs button {
-    flex: 1 0 max-content;
-    min-height: 44px;
+  .mayor-donation-management-tabs > button {
+    flex: 0 0 auto;
+    min-height: 48px;
   }
 
   .mayor-donation-management-search-wrap,
@@ -1071,13 +1110,13 @@ body {
     gap: 6px !important;
   }
 
-  .mayor-donation-management-tabs button {
-    flex: 1 1 0;
+  .mayor-donation-management-tabs > button {
+    flex: 0 0 auto;
     justify-content: center;
     min-width: 0;
-    padding-left: 8px !important;
-    padding-right: 8px !important;
-    white-space: normal !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    white-space: nowrap !important;
   }
 
   .mayor-donation-management-type-filter {

@@ -9,6 +9,7 @@ import {
   getCanonicalMemberSectorCode,
 } from "../../utils/registrationOptions";
 import { formatStayTypeLabel } from "../../utils/stayType";
+import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
 import QrCodePanel from "./QrCodePanel";
 
 const getDisplayStubNumber = (stubDetails) => {
@@ -364,6 +365,12 @@ const StubDetailModal = ({
               {errorMessage}
             </p>
           </section>
+        ) : stubDetails?.offline_household_details_unavailable ? (
+          <section style={modalStyles.section}>
+            <p style={{ ...shellStyles.mutedText, margin: 0 }}>
+              Complete household details are not available in the current offline data.
+            </p>
+          </section>
         ) : (
           <div className="stub-detail-modal-content" style={{ display: "grid", gap: "18px" }}>
             <section style={modalStyles.section}>
@@ -415,9 +422,9 @@ const StubDetailModal = ({
                 <div>
                   <p style={modalStyles.label}>Family Head Photo</p>
                   <div style={{ marginTop: "12px" }}>
-                    {household.family_head_photo_url ? (
+                    {resolveFamilyHeadPhoto(household) ? (
                       <img
-                        src={household.family_head_photo_url}
+                        src={resolveFamilyHeadPhoto(household)}
                         alt="Registered family head"
                         style={modalStyles.photo}
                       />

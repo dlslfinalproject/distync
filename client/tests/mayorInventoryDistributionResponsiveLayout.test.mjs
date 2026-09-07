@@ -53,6 +53,18 @@ test("Mayor inventory distribution table keeps overflow local and preserves colu
     tableSource,
     /Family Head[\s\S]*?Sectors[\s\S]*?Relief Pack[\s\S]*?Status[\s\S]*?Authorized By[\s\S]*?Action/,
   );
+  assert.match(tableSource, /reliefPackColumn: \{\s*width: "260px"/);
+  assert.match(tableSource, /reliefPackColumnWide: \{\s*width: "260px"/);
+  assert.match(tableSource, /statusColumn: \{\s*width: "170px"/);
+  assert.match(tableSource, /authorizedByColumn: \{\s*width: "260px"/);
+  assert.match(tableSource, /statusCell: \{\s*textAlign: "center"/);
+  assert.match(tableSource, /statusContent: \{[\s\S]*?alignItems: "center"/);
+  assert.match(tableSource, /authorizedByCell: \{\s*textAlign: "center"/);
+  assert.match(
+    tableSource,
+    /authorizedByContent: \{[\s\S]*?justifyContent: "center"/,
+  );
+  assert.match(tableSource, /<div key=\{line\} style=\{\{ fontWeight: 400 \}\}>/);
   assert.match(
     cssSource,
     /\.inventory-distribution-table-scroll,[\s\S]*?\.inventory-distribution-detail-table-scroll \{[\s\S]*?overflow-x: auto !important;[\s\S]*?-webkit-overflow-scrolling: touch;/,

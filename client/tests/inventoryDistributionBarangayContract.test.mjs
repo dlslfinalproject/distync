@@ -25,3 +25,39 @@ test("Inventory Distribution municipality aggregation uses supported barangay sc
 test("Inventory Distribution does not use development barangay overrides", () => {
   assert.doesNotMatch(source, /overrideBarangayId\s*:/);
 });
+
+test("Inventory Distribution resets record filters when switching event scopes", () => {
+  assert.match(source, /const resetDistributionFilters = \(\) => \{/);
+  assert.match(source, /setSearchTerm\(""\)/);
+  assert.match(source, /setSelectedStatus\(""\)/);
+  assert.match(source, /setSelectedSectorIds\(\[\]\)/);
+  assert.match(source, /setSelectedSortOrder\("oldest"\)/);
+  assert.match(
+    source,
+    /if \(isScopeChange\) \{\s*resetDistributionFilters\(\);\s*\}/,
+  );
+  assert.doesNotMatch(
+    source,
+    /const handleEventScopeChange = \(nextTab\) => \{[\s\S]*?setSelectedBarangayId\(""\);/,
+  );
+});
+
+test("Inventory Distribution remembers event selection independently per scope", () => {
+  assert.match(
+    source,
+    /const \[selectedDisasterEventIdsByTab, setSelectedDisasterEventIdsByTab\]/,
+  );
+  assert.match(
+    source,
+    /const selectedDisasterEventId =\s*selectedDisasterEventIdsByTab\[activeTab\] \|\| "";/,
+  );
+  assert.match(source, /const setSelectedDisasterEventId = useCallback\(/);
+});
+
+test("Inventory Distribution orders each event scope with the newest event first", () => {
+  assert.match(source, /const getDisasterEventRecency = \(event\) => \{/);
+  assert.match(
+    source,
+    /\.sort\(\s*\(leftEvent, rightEvent\) =>\s*getDisasterEventRecency\(rightEvent\) -\s*getDisasterEventRecency\(leftEvent\),/,
+  );
+});

@@ -255,7 +255,6 @@ const InventoryDistributionPage = () => {
     analytics,
     isLoadingFilters,
     isLoadingMasterlist,
-    isLoadingTemplate,
     errorMessage,
     hasActiveEvents,
     handleEventScopeChange,
@@ -720,12 +719,6 @@ const InventoryDistributionPage = () => {
                 <StatusPill status={selectedDisasterEvent.status} />
               </div>
             </div>
-
-            {(isLoadingTemplate || isLoadingFilters) && !errorMessage ? (
-              <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
-                Loading relief pack...
-              </p>
-            ) : null}
           </section>
         ) : null}
 
@@ -908,6 +901,15 @@ const InventoryDistributionPage = () => {
         </section>
 
         <InventoryDistributionTable
+          key={[
+            activeTab,
+            selectedDisasterEventId,
+            selectedBarangayId,
+            selectedStatus,
+            selectedSortOrder,
+            searchTerm,
+            selectedSectorIds.join(","),
+          ].join("|")}
           rows={displayedRows}
           isLoading={isLoadingFilters || isLoadingMasterlist}
           errorMessage={errorMessage}
