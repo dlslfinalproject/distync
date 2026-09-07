@@ -34,6 +34,10 @@ export const fetchReliefPackTemplates = async (filters = {}) => {
     searchParams.set("disaster_type", filters.disaster_type);
   }
 
+  if (filters.include_items === true) {
+    searchParams.set("include_items", "true");
+  }
+
   const queryString = searchParams.toString();
   const url = `${API_BASE_URL}/api/v1/relief-pack-templates${
     queryString ? `?${queryString}` : ""

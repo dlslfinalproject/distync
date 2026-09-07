@@ -3,6 +3,7 @@ const test = require("node:test");
 
 const {
   validateCreateReliefPackTemplate,
+  validateGetReliefPackDemand,
   validateReliefPackTemplateStatus,
   validateUpdateReliefPackTemplate,
 } = require("../src/validators/reliefPackTemplate.validator");
@@ -11,6 +12,32 @@ const VALID_INVENTORY_ITEM_ID = "11111111-1111-4111-8111-111111111111";
 
 const runMiddleware = (middleware, body) => {
   const req = { body };
+  const result = {
+    statusCode: 200,
+    jsonPayload: null,
+    nextCalled: false,
+    req,
+  };
+  const res = {
+    status(code) {
+      result.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      result.jsonPayload = payload;
+      return this;
+    },
+  };
+
+  middleware(req, res, () => {
+    result.nextCalled = true;
+  });
+
+  return result;
+};
+
+const runQueryMiddleware = (middleware, query) => {
+  const req = { query };
   const result = {
     statusCode: 200,
     jsonPayload: null,
@@ -223,4 +250,44 @@ test("relief pack template family size accepts positive integers", () => {
       assert.equal(result.req.validatedBody.description, "5");
     },
   );
+});
+
+test("relief pack demand query validation deduplicates and bounds event UUIDs", () => {
+  const firstEventId = "11111111-1111-4111-8111-111111111111";
+  const secondEventId = "22222222-2222-4222-8222-222222222222";
+  const valid = runQueryMiddleware(
+    validateGetReliefPackDemand,
+    { disaster_event_ids: ` ${firstEventId},${secondEventId},${firstEventId} ` },
+  );
+
+  assert.equal(valid.nextCalled, true);
+  assert.deepEqual(valid.req.validatedQuery, {
+    disaster_event_ids: [firstEventId, secondEventId],
+  });
+
+  const tooManyIds = Array.from(
+    { length: 101 },
+    (_value, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+  );
+  const tooMany = runQueryMiddleware(validateGetReliefPackDemand, {
+    disaster_event_ids: tooManyIds.join(","),
+  });
+
+  assert.equal(tooMany.nextCalled, false);
+  assert.equal(tooMany.statusCode, 400);
+  assert.match(tooMany.jsonPayload.message, /no more than 100/i);
+});
+
+test("relief pack demand query validation rejects missing, empty, and invalid event ids", () => {
+  [
+    [{}, "disaster_event_ids is required"],
+    [{ disaster_event_ids: " , " }, "at least one UUID"],
+    [{ disaster_event_ids: "not-a-uuid" }, "valid UUID values"],
+  ].forEach(([query, expectedMessage]) => {
+    const result = runQueryMiddleware(validateGetReliefPackDemand, query);
+
+    assert.equal(result.nextCalled, false);
+    assert.equal(result.statusCode, 400);
+    assert.match(result.jsonPayload.message, new RegExp(expectedMessage, "i"));
+  });
 });

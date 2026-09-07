@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import PageHeader, {
   pageHeaderStyles,
 } from "../../components/layout/PageHeader";
@@ -23,15 +23,18 @@ import {
   updateReliefPackTemplate,
   updateReliefPackTemplateStatus,
 } from "../../features/relief-pack-templates/reliefPackTemplateService";
+import { fetchReliefPackDemand } from "../../features/relief-pack-templates/reliefPackDemandService";
+import {
+  buildReliefPackTemplateDemandFromAggregates,
+  formatDisasterEventOptionLabel,
+} from "../../features/relief-pack-templates/reliefPackDemandAggregation.mjs";
 import {
   fetchAllDisasterEvents,
   fetchBarangays,
 } from "../../features/disaster-events/disasterEventService";
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
 import { fetchSectors } from "../../features/household-registration/householdRegistrationService";
-import { fetchConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
-import { isHouseholdEligibleForReliefPackDemand } from "../../features/relief-pack-templates/reliefPackDemand";
 import { allocateSharedReliefPackInventory } from "../../features/relief-pack-templates/reliefPackAvailability";
 import {
   DEFAULT_TABLE_PAGE_SIZE,
@@ -619,7 +622,7 @@ const alertBoxStyle = {
 };
 
 const emptyDashboardState = {
-  households: [],
+  rows: [],
 };
 
 const reliefPackDetailModalStyles = {
@@ -732,147 +735,16 @@ const isTemplateApplicableToDisasterType = (template, disasterType) => {
   });
 };
 
-const getTemplateApplicableHouseholds = (template, households) => {
-  return (households || []).filter((household) =>
-    isTemplateApplicableToDisasterType(
-      template,
-      household?.__reliefPackDemandDisasterType,
-    ) && isHouseholdApplicableToTemplateSector(template, household),
-  );
-};
-
-const getHouseholdSectorIds = (household) => {
-  return [
-    ...(household?.household_sectors || []).map((sector) => sector.id),
-    ...(household?.members || []).flatMap((member) =>
-      (member?.sectors || []).map((sector) => sector.id),
-    ),
-  ].filter(Boolean);
-};
-
-const isHouseholdApplicableToTemplateSector = (template, household) => {
-  if (!template?.is_additional_pack) {
-    return true;
-  }
-
-  const templateSectorIds = Array.isArray(template?.sector_ids)
-    ? template.sector_ids
-    : [];
-  const sectorIdSet = new Set(
-    [...templateSectorIds, template?.sector_id].filter(Boolean),
-  );
-
-  if (sectorIdSet.size === 0) {
-    return false;
-  }
-
-  return getHouseholdSectorIds(household).some((sectorId) =>
-    sectorIdSet.has(sectorId),
-  );
-};
-
-const getHouseholdSize = (household) => {
-  const householdSize = Number(
-    household?.household_size ??
-      household?.members_count ??
-      (Array.isArray(household?.members) ? household.members.length : 0),
-  );
-
-  return Number.isFinite(householdSize) && householdSize > 0 ? householdSize : 1;
-};
-
-const getTemplateFamilySizeCoverage = (template) => {
-  const parsedCoverage = Number.parseInt(String(template?.description || "").trim(), 10);
-  return Number.isInteger(parsedCoverage) && parsedCoverage > 0 ? parsedCoverage : 0;
-};
-
-const getReliefPackQuantityMultiplier = (template, householdSize) => {
-  if (!template?.based_on_family_size) {
-    return 1;
-  }
-
-  const normalizedHouseholdSize = Number.parseInt(String(householdSize || 0), 10);
-  const familySizeCoverage = getTemplateFamilySizeCoverage(template);
-
-  if (
-    !Number.isInteger(normalizedHouseholdSize) ||
-    normalizedHouseholdSize <= 0 ||
-    familySizeCoverage <= 0
-  ) {
-    return 1;
-  }
-
-  return Math.max(1, Math.ceil(normalizedHouseholdSize / familySizeCoverage));
-};
-
-const buildTemplateDemand = (template, households) => {
-  const barangayDemandMap = new Map();
-  const eventDemandMap = new Map();
-  let neededPacks = 0;
-
-  (households || []).forEach((household) => {
-    const packMultiplier = getReliefPackQuantityMultiplier(
-      template,
-      getHouseholdSize(household),
-    );
-    const barangayId = household?.barangay?.id || household?.household_id;
-    const barangayName = household?.barangay?.name || "Unknown barangay";
-    const eventId =
-      household?.__reliefPackDemandDisasterEventId || "unknown-disaster-event";
-    const eventName =
-      household?.__reliefPackDemandDisasterEventLabel ||
-      household?.__reliefPackDemandDisasterType ||
-      "Unknown disaster event";
-    const key = `${eventId}::${barangayId || barangayName}`;
-    const existingBarangay = barangayDemandMap.get(key);
-    const existingEvent = eventDemandMap.get(eventId);
-
-    neededPacks += packMultiplier;
-
-    if (existingBarangay) {
-      existingBarangay.families_count += 1;
-      existingBarangay.packs_needed += packMultiplier;
-    } else {
-      barangayDemandMap.set(key, {
-        barangay_id: barangayId || key,
-        barangay_name: barangayName,
-        disaster_event_id: eventId,
-        disaster_event_name: eventName,
-        families_count: 1,
-        packs_needed: packMultiplier,
-      });
-    }
-
-    if (existingEvent) {
-      existingEvent.families_count += 1;
-      existingEvent.packs_needed += packMultiplier;
-    } else {
-      eventDemandMap.set(eventId, {
-        disaster_event_id: eventId,
-        disaster_event_name: eventName,
-        families_count: 1,
-        packs_needed: packMultiplier,
-      });
-    }
-  });
-
-  return {
-    neededPacks,
-    perBarangayDemand: Array.from(barangayDemandMap.values()).sort(
-      (leftBarangay, rightBarangay) =>
-        rightBarangay.packs_needed - leftBarangay.packs_needed,
-    ),
-    perEventDemand: Array.from(eventDemandMap.values()).sort(
-      (leftEvent, rightEvent) => rightEvent.packs_needed - leftEvent.packs_needed,
-    ),
-  };
-};
-
 const getTemplateItemRequiredQuantity = (templateItem) => {
   const quantityRequired = Number(templateItem?.quantity_required || 0);
   return Number.isFinite(quantityRequired) && quantityRequired > 0
     ? quantityRequired
     : 0;
+};
+
+const getTemplateFamilySizeCoverage = (template) => {
+  const parsedCoverage = Number.parseInt(String(template?.description || "").trim(), 10);
+  return Number.isInteger(parsedCoverage) && parsedCoverage > 0 ? parsedCoverage : 0;
 };
 
 const normalizeReliefPackInventoryIdentifier = (value) =>
@@ -1117,7 +989,7 @@ const buildEventAwareTemplateCards = ({
   inventoryBatches = [],
   disasterEvents = [],
   activeDisasterEvents = [],
-  households = [],
+  demandAggregates = [],
   targetDisasterEventId = "",
 } = {}) => {
   const normalizedTargetEventId = normalizeReliefPackInventoryIdentifier(
@@ -1193,18 +1065,13 @@ const buildEventAwareTemplateCards = ({
     const disasterEventId = normalizeReliefPackInventoryIdentifier(
       disasterEvent?.id,
     );
-    const eventHouseholds = (households || []).filter(
-      (household) =>
-        normalizeReliefPackInventoryIdentifier(
-          household?.__reliefPackDemandDisasterEventId,
-        ) === disasterEventId,
-    );
     const demandByTemplateId = new Map(
       (templates || []).map((template) => [
         template.id,
-        buildTemplateDemand(
+        buildReliefPackTemplateDemandFromAggregates(
           template,
-          getTemplateApplicableHouseholds(template, eventHouseholds),
+          demandAggregates,
+          disasterEvent,
         ),
       ]),
     );
@@ -1313,24 +1180,25 @@ const buildEventAwareTemplateCards = ({
   });
 };
 
-const getDemandHouseholdBarangayId = (household) =>
-  household?.barangay?.id || household?.barangay_id || null;
+const getReliefPackDemandBarangayId = (demandRow) =>
+  demandRow?.barangay_id || null;
 
 const matchesReliefPackDemandScope = ({
-  household,
+  demandRow,
   selectedDisasterEventId,
   selectedBarangayId,
 }) => {
   if (
     selectedDisasterEventId &&
-    household?.__reliefPackDemandDisasterEventId !== selectedDisasterEventId
+    normalizeReliefPackInventoryIdentifier(demandRow?.disaster_event_id) !==
+      normalizeReliefPackInventoryIdentifier(selectedDisasterEventId)
   ) {
     return false;
   }
 
   if (
     selectedBarangayId &&
-    getDemandHouseholdBarangayId(household) !== selectedBarangayId
+    getReliefPackDemandBarangayId(demandRow) !== selectedBarangayId
   ) {
     return false;
   }
@@ -1744,22 +1612,6 @@ const sortSectorOptionsForReliefPacks = (sectors) => {
   });
 };
 
-const formatDisasterEventOptionLabel = (event) => {
-  const title = String(event?.title || "").trim();
-  const eventCode = String(event?.event_code || "").trim();
-  const codePrefixPattern = /^DE-\d{4}-\d{4}\s*[-:]\s*/i;
-  const titleWithoutCode = title.replace(codePrefixPattern, "").trim();
-
-  if (
-    eventCode &&
-    titleWithoutCode.toLowerCase().startsWith(eventCode.toLowerCase())
-  ) {
-    return titleWithoutCode.slice(eventCode.length).replace(/^[-:\s]+/, "").trim();
-  }
-
-  return titleWithoutCode || title || "Untitled disaster event";
-};
-
 const getAffectedBarangayIds = (event) => {
   const affectedBarangays = Array.isArray(event?.affected_barangays)
     ? event.affected_barangays
@@ -2142,6 +1994,12 @@ const ReliefPackTemplatesPage = () => {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [deactivationBlockedMessage, setDeactivationBlockedMessage] =
     useState("");
+  const isMountedRef = useRef(true);
+  const pageRefreshInFlightRef = useRef(null);
+  const pageRefreshFollowUpRef = useRef(false);
+  const pageRefreshRequestIdRef = useRef(0);
+  const demandRefreshInFlightRef = useRef(null);
+  const demandRefreshRequestIdRef = useRef(0);
   const selectedAvailabilityFilters = Array.isArray(filters.availability)
     ? filters.availability
     : [];
@@ -2158,76 +2016,142 @@ const ReliefPackTemplatesPage = () => {
     selectedAdvancedFilters.length +
     (selectedSortOrder !== "oldest" ? 1 : 0);
 
-  const loadReliefPackPage = async () => {
-    setIsLoading(true);
-    setErrorMessage("");
+  const loadReliefPackPage = async ({
+    silent = false,
+    includeStaticOptions = true,
+  } = {}) => {
+    const existingRequest = pageRefreshInFlightRef.current;
 
-    try {
-      const [
-        templateResponse,
-        inventoryItemResponse,
-        inventoryBatchResponse,
-        disasterEventResponse,
-        barangayResponse,
-        sectorResponse,
-      ] = await Promise.all([
-        fetchReliefPackTemplates({ is_active: "" }),
-        fetchInventoryItems(),
-        fetchInventoryBatches(),
-        fetchAllDisasterEvents(),
-        fetchBarangays(),
-        fetchSectors(),
-      ]);
+    if (existingRequest) {
+      if (silent) {
+        return existingRequest.promise;
+      }
 
-      const templateDetails = await Promise.all(
-        (templateResponse || []).map((template) =>
-          fetchReliefPackTemplateById(template.id),
-        ),
-      );
+      pageRefreshFollowUpRef.current = true;
+      setIsLoading(true);
+      setErrorMessage("");
 
-      setTemplates(sortTemplatesOldestFirst(templateDetails));
-      setInventoryItems(inventoryItemResponse || []);
-      setInventoryBatches(inventoryBatchResponse || []);
-      const normalizedDisasterEvents = Array.isArray(disasterEventResponse)
-        ? disasterEventResponse
-        : [];
-      setAllDisasterEvents(normalizedDisasterEvents);
-      setActiveDisasterEvents(
-        sortDisasterEventsNewestFirst(
-          normalizedDisasterEvents.filter(
-            (event) => String(event?.status || "").toUpperCase() === "ACTIVE",
-          ),
-        ),
-      );
-      setBarangayOptions(barangayResponse || []);
-      setSectorOptions(
-        sortSectorOptionsForReliefPacks(normalizeApiList(sectorResponse)),
-      );
-    } catch (error) {
-      setErrorMessage(error.message);
-    } finally {
-      setIsLoading(false);
+      return existingRequest.promise.then(() => {
+        if (!pageRefreshFollowUpRef.current || !isMountedRef.current) {
+          return;
+        }
+
+        pageRefreshFollowUpRef.current = false;
+        return loadReliefPackPage({ silent: false });
+      });
     }
+
+    if (!silent) {
+      setIsLoading(true);
+      setErrorMessage("");
+    }
+
+    const requestId = pageRefreshRequestIdRef.current + 1;
+    pageRefreshRequestIdRef.current = requestId;
+    const requestEntry = {
+      promise: null,
+      requestId,
+    };
+    pageRefreshInFlightRef.current = requestEntry;
+    const requestPromise = (async () => {
+      try {
+        const pageRequests = [
+          fetchReliefPackTemplates({ is_active: "", include_items: true }),
+          fetchInventoryItems(),
+          fetchInventoryBatches(),
+          fetchAllDisasterEvents(),
+        ];
+
+        if (includeStaticOptions) {
+          pageRequests.push(fetchBarangays(), fetchSectors());
+        }
+
+        const [
+          templateResponse,
+          inventoryItemResponse,
+          inventoryBatchResponse,
+          disasterEventResponse,
+          barangayResponse,
+          sectorResponse,
+        ] = await Promise.all(pageRequests);
+
+        if (
+          !isMountedRef.current ||
+          requestId !== pageRefreshRequestIdRef.current ||
+          pageRefreshFollowUpRef.current
+        ) {
+          return;
+        }
+
+        setTemplates(sortTemplatesOldestFirst(templateResponse || []));
+        setInventoryItems(inventoryItemResponse || []);
+        setInventoryBatches(inventoryBatchResponse || []);
+        const normalizedDisasterEvents = Array.isArray(disasterEventResponse)
+          ? disasterEventResponse
+          : [];
+        setAllDisasterEvents(normalizedDisasterEvents);
+        setActiveDisasterEvents(
+          sortDisasterEventsNewestFirst(
+            normalizedDisasterEvents.filter(
+              (event) => String(event?.status || "").toUpperCase() === "ACTIVE",
+            ),
+          ),
+        );
+        if (includeStaticOptions) {
+          setBarangayOptions(barangayResponse || []);
+          setSectorOptions(
+            sortSectorOptionsForReliefPacks(normalizeApiList(sectorResponse)),
+          );
+        }
+      } catch (error) {
+        if (!silent && isMountedRef.current && requestId === pageRefreshRequestIdRef.current) {
+          setErrorMessage(error.message);
+        }
+      } finally {
+        if (!silent && isMountedRef.current && requestId === pageRefreshRequestIdRef.current) {
+          setIsLoading(false);
+        }
+
+        if (pageRefreshInFlightRef.current === requestEntry) {
+          pageRefreshInFlightRef.current = null;
+        }
+      }
+    })();
+
+    requestEntry.promise = requestPromise;
+
+    return requestPromise;
   };
 
   const loadTemplateDetail = async (templateId) => {
     const response = await fetchReliefPackTemplateById(templateId);
 
-    setSelectedTemplate(response);
-    setSelectedTemplateId(templateId);
-    setTemplates((currentTemplates) =>
-      sortTemplatesOldestFirst(
-        currentTemplates.map((template) =>
-          template.id === templateId ? response : template,
+    if (isMountedRef.current) {
+      setSelectedTemplate(response);
+      setSelectedTemplateId(templateId);
+      setTemplates((currentTemplates) =>
+        sortTemplatesOldestFirst(
+          currentTemplates.map((template) =>
+            template.id === templateId ? response : template,
+          ),
         ),
-      ),
-    );
+      );
+    }
 
     return response;
   };
 
   useEffect(() => {
-    loadReliefPackPage();
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+      pageRefreshFollowUpRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    void loadReliefPackPage();
   }, []);
 
   const scopedDisasterEvents = useMemo(
@@ -2284,50 +2208,8 @@ const ReliefPackTemplatesPage = () => {
   }, [selectableBarangayOptions, selectedBarangayId]);
 
   useEffect(() => {
-    let isMounted = true;
-
-    const refreshInventoryDrivenMetrics = async () => {
-      try {
-        const [
-          templateResponse,
-          inventoryItemResponse,
-          inventoryBatchResponse,
-          disasterEventResponse,
-        ] =
-          await Promise.all([
-            fetchReliefPackTemplates({ is_active: "" }),
-            fetchInventoryItems(),
-            fetchInventoryBatches(),
-            fetchAllDisasterEvents(),
-          ]);
-
-        const templateDetails = await Promise.all(
-          (templateResponse || []).map((template) =>
-            fetchReliefPackTemplateById(template.id),
-          ),
-        );
-
-        if (!isMounted) {
-          return;
-        }
-
-        setTemplates(sortTemplatesOldestFirst(templateDetails));
-        setInventoryItems(inventoryItemResponse || []);
-        setInventoryBatches(inventoryBatchResponse || []);
-        const normalizedDisasterEvents = Array.isArray(disasterEventResponse)
-          ? disasterEventResponse
-          : [];
-        setAllDisasterEvents(normalizedDisasterEvents);
-        setActiveDisasterEvents(
-          sortDisasterEventsNewestFirst(
-            normalizedDisasterEvents.filter(
-              (event) => String(event?.status || "").toUpperCase() === "ACTIVE",
-            ),
-          ),
-        );
-      } catch (_error) {
-        // Keep the current view stable during background refresh attempts.
-      }
+    const refreshInventoryDrivenMetrics = () => {
+      void loadReliefPackPage({ silent: true, includeStaticOptions: false });
     };
 
     const handleVisibilityRefresh = () => {
@@ -2342,98 +2224,114 @@ const ReliefPackTemplatesPage = () => {
     document.addEventListener("visibilitychange", handleVisibilityRefresh);
 
     return () => {
-      isMounted = false;
       window.clearInterval(refreshInterval);
       window.removeEventListener("focus", refreshInventoryDrivenMetrics);
       document.removeEventListener("visibilitychange", handleVisibilityRefresh);
     };
   }, []);
 
+  const demandScopeKey = useMemo(
+    () =>
+      scopedDisasterEvents
+        .map((event) =>
+          [
+            event?.id,
+            event?.disaster_type,
+            String(event?.status || "").trim().toUpperCase(),
+          ].join(":"),
+        )
+        .sort()
+        .join("|"),
+    [scopedDisasterEvents],
+  );
+
   useEffect(() => {
-    if (scopedDisasterEvents.length === 0) {
-      setAggregatedDemand(emptyDashboardState);
-      return;
-    }
-
-    let isMounted = true;
-
     const loadAggregatedDemand = async () => {
-      setIsLoadingDemand(true);
+      const disasterEventIds = scopedDisasterEvents
+        .map((event) => event?.id)
+        .filter(Boolean);
 
-      try {
-        const masterlistResults = await Promise.all(
-          scopedDisasterEvents.map((disasterEvent) =>
-            fetchConsolidatedMasterlist({
-              disasterEventId: disasterEvent.id,
-              barangayId: null,
-              recordStatus: "active",
-            })
-              .then((masterlist) => ({
-                disasterEvent,
-                masterlist,
-              }))
-              .catch(() => null),
-          ),
-        );
-
-        if (!isMounted) {
-          return;
-        }
-
-        const householdsNeedingReliefPacks = [];
-
-        masterlistResults.filter(Boolean).forEach(({ disasterEvent, masterlist }) => {
-          const disasterType =
-            String(
-              masterlist?.disaster_event?.disaster_type ||
-                disasterEvent?.disaster_type ||
-                "",
-            ).trim() || null;
-          const activeHouseholds = (Array.isArray(masterlist?.data)
-            ? masterlist.data
-            : [])
-            .filter(isHouseholdEligibleForReliefPackDemand)
-            .map((household) => ({
-              ...household,
-              __reliefPackDemandDisasterEventId:
-                masterlist?.disaster_event?.id || disasterEvent?.id || null,
-              __reliefPackDemandDisasterEventLabel:
-                formatDisasterEventOptionLabel(masterlist?.disaster_event || disasterEvent),
-              __reliefPackDemandDisasterType: disasterType,
-            }));
-
-          householdsNeedingReliefPacks.push(...activeHouseholds);
-        });
-
-        setAggregatedDemand({
-          households: householdsNeedingReliefPacks,
-        });
-      } finally {
-        if (isMounted) {
-          setIsLoadingDemand(false);
-        }
+      if (disasterEventIds.length === 0) {
+        demandRefreshRequestIdRef.current += 1;
+        demandRefreshInFlightRef.current = null;
+        setAggregatedDemand(emptyDashboardState);
+        setIsLoadingDemand(false);
+        return;
       }
+
+      const existingRequest = demandRefreshInFlightRef.current;
+      if (existingRequest?.scopeKey === demandScopeKey) {
+        return existingRequest.promise;
+      }
+
+      const requestId = demandRefreshRequestIdRef.current + 1;
+      demandRefreshRequestIdRef.current = requestId;
+      setIsLoadingDemand(true);
+      const requestEntry = {
+        promise: null,
+        requestId,
+        scopeKey: demandScopeKey,
+      };
+      demandRefreshInFlightRef.current = requestEntry;
+      const requestPromise = (async () => {
+        try {
+          const response = await fetchReliefPackDemand({ disasterEventIds });
+          const rows = Array.isArray(response?.data)
+            ? response.data
+            : Array.isArray(response)
+              ? response
+              : [];
+
+          if (
+            isMountedRef.current &&
+            requestId === demandRefreshRequestIdRef.current
+          ) {
+            setAggregatedDemand({ rows });
+          }
+        } catch (_error) {
+          if (
+            isMountedRef.current &&
+            requestId === demandRefreshRequestIdRef.current
+          ) {
+            setAggregatedDemand(emptyDashboardState);
+          }
+        } finally {
+          if (
+            isMountedRef.current &&
+            requestId === demandRefreshRequestIdRef.current
+          ) {
+            setIsLoadingDemand(false);
+          }
+
+          if (demandRefreshInFlightRef.current === requestEntry) {
+            demandRefreshInFlightRef.current = null;
+          }
+        }
+      })();
+
+      requestEntry.promise = requestPromise;
+
+      return requestPromise;
     };
 
-    loadAggregatedDemand();
+    void loadAggregatedDemand();
     const refreshInterval = window.setInterval(loadAggregatedDemand, 30000);
 
     return () => {
-      isMounted = false;
       window.clearInterval(refreshInterval);
     };
-  }, [scopedDisasterEvents]);
+  }, [demandScopeKey]);
 
-  const scopedDemandHouseholds = useMemo(
+  const scopedDemandAggregates = useMemo(
     () =>
-      aggregatedDemand.households.filter((household) =>
+      aggregatedDemand.rows.filter((demandRow) =>
         matchesReliefPackDemandScope({
-          household,
+          demandRow,
           selectedDisasterEventId,
           selectedBarangayId,
         }),
       ),
-    [aggregatedDemand.households, selectedBarangayId, selectedDisasterEventId],
+    [aggregatedDemand.rows, selectedBarangayId, selectedDisasterEventId],
   );
 
   const fullDemandTemplateCards = useMemo(
@@ -2443,11 +2341,11 @@ const ReliefPackTemplatesPage = () => {
         inventoryBatches,
         disasterEvents: allDisasterEvents,
         activeDisasterEvents,
-        households: aggregatedDemand.households,
+        demandAggregates: aggregatedDemand.rows,
       }),
     [
       activeDisasterEvents,
-      aggregatedDemand.households,
+      aggregatedDemand.rows,
       allDisasterEvents,
       inventoryBatches,
       templates,
@@ -2462,13 +2360,13 @@ const ReliefPackTemplatesPage = () => {
         disasterEvents: allDisasterEvents,
         activeDisasterEvents,
         targetDisasterEventId: selectedDisasterEventId,
-        households: scopedDemandHouseholds,
+        demandAggregates: scopedDemandAggregates,
       }),
     [
       activeDisasterEvents,
       allDisasterEvents,
       inventoryBatches,
-      scopedDemandHouseholds,
+      scopedDemandAggregates,
       selectedDisasterEventId,
       templates,
     ],
