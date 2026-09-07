@@ -117,7 +117,14 @@ test("pending departure overlays the server Active occurrence into Archived exac
     timestamp: "2026-01-02",
   });
   const rows = resolveEffectiveMasterlistRows({
-    rows: [activeRow("household-1")],
+    rows: [{
+      ...activeRow("household-1"),
+      family_head_name: "Alyanna Perez",
+      members_count: 2,
+      sectors_text: "Teenage, Adult",
+      arrival_time_text: "Sep 7, 2026, 9:45 AM",
+      offline_household_details: { members: [{ id: "head" }, { id: "member" }] },
+    }],
     recordStatus: "archived",
     selectedEventId: "event-a",
     assignedBarangayId: "barangay-a",
@@ -128,6 +135,12 @@ test("pending departure overlays the server Active occurrence into Archived exac
   assert.equal(rows[0].household_id, "household-1");
   assert.equal(rows[0].is_operationally_active, false);
   assert.equal(rows[0].sync_status, "PENDING");
+  assert.equal(rows[0].family_head_name, "Alyanna Perez");
+  assert.equal(rows[0].members_count, 2);
+  assert.equal(rows[0].sectors_text, "Teenage, Adult");
+  assert.equal(rows[0].arrival_time_text, "Sep 7, 2026, 9:45 AM");
+  assert.equal(rows[0].departure_time_value, "2026-01-02");
+  assert.deepEqual(rows[0].offline_household_details.members, [{ id: "head" }, { id: "member" }]);
   assert.equal(rows[0].departure_sync_status, "PENDING");
   assert.equal(rows[0].departure_sync_tooltip, "Departure pending synchronization");
 

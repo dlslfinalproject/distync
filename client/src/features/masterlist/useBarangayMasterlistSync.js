@@ -22,6 +22,7 @@ export const useBarangayMasterlistSync = ({
   recordStatus,
   sortOrder,
   reloadMasterlist,
+  cachedMasterlistRows = [],
 }) => {
   // HOUSEHOLD_RE_ADMISSION remains an optimistic Active occurrence.
   const [sectorOptions, setSectorOptions] = useState(() => {
@@ -34,8 +35,24 @@ export const useBarangayMasterlistSync = ({
     return buildMasterlistFilterSectorOptions(sectors);
   });
 
+  const sourceRows = useMemo(() => {
+    const rowsByHouseholdId = new Map(
+      (Array.isArray(cachedMasterlistRows) ? cachedMasterlistRows : [])
+        .filter((row) => row?.household_id)
+        .map((row) => [String(row.household_id), row]),
+    );
+
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      if (row?.household_id) {
+        rowsByHouseholdId.set(String(row.household_id), row);
+      }
+    });
+
+    return [...rowsByHouseholdId.values()];
+  }, [cachedMasterlistRows, rows]);
+
   const rowsWithSyncStatus = useMemo(() => {
-    const syncedRows = rows.map((row) => ({
+    const syncedRows = sourceRows.map((row) => ({
       ...row,
       sync_status: buildSyncDescriptor(
         getLatestHouseholdLifecycleEntry(syncQueueEntries, row),
@@ -61,7 +78,7 @@ export const useBarangayMasterlistSync = ({
   }, [
     assignedBarangay?.id,
     assignedBarangay?.name,
-    rows,
+    sourceRows,
     recordStatus,
     sortOrder,
     sectorOptions,
