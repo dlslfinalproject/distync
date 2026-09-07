@@ -395,6 +395,10 @@ const isRejectedHouseholdRegistration = (entry) =>
   entry?.actionKey === "HOUSEHOLD_REGISTER" &&
   entry?.status === "CONFLICT";
 
+const isRejectedHouseholdDeparture = (entry) =>
+  entry?.actionKey === "HOUSEHOLD_DEPART" &&
+  entry?.status === "CONFLICT";
+
 const applyLifecycleOverlay = (row, lifecycleEntry) => {
   if (!lifecycleEntry) {
     return row;
@@ -488,7 +492,8 @@ export const resolveEffectiveMasterlistRows = ({
           entry.actionKey,
         ) &&
         !isReconciledDuplicate(entry) &&
-        !isRejectedHouseholdRegistration(entry),
+        !isRejectedHouseholdRegistration(entry) &&
+        !isRejectedHouseholdDeparture(entry),
     )
     .sort((left, right) => getEntryTimestamp(right) - getEntryTimestamp(left))
     .forEach((entry) => {
