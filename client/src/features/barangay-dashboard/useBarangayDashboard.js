@@ -291,7 +291,7 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
             )
             .find(Boolean) ||
           (preparedContexts.length === 1 ? preparedContexts[0] : null);
-        const retainedEventId = selectedPreparedContext?.disaster_event_id || "";
+        let retainedEventId = selectedPreparedContext?.disaster_event_id || "";
 
         if (!retainedEventId && selectedPreparedContext?.disaster_event_id) {
           retainedEventId = selectedPreparedContext.disaster_event_id;

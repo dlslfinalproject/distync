@@ -13,6 +13,7 @@ import ReliefPackTemplateStatusConfirmModal from "../../components/relief-pack-t
 import ReliefPackTemplateDeactivationBlockedModal from "../../components/relief-pack-templates/ReliefPackTemplateDeactivationBlockedModal";
 import TableActionsMenu from "../../components/shared/TableActionsMenu";
 import StatusPill from "../../components/shared/StatusPill";
+import TablePagination from "../../components/shared/TablePagination";
 import DetailsModalShell from "../../components/shared/DetailsModalShell";
 import {
   createReliefPackTemplate,
@@ -33,6 +34,11 @@ import { DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTy
 import { isHouseholdEligibleForReliefPackDemand } from "../../features/relief-pack-templates/reliefPackDemand";
 import { allocateSharedReliefPackInventory } from "../../features/relief-pack-templates/reliefPackAvailability";
 import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
+import {
   isReliefPackInventoryBatchEligible,
   sortDisasterEventsForReliefPackRollover,
 } from "../../features/relief-pack-templates/reliefPackInventory";
@@ -52,16 +58,25 @@ const RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED_CODE =
 const RELIEF_PACK_TEMPLATE_DEACTIVATION_BLOCKED_MESSAGE =
   "This relief pack cannot be deactivated while an event is active or a distribution is ongoing.";
 
-const getTabStyle = (isActive) => ({
-  padding: "12px 24px",
+const reliefPackTabButtonStyles = (isActive) => ({
+  alignItems: "center",
+  boxSizing: "border-box",
   border: "none",
   borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
   background: "none",
   color: isActive ? "#17324d" : "#6b8298",
-  fontSize: "14px",
-  fontWeight: 700,
-  whiteSpace: "nowrap",
   cursor: "pointer",
+  display: "inline-flex",
+  fontSize: "14px",
+  fontFamily: "inherit",
+  fontWeight: 700,
+  justifyContent: "center",
+  letterSpacing: "0.01em",
+  lineHeight: 1.3,
+  minHeight: "48px",
+  padding: "11px 16px",
+  transition: "color 160ms ease, border-color 160ms ease",
+  whiteSpace: "nowrap",
 });
 
 const filterStyles = {
@@ -147,6 +162,18 @@ const sortOptions = [
   { value: "za", label: "Z-A" },
 ];
 
+const RELIEF_PACK_CARD_PAGE_SIZE_OPTIONS = Object.freeze([10, 20]);
+
+const RELIEF_PACK_TABPANEL_IDS = {
+  RELIEF_PACKS: "relief-pack-management-relief-packs-panel",
+  CUSTOMIZATION: "relief-pack-management-customization-panel",
+};
+
+const RELIEF_PACK_TAB_IDS = {
+  RELIEF_PACKS: "relief-pack-management-relief-packs-tab",
+  CUSTOMIZATION: "relief-pack-management-customization-tab",
+};
+
 const reliefPackPageStyles = {
   pageStack: {
     ...pageSpacingStyles.pageStack,
@@ -154,21 +181,28 @@ const reliefPackPageStyles = {
   },
   tabCard: {
     ...shellStyles.card,
+    padding: 0,
     boxSizing: "border-box",
   },
   tabList: {
+    alignItems: "stretch",
     borderBottom: "1px solid #d6e2ef",
+    backgroundColor: "#fbfdff",
+    borderTopLeftRadius: "17px",
+    borderTopRightRadius: "17px",
     display: "flex",
-    gap: "8px",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
+    gap: "4px",
     overflowX: "auto",
-    maxWidth: "100%",
+    padding: "8px clamp(14px, 2vw, 24px) 0",
+    minHeight: "56px",
     WebkitOverflowScrolling: "touch",
   },
   reliefPackSection: {
-    ...shellStyles.card,
-    padding: "22px",
     boxSizing: "border-box",
+    minHeight: "112px",
+    minWidth: 0,
+    padding: "clamp(16px, 1.8vw, 24px)",
   },
   reliefPackGrid: {
     display: "grid",
@@ -434,14 +468,16 @@ const reliefPackPageStyles = {
     lineHeight: 1,
   },
   customizationTableSection: {
-    ...shellStyles.card,
-    padding: "24px",
     boxSizing: "border-box",
+    minHeight: "112px",
+    minWidth: 0,
+    padding: "clamp(16px, 1.8vw, 24px)",
     overflow: "visible",
   },
   customizationTableScroll: {
     overflowX: "auto",
     maxWidth: "100%",
+    scrollbarWidth: "thin",
     WebkitOverflowScrolling: "touch",
     overscrollBehaviorX: "contain",
   },
@@ -2062,6 +2098,14 @@ const ReliefPackTemplateDetailModal = ({
 const ReliefPackTemplatesPage = () => {
   const { authenticatedUser } = useAuth();
   const [activeTab, setActiveTab] = useState("relief-packs");
+  const [reliefPackCurrentPage, setReliefPackCurrentPage] = useState(1);
+  const [reliefPackPageSize, setReliefPackPageSize] = useState(
+    RELIEF_PACK_CARD_PAGE_SIZE_OPTIONS[0],
+  );
+  const [customizationCurrentPage, setCustomizationCurrentPage] = useState(1);
+  const [customizationPageSize, setCustomizationPageSize] = useState(
+    DEFAULT_TABLE_PAGE_SIZE,
+  );
   const [filters, setFilters] = useState({
     search: "",
     packType: "All",
@@ -2512,6 +2556,110 @@ const ReliefPackTemplatesPage = () => {
     scopedDisasterEvents,
     templateCards,
   ]);
+
+  const reliefPackPagination = getTablePaginationState({
+    totalItems: filteredTemplateCards.length,
+    currentPage: reliefPackCurrentPage,
+    pageSize: reliefPackPageSize,
+    pageSizeOptions: RELIEF_PACK_CARD_PAGE_SIZE_OPTIONS,
+  });
+  const paginatedReliefPackTemplateCards = filteredTemplateCards.slice(
+    (reliefPackPagination.currentPage - 1) * reliefPackPagination.pageSize,
+    reliefPackPagination.currentPage * reliefPackPagination.pageSize,
+  );
+  const customizationPagination = getTablePaginationState({
+    totalItems: filteredTemplateCards.length,
+    currentPage: customizationCurrentPage,
+    pageSize: customizationPageSize,
+    pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+  });
+  const paginatedCustomizationTemplateCards = filteredTemplateCards.slice(
+    (customizationPagination.currentPage - 1) * customizationPagination.pageSize,
+    customizationPagination.currentPage * customizationPagination.pageSize,
+  );
+
+  useEffect(() => {
+    setReliefPackCurrentPage(1);
+    setCustomizationCurrentPage(1);
+  }, [filteredTemplateCards]);
+
+  useEffect(() => {
+    setReliefPackCurrentPage((previousPage) => {
+      if (reliefPackPagination.totalPages === 0) {
+        return 1;
+      }
+
+      return Math.min(Math.max(previousPage, 1), reliefPackPagination.totalPages);
+    });
+  }, [reliefPackPagination.totalPages]);
+
+  useEffect(() => {
+    setCustomizationCurrentPage((previousPage) => {
+      if (customizationPagination.totalPages === 0) {
+        return 1;
+      }
+
+      return Math.min(
+        Math.max(previousPage, 1),
+        customizationPagination.totalPages,
+      );
+    });
+  }, [customizationPagination.totalPages]);
+
+  const handleCustomizationPageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+      return;
+    }
+
+    setCustomizationPageSize(nextPageSize);
+    setCustomizationCurrentPage(1);
+  };
+
+  const handleReliefPackPageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+
+    if (!RELIEF_PACK_CARD_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+      return;
+    }
+
+    setReliefPackPageSize(nextPageSize);
+    setReliefPackCurrentPage(1);
+  };
+
+  const reliefPackPaginationBar = (
+    <TablePagination
+      totalItems={reliefPackPagination.totalItems}
+      currentPage={reliefPackPagination.currentPage}
+      pageSize={reliefPackPagination.pageSize}
+      pageSizeOptions={RELIEF_PACK_CARD_PAGE_SIZE_OPTIONS}
+      pageSizeLabel="Cards per page"
+      onPageChange={setReliefPackCurrentPage}
+      onPageSizeChange={handleReliefPackPageSizeChange}
+      isVisible={!isLoading && !errorMessage && reliefPackPagination.totalPages > 1}
+      ariaLabel="Relief packs pagination"
+      previousAriaLabel="Go to previous relief packs page"
+      nextAriaLabel="Go to next relief packs page"
+    />
+  );
+
+  const customizationPaginationBar = (
+    <TablePagination
+      totalItems={customizationPagination.totalItems}
+      currentPage={customizationPagination.currentPage}
+      pageSize={customizationPagination.pageSize}
+      pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+      onPageChange={setCustomizationCurrentPage}
+      onPageSizeChange={handleCustomizationPageSizeChange}
+      isVisible={
+        !isLoading && !errorMessage && customizationPagination.totalItems > 0
+      }
+      ariaLabel="Relief pack templates pagination"
+      previousAriaLabel="Go to previous relief pack templates page"
+      nextAriaLabel="Go to next relief pack templates page"
+    />
+  );
 
   const detailTemplate = useMemo(() => {
     if (!detailTemplateId) {
@@ -3007,28 +3155,46 @@ const ReliefPackTemplatesPage = () => {
         </div>
       </div>
 
-      <section className="mayor-relief-pack-tabs-card" style={reliefPackPageStyles.tabCard}>
-        <div className="mayor-relief-pack-tabs" style={reliefPackPageStyles.tabList}>
+      <section
+        className="mayor-relief-pack-tabs-card mayor-relief-pack-tabs-module"
+        style={reliefPackPageStyles.tabCard}
+      >
+        <div
+          className="mayor-relief-pack-tabs"
+          role="tablist"
+          aria-label="Relief Pack Templates sections"
+          style={reliefPackPageStyles.tabList}
+        >
           <button
+            id={RELIEF_PACK_TAB_IDS.RELIEF_PACKS}
+            role="tab"
+            aria-selected={activeTab === "relief-packs"}
+            aria-controls={RELIEF_PACK_TABPANEL_IDS.RELIEF_PACKS}
             type="button"
-            style={getTabStyle(activeTab === "relief-packs")}
+            style={reliefPackTabButtonStyles(activeTab === "relief-packs")}
             onClick={() => setActiveTab("relief-packs")}
           >
             Relief Packs
           </button>
           <button
+            id={RELIEF_PACK_TAB_IDS.CUSTOMIZATION}
+            role="tab"
+            aria-selected={activeTab === "customization"}
+            aria-controls={RELIEF_PACK_TABPANEL_IDS.CUSTOMIZATION}
             type="button"
-            style={getTabStyle(activeTab === "customization")}
+            style={reliefPackTabButtonStyles(activeTab === "customization")}
             onClick={() => setActiveTab("customization")}
           >
             Pack Customization
           </button>
         </div>
-      </section>
 
       {activeTab === "relief-packs" ? (
         <section
-          className="mayor-relief-pack-results-card"
+          id={RELIEF_PACK_TABPANEL_IDS.RELIEF_PACKS}
+          role="tabpanel"
+          aria-labelledby={RELIEF_PACK_TAB_IDS.RELIEF_PACKS}
+          className="mayor-relief-pack-tabpanel mayor-relief-pack-results-card"
           style={reliefPackPageStyles.reliefPackSection}
         >
           {isLoading ? (
@@ -3036,11 +3202,13 @@ const ReliefPackTemplatesPage = () => {
           ) : filteredTemplateCards.length === 0 ? (
             <p style={helperTextStyle}>No relief packs match the current filters.</p>
           ) : (
-            <div
-              className="mayor-relief-pack-card-grid"
-              style={reliefPackPageStyles.reliefPackGrid}
-            >
-              {filteredTemplateCards.map((template) => {
+            <>
+              {reliefPackPaginationBar}
+              <div
+                className="mayor-relief-pack-card-grid"
+                style={reliefPackPageStyles.reliefPackGrid}
+              >
+                {paginatedReliefPackTemplateCards.map((template) => {
                 const shortageItems = template.metrics.shortageItems;
                 const isTemplateInactive = template.is_active === false;
                 const packTypeStatus = template.is_additional_pack
@@ -3189,14 +3357,17 @@ const ReliefPackTemplatesPage = () => {
                     ) : null}
                   </div>
                 );
-              })}
-            </div>
+                })}
+              </div>
+            </>
           )}
         </section>
       ) : (
-        <>
           <section
-            className="mayor-relief-pack-customization-card"
+            id={RELIEF_PACK_TABPANEL_IDS.CUSTOMIZATION}
+            role="tabpanel"
+            aria-labelledby={RELIEF_PACK_TAB_IDS.CUSTOMIZATION}
+            className="mayor-relief-pack-tabpanel mayor-relief-pack-customization-card"
             style={reliefPackPageStyles.customizationTableSection}
           >
             <div style={{ marginBottom: "18px" }}>
@@ -3210,14 +3381,16 @@ const ReliefPackTemplatesPage = () => {
             ) : filteredTemplateCards.length === 0 ? (
             <p style={helperTextStyle}>No relief packs match the current filters.</p>
             ) : (
-              <div
-                className="mayor-relief-pack-template-table-scroll"
-                style={reliefPackPageStyles.customizationTableScroll}
-              >
-                <table
-                  className="mayor-relief-pack-template-table"
-                  style={tableStyles.table}
+              <>
+                {customizationPaginationBar}
+                <div
+                  className="mayor-relief-pack-template-table-scroll"
+                  style={reliefPackPageStyles.customizationTableScroll}
                 >
+                  <table
+                    className="mayor-relief-pack-template-table"
+                    style={tableStyles.table}
+                  >
                   <thead>
                     <tr>
                       <th
@@ -3292,8 +3465,8 @@ const ReliefPackTemplatesPage = () => {
                       </th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {filteredTemplateCards.map((template) => {
+                    <tbody>
+                      {paginatedCustomizationTemplateCards.map((template) => {
                       const isTemplateInactive = template.is_active === false;
 
                       return (
@@ -3469,13 +3642,14 @@ const ReliefPackTemplatesPage = () => {
                       </tr>
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </section>
-        </>
       )}
+      </section>
 
       {errorMessage ? (
         <section style={shellStyles.card}>

@@ -45,6 +45,7 @@ const labelStyles = {
 };
 
 const sourceTypes = ["PURCHASED", "DONATED", "DSWD", "LGU", "OTHER"];
+const INVENTORY_BATCH_STORAGE_LOCATION_MAX_LENGTH = 200;
 
 const createDefaultForm = () => ({
   inventory_item_id: "",
@@ -237,6 +238,7 @@ const InventoryBatchFormModal = ({
               <input
                 id="storage_location"
                 type="text"
+                maxLength={INVENTORY_BATCH_STORAGE_LOCATION_MAX_LENGTH}
                 value={formValues.storage_location}
                 onChange={(event) =>
                   handleChange("storage_location", event.target.value)
