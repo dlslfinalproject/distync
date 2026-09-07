@@ -44,9 +44,11 @@ test("registration remains Active for every synchronization state", () => {
       ],
     });
 
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].is_active, true);
-    assert.equal(rows[0].sync_status, status);
+    assert.equal(rows.length, status === "CONFLICT" ? 0 : 1);
+    if (status !== "CONFLICT") {
+      assert.equal(rows[0].is_active, true);
+      assert.equal(rows[0].sync_status, status);
+    }
   }
 
   const archivedRows = resolveEffectiveMasterlistRows({
@@ -57,6 +59,55 @@ test("registration remains Active for every synchronization state", () => {
     syncQueueEntries: [entry({ id: "local-1", actionKey: "HOUSEHOLD_REGISTER", timestamp: "2026-01-01" })],
   });
   assert.equal(archivedRows.length, 0);
+});
+
+test("conflicted offline registration is removed from the normal Masterlist but remains queue-addressable", () => {
+  const authoritativeRow = {
+    ...activeRow("authoritative-household"),
+    family_head_name: "Ellen Adarna",
+  };
+  const conflictedEntry = entry({
+    id: "local-duplicate-operation",
+    actionKey: "HOUSEHOLD_REGISTER",
+    status: "CONFLICT",
+    timestamp: "2026-01-02T10:00:00.000Z",
+  });
+  conflictedEntry.entityLocalId = "local-duplicate-household";
+  conflictedEntry.entityServerId = null;
+
+  const rows = resolveEffectiveMasterlistRows({
+    rows: [authoritativeRow],
+    recordStatus: "active",
+    selectedEventId: "event-a",
+    assignedBarangayId: "barangay-a",
+    syncQueueEntries: [conflictedEntry],
+  });
+
+  assert.deepEqual(rows.map((row) => row.household_id), ["authoritative-household"]);
+  assert.equal(rows[0].family_head_name, "Ellen Adarna");
+  assert.equal(conflictedEntry.status, "CONFLICT");
+  assert.equal(conflictedEntry.id, "HOUSEHOLD_REGISTER-local-duplicate-operation");
+});
+
+test("failed registration remains projected for existing retry behavior", () => {
+  const failed = entry({
+    id: "local-failed-operation",
+    actionKey: "HOUSEHOLD_REGISTER",
+    status: "FAILED",
+    timestamp: "2026-01-02T10:00:00.000Z",
+  });
+
+  const rows = resolveEffectiveMasterlistRows({
+    rows: [],
+    recordStatus: "active",
+    selectedEventId: "event-a",
+    assignedBarangayId: "barangay-a",
+    syncQueueEntries: [failed],
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].household_id, failed.entityLocalId);
+  assert.equal(rows[0].sync_status, "FAILED");
 });
 
 test("pending departure overlays the server Active occurrence into Archived exactly once", () => {

@@ -387,6 +387,14 @@ const isActiveLifecycleAction = (actionKey, row) => {
 const isReconciledDuplicate = (entry) =>
   entry?.resolutionStatus === "DUPLICATE_HOUSEHOLD";
 
+// A terminal registration conflict remains in the queue for Sync Center and
+// Conflict Review, but its optimistic local household is not a valid
+// Masterlist occurrence. Failed entries remain projected because they retain
+// the existing retry/error behavior.
+const isRejectedHouseholdRegistration = (entry) =>
+  entry?.actionKey === "HOUSEHOLD_REGISTER" &&
+  entry?.status === "CONFLICT";
+
 const applyLifecycleOverlay = (row, lifecycleEntry) => {
   if (!lifecycleEntry) {
     return row;
@@ -474,7 +482,14 @@ export const resolveEffectiveMasterlistRows = ({
   );
 
   scopedEntries
-    .filter((entry) => ["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION", "HOUSEHOLD_DEPART"].includes(entry.actionKey) && !isReconciledDuplicate(entry))
+    .filter(
+      (entry) =>
+        ["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION", "HOUSEHOLD_DEPART"].includes(
+          entry.actionKey,
+        ) &&
+        !isReconciledDuplicate(entry) &&
+        !isRejectedHouseholdRegistration(entry),
+    )
     .sort((left, right) => getEntryTimestamp(right) - getEntryTimestamp(left))
     .forEach((entry) => {
       const localId = entry.entityLocalId || entry.entityServerId || entry.id;
