@@ -1041,39 +1041,6 @@ const isTemplateApplicableToDisasterType = (templateDisasterTypes, disasterType)
   });
 };
 
-const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
-  const normalizedOnHandQuantity = Math.max(Number(onHandQuantity || 0), 0);
-  const normalizedPackaging = String(inventoryItem?.packaging || "").toLowerCase();
-  const unitsPerPackage = Number(inventoryItem?.quantity || 0);
-  const existingPackagingCount = Number(inventoryItem?.packaging_count || 0);
-
-  if (normalizedPackaging === "piece" || unitsPerPackage <= 1) {
-    return {
-      quantity: 1,
-      packaging_count: normalizedOnHandQuantity > 0 ? normalizedOnHandQuantity : null,
-    };
-  }
-
-  if (normalizedOnHandQuantity === 0) {
-    return {
-      quantity: inventoryItem?.quantity || null,
-      packaging_count: null,
-    };
-  }
-
-  if (normalizedOnHandQuantity % unitsPerPackage === 0) {
-    return {
-      quantity: inventoryItem?.quantity || null,
-      packaging_count: normalizedOnHandQuantity / unitsPerPackage,
-    };
-  }
-
-  return {
-    quantity: inventoryItem?.quantity || null,
-    packaging_count: existingPackagingCount > 0 ? existingPackagingCount : null,
-  };
-};
-
 const buildDistributionInventoryRemarks = ({
   templateName,
   packQuantity,
@@ -1089,31 +1056,6 @@ const buildDistributionInventoryRemarks = ({
   ].filter(Boolean);
 
   return remarkParts.join(" | ");
-};
-
-const recomputeAndUpdateInventoryItemSnapshots = async (
-  inventoryItemsById,
-  dbClient,
-) => {
-  for (const [inventoryItemId, inventoryItem] of inventoryItemsById.entries()) {
-    const recomputedQuantityResult = await dbClient.query(
-      `
-        SELECT COALESCE(SUM(quantity_available), 0)::integer AS total_quantity
-        FROM inventory_batches
-        WHERE inventory_item_id = $1
-      `,
-      [inventoryItemId],
-    );
-    const nextItemQuantity = Number(
-      recomputedQuantityResult.rows[0]?.total_quantity || 0,
-    );
-
-    await inventoryItemRepository.updateInventoryItemStockSnapshot(
-      inventoryItemId,
-      buildUpdatedItemStockSnapshot(inventoryItem, nextItemQuantity),
-      dbClient,
-    );
-  }
 };
 
 const getInventoryItemStockTotals = async (inventoryItemIds, dbClient) => {
@@ -1814,8 +1756,6 @@ const createDistributionTransaction = async (requestData) => {
         client,
       );
     }
-
-    await recomputeAndUpdateInventoryItemSnapshots(inventoryItemsById, client);
 
     await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItems(
       [...inventoryItemsById.keys()],

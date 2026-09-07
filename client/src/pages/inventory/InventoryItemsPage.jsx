@@ -35,9 +35,6 @@ import {
 import db from "../../offline/db.js";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
-import {
-  getTotalItemQuantityValue,
-} from "../../features/inventory-items/inventoryItemFormatting";
 import { normalizeInventoryBarcode } from "../../features/inventory-items/inventoryBarcode";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_CODES } from "../../utils/roleSession";
@@ -136,15 +133,7 @@ const isNearExpiryItem = (item, trackingStats) => {
 };
 
 const getMonitorQuantity = (item, trackingStats) => {
-  const trackedOnHand = Number(trackingStats?.onHand || 0);
-  const trackedReceived = Number(trackingStats?.totalReceived || 0);
-  const itemTotalQuantity = getTotalItemQuantityValue(item);
-
-  if (trackedReceived > 0 || trackedOnHand > 0) {
-    return trackedOnHand;
-  }
-
-  return itemTotalQuantity;
+  return Number(trackingStats?.onHand || 0);
 };
 
 const INITIAL_SCAN_FORM = {

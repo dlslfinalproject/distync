@@ -220,7 +220,11 @@ const withStubbedDonationService = async (overrides, runTest) => {
       loaded: true,
       exports: {
         getInventoryItemByIdForUpdate: async () => inventoryItem,
-        updateInventoryItemStockSnapshot: async () => inventoryItem,
+        updateInventoryItemStockSnapshot: async () => {
+          throw new Error(
+            "stock movements must not update inventory item packaging metadata",
+          );
+        },
         ...overrides.inventoryItemRepository,
       },
     };

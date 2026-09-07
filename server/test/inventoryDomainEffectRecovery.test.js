@@ -367,9 +367,10 @@ const buildInventoryCreateStubs = ({
         packaging_count: 20,
       };
     },
-    updateInventoryItemStockSnapshot: async (id, snapshot) => {
-      events.push(`item-update:${id}:${snapshot.packaging_count}`);
-      return { id, ...snapshot };
+    updateInventoryItemStockSnapshot: async () => {
+      throw new Error(
+        "stock movements must not update inventory item packaging metadata",
+      );
     },
   },
   [inventoryBatchRepositoryPath]: {
@@ -428,7 +429,6 @@ test("EE-FIX-04 ACTIVE event-specific manual OUTFLOW proceeds with existing vali
         "item:item-1",
         "insert:ITR-2026-000321",
         "batch-update:batch-1:15:AVAILABLE",
-        "item-update:item-1:15",
         "intent:tx-1",
       ]);
     },
