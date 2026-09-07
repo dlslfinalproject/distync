@@ -1072,14 +1072,14 @@ test("BRG-SC-06-H01 TEST H MSWDO HOUSEHOLD_DEPART sync access remains broad", as
   );
 });
 
-test("BRG-SC-06-H02 HOUSEHOLD_DEPART duplicate records resolved FIRST_ACCEPTED without reporting SYNCED", async () => {
+test("BRG-SC-06-H02 later-arriving earlier departure becomes authoritative", async () => {
   let departCall = null;
   let conflictPayload = null;
   let transactionPayload = null;
 
   await withStubbedSyncService(
     {
-      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+       [syncRepositoryPath]: createBaseSyncRepositoryStub({
         recordConflictAndUpdateSyncTransaction: async (payload) => {
           transactionPayload = payload.transactionPayload;
           conflictPayload = payload.conflictPayload;
@@ -1108,7 +1108,9 @@ test("BRG-SC-06-H02 HOUSEHOLD_DEPART duplicate records resolved FIRST_ACCEPTED w
           );
           error.statusCode = 409;
           error.code = "DUPLICATE_HOUSEHOLD_DEPARTURE";
-          error.entityServerId = entityServerId;
+           error.entityServerId = entityServerId;
+           error.incomingDepartureWasEarlier = true;
+           error.incomingDepartureTime = departureDetails.departure_time;
           error.serverPayload = {
             id: "accepted-log-1",
             household_id: entityServerId,
@@ -1142,20 +1144,109 @@ test("BRG-SC-06-H02 HOUSEHOLD_DEPART duplicate records resolved FIRST_ACCEPTED w
         ],
       });
 
-      assert.equal(result.sync_status, "CONFLICT");
+       assert.equal(result.sync_status, "SYNCED");
       assert.equal(result.conflict.id, "conflict-household-depart-first-accepted");
       assert.equal(result.conflict.conflict_type, "DUPLICATE_HOUSEHOLD_DEPARTURE");
-      assert.equal(result.conflict.resolution_strategy, "FIRST_ACCEPTED");
+       assert.equal(result.conflict.resolution_strategy, "EARLIEST_ORIGINAL");
       assert.equal(result.conflict.status, "RESOLVED");
-      assert.equal(result.conflict.resolved_payload_json.winner, "SERVER");
+       assert.equal(result.conflict.resolved_payload_json.winner, "INCOMING");
       assert.equal(
         result.conflict.server_payload_json.time_out,
         "2026-08-09T03:00:00.000Z",
       );
-      assert.equal(transactionPayload.sync_status, "CONFLICT");
+       assert.equal(transactionPayload.sync_status, "SYNCED");
       assert.equal(departCall.departureDetails.allow_duplicate_departure_resolution, true);
       assert.equal(departCall.requester.defaultBarangayId, baseAuth.defaultBarangayId);
       assert.equal(conflictPayload.local_payload_json.departure_time, "2026-08-09T02:30:00.000Z");
+    },
+  );
+});
+
+test("BRG-SC-06-H02 earlier late departure supersedes the first accepted attempt in history", async () => {
+  const priorUpdates = [];
+  const priorConflicts = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        findHouseholdDepartureSyncTransactions: async (args) => {
+          assert.deepEqual(args, {
+            householdId: "99999999-9999-4999-8999-999999999999",
+            disasterEventId: "11111111-1111-4111-8111-111111111111",
+            barangayId: baseAuth.defaultBarangayId,
+            excludeSyncTransactionId: "sync-transaction-1",
+          });
+          return [
+            {
+              id: "prior-sync-transaction",
+              payload_json: {
+                action_key: "HOUSEHOLD_DEPART",
+                payload: { departure_time: "2026-08-09T03:00:00.000Z" },
+              },
+            },
+          ];
+        },
+        updateSyncTransaction: async (id, payload) => {
+          priorUpdates.push({ id, payload });
+          return { id, ...payload };
+        },
+        recordSyncConflictOnly: async (payload) => {
+          priorConflicts.push(payload);
+          return { id: "prior-conflict", ...payload };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (entityServerId, departureDetails) => {
+          const error = new Error("Earlier departure timestamp retained automatically.");
+          error.statusCode = 409;
+          error.code = "DUPLICATE_HOUSEHOLD_DEPARTURE";
+          error.entityServerId = entityServerId;
+          error.incomingDepartureWasEarlier = true;
+          error.incomingDepartureTime = departureDetails.departure_time;
+          error.serverPayload = {
+            id: "accepted-log-1",
+            household_id: entityServerId,
+            status: "LEFT",
+            time_in: "2026-08-09T01:00:00.000Z",
+            time_out: departureDetails.departure_time,
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "late-earlier-departure",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-08-09T02:30:00.000Z",
+            payload: {
+              disaster_event_id: "11111111-1111-4111-8111-111111111111",
+              barangay_id: baseAuth.defaultBarangayId,
+              departure_time: "2026-08-09T02:30:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(
+        result.conflict.server_payload_json.time_out,
+        "2026-08-09T02:30:00.000Z",
+      );
+      assert.equal(priorUpdates[0].id, "prior-sync-transaction");
+      assert.equal(priorUpdates[0].payload.sync_status, "CONFLICT");
+      assert.equal(priorConflicts[0].resolution_strategy, "EARLIEST_ORIGINAL");
+      assert.equal(priorConflicts[0].resolved_payload_json.winner, "INCOMING");
     },
   );
 });

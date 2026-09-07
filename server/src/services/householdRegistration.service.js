@@ -44,7 +44,11 @@ const NON_ADMITTED_RESIDENT_STAY_TYPES = new Set([
   "OTHER_SAFE_PLACE",
 ]);
 
-const buildDuplicateDepartureError = (householdId, latestAttendance) => {
+const buildDuplicateDepartureError = (
+  householdId,
+  latestAttendance,
+  resolution = {},
+) => {
   const error = new Error(
     "Duplicate household departure detected. Accepted server departure time was kept.",
   );
@@ -52,6 +56,8 @@ const buildDuplicateDepartureError = (householdId, latestAttendance) => {
   error.code = "DUPLICATE_HOUSEHOLD_DEPARTURE";
   error.entityServerId = householdId;
   error.serverPayload = latestAttendance || null;
+  error.incomingDepartureWasEarlier = resolution.incomingDepartureWasEarlier === true;
+  error.incomingDepartureTime = resolution.incomingDepartureTime || null;
   return error;
 };
 
@@ -66,6 +72,19 @@ const isEarlierTimestamp = (candidateTimestamp, existingTimestamp) => {
   return Number.isFinite(candidateTime) &&
     Number.isFinite(existingTime) &&
     candidateTime < existingTime;
+};
+
+const isValidEarlierDepartureTimestamp = (candidateTimestamp, attendance) => {
+  if (!isEarlierTimestamp(candidateTimestamp, attendance?.time_out)) {
+    return false;
+  }
+
+  const candidateTime = new Date(candidateTimestamp).getTime();
+  const arrivalTime = attendance?.time_in
+    ? new Date(attendance.time_in).getTime()
+    : null;
+
+  return arrivalTime === null || !Number.isFinite(arrivalTime) || candidateTime >= arrivalTime;
 };
 
 const buildStubQrCodeValue = ({ disasterEventId, householdId, stubNo }) => {
@@ -2553,6 +2572,24 @@ const departHousehold = async (
           );
 
         if (latestAttendance?.time_out) {
+          const incomingDepartureTime = departureDetails?.departure_time;
+          if (isValidEarlierDepartureTimestamp(incomingDepartureTime, latestAttendance)) {
+            const updatedLogs =
+              await householdRegistrationRepository.updateHouseholdDepartureTimestamp(
+                householdId,
+                incomingDepartureTime,
+                client,
+              );
+            throw buildDuplicateDepartureError(
+              householdId,
+              updatedLogs[0] || latestAttendance,
+              {
+                incomingDepartureWasEarlier: true,
+                incomingDepartureTime,
+              },
+            );
+          }
+
           throw buildDuplicateDepartureError(householdId, latestAttendance);
         }
       }
@@ -2602,6 +2639,24 @@ const departHousehold = async (
           );
 
         if (latestAttendance?.time_out) {
+          const incomingDepartureTime = departureDetails?.departure_time;
+          if (isValidEarlierDepartureTimestamp(incomingDepartureTime, latestAttendance)) {
+            const updatedLogs =
+              await householdRegistrationRepository.updateHouseholdDepartureTimestamp(
+                householdId,
+                incomingDepartureTime,
+                client,
+              );
+            throw buildDuplicateDepartureError(
+              householdId,
+              updatedLogs[0] || latestAttendance,
+              {
+                incomingDepartureWasEarlier: true,
+                incomingDepartureTime,
+              },
+            );
+          }
+
           throw buildDuplicateDepartureError(householdId, latestAttendance);
         }
       }
