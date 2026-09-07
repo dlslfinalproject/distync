@@ -505,7 +505,17 @@ export const resolveEffectiveMasterlistRows = ({
     .forEach((entry) => {
       const localId = entry.entityLocalId || entry.entityServerId || entry.id;
 
-      if (!localId || representedIds.has(String(localId))) {
+      const entryProjectionIds = [
+        ...getEntryIdentityValues(entry),
+        entry?.id,
+      ]
+        .filter(Boolean)
+        .map(String);
+
+      if (
+        !localId ||
+        entryProjectionIds.some((entryId) => representedIds.has(entryId))
+      ) {
         return;
       }
 

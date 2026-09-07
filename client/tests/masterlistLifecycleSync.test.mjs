@@ -154,6 +154,44 @@ test("pending departure overlays the server Active occurrence into Archived exac
   assert.equal(activeRows.length, 0);
 });
 
+test("pending departure with a generated local queue id does not duplicate the server household", () => {
+  const pendingDeparture = entry({
+    id: "sync-entry-1",
+    actionKey: "HOUSEHOLD_DEPART",
+    status: "PENDING",
+    timestamp: "2026-01-02T10:00:00.000Z",
+  });
+  pendingDeparture.entityLocalId = "generated-local-queue-id";
+  pendingDeparture.entityServerId = "household-1";
+
+  const rows = resolveEffectiveMasterlistRows({
+    rows: [
+      {
+        ...activeRow("household-1"),
+        family_head_name: "Ara Mina",
+        household_size: 2,
+        members_count: 2,
+        sectors_text: "Adult",
+        arrival_time_text: "Sep 7, 2026, 12:00 PM",
+      },
+    ],
+    recordStatus: "archived",
+    selectedEventId: "event-a",
+    assignedBarangayId: "barangay-a",
+    syncQueueEntries: [pendingDeparture],
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].household_id, "household-1");
+  assert.equal(rows[0].family_head_name, "Ara Mina");
+  assert.equal(rows[0].members_count, 2);
+  assert.equal(rows[0].sectors_text, "Adult");
+  assert.equal(rows[0].arrival_time_text, "Sep 7, 2026, 12:00 PM");
+  assert.equal(rows[0].departure_time_value, "2026-01-02T10:00:00.000Z");
+  assert.equal(rows[0].departure_sync_status, "PENDING");
+  assert.notEqual(rows[0].family_head_name, "Pending household");
+});
+
 test("conflicted departure does not synthesize a placeholder and preserves the authoritative archived row", () => {
   const conflictedDeparture = entry({
     id: "household-1",
