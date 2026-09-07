@@ -154,6 +154,50 @@ test("pending departure overlays the server Active occurrence into Archived exac
   assert.equal(activeRows.length, 0);
 });
 
+test("conflicted departure does not synthesize a placeholder and preserves the authoritative archived row", () => {
+  const conflictedDeparture = entry({
+    id: "household-1",
+    actionKey: "HOUSEHOLD_DEPART",
+    status: "CONFLICT",
+    timestamp: "2026-01-02T10:00:00.000Z",
+  });
+  const authoritativeRow = {
+    ...activeRow("household-1"),
+    family_head_name: "Ellen Adarna",
+    is_active: false,
+    is_operationally_active: false,
+    members_count: 1,
+    sectors_text: "Adult",
+    arrival_time_text: "Jan 2, 2026, 9:45 AM",
+    departure_time_value: "2026-01-02T09:53:00.000Z",
+    departure_time_text: "Jan 2, 2026, 9:53 AM",
+  };
+
+  const rows = resolveEffectiveMasterlistRows({
+    rows: [authoritativeRow],
+    recordStatus: "archived",
+    selectedEventId: "event-a",
+    assignedBarangayId: "barangay-a",
+    syncQueueEntries: [conflictedDeparture],
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].household_id, "household-1");
+  assert.equal(rows[0].family_head_name, "Ellen Adarna");
+  assert.equal(rows[0].departure_time_value, "2026-01-02T09:53:00.000Z");
+
+  const withoutAuthoritativeRow = resolveEffectiveMasterlistRows({
+    rows: [],
+    recordStatus: "archived",
+    selectedEventId: "event-a",
+    assignedBarangayId: "barangay-a",
+    syncQueueEntries: [conflictedDeparture],
+  });
+
+  assert.equal(withoutAuthoritativeRow.length, 0);
+  assert.equal(conflictedDeparture.status, "CONFLICT");
+});
+
 test("departure status maps persisted queue states to the three departure icons", () => {
   for (const [status, displayStatus, tooltip] of [
     ["PENDING", "PENDING", "Departure pending synchronization"],

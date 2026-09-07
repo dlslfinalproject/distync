@@ -395,20 +395,30 @@ const isRejectedHouseholdRegistration = (entry) =>
   entry?.actionKey === "HOUSEHOLD_REGISTER" &&
   entry?.status === "CONFLICT";
 
+const isRejectedHouseholdDeparture = (entry) =>
+  entry?.actionKey === "HOUSEHOLD_DEPART" &&
+  entry?.status === "CONFLICT";
+
 const applyLifecycleOverlay = (row, lifecycleEntry) => {
   if (!lifecycleEntry) {
     return row;
   }
 
   const isActive = isActiveLifecycleAction(lifecycleEntry.actionKey, row);
+  const isConflictedDeparture =
+    lifecycleEntry.actionKey === "HOUSEHOLD_DEPART" &&
+    lifecycleEntry.status === LOCAL_SYNC_STATUS.CONFLICT;
+  const projectedIsActive = isConflictedDeparture
+    ? row.is_operationally_active !== false
+    : isActive;
 
   return {
     ...row,
     sync_status: lifecycleEntry.status || row.sync_status,
-    is_active: isActive,
-    is_operationally_active: isActive,
-    can_record_departure: isActive && row.can_record_departure,
-    ...(isActive
+    is_active: projectedIsActive,
+    is_operationally_active: projectedIsActive,
+    can_record_departure: projectedIsActive && row.can_record_departure,
+    ...(projectedIsActive || isConflictedDeparture
       ? {}
       : {
           departure_time_value: lifecycleEntry.clientTimestamp || row.departure_time_value,
@@ -488,7 +498,8 @@ export const resolveEffectiveMasterlistRows = ({
           entry.actionKey,
         ) &&
         !isReconciledDuplicate(entry) &&
-        !isRejectedHouseholdRegistration(entry),
+        !isRejectedHouseholdRegistration(entry) &&
+        !isRejectedHouseholdDeparture(entry),
     )
     .sort((left, right) => getEntryTimestamp(right) - getEntryTimestamp(left))
     .forEach((entry) => {
