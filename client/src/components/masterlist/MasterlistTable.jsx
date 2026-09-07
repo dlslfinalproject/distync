@@ -403,7 +403,14 @@ const MasterlistTable = ({
                       }}
                     >
                       <span>{row.family_head_name}</span>
-                      <SyncStatusIcon status={row.sync_status} />
+                      {isArchivedRow ? (
+                        <SyncStatusIcon
+                          status={row.departure_sync_status || "SYNCED"}
+                          label={
+                            row.departure_sync_tooltip || "Departure synchronized"
+                          }
+                        />
+                      ) : null}
                     </div>
                   </td>
                   {showAddressColumn ? (

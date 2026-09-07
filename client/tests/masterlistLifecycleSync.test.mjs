@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   getLatestHouseholdLifecycleEntry,
+  resolveDepartureSyncStatus,
   resolveEffectiveMasterlistRows,
 } from "../src/features/masterlist/barangayMasterlistUi.js";
 
@@ -76,6 +77,8 @@ test("pending departure overlays the server Active occurrence into Archived exac
   assert.equal(rows[0].household_id, "household-1");
   assert.equal(rows[0].is_operationally_active, false);
   assert.equal(rows[0].sync_status, "PENDING");
+  assert.equal(rows[0].departure_sync_status, "PENDING");
+  assert.equal(rows[0].departure_sync_tooltip, "Departure pending synchronization");
 
   const activeRows = resolveEffectiveMasterlistRows({
     rows: [activeRow("household-1")],
@@ -85,6 +88,51 @@ test("pending departure overlays the server Active occurrence into Archived exac
     syncQueueEntries: [departure],
   });
   assert.equal(activeRows.length, 0);
+});
+
+test("departure status maps persisted queue states to the three departure icons", () => {
+  for (const [status, displayStatus, tooltip] of [
+    ["PENDING", "PENDING", "Departure pending synchronization"],
+    ["SYNCED", "SYNCED", "Departure synchronized"],
+    ["FAILED", "FAILED", "Departure synchronization failed"],
+    ["CONFLICT", "FAILED", "Departure synchronization conflict"],
+  ]) {
+    const result = resolveDepartureSyncStatus({
+      row: { household_id: "household-1", masterlist_record_id: "household-1" },
+      syncQueueEntries: [
+        entry({ id: "household-1", actionKey: "HOUSEHOLD_DEPART", status, timestamp: "2026-01-02" }),
+      ],
+    });
+
+    assert.equal(result.status, displayStatus);
+    assert.equal(result.detailedStatus, status);
+    assert.equal(result.tooltip, tooltip);
+  }
+});
+
+test("archived departure status binds by household and respects queue Barangay scope", () => {
+  const rows = resolveEffectiveMasterlistRows({
+    rows: [
+      { ...activeRow("household-a"), is_active: false, is_operationally_active: false },
+      { ...activeRow("household-b"), is_active: false, is_operationally_active: false },
+    ],
+    recordStatus: "archived",
+    selectedEventId: "event-a",
+    assignedBarangayId: "barangay-a",
+    syncQueueEntries: [
+      {
+        ...entry({ id: "household-a", actionKey: "HOUSEHOLD_DEPART", status: "PENDING", timestamp: "2026-01-02" }),
+        barangayId: "barangay-a",
+      },
+      {
+        ...entry({ id: "household-b", actionKey: "HOUSEHOLD_DEPART", status: "FAILED", timestamp: "2026-01-02" }),
+        barangayId: "barangay-b",
+      },
+    ],
+  });
+
+  assert.equal(rows.find((row) => row.household_id === "household-a").departure_sync_status, "PENDING");
+  assert.equal(rows.find((row) => row.household_id === "household-b").departure_sync_status, "SYNCED");
 });
 
 test("latest lifecycle action wins without name-based deduplication", () => {
