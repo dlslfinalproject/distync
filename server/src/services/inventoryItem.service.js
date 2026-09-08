@@ -503,15 +503,30 @@ const buildInventoryConditionRows = async ({
 const getInventoryItems = async (filters) => {
   const inventoryItems = await inventoryItemRepository.getInventoryItems(filters);
 
-  return Promise.all(
-    inventoryItems.map(async (item) => ({
-      ...item,
-      stock_forms:
-        await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(
-          item.id,
-        ),
-    })),
-  );
+  if (inventoryItems.length === 0) {
+    return [];
+  }
+
+  const stockForms =
+    await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemIds(
+      inventoryItems.map((item) => item.id),
+    );
+  const stockFormsByItemId = new Map();
+
+  for (const stockForm of stockForms) {
+    const itemStockForms = stockFormsByItemId.get(stockForm.inventory_item_id);
+
+    if (itemStockForms) {
+      itemStockForms.push(stockForm);
+    } else {
+      stockFormsByItemId.set(stockForm.inventory_item_id, [stockForm]);
+    }
+  }
+
+  return inventoryItems.map((item) => ({
+    ...item,
+    stock_forms: stockFormsByItemId.get(item.id) || [],
+  }));
 };
 
 const buildLocalBarcodeLookupResult = (barcode, item, stockForm = null) => ({

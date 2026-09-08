@@ -118,8 +118,4 @@ export const replaceReliefPackTemplateItems = async (templateId, payload) => {
   );
 };
 
-export const fetchInventoryItems = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items`);
-
-  return handleJsonResponse(response, "Failed to fetch inventory items");
-};
+export { fetchInventoryItems } from "../inventory-items/inventoryItemService.js";

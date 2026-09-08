@@ -3,6 +3,7 @@ import {
   performSyncableMutation,
 } from "../../offline/syncService";
 import { getMayorInventoryCacheSnapshot } from "../../offline/mayorInventoryCache.js";
+import { coalesceInventoryRead } from "../inventory/shared/inventoryReadCoordinator.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -34,7 +35,7 @@ const downloadResponseAsFile = async (response, fallbackMessage) => {
   };
 };
 
-export const fetchInventoryBatches = async (filters = {}) => {
+export const fetchInventoryBatches = (filters = {}) => {
   const searchParams = new URLSearchParams();
 
   if (filters.search) {
@@ -58,8 +59,10 @@ export const fetchInventoryBatches = async (filters = {}) => {
     queryString ? `?${queryString}` : ""
   }`;
 
-  const response = await fetch(url);
-  return handleJsonResponse(response, "Failed to fetch inventory batches");
+  return coalesceInventoryRead("inventory-batches", url, async () => {
+    const response = await fetch(url);
+    return handleJsonResponse(response, "Failed to fetch inventory batches");
+  });
 };
 
 export const fetchInventoryBatchById = async (inventoryBatchId) => {
@@ -164,8 +167,4 @@ export const updateInventoryBatchExpiry = async (
   );
 };
 
-export const fetchInventoryItems = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items`);
-
-  return handleJsonResponse(response, "Failed to fetch inventory items");
-};
+export { fetchInventoryItems } from "../inventory-items/inventoryItemService.js";
