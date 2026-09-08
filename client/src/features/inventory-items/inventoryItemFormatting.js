@@ -62,3 +62,36 @@ export const formatDisplayDate = (value) => {
 
   return parsedDate.toLocaleDateString();
 };
+
+const getSortableTimestamp = (value) => {
+  if (!value) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const parsedValue = new Date(value).getTime();
+  return Number.isNaN(parsedValue) ? Number.POSITIVE_INFINITY : parsedValue;
+};
+
+// Batch Information follows the order in which the server established the
+// records. Local timestamps remain a fallback for rows that do not have a
+// server-created timestamp yet.
+export const sortInventoryBatchesForDisplay = (batches = []) =>
+  (Array.isArray(batches) ? [...batches] : []).sort((leftBatch, rightBatch) => {
+    const createdAtDifference =
+      getSortableTimestamp(leftBatch?.created_at || leftBatch?.received_at) -
+      getSortableTimestamp(rightBatch?.created_at || rightBatch?.received_at);
+
+    if (createdAtDifference !== 0) {
+      return createdAtDifference;
+    }
+
+    const receivedAtDifference =
+      getSortableTimestamp(leftBatch?.received_at) -
+      getSortableTimestamp(rightBatch?.received_at);
+
+    if (receivedAtDifference !== 0) {
+      return receivedAtDifference;
+    }
+
+    return String(leftBatch?.id || "").localeCompare(String(rightBatch?.id || ""));
+  });

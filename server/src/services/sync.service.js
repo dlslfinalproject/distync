@@ -1452,6 +1452,7 @@ const createBatchForDuplicateInventoryItem = async ({
   localPayload,
   actorUserId,
   clientTimestamp,
+  receivedAt = clientTimestamp,
   existingBatches,
   dbClient,
 }) => {
@@ -1484,7 +1485,7 @@ const createBatchForDuplicateInventoryItem = async ({
       : null,
     storage_location: "Mayor's Office Inventory",
     created_by: actorUserId,
-    received_at: clientTimestamp || null,
+    received_at: receivedAt || null,
     allowBatchNumberReassignment: true,
     forceBatchNumberReassignment: false,
     dbClient,
@@ -1582,6 +1583,10 @@ const tryAutoMergeDuplicateInventoryItem = async ({
       localPayload: entry.payload,
       actorUserId: auth.userId,
       clientTimestamp: entry.client_timestamp,
+      // Automatic packaging merges are ordered by server acceptance, not by
+      // the offline device clock. Same-packaging Accept Both keeps its
+      // explicit offline capture ordering below.
+      receivedAt: syncTransaction.created_at || null,
       existingBatches,
       dbClient,
     });

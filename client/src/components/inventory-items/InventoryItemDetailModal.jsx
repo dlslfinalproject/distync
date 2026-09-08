@@ -8,6 +8,7 @@ import { shellStyles } from "../layout/BarangayLayout";
 import {
   formatNumericValue,
   formatUnitOfMeasurement,
+  sortInventoryBatchesForDisplay,
 } from "../../features/inventory-items/inventoryItemFormatting";
 
 const modalStyles = {
@@ -251,15 +252,6 @@ const getReorderLevelDisplayValue = (item, batches = []) => {
   return isDonationOnlyOriginItem(item, batches) ? "Not Yet Required" : "--";
 };
 
-const getSortableTimestamp = (value) => {
-  if (!value) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  const parsedValue = new Date(value).getTime();
-  return Number.isNaN(parsedValue) ? Number.POSITIVE_INFINITY : parsedValue;
-};
-
 const InventoryItemDetailModal = ({
   isOpen,
   isLoading,
@@ -275,14 +267,7 @@ const InventoryItemDetailModal = ({
 
   const item = detail?.item || null;
   const stockForms = Array.isArray(detail?.stock_forms) ? detail.stock_forms : [];
-  const batches = Array.isArray(detail?.related_batches)
-    ? [...detail.related_batches].sort((leftBatch, rightBatch) => {
-        return (
-          getSortableTimestamp(leftBatch?.received_at || leftBatch?.created_at) -
-          getSortableTimestamp(rightBatch?.received_at || rightBatch?.created_at)
-        );
-      })
-    : [];
+  const batches = sortInventoryBatchesForDisplay(detail?.related_batches);
   const totalStockOnHand = formatNumericValue(getTotalStockOnHand(batches));
 
   return (

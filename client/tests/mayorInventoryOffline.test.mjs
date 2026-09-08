@@ -52,6 +52,32 @@ test("MAYOR-OFFLINE-01 known and unknown barcodes are resolved safely from the c
   assert.equal(nextBatchNumber, "RICE-BATCH-004");
 });
 
+test("MAYOR-OFFLINE-01B Batch Information follows server registration order", async () => {
+  const { sortInventoryBatchesForDisplay } = await import(
+    "../src/features/inventory-items/inventoryItemFormatting.js"
+  );
+
+  const openingBatch = {
+    id: "opening-batch",
+    batch_no: "INV-UMBRELLA-OPEN-001",
+    received_at: "2026-09-07T01:10:00.000Z",
+    created_at: "2026-09-07T02:00:00.000Z",
+  };
+  const mergedBatch = {
+    id: "merged-batch",
+    batch_no: "ALVARO001-BATCH-002",
+    received_at: "2026-09-07T01:05:00.000Z",
+    created_at: "2026-09-07T02:01:00.000Z",
+  };
+
+  assert.deepEqual(
+    sortInventoryBatchesForDisplay([mergedBatch, openingBatch]).map(
+      (batch) => batch.id,
+    ),
+    ["opening-batch", "merged-batch"],
+  );
+});
+
 test("MAYOR-OFFLINE-02 pending stock-in projects with explicit quantity and stable identity", async () => {
   const {
     buildQueuedInventoryBatch,

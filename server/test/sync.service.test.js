@@ -4249,6 +4249,14 @@ test("duplicate offline item with different packaging is merged into a new batch
             },
           };
         },
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: "sync-item-duplicate",
+            created_at: "2026-09-07T02:00:00.000Z",
+            ...payload,
+          },
+        }),
       }),
       [inventoryItemServicePath]: {
         createInventoryItem: async () => {
@@ -4336,6 +4344,10 @@ test("duplicate offline item with different packaging is merged into a new batch
       assert.equal(createdBatchPayload.batch_no, "RICE001-BATCH-002");
       assert.equal(createdBatchPayload.quantity_received, 50);
       assert.equal(createdBatchPayload.stock_form_packaging, "sack");
+      assert.equal(
+        createdBatchPayload.received_at,
+        "2026-09-07T02:00:00.000Z",
+      );
     },
   );
 });
