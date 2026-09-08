@@ -416,6 +416,13 @@ const isRejectedHouseholdDeparture = (entry) =>
   entry?.actionKey === "HOUSEHOLD_DEPART" &&
   entry?.status === "CONFLICT";
 
+const hasAuthoritativeArchivedDeparture = (row, departureSync) =>
+  row?.is_local_only !== true &&
+  row?.is_operationally_active === false &&
+  Boolean(row?.household_id) &&
+  Boolean(row?.departure_time_value) &&
+  departureSync?.detailedStatus === LOCAL_SYNC_STATUS.CONFLICT;
+
 const applyLifecycleOverlay = (row, lifecycleEntry) => {
   if (!lifecycleEntry) {
     return row;
@@ -500,12 +507,22 @@ export const resolveEffectiveMasterlistRows = ({
       row: resolvedRow,
       syncQueueEntries: scopedEntries,
     });
+    const isAuthoritativelyReconciled = hasAuthoritativeArchivedDeparture(
+      resolvedRow,
+      departureSync,
+    );
 
     return {
       ...resolvedRow,
-      departure_sync_status: departureSync.status,
-      departure_sync_detailed_status: departureSync.detailedStatus,
-      departure_sync_tooltip: departureSync.tooltip,
+      departure_sync_status: isAuthoritativelyReconciled
+        ? LOCAL_SYNC_STATUS.SYNCED
+        : departureSync.status,
+      departure_sync_detailed_status: isAuthoritativelyReconciled
+        ? LOCAL_SYNC_STATUS.SYNCED
+        : departureSync.detailedStatus,
+      departure_sync_tooltip: isAuthoritativelyReconciled
+        ? "Departure synchronized"
+        : departureSync.tooltip,
       departure_sync_entry_id: departureSync.entry?.id || null,
     };
   });
