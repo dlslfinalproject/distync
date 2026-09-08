@@ -123,9 +123,43 @@ export const buildQueuedInventoryItem = (entry) => {
 export const mergeInventoryItemsWithSyncStatus = (
   inventoryItems = [],
   syncQueueEntries = [],
+  {
+    serverConflictItemIds = new Set(),
+    resolvedConflictTransactionIds = new Set(),
+  } = {},
 ) => {
+  const safeSyncQueueEntries = Array.isArray(syncQueueEntries)
+    ? syncQueueEntries
+    : [];
+  const normalizedServerConflictItemIds = new Set(
+    (serverConflictItemIds instanceof Set
+      ? [...serverConflictItemIds]
+      : Array.isArray(serverConflictItemIds)
+        ? serverConflictItemIds
+        : []
+    )
+      .map(normalizeId)
+      .filter(Boolean),
+  );
+  const normalizedResolvedConflictTransactionIds = new Set(
+    (resolvedConflictTransactionIds instanceof Set
+      ? [...resolvedConflictTransactionIds]
+      : Array.isArray(resolvedConflictTransactionIds)
+        ? resolvedConflictTransactionIds
+        : []
+    )
+      .map(normalizeId)
+      .filter(Boolean),
+  );
+  const activeSyncQueueEntries = safeSyncQueueEntries.filter(
+    (entry) =>
+      !normalizedResolvedConflictTransactionIds.has(
+        normalizeId(entry.syncTransactionId || entry.sync_transaction_id),
+      ),
+  );
+
   const syncedItems = (Array.isArray(inventoryItems) ? inventoryItems : []).map((item) => {
-    const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
+    const matchingEntry = findSyncEntry(activeSyncQueueEntries, (entry) => {
       if (entry.moduleName !== MAYOR_INVENTORY_MODULE) {
         return false;
       }
@@ -139,12 +173,14 @@ export const mergeInventoryItemsWithSyncStatus = (
 
     return {
       ...item,
-      sync_status: buildSyncDescriptor(matchingEntry).status,
+      sync_status: normalizedServerConflictItemIds.has(normalizeId(item.id))
+        ? "CONFLICT"
+        : buildSyncDescriptor(matchingEntry).status,
       is_local_only: false,
     };
   });
 
-  const optimisticItems = syncQueueEntries
+  const optimisticItems = activeSyncQueueEntries
     .filter((entry) => {
       return (
         entry.moduleName === MAYOR_INVENTORY_MODULE &&
@@ -160,7 +196,7 @@ export const mergeInventoryItemsWithSyncStatus = (
   const mergedItems = [...optimisticItems, ...syncedItems];
 
   return mergedItems.map((item) => {
-    const pendingStockForms = syncQueueEntries
+    const pendingStockForms = activeSyncQueueEntries
       .filter((entry) => isInventoryBatchEntryForItem(entry, item))
       .map((entry) => buildQueuedInventoryStockForm(entry, item))
       .filter(Boolean);

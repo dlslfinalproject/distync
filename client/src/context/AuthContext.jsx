@@ -12,6 +12,8 @@ import {
   ROLE_CODES,
   clearAllAccessSessions,
   consumePendingAuthSessionInvalidation,
+  getAuthenticatedSession,
+  getAuthenticatedSessionExpiresAt,
   getAuthenticatedUser,
   getRoleForAccessMode,
   setAuthenticatedSession,
@@ -192,7 +194,7 @@ export const AuthProvider = ({ children }) => {
         userId: detail.userId || authState.authenticatedUser?.id || "",
         clearModeCache: !detail.userId,
         nextAuthError:
-          detail.reason === "api-401"
+          ["api-401", "session-expired"].includes(detail.reason)
             ? "Your session expired. Please sign in again."
             : "",
       });
@@ -216,6 +218,25 @@ export const AuthProvider = ({ children }) => {
       );
     };
   }, [accessMode, authState.authenticatedUser?.id, resetAuthenticatedBrowserState]);
+
+  useEffect(() => {
+    const session = getAuthenticatedSession();
+    const expiresAt = getAuthenticatedSessionExpiresAt(session);
+
+    if (!expiresAt) {
+      return undefined;
+    }
+
+    const remainingTime = Math.max(expiresAt - Date.now(), 0);
+    const timeoutId = window.setTimeout(() => {
+      // Reading the session performs the local expiry check and dispatches the
+      // normal invalidation event without touching offline data.
+      getAuthenticatedSession();
+      syncAuthState();
+    }, Math.min(remainingTime + 1, 2_147_483_647));
+
+    return () => window.clearTimeout(timeoutId);
+  }, [accessMode, authState.authenticatedUser?.id, syncAuthState]);
 
   const clearAuthError = useCallback(() => {
     setAuthError("");

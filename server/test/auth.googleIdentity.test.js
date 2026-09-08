@@ -144,7 +144,7 @@ const withGoogleAuthHarness = async (
           isDevelopmentBypassEnabled: () => false,
         },
         [tokenPath]: {
-          TOKEN_EXPIRY: "8h",
+          TOKEN_EXPIRY: "30d",
           createAccessToken: (payload) => {
             calls.tokenPayloads.push(payload);
             return `fixture-jwt-${payload.roleCode}`;
@@ -206,7 +206,7 @@ test("Google authentication uses google_sub first and preserves role-bearing JWT
       ]);
       assert.equal(session.access_token, "fixture-jwt-MAYOR");
       assert.equal(session.token_type, "Bearer");
-      assert.equal(session.expires_in, "8h");
+      assert.equal(session.expires_in, "30d");
       assert.equal(session.user.id, user.id);
       assert.equal(session.user.role, "MAYOR");
       assert.equal(session.user.email, user.email);

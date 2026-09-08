@@ -367,3 +367,71 @@ export const clearSyncedEntries = async () => {
   }
   emitSyncQueueUpdated();
 };
+
+const getResolvedSyncTransactionIds = (resolvedConflicts = []) =>
+  new Set(
+    (Array.isArray(resolvedConflicts) ? resolvedConflicts : [])
+      .filter((conflict) => {
+        const status = String(
+          conflict?.status ||
+            conflict?.conflict_status ||
+            conflict?.sync_conflict_status ||
+            conflict?.resolution_status ||
+            "",
+        )
+          .trim()
+          .toUpperCase();
+
+        return status === "RESOLVED";
+      })
+      .map(
+        (conflict) =>
+          conflict?.sync_transaction_id || conflict?.syncTransactionId || "",
+      )
+      .map((value) => String(value || "").trim())
+      .filter(Boolean),
+  );
+
+export const reconcileResolvedSyncEntries = async (resolvedConflicts = []) => {
+  const resolvedTransactionIds = getResolvedSyncTransactionIds(resolvedConflicts);
+
+  if (resolvedTransactionIds.size === 0) {
+    return 0;
+  }
+
+  let queueEntries;
+
+  try {
+    queueEntries = await db.syncQueue.toArray();
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+
+  const staleEntryIds = queueEntries
+    .filter((entry) =>
+      resolvedTransactionIds.has(
+        String(entry.syncTransactionId || entry.sync_transaction_id || "").trim(),
+      ),
+    )
+    .map((entry) => entry.id)
+    .filter(Boolean);
+
+  if (staleEntryIds.length === 0) {
+    return 0;
+  }
+
+  try {
+    await db.syncQueue.bulkDelete(staleEntryIds);
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+
+  emitSyncQueueUpdated();
+  return staleEntryIds.length;
+};

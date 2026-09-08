@@ -66,7 +66,7 @@ test("development mode with bypass true allows development login flow to continu
         isDevelopmentBypassEnabled: () => true,
       },
       [tokenPath]: {
-        TOKEN_EXPIRY: "8h",
+        TOKEN_EXPIRY: "30d",
         createAccessToken: ({ roleCode }) => `token-for-${roleCode}`,
       },
     },
@@ -89,7 +89,7 @@ test("development mode with bypass false rejects development login", async () =>
         isDevelopmentBypassEnabled: () => false,
       },
       [tokenPath]: {
-        TOKEN_EXPIRY: "8h",
+        TOKEN_EXPIRY: "30d",
         createAccessToken: () => "token",
       },
     },
@@ -112,7 +112,7 @@ test("demo mode rejects development login even when the bypass flag is true", as
         isDevelopmentBypassEnabled: () => false,
       },
       [tokenPath]: {
-        TOKEN_EXPIRY: "8h",
+        TOKEN_EXPIRY: "30d",
         createAccessToken: () => "token",
       },
     },

@@ -6,6 +6,7 @@ import {
   prepareBarangayOfflineData,
 } from "../../offline/offlinePreparation.js";
 import { getCachedMasterlistRows } from "../../offline/masterlistCache.js";
+import { getCachedStubSnapshotsForScope } from "../stubs/stubCache.js";
 import {
   getCachedEvacuationCentersByBarangay,
   getCachedRegistrationReferenceData,
@@ -29,7 +30,12 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
         disasterEventId: eventId,
         barangayId,
       });
+      const cachedStubSnapshots = await getCachedStubSnapshotsForScope({
+        disasterEventId: eventId,
+        currentBarangayId: barangayId,
+      });
       const expectedMasterlistCount = Number(existing?.masterlist_count ?? 0);
+      const expectedStubCount = Number(existing?.stub_count ?? 0);
       const cachedReferenceData = getCachedRegistrationReferenceData();
       const hasEventReference = Array.isArray(cachedReferenceData.activeDisasterEvents) &&
         cachedReferenceData.activeDisasterEvents.some((event) => String(event?.id) === String(eventId));
@@ -46,18 +52,29 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
         ),
       );
       const hasRequiredMasterlistCache =
-        existing?.status === OFFLINE_PREPARATION_STATUS.READY &&
         existing?.cache_version === OFFLINE_CACHE_VERSION &&
+        existing?.masterlist_count !== undefined &&
         hasCompleteHouseholdDetails &&
-        (expectedMasterlistCount === 0 || cachedMasterlistRows.length > 0);
-      if (
+        cachedMasterlistRows.length >= expectedMasterlistCount;
+      const hasRequiredStubCache =
+        existing?.cache_version === OFFLINE_CACHE_VERSION &&
+        existing?.stub_count !== undefined &&
+        cachedStubSnapshots.length >= expectedStubCount;
+      const hasCompletePreparedCache =
         hasRequiredMasterlistCache &&
+        hasRequiredStubCache &&
         hasEventReference &&
         hasBarangayReference &&
         hasSectorReference &&
-        hasEvacuationCenterReference
-      ) {
-        if (mounted) setReadiness(OFFLINE_PREPARATION_STATUS.READY);
+        hasEvacuationCenterReference;
+      if (hasCompletePreparedCache) {
+        if (mounted) {
+          setReadiness(
+            existing?.status === OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH
+              ? OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH
+              : OFFLINE_PREPARATION_STATUS.READY,
+          );
+        }
         return;
       }
       if (typeof navigator !== "undefined" && navigator.onLine === false) {

@@ -35,7 +35,11 @@ import {
 } from "../../features/inventory-transactions/inventoryTransactionService";
 import db from "../../offline/db.js";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
-import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
+import {
+  getVisibleSyncQueueEntries,
+  reconcileResolvedSyncEntries,
+} from "../../offline/syncQueue";
+import { fetchSyncHistory } from "../../features/sync/syncHistoryService";
 import { normalizeInventoryBarcode } from "../../features/inventory-items/inventoryBarcode";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_CODES } from "../../utils/roleSession";
@@ -68,6 +72,7 @@ import {
   getTrackedExpirationDate,
 } from "../../features/inventory-items/inventoryItemStockStatus";
 import { mergeInventoryItemsWithSyncStatus } from "../../features/inventory-items/inventoryItemSync";
+import { getMayorInventoryConflictState } from "../../features/inventory-items/inventorySyncConflicts";
 import {
   createInventoryRefreshGate,
   shouldRefreshInventoryOnSyncEvent,
@@ -422,6 +427,11 @@ const InventoryItemsPage = () => {
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine !== false,
   );
+  const [serverConflictItemIds, setServerConflictItemIds] = useState(
+    () => new Set(),
+  );
+  const [resolvedConflictTransactionIds, setResolvedConflictTransactionIds] =
+    useState(() => new Set());
   const isInventoryOffline = () =>
     !isOnline ||
     (typeof navigator !== "undefined" && navigator.onLine === false);
@@ -432,11 +442,6 @@ const InventoryItemsPage = () => {
     userId: authenticatedUser?.id || "",
     roleCode: currentRole,
   });
-  const refreshGateRef = useRef(null);
-
-  if (!refreshGateRef.current) {
-    refreshGateRef.current = createInventoryRefreshGate();
-  }
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -630,7 +635,7 @@ const InventoryItemsPage = () => {
       }
 
       if (typeof navigator !== "undefined" && navigator.onLine) {
-        void requestInventoryRefresh({ trigger: "sync-finished" });
+        loadInventoryData();
       }
     });
 
@@ -644,6 +649,10 @@ const InventoryItemsPage = () => {
         showLoading: false,
         clearError: false,
       });
+
+      if (isMayorPortal && isOnline) {
+        void refreshMayorInventoryConflictState();
+      }
     };
 
     const handleVisibilityRefresh = () => {
@@ -651,7 +660,6 @@ const InventoryItemsPage = () => {
         refreshInventoryMonitor("visibility");
       }
     };
-    const handleFocusRefresh = () => refreshInventoryMonitor("focus");
 
     const refreshInterval = window.setInterval(
       () => refreshInventoryMonitor("timer"),
@@ -666,11 +674,23 @@ const InventoryItemsPage = () => {
       window.removeEventListener("focus", handleFocusRefresh);
       document.removeEventListener("visibilitychange", handleVisibilityRefresh);
     };
-  }, []);
+  }, [isMayorPortal, isOnline]);
 
   const inventoryItemsWithSyncStatus = useMemo(
-    () => mergeInventoryItemsWithSyncStatus(inventoryItems, syncQueueEntries),
-    [inventoryItems, syncQueueEntries],
+    () =>
+      mergeInventoryItemsWithSyncStatus(inventoryItems, syncQueueEntries, {
+        serverConflictItemIds: isMayorPortal ? serverConflictItemIds : undefined,
+        resolvedConflictTransactionIds: isMayorPortal
+          ? resolvedConflictTransactionIds
+          : undefined,
+      }),
+    [
+      inventoryItems,
+      isMayorPortal,
+      resolvedConflictTransactionIds,
+      serverConflictItemIds,
+      syncQueueEntries,
+    ],
   );
 
   const inventoryBatchesWithSyncStatus = useMemo(
