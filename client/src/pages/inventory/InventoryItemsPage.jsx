@@ -35,7 +35,11 @@ import {
 } from "../../features/inventory-transactions/inventoryTransactionService";
 import db from "../../offline/db.js";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
-import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
+import {
+  getVisibleSyncQueueEntries,
+  reconcileResolvedSyncEntries,
+} from "../../offline/syncQueue";
+import { fetchSyncHistory } from "../../features/sync/syncHistoryService";
 import { normalizeInventoryBarcode } from "../../features/inventory-items/inventoryBarcode";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_CODES } from "../../utils/roleSession";
@@ -68,6 +72,7 @@ import {
   getTrackedExpirationDate,
 } from "../../features/inventory-items/inventoryItemStockStatus";
 import { mergeInventoryItemsWithSyncStatus } from "../../features/inventory-items/inventoryItemSync";
+import { getMayorInventoryConflictState } from "../../features/inventory-items/inventorySyncConflicts";
 import {
   buildExportSuccessMessage,
   downloadExportFile,
@@ -418,6 +423,11 @@ const InventoryItemsPage = () => {
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine !== false,
   );
+  const [serverConflictItemIds, setServerConflictItemIds] = useState(
+    () => new Set(),
+  );
+  const [resolvedConflictTransactionIds, setResolvedConflictTransactionIds] =
+    useState(() => new Set());
   const isInventoryOffline = () =>
     !isOnline ||
     (typeof navigator !== "undefined" && navigator.onLine === false);
@@ -428,6 +438,45 @@ const InventoryItemsPage = () => {
     userId: authenticatedUser?.id || "",
     roleCode: currentRole,
   });
+
+  const refreshMayorInventoryConflictState = async () => {
+    if (!isMayorPortal || isInventoryOffline()) {
+      return;
+    }
+
+    const [openConflictsResult, resolvedConflictsResult] =
+      await Promise.allSettled([
+        fetchSyncHistory({ limit: 200, conflict_status: "OPEN" }),
+        fetchSyncHistory({ limit: 200, conflict_status: "RESOLVED" }),
+      ]);
+
+    if (openConflictsResult.status === "fulfilled") {
+      const openConflicts = Array.isArray(openConflictsResult.value?.conflicts)
+        ? openConflictsResult.value.conflicts
+        : [];
+      const { openItemIds } = getMayorInventoryConflictState(openConflicts);
+      setServerConflictItemIds(openItemIds);
+    }
+
+    if (resolvedConflictsResult.status === "fulfilled") {
+      const resolvedConflicts = Array.isArray(
+        resolvedConflictsResult.value?.conflicts,
+      )
+        ? resolvedConflictsResult.value.conflicts
+        : [];
+      const { resolvedTransactionIds } =
+        getMayorInventoryConflictState(resolvedConflicts);
+
+      setResolvedConflictTransactionIds(resolvedTransactionIds);
+
+      try {
+        await reconcileResolvedSyncEntries(resolvedConflicts);
+      } catch (_cleanupError) {
+        // The server resolution remains authoritative. A later refresh can
+        // retry cleanup if local storage is temporarily busy.
+      }
+    }
+  };
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -588,6 +637,9 @@ const InventoryItemsPage = () => {
     const unsubscribe = subscribeToSyncUpdates(() => {
       if (typeof navigator !== "undefined" && navigator.onLine) {
         loadInventoryData();
+        if (isMayorPortal) {
+          void refreshMayorInventoryConflictState();
+        }
       }
     });
 
@@ -600,6 +652,10 @@ const InventoryItemsPage = () => {
         showLoading: false,
         clearError: false,
       });
+
+      if (isMayorPortal && isOnline) {
+        void refreshMayorInventoryConflictState();
+      }
     };
 
     const handleVisibilityRefresh = () => {
@@ -607,6 +663,10 @@ const InventoryItemsPage = () => {
         refreshInventoryMonitor();
       }
     };
+
+    if (isMayorPortal && isOnline) {
+      void refreshMayorInventoryConflictState();
+    }
 
     const refreshInterval = window.setInterval(refreshInventoryMonitor, 30000);
 
@@ -618,11 +678,23 @@ const InventoryItemsPage = () => {
       window.removeEventListener("focus", refreshInventoryMonitor);
       document.removeEventListener("visibilitychange", handleVisibilityRefresh);
     };
-  }, []);
+  }, [isMayorPortal, isOnline]);
 
   const inventoryItemsWithSyncStatus = useMemo(
-    () => mergeInventoryItemsWithSyncStatus(inventoryItems, syncQueueEntries),
-    [inventoryItems, syncQueueEntries],
+    () =>
+      mergeInventoryItemsWithSyncStatus(inventoryItems, syncQueueEntries, {
+        serverConflictItemIds: isMayorPortal ? serverConflictItemIds : undefined,
+        resolvedConflictTransactionIds: isMayorPortal
+          ? resolvedConflictTransactionIds
+          : undefined,
+      }),
+    [
+      inventoryItems,
+      isMayorPortal,
+      resolvedConflictTransactionIds,
+      serverConflictItemIds,
+      syncQueueEntries,
+    ],
   );
 
   const inventoryBatchesWithSyncStatus = useMemo(

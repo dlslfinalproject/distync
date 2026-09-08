@@ -55,6 +55,56 @@ export const ROLE_CODES = {
 
 const validRoles = Object.values(ROLE_CODES);
 
+const decodeJwtPayload = (accessToken) => {
+  if (typeof accessToken !== "string") {
+    return null;
+  }
+
+  const payloadSegment = accessToken.split(".")[1];
+
+  if (!payloadSegment || typeof globalThis.atob !== "function") {
+    return null;
+  }
+
+  try {
+    const base64Value = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
+    const paddedValue = base64Value.padEnd(
+      base64Value.length + ((4 - (base64Value.length % 4)) % 4),
+      "=",
+    );
+    const binaryValue = globalThis.atob(paddedValue);
+    const bytes = Uint8Array.from(binaryValue, (character) =>
+      character.charCodeAt(0),
+    );
+    const decodedValue =
+      typeof TextDecoder === "function"
+        ? new TextDecoder().decode(bytes)
+        : binaryValue;
+
+    return JSON.parse(decodedValue);
+  } catch (_error) {
+    return null;
+  }
+};
+
+export const getAuthenticatedSessionExpiresAt = (session) => {
+  const expirySeconds = Number(decodeJwtPayload(session?.access_token)?.exp);
+
+  if (!Number.isFinite(expirySeconds) || expirySeconds <= 0) {
+    return null;
+  }
+
+  return expirySeconds * 1000;
+};
+
+export const isAuthenticatedSessionExpired = (
+  session,
+  now = Date.now(),
+) => {
+  const expiresAt = getAuthenticatedSessionExpiresAt(session);
+  return expiresAt !== null && expiresAt <= now;
+};
+
 export const getStoredRoleForMode = (mode) => {
   const roleStorageKey = getSelectedRoleStorageKey(mode);
   const storedRole = window.localStorage.getItem(roleStorageKey);
@@ -114,6 +164,16 @@ export const getAuthenticatedSessionForMode = (mode) => {
         mode,
         userId: storedUserId,
         reason: "stored-session-mismatch",
+      });
+      removeStorageKey(sessionStorageKey);
+      return null;
+    }
+
+    if (isAuthenticatedSessionExpired(parsedValue)) {
+      dispatchAuthSessionInvalidated({
+        mode,
+        userId: storedUserId,
+        reason: "session-expired",
       });
       removeStorageKey(sessionStorageKey);
       return null;

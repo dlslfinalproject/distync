@@ -2,7 +2,10 @@ const jwt = require("jsonwebtoken");
 
 const TOKEN_ISSUER = "distync-api";
 const TOKEN_AUDIENCE = "distync-client";
-const TOKEN_EXPIRY = "8h";
+// DISTYNC is used during extended disaster-response operations. Keep the
+// remembered login available across normal app/browser restarts while still
+// enforcing a finite session lifetime.
+const TOKEN_EXPIRY = "30d";
 
 const getAccessTokenSecret = () => {
   if (process.env.JWT_SECRET && process.env.JWT_SECRET.trim()) {

@@ -19,6 +19,7 @@ import {
 import {
   clearSyncedEntries,
   getVisibleSyncQueueEntriesByUpdatedAt,
+  reconcileResolvedSyncEntries,
   updateSyncEntryStatus,
 } from "../offline/syncQueue";
 import {
@@ -750,6 +751,12 @@ const SyncManagementPage = () => {
 
       const response = await fetchSyncHistory(historyFilters);
       const summaryResponse = await fetchSyncStatusSummary();
+      try {
+        await reconcileResolvedSyncEntries(response.conflicts);
+      } catch (_cleanupError) {
+        // Keep server history visible even if this device's local cleanup
+        // needs to be retried later.
+      }
       setSyncHistory({
         transactions: Array.isArray(response.transactions)
           ? response.transactions
@@ -774,6 +781,37 @@ const SyncManagementPage = () => {
 
   useEffect(() => {
     void loadSyncHistory();
+  }, [loadSyncHistory]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const refreshSyncHistory = () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return;
+      }
+
+      void loadSyncHistory();
+    };
+
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === "visible") {
+        refreshSyncHistory();
+      }
+    };
+
+    const refreshInterval = window.setInterval(refreshSyncHistory, 30000);
+
+    window.addEventListener("focus", refreshSyncHistory);
+    document.addEventListener("visibilitychange", handleVisibilityRefresh);
+
+    return () => {
+      window.clearInterval(refreshInterval);
+      window.removeEventListener("focus", refreshSyncHistory);
+      document.removeEventListener("visibilitychange", handleVisibilityRefresh);
+    };
   }, [loadSyncHistory]);
 
   useEffect(() => {
@@ -1076,6 +1114,15 @@ const SyncManagementPage = () => {
       } catch (_cleanupError) {
         // The server decision is already recorded. A later sync refresh can
         // clean up a stale local row if browser storage is temporarily busy.
+      }
+
+      try {
+        await reconcileResolvedSyncEntries(
+          resolvedConflict ? [resolvedConflict] : [],
+        );
+      } catch (_cleanupError) {
+        // The server decision is already recorded. A later history refresh
+        // can retry cleanup if browser storage is temporarily busy.
       }
 
       setSelectedConflictDetail(
