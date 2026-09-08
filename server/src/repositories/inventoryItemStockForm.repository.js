@@ -52,6 +52,28 @@ const getInventoryItemStockFormsByItemId = async (inventoryItemId, dbClient = po
   return result.rows;
 };
 
+const getInventoryItemStockFormsByItemIds = async (
+  inventoryItemIds,
+  dbClient = pool,
+) => {
+  if (!Array.isArray(inventoryItemIds) || inventoryItemIds.length === 0) {
+    return [];
+  }
+
+  const uniqueInventoryItemIds = [...new Set(inventoryItemIds)];
+  const hasIsActiveColumn = await hasInventoryItemStockFormIsActiveColumn(dbClient);
+  const query = `
+    SELECT
+      ${buildStockFormSelectFields(hasIsActiveColumn)}
+    FROM inventory_item_stock_forms
+    WHERE inventory_item_id = ANY($1::uuid[])
+    ORDER BY inventory_item_id ASC, created_at ASC, packaging ASC
+  `;
+
+  const result = await dbClient.query(query, [uniqueInventoryItemIds]);
+  return result.rows;
+};
+
 const getInventoryItemStockFormById = async (id, dbClient = pool) => {
   const hasIsActiveColumn = await hasInventoryItemStockFormIsActiveColumn(dbClient);
   const query = `
@@ -199,6 +221,7 @@ const updateInventoryItemStockForm = async (id, stockFormData, dbClient = pool) 
 
 module.exports = {
   getInventoryItemStockFormsByItemId,
+  getInventoryItemStockFormsByItemIds,
   getInventoryItemStockFormById,
   getInventoryItemStockFormByBarcode,
   getInventoryItemStockFormByDefinition,
