@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useAuth } from "../../context/AuthContext";
 import { FiFileText, FiFilter } from "react-icons/fi";
@@ -30,6 +30,10 @@ import {
   getMayorInventoryCacheSnapshot,
 } from "../../offline/mayorInventoryCache";
 import { mergeInventoryBatchesWithSyncStatus } from "../../offline/mayorInventoryOfflineModel";
+import {
+  createInventoryRefreshGate,
+  shouldRefreshInventoryOnSyncEvent,
+} from "../../features/inventory/shared/inventoryRefreshGate.js";
 import { ROLE_CODES } from "../../utils/roleSession";
 import {
   buildExportSuccessMessage,
@@ -614,6 +618,11 @@ const InventoryTransactionsPage = () => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
+  const refreshGateRef = useRef(null);
+
+  if (!refreshGateRef.current) {
+    refreshGateRef.current = createInventoryRefreshGate();
+  }
   const downloadFile = (file) => {
     downloadExportFile(file);
   };
@@ -631,12 +640,27 @@ const InventoryTransactionsPage = () => {
     };
   }, []);
 
-  const loadPageData = async (activeFilters = filters) => {
-    setIsLoading(true);
-    setErrorMessage("");
+  const loadPageData = async (activeFilters = filters, options = {}) => {
+    const {
+      showLoading = true,
+      clearError = true,
+      isLatestRefresh = () => true,
+    } = options;
+
+    if (showLoading && isLatestRefresh()) {
+      setIsLoading(true);
+    }
+
+    if (clearError && isLatestRefresh()) {
+      setErrorMessage("");
+    }
 
     if (!isOnline && isMayorPortal) {
       const cacheRow = await getMayorInventoryCacheSnapshot();
+
+      if (!isLatestRefresh()) {
+        return;
+      }
 
       if (cacheRow) {
         setInventoryTransactions(cacheRow.transactions || []);
@@ -648,7 +672,9 @@ const InventoryTransactionsPage = () => {
         );
       }
 
-      setIsLoading(false);
+      if (isLatestRefresh()) {
+        setIsLoading(false);
+      }
       return;
     }
 
@@ -659,35 +685,61 @@ const InventoryTransactionsPage = () => {
         fetchInventoryBatches(),
       ]);
 
+      if (!isLatestRefresh()) {
+        return;
+      }
+
       setInventoryTransactions(transactionResponse || []);
       setInventoryItems(itemResponse || []);
       setInventoryBatches(batchResponse || []);
     } catch (error) {
       if (isMayorPortal && canUseMayorInventoryCacheAfterError(error)) {
         const cacheRow = await getMayorInventoryCacheSnapshot();
-        if (cacheRow) {
+        if (cacheRow && isLatestRefresh()) {
           setInventoryTransactions(cacheRow.transactions || []);
           setInventoryItems(cacheRow.items || []);
           setInventoryBatches(cacheRow.batches || []);
-        } else {
+        } else if (isLatestRefresh()) {
           setErrorMessage(error.message || "Failed to load inventory transactions.");
         }
-      } else {
+      } else if (isLatestRefresh()) {
         setErrorMessage(error.message || "Failed to load inventory transactions.");
       }
     } finally {
-      setIsLoading(false);
+      if (isLatestRefresh()) {
+        setIsLoading(false);
+      }
     }
   };
 
+  const requestPageRefresh = ({
+    trigger = "passive",
+    showLoading = true,
+    clearError = true,
+  } = {}) =>
+    refreshGateRef.current.requestRefresh({
+      scopeKey: "complete-inventory-graph",
+      trigger,
+      run: ({ isLatest }) =>
+        loadPageData(filters, {
+          showLoading,
+          clearError,
+          isLatestRefresh: isLatest,
+        }),
+    });
+
   useEffect(() => {
-    loadPageData(filters);
+    void requestPageRefresh({ trigger: "initial" });
   }, []);
 
   useEffect(() => {
-    const unsubscribe = subscribeToSyncUpdates(() => {
+    const unsubscribe = subscribeToSyncUpdates((event = {}) => {
+      if (!shouldRefreshInventoryOnSyncEvent(event)) {
+        return;
+      }
+
       if (typeof navigator !== "undefined" && navigator.onLine) {
-        loadPageData(filters);
+        void requestPageRefresh({ trigger: "sync-finished" });
       }
     });
 

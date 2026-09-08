@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
@@ -73,6 +73,10 @@ import {
 } from "../../features/inventory-items/inventoryItemStockStatus";
 import { mergeInventoryItemsWithSyncStatus } from "../../features/inventory-items/inventoryItemSync";
 import { getMayorInventoryConflictState } from "../../features/inventory-items/inventorySyncConflicts";
+import {
+  createInventoryRefreshGate,
+  shouldRefreshInventoryOnSyncEvent,
+} from "../../features/inventory/shared/inventoryRefreshGate.js";
 import {
   buildExportSuccessMessage,
   downloadExportFile,
@@ -438,6 +442,11 @@ const InventoryItemsPage = () => {
     userId: authenticatedUser?.id || "",
     roleCode: currentRole,
   });
+  const refreshGateRef = useRef(null);
+
+  if (!refreshGateRef.current) {
+    refreshGateRef.current = createInventoryRefreshGate();
+  }
 
   const refreshMayorInventoryConflictState = async () => {
     if (!isMayorPortal || isInventoryOffline()) {
@@ -502,13 +511,17 @@ const InventoryItemsPage = () => {
     return true;
   };
 
-  const restoreMayorInventoryCache = async () => {
+  const restoreMayorInventoryCache = async (isLatestRefresh = () => true) => {
     if (!isMayorPortal) {
       return false;
     }
 
     const cacheRow = await getMayorInventoryCacheSnapshot();
     if (!cacheRow) {
+      return false;
+    }
+
+    if (!isLatestRefresh()) {
       return false;
     }
 
@@ -545,13 +558,17 @@ const InventoryItemsPage = () => {
   }, [isMayorPortal]);
 
   const loadInventoryData = async (options = {}) => {
-    const { showLoading = true, clearError = true } = options;
+    const {
+      showLoading = true,
+      clearError = true,
+      isLatestRefresh = () => true,
+    } = options;
 
-    if (showLoading) {
+    if (showLoading && isLatestRefresh()) {
       setIsLoading(true);
     }
 
-    if (clearError) {
+    if (clearError && isLatestRefresh()) {
       setErrorMessage("");
     }
 
@@ -560,15 +577,17 @@ const InventoryItemsPage = () => {
       navigator.onLine === false &&
       isMayorPortal
     ) {
-      const restored = await restoreMayorInventoryCache();
+      const restored = await restoreMayorInventoryCache(isLatestRefresh);
 
-      if (!restored) {
+      if (!restored && isLatestRefresh()) {
         setErrorMessage(
           "Inventory data is not prepared on this device yet. Connect to DISTYNC before using offline stock-in.",
         );
       }
 
-      setIsLoading(false);
+      if (isLatestRefresh()) {
+        setIsLoading(false);
+      }
       return;
     }
 
@@ -579,6 +598,10 @@ const InventoryItemsPage = () => {
           fetchInventoryBatches(),
           fetchInventoryTransactions(),
         ]);
+
+      if (!isLatestRefresh()) {
+        return;
+      }
 
       const liveInventoryDatasets = {
         items: itemResponse,
@@ -616,27 +639,47 @@ const InventoryItemsPage = () => {
     } catch (error) {
       const restored =
         isMayorPortal && canUseMayorInventoryCacheAfterError(error)
-          ? await restoreMayorInventoryCache()
+          ? await restoreMayorInventoryCache(isLatestRefresh)
           : false;
 
-      if (!restored && clearError) {
+      if (!restored && clearError && isLatestRefresh()) {
         setErrorMessage(error.message || "Failed to load inventory data.");
       }
     } finally {
-      if (showLoading) {
+      if (showLoading && isLatestRefresh()) {
         setIsLoading(false);
       }
     }
   };
 
+  const requestInventoryRefresh = ({
+    trigger = "passive",
+    showLoading = true,
+    clearError = true,
+  } = {}) =>
+    refreshGateRef.current.requestRefresh({
+      scopeKey: "complete-inventory-graph",
+      trigger,
+      run: ({ isLatest }) =>
+        loadInventoryData({
+          showLoading,
+          clearError,
+          isLatestRefresh: isLatest,
+        }),
+    });
+
   useEffect(() => {
-    void loadInventoryData();
+    void requestInventoryRefresh({ trigger: "initial" });
   }, []);
 
   useEffect(() => {
-    const unsubscribe = subscribeToSyncUpdates(() => {
+    const unsubscribe = subscribeToSyncUpdates((event = {}) => {
+      if (!shouldRefreshInventoryOnSyncEvent(event)) {
+        return;
+      }
+
       if (typeof navigator !== "undefined" && navigator.onLine) {
-        loadInventoryData();
+        void requestInventoryRefresh({ trigger: "sync-finished" });
         if (isMayorPortal) {
           void refreshMayorInventoryConflictState();
         }
@@ -647,8 +690,9 @@ const InventoryItemsPage = () => {
   }, []);
 
   useEffect(() => {
-    const refreshInventoryMonitor = () => {
-      void loadInventoryData({
+    const refreshInventoryMonitor = (trigger) => {
+      void requestInventoryRefresh({
+        trigger,
         showLoading: false,
         clearError: false,
       });
@@ -660,22 +704,26 @@ const InventoryItemsPage = () => {
 
     const handleVisibilityRefresh = () => {
       if (document.visibilityState === "visible") {
-        refreshInventoryMonitor();
+        refreshInventoryMonitor("visibility");
       }
     };
+    const handleFocusRefresh = () => refreshInventoryMonitor("focus");
 
     if (isMayorPortal && isOnline) {
       void refreshMayorInventoryConflictState();
     }
 
-    const refreshInterval = window.setInterval(refreshInventoryMonitor, 30000);
+    const refreshInterval = window.setInterval(
+      () => refreshInventoryMonitor("timer"),
+      30000,
+    );
 
-    window.addEventListener("focus", refreshInventoryMonitor);
+    window.addEventListener("focus", handleFocusRefresh);
     document.addEventListener("visibilitychange", handleVisibilityRefresh);
 
     return () => {
       window.clearInterval(refreshInterval);
-      window.removeEventListener("focus", refreshInventoryMonitor);
+      window.removeEventListener("focus", handleFocusRefresh);
       document.removeEventListener("visibilitychange", handleVisibilityRefresh);
     };
   }, [isMayorPortal, isOnline]);
@@ -1194,7 +1242,7 @@ const InventoryItemsPage = () => {
       }
 
       if (!response?.queued_offline) {
-        await loadInventoryData();
+        await requestInventoryRefresh({ trigger: "mutation" });
       }
       setIsModalOpen(false);
       setCreateModalSource("manual");
@@ -1464,7 +1512,7 @@ const InventoryItemsPage = () => {
         });
 
         if (!response?.queued_offline && !response?.queuedOffline) {
-          await loadInventoryData();
+          await requestInventoryRefresh({ trigger: "mutation" });
         }
 
         setScanForm(INITIAL_SCAN_FORM);
@@ -1613,7 +1661,7 @@ const InventoryItemsPage = () => {
 
     try {
       await updateInventoryBatchExpiry(selectedBatchForExpiryEdit.id, payload);
-      await loadInventoryData();
+      await requestInventoryRefresh({ trigger: "mutation" });
 
       if (selectedItemDetail?.item?.id) {
         const detailResponse = await fetchInventoryItemDetail(
@@ -1669,7 +1717,7 @@ const InventoryItemsPage = () => {
       const response = await createInventoryTransaction(payload);
 
       if (!response?.queued_offline) {
-        await loadInventoryData();
+        await requestInventoryRefresh({ trigger: "mutation" });
       }
 
       handleCloseStatusLogModal(true);

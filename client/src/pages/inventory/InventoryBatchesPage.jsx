@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { FiFileText } from "react-icons/fi";
 import { useSearchParams } from "react-router-dom";
@@ -22,6 +22,10 @@ import db from "../../offline/db.js";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
+import {
+  createInventoryRefreshGate,
+  shouldRefreshInventoryOnSyncEvent,
+} from "../../features/inventory/shared/inventoryRefreshGate.js";
 import {
   canUseMayorInventoryCacheAfterError,
   getMayorInventoryCacheSnapshot,
@@ -107,6 +111,20 @@ const filterCachedBatches = (batches, filters = {}) => {
   });
 };
 
+const getInventoryBatchRefreshScopeKey = (filters = {}) =>
+  JSON.stringify(
+    [
+      filters.search ? ["search", String(filters.search).trim()] : null,
+      filters.inventory_item_id
+        ? ["inventory_item_id", String(filters.inventory_item_id)]
+        : null,
+      filters.source_type
+        ? ["source_type", String(filters.source_type)]
+        : null,
+      filters.status ? ["status", String(filters.status)] : null,
+    ].filter(Boolean),
+  );
+
 const InventoryBatchesPage = () => {
   const { currentRole, authenticatedUser } = useAuth();
   const isMayorPortal = currentRole === ROLE_CODES.MAYOR;
@@ -147,6 +165,11 @@ const InventoryBatchesPage = () => {
     userId: authenticatedUser?.id || "",
     roleCode: currentRole,
   });
+  const refreshGateRef = useRef(null);
+
+  if (!refreshGateRef.current) {
+    refreshGateRef.current = createInventoryRefreshGate();
+  }
   const initialInventoryItemId = searchParams.get("inventory_item_id") || "";
   const shouldOpenCreateFromScan = searchParams.get("open_create") === "1";
 
@@ -154,13 +177,20 @@ const InventoryBatchesPage = () => {
     downloadExportFile(file);
   };
 
-  const restoreMayorInventoryCache = async (activeFilters = filters) => {
+  const restoreMayorInventoryCache = async (
+    activeFilters = filters,
+    isLatestRefresh = () => true,
+  ) => {
     if (!isMayorPortal) {
       return false;
     }
 
     const cacheRow = await getMayorInventoryCacheSnapshot();
     if (!cacheRow) {
+      return false;
+    }
+
+    if (!isLatestRefresh()) {
       return false;
     }
 
@@ -182,20 +212,36 @@ const InventoryBatchesPage = () => {
     };
   }, []);
 
-  const loadPageData = async (activeFilters = filters) => {
-    setIsLoading(true);
-    setErrorMessage("");
+  const loadPageData = async (activeFilters = filters, options = {}) => {
+    const {
+      showLoading = true,
+      clearError = true,
+      isLatestRefresh = () => true,
+    } = options;
+
+    if (showLoading && isLatestRefresh()) {
+      setIsLoading(true);
+    }
+
+    if (clearError && isLatestRefresh()) {
+      setErrorMessage("");
+    }
 
     if (!isOnline && isMayorPortal) {
-      const restored = await restoreMayorInventoryCache(activeFilters);
+      const restored = await restoreMayorInventoryCache(
+        activeFilters,
+        isLatestRefresh,
+      );
 
-      if (!restored) {
+      if (!restored && isLatestRefresh()) {
         setErrorMessage(
           "Inventory batches are not prepared on this device yet. Connect to DISTYNC before using offline stock-in.",
         );
       }
 
-      setIsLoading(false);
+      if (isLatestRefresh()) {
+        setIsLoading(false);
+      }
       return;
     }
 
@@ -205,21 +251,47 @@ const InventoryBatchesPage = () => {
         fetchInventoryItems(),
       ]);
 
+      if (!isLatestRefresh()) {
+        return;
+      }
+
       setInventoryBatches(batchResponse || []);
       setInventoryItems(itemResponse || []);
     } catch (error) {
       if (isMayorPortal && canUseMayorInventoryCacheAfterError(error)) {
-        const restored = await restoreMayorInventoryCache(activeFilters);
-        if (!restored) {
+        const restored = await restoreMayorInventoryCache(
+          activeFilters,
+          isLatestRefresh,
+        );
+        if (!restored && isLatestRefresh()) {
           setErrorMessage(error.message || "Failed to load inventory batches.");
         }
-      } else {
+      } else if (isLatestRefresh()) {
         setErrorMessage(error.message || "Failed to load inventory batches.");
       }
     } finally {
-      setIsLoading(false);
+      if (isLatestRefresh()) {
+        setIsLoading(false);
+      }
     }
   };
+
+  const requestPageRefresh = ({
+    activeFilters = filters,
+    trigger = "passive",
+    showLoading = true,
+    clearError = true,
+  } = {}) =>
+    refreshGateRef.current.requestRefresh({
+      scopeKey: getInventoryBatchRefreshScopeKey(activeFilters),
+      trigger,
+      run: ({ isLatest }) =>
+        loadPageData(activeFilters, {
+          showLoading,
+          clearError,
+          isLatestRefresh: isLatest,
+        }),
+    });
 
   useEffect(() => {
     if (!isMayorPortal) {
@@ -250,7 +322,7 @@ const InventoryBatchesPage = () => {
   }, [filters, isMayorPortal]);
 
   useEffect(() => {
-    loadPageData(filters);
+    void requestPageRefresh({ activeFilters: filters, trigger: "initial" });
   }, []);
 
   useEffect(() => {
@@ -294,9 +366,16 @@ const InventoryBatchesPage = () => {
   ]);
 
   useEffect(() => {
-    const unsubscribe = subscribeToSyncUpdates(() => {
+    const unsubscribe = subscribeToSyncUpdates((event = {}) => {
+      if (!shouldRefreshInventoryOnSyncEvent(event)) {
+        return;
+      }
+
       if (typeof navigator !== "undefined" && navigator.onLine) {
-        loadPageData(filters);
+        void requestPageRefresh({
+          activeFilters: filters,
+          trigger: "sync-finished",
+        });
       }
     });
 
@@ -353,7 +432,7 @@ const InventoryBatchesPage = () => {
   };
 
   const handleApplyFilters = async () => {
-    await loadPageData(filters);
+    await requestPageRefresh({ activeFilters: filters, trigger: "manual" });
   };
 
   const handleOpenCreateModal = () => {
@@ -393,7 +472,10 @@ const InventoryBatchesPage = () => {
       setSuccessMessage(response.message || "Inventory batch created successfully");
       setIsModalOpen(false);
       if (!response?.queued_offline) {
-        await loadPageData(filters);
+        await requestPageRefresh({
+          activeFilters: filters,
+          trigger: "mutation",
+        });
       }
     } catch (error) {
       setModalErrorMessage(error.message);

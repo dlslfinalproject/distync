@@ -4,6 +4,7 @@ import {
   performSyncableMutation,
 } from "../../offline/syncService";
 import { getMayorInventoryCacheSnapshot } from "../../offline/mayorInventoryCache.js";
+import { coalesceInventoryRead } from "../inventory/shared/inventoryReadCoordinator.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -55,7 +56,7 @@ const appendInventoryItemFilters = (searchParams, filters = {}) => {
   }
 };
 
-export const fetchInventoryItems = async (filters = {}) => {
+export const fetchInventoryItems = (filters = {}) => {
   const searchParams = new URLSearchParams();
   appendInventoryItemFilters(searchParams, filters);
 
@@ -64,8 +65,10 @@ export const fetchInventoryItems = async (filters = {}) => {
     queryString ? `?${queryString}` : ""
   }`;
 
-  const response = await fetch(url);
-  return handleJsonResponse(response, "Failed to fetch inventory items");
+  return coalesceInventoryRead("inventory-items", url, async () => {
+    const response = await fetch(url);
+    return handleJsonResponse(response, "Failed to fetch inventory items");
+  });
 };
 
 export const exportInventoryItems = async ({ format, filters = {} }) => {
