@@ -104,8 +104,8 @@ const demandRows = [
   },
 ];
 
-test("relief pack demand endpoint authenticates and authorizes existing feature roles", async () => {
-  let capturedFilters = null;
+test("relief pack demand endpoint serves the retained municipal roles", async () => {
+  const capturedFilters = [];
   let serviceCalls = 0;
 
   await withStubbedReliefPackTemplateRoute(
@@ -113,7 +113,7 @@ test("relief pack demand endpoint authenticates and authorizes existing feature 
       serviceImpl: {
         getReliefPackTemplateDemand: async (filters) => {
           serviceCalls += 1;
-          capturedFilters = filters;
+          capturedFilters.push(filters);
           return demandRows;
         },
       },
@@ -122,27 +122,85 @@ test("relief pack demand endpoint authenticates and authorizes existing feature 
       const server = await listen(router);
 
       try {
-        const response = await fetch(
+        const mswdoResponse = await fetch(
           `http://127.0.0.1:${server.address().port}/api/v1/relief-pack-templates/demand?disaster_event_ids=${encodeURIComponent(`${EVENT_A}, ${EVENT_B},${EVENT_A}`)}`,
           { headers: { "x-test-role": "MSWDO" } },
         );
-        const payload = await response.json();
+        const mswdoPayload = await mswdoResponse.json();
 
-        assert.equal(response.status, 200);
-        assert.deepEqual(payload, {
+        assert.equal(mswdoResponse.status, 200);
+        assert.deepEqual(mswdoPayload, {
           filters: { disaster_event_ids: [EVENT_A, EVENT_B] },
           data: demandRows,
         });
+
+        const mayorResponse = await fetch(
+          `http://127.0.0.1:${server.address().port}/api/v1/relief-pack-templates/demand?disaster_event_ids=${EVENT_A}`,
+          { headers: { "x-test-role": "MAYOR" } },
+        );
+        const mayorPayload = await mayorResponse.json();
+
+        assert.equal(mayorResponse.status, 200);
+        assert.deepEqual(mayorPayload.data, demandRows);
+        assert.deepEqual(Object.keys(mayorPayload.data[0]).sort(), [
+          "barangay_id",
+          "barangay_name",
+          "disaster_event_id",
+          "families_count",
+          "packs_needed",
+          "template_id",
+        ]);
       } finally {
         await closeServer(server);
       }
     },
   );
 
-  assert.equal(serviceCalls, 1);
-  assert.deepEqual(capturedFilters, {
-    disaster_event_ids: [EVENT_A, EVENT_B],
-  });
+  assert.equal(serviceCalls, 2);
+  assert.deepEqual(capturedFilters, [
+    {
+      disaster_event_ids: [EVENT_A, EVENT_B],
+    },
+    {
+      disaster_event_ids: [EVENT_A],
+    },
+  ]);
+});
+
+test("relief pack demand endpoint denies Barangay users regardless of requested event IDs", async () => {
+  let serviceCalls = 0;
+
+  await withStubbedReliefPackTemplateRoute(
+    {
+      serviceImpl: {
+        getReliefPackTemplateDemand: async () => {
+          serviceCalls += 1;
+          return demandRows;
+        },
+      },
+    },
+    async (router) => {
+      const server = await listen(router);
+
+      try {
+        const singleEventResponse = await fetch(
+          `http://127.0.0.1:${server.address().port}/api/v1/relief-pack-templates/demand?disaster_event_ids=${EVENT_A}`,
+          { headers: { "x-test-role": "BARANGAY" } },
+        );
+        const multipleEventResponse = await fetch(
+          `http://127.0.0.1:${server.address().port}/api/v1/relief-pack-templates/demand?disaster_event_ids=${encodeURIComponent(`${EVENT_A},${EVENT_B}`)}`,
+          { headers: { "x-test-role": "BARANGAY" } },
+        );
+
+        assert.equal(singleEventResponse.status, 403);
+        assert.equal(multipleEventResponse.status, 403);
+      } finally {
+        await closeServer(server);
+      }
+    },
+  );
+
+  assert.equal(serviceCalls, 0);
 });
 
 test("relief pack demand endpoint rejects unauthenticated and unauthorized callers", async () => {
@@ -218,7 +276,7 @@ test("relief pack demand endpoint validates a bounded UUID event list", async ()
       try {
         const response = await fetch(
           `http://127.0.0.1:${server.address().port}/api/v1/relief-pack-templates/demand?disaster_event_ids=${encodeURIComponent(`${EVENT_A},not-a-uuid`)}`,
-          { headers: { "x-test-role": "BARANGAY" } },
+          { headers: { "x-test-role": "MSWDO" } },
         );
         const payload = await response.json();
 
@@ -226,6 +284,45 @@ test("relief pack demand endpoint validates a bounded UUID event list", async ()
         assert.equal(
           payload.message,
           "disaster_event_ids must contain valid UUID values",
+        );
+      } finally {
+        await closeServer(server);
+      }
+    },
+  );
+
+  assert.equal(serviceCalls, 0);
+});
+
+test("relief pack demand endpoint rejects more than 100 event IDs", async () => {
+  let serviceCalls = 0;
+  const eventIds = Array.from({ length: 101 }, (_value, index) =>
+    `${String(index + 1).padStart(8, "0")}-1111-4111-8111-111111111111`,
+  ).join(",");
+
+  await withStubbedReliefPackTemplateRoute(
+    {
+      serviceImpl: {
+        getReliefPackTemplateDemand: async () => {
+          serviceCalls += 1;
+          return demandRows;
+        },
+      },
+    },
+    async (router) => {
+      const server = await listen(router);
+
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:${server.address().port}/api/v1/relief-pack-templates/demand?disaster_event_ids=${eventIds}`,
+          { headers: { "x-test-role": "MSWDO" } },
+        );
+        const payload = await response.json();
+
+        assert.equal(response.status, 400);
+        assert.equal(
+          payload.message,
+          "disaster_event_ids must contain no more than 100 UUIDs",
         );
       } finally {
         await closeServer(server);

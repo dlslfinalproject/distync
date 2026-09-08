@@ -37,7 +37,7 @@ router.get(
 
 router.get(
   "/demand",
-  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
   validateGetReliefPackDemand,
   async (req, res) => {
     try {
