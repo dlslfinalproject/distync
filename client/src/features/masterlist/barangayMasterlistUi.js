@@ -310,10 +310,27 @@ const getEntryTimestamp = (entry) => {
 };
 
 const getEntryIdentityValues = (entry) =>
-  [entry?.entityServerId, entry?.entityLocalId].filter(Boolean).map(String);
+  [
+    entry?.entityServerId,
+    entry?.entityLocalId,
+    entry?.householdId,
+    entry?.householdOccurrenceId,
+    entry?.payload?.household_id,
+    entry?.payload?.household_occurrence_id,
+    entry?.payload?.householdId,
+  ]
+    .filter(Boolean)
+    .map(String);
 
 const getRowIdentityValues = (row) =>
-  [row?.household_id, row?.masterlist_record_id].filter(Boolean).map(String);
+  [
+    row?.household_id,
+    row?.masterlist_record_id,
+    row?.household_occurrence_id,
+    row?.householdOccurrenceId,
+  ]
+    .filter(Boolean)
+    .map(String);
 
 const isEntryForRow = (entry, row) => {
   const rowIds = new Set(getRowIdentityValues(row));
@@ -411,6 +428,13 @@ const applyLifecycleOverlay = (row, lifecycleEntry) => {
   const projectedIsActive = isConflictedDeparture
     ? row.is_operationally_active !== false
     : isActive;
+  const preserveServerDeparture =
+    lifecycleEntry.actionKey === "HOUSEHOLD_DEPART" &&
+    lifecycleEntry.status === LOCAL_SYNC_STATUS.SYNCED &&
+    row.departure_time_value;
+  const effectiveDepartureTime = preserveServerDeparture
+    ? row.departure_time_value
+    : lifecycleEntry.clientTimestamp || row.departure_time_value;
 
   return {
     ...row,
@@ -421,10 +445,8 @@ const applyLifecycleOverlay = (row, lifecycleEntry) => {
     ...(projectedIsActive || isConflictedDeparture
       ? {}
       : {
-          departure_time_value: lifecycleEntry.clientTimestamp || row.departure_time_value,
-          departure_time_text: formatDateTime(
-            lifecycleEntry.clientTimestamp || row.departure_time_value,
-          ),
+          departure_time_value: effectiveDepartureTime,
+          departure_time_text: formatDateTime(effectiveDepartureTime),
         }),
   };
 };
@@ -499,7 +521,9 @@ export const resolveEffectiveMasterlistRows = ({
         ) &&
         !isReconciledDuplicate(entry) &&
         !isRejectedHouseholdRegistration(entry) &&
-        !isRejectedHouseholdDeparture(entry),
+        !isRejectedHouseholdDeparture(entry) &&
+        !(entry.actionKey === "HOUSEHOLD_DEPART" &&
+          entry.status === LOCAL_SYNC_STATUS.SYNCED),
     )
     .sort((left, right) => getEntryTimestamp(right) - getEntryTimestamp(left))
     .forEach((entry) => {
