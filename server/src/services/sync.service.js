@@ -1,6 +1,8 @@
 const syncRepository = require("../repositories/sync.repository");
 const deviceService = require("./device.service");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
+const inventoryItemStockFormRepository = require("../repositories/inventoryItemStockForm.repository");
+const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const householdRegistrationService = require("./householdRegistration.service");
 const distributionTransactionService = require("./distributionTransaction.service");
@@ -25,6 +27,7 @@ const {
   DUPLICATE_INVENTORY_ITEM,
   DUPLICATE_INVENTORY_BARCODE,
 } = require("../utils/inventoryItemIdentity");
+const { normalizeInventoryBarcode } = require("../utils/inventoryBarcode");
 const {
   verifyInventoryStateBasis,
 } = require("../utils/inventoryStateBasis");
@@ -810,7 +813,18 @@ const getResolutionCapability = (conflict, auth) => {
         ? [RESOLUTION_ACTION.KEEP_SERVER, RESOLUTION_ACTION.ACCEPT_BOTH]
         : conflict.conflict_type === DUPLICATE_INVENTORY_BARCODE
           ? [RESOLUTION_ACTION.KEEP_SERVER, RESOLUTION_ACTION.APPLY_LOCAL]
-          : [RESOLUTION_ACTION.KEEP_SERVER]
+          : getInventoryDuplicateItemPlan({
+                existingItem: conflict.server_payload_json || {},
+                stockForms:
+                  conflict.server_payload_json?.inventory_item_stock_forms ||
+                  [],
+                localPayload:
+                  conflict.local_payload_json?.payload ||
+                  conflict.local_payload_json ||
+                  {},
+              }).kind === "SAME_PACKAGING"
+            ? [RESOLUTION_ACTION.KEEP_SERVER, RESOLUTION_ACTION.ACCEPT_BOTH]
+            : [RESOLUTION_ACTION.KEEP_SERVER]
       : [];
 
     return {
@@ -1123,6 +1137,533 @@ const buildAutomaticCrossBarangayResolution = ({
       ? "EXISTING_SERVER_ACCEPTANCE_ORDER"
       : null,
   };
+};
+
+const normalizeInventoryConflictText = (value) =>
+  String(value ?? "").trim().toLowerCase();
+
+const normalizeInventoryConflictCategory = (value) => {
+  const normalized = normalizeInventoryConflictText(value);
+
+  if (normalized === "perishable") {
+    return "perishable";
+  }
+
+  if (normalized === "non-perishable") {
+    return "non-perishable";
+  }
+
+  return normalized;
+};
+
+const normalizeInventoryConflictNumber = (value) => {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) ? parsedValue : null;
+};
+
+const normalizeInventoryConflictBoolean = (value, category) => {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalized = normalizeInventoryConflictText(value);
+
+    if (normalized === "true") {
+      return true;
+    }
+
+    if (normalized === "false") {
+      return false;
+    }
+  }
+
+  return normalizeInventoryConflictCategory(category) === "perishable";
+};
+
+const areInventoryConflictNumbersEqual = (firstValue, secondValue) => {
+  const firstNumber = normalizeInventoryConflictNumber(firstValue);
+  const secondNumber = normalizeInventoryConflictNumber(secondValue);
+
+  return firstNumber === secondNumber;
+};
+
+const buildInventoryStockFormDefinitionFromItemPayload = (payload = {}) => {
+  const packaging = normalizeInventoryConflictText(payload.packaging) || "piece";
+  const requestedUnits = normalizeInventoryConflictNumber(
+    payload.quantity ?? payload.units_per_packaging,
+  );
+  const unitsPerPackaging =
+    Number.isInteger(requestedUnits) && requestedUnits > 0
+      ? requestedUnits
+      : packaging === "piece"
+        ? 1
+        : null;
+
+  return {
+    barcode: normalizeInventoryBarcode(payload.barcode) || null,
+    packaging,
+    units_per_packaging: unitsPerPackaging,
+    unit_of_measure: normalizeInventoryConflictText(
+      payload.unit_of_measure,
+    ) || "pc",
+    unit_of_measure_value: normalizeInventoryConflictNumber(
+      payload.unit_of_measure_value,
+    ),
+  };
+};
+
+const areInventoryStockFormDefinitionsEqual = (firstDefinition, secondDefinition) =>
+  normalizeInventoryConflictText(firstDefinition?.packaging) ===
+    normalizeInventoryConflictText(secondDefinition?.packaging) &&
+  areInventoryConflictNumbersEqual(
+    firstDefinition?.units_per_packaging,
+    secondDefinition?.units_per_packaging,
+  ) &&
+  normalizeInventoryConflictText(firstDefinition?.unit_of_measure) ===
+    normalizeInventoryConflictText(secondDefinition?.unit_of_measure) &&
+  areInventoryConflictNumbersEqual(
+    firstDefinition?.unit_of_measure_value,
+    secondDefinition?.unit_of_measure_value,
+  );
+
+const getInventoryItemForSyncConflict = async (itemId, dbClient) => {
+  if (!itemId) {
+    return null;
+  }
+
+  const getItem =
+    typeof inventoryItemRepository.getInventoryItemByIdForUpdate === "function"
+      ? inventoryItemRepository.getInventoryItemByIdForUpdate
+      : inventoryItemRepository.getInventoryItemById;
+
+  if (typeof getItem !== "function") {
+    return null;
+  }
+
+  return getItem(itemId, dbClient);
+};
+
+const getInventoryStockFormsForSyncConflict = async (itemId, dbClient) => {
+  if (
+    !itemId ||
+    typeof inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId !==
+      "function"
+  ) {
+    return [];
+  }
+
+  return inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(
+    itemId,
+    dbClient,
+  );
+};
+
+const getInventoryDuplicateItemPlan = ({
+  existingItem,
+  stockForms,
+  localPayload,
+}) => {
+  const existingItemName = normalizeInventoryConflictText(
+    existingItem?.item_name,
+  );
+  const incomingItemName = normalizeInventoryConflictText(localPayload?.item_name);
+  const existingItemCode = normalizeInventoryConflictText(
+    existingItem?.item_code,
+  );
+  const incomingItemCode = normalizeInventoryConflictText(
+    localPayload?.item_code,
+  );
+  const sameItemName = Boolean(
+    existingItemName && incomingItemName && existingItemName === incomingItemName,
+  );
+  const sameItemCode = Boolean(
+    existingItemCode && incomingItemCode && existingItemCode === incomingItemCode,
+  );
+
+  // A matching name is enough when the client generated different item codes
+  // offline. A matching code with a different name is kept for review because
+  // silently joining differently named records could hide a data-entry error.
+  if (!sameItemName && !(sameItemCode && !incomingItemName)) {
+    return { kind: "INCOMPATIBLE_ITEM" };
+  }
+
+  const existingCategory = normalizeInventoryConflictCategory(
+    existingItem?.category,
+  );
+  const incomingCategory = normalizeInventoryConflictCategory(
+    localPayload?.category,
+  );
+  const existingIsPerishable = normalizeInventoryConflictBoolean(
+    existingItem?.is_perishable,
+    existingItem?.category,
+  );
+  const incomingIsPerishable = normalizeInventoryConflictBoolean(
+    localPayload?.is_perishable,
+    localPayload?.category,
+  );
+
+  if (
+    existingCategory !== incomingCategory ||
+    existingIsPerishable !== incomingIsPerishable ||
+    normalizeInventoryConflictText(existingItem?.unit_of_measure) !==
+      normalizeInventoryConflictText(localPayload?.unit_of_measure) ||
+    !areInventoryConflictNumbersEqual(
+      existingItem?.unit_of_measure_value,
+      localPayload?.unit_of_measure_value,
+    )
+  ) {
+    return { kind: "INCOMPATIBLE_ITEM" };
+  }
+
+  const requestedDefinition =
+    buildInventoryStockFormDefinitionFromItemPayload(localPayload);
+  const activeStockForms = (Array.isArray(stockForms) ? stockForms : []).filter(
+    (stockForm) => stockForm?.is_active !== false,
+  );
+  const matchingStockForm = activeStockForms.find((stockForm) =>
+    areInventoryStockFormDefinitionsEqual(stockForm, requestedDefinition),
+  ) || null;
+  const incomingBarcode = requestedDefinition.barcode;
+
+  if (matchingStockForm) {
+    const existingBarcode = normalizeInventoryBarcode(matchingStockForm.barcode);
+
+    if (incomingBarcode && existingBarcode && incomingBarcode !== existingBarcode) {
+      return {
+        kind: "BARCODE_CONFLICT",
+        stockForm: matchingStockForm,
+      };
+    }
+
+    return {
+      kind: "SAME_PACKAGING",
+      stockForm: matchingStockForm,
+      definition: requestedDefinition,
+    };
+  }
+
+  const barcodeOwner = incomingBarcode
+    ? activeStockForms.find(
+        (stockForm) =>
+          normalizeInventoryBarcode(stockForm?.barcode) === incomingBarcode,
+      ) ||
+      (normalizeInventoryBarcode(existingItem?.barcode) === incomingBarcode
+        ? { inventory_item_id: existingItem.id }
+        : null)
+    : null;
+
+  if (barcodeOwner) {
+    return {
+      kind: "BARCODE_CONFLICT",
+      stockForm: barcodeOwner,
+      definition: requestedDefinition,
+    };
+  }
+
+  const itemHasBarcode = Boolean(
+    normalizeInventoryBarcode(existingItem?.barcode) ||
+      activeStockForms.some((stockForm) =>
+        Boolean(normalizeInventoryBarcode(stockForm?.barcode)),
+      ),
+  );
+
+  if (itemHasBarcode && !incomingBarcode) {
+    return {
+      kind: "INCOMPATIBLE_ITEM",
+      reason: "A barcode is required when adding a packaging to this item.",
+    };
+  }
+
+  return {
+    kind: "DIFFERENT_PACKAGING",
+    stockForm: null,
+    definition: requestedDefinition,
+  };
+};
+
+const getInventoryOpeningQuantity = (payload = {}) => {
+  if (payload.skip_opening_stock) {
+    return 0;
+  }
+
+  const packageCount = normalizeInventoryConflictNumber(payload.packaging_count);
+  const unitsPerPackaging = normalizeInventoryConflictNumber(payload.quantity);
+  const quantity = (packageCount || 0) * (unitsPerPackaging || 0);
+
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
+};
+
+const buildNextMergedInventoryBatchNumber = (inventoryItem, batches = []) => {
+  const identifier =
+    String(
+      inventoryItem?.item_code ||
+        inventoryItem?.barcode ||
+        inventoryItem?.id ||
+        "ITEM",
+    )
+      .replace(/[^a-z0-9]/gi, "")
+      .slice(-8)
+      .toUpperCase() || "ITEM";
+  const prefix = `${identifier}-BATCH-`;
+  const existingSequences = (Array.isArray(batches) ? batches : [])
+    .map((batch) => {
+      const batchNumber = normalizeInventoryConflictText(batch?.batch_no).toUpperCase();
+
+      if (!batchNumber.startsWith(prefix)) {
+        return null;
+      }
+
+      const sequence = Number(batchNumber.slice(prefix.length));
+      return Number.isInteger(sequence) && sequence > 0 ? sequence : null;
+    })
+    .filter(Boolean);
+  const nextSequence = Math.max(
+    Array.isArray(batches) ? batches.length : 0,
+    0,
+    ...existingSequences,
+  ) + 1;
+
+  return `${prefix}${String(nextSequence).padStart(3, "0")}`;
+};
+
+const getInventoryBatchesForDuplicateMerge = async (itemId, dbClient) => {
+  if (
+    !itemId ||
+    typeof inventoryBatchRepository.getInventoryBatchesByItemIdForUpdate !==
+      "function"
+  ) {
+    return null;
+  }
+
+  return inventoryBatchRepository.getInventoryBatchesByItemIdForUpdate(
+    itemId,
+    dbClient,
+  );
+};
+
+const createBatchForDuplicateInventoryItem = async ({
+  existingItem,
+  stockForm,
+  localPayload,
+  actorUserId,
+  clientTimestamp,
+  existingBatches,
+  dbClient,
+}) => {
+  const definition = buildInventoryStockFormDefinitionFromItemPayload(
+    localPayload,
+  );
+  const quantityReceived = getInventoryOpeningQuantity(localPayload);
+
+  if (!quantityReceived || !existingBatches) {
+    return null;
+  }
+
+  const batchNo = buildNextMergedInventoryBatchNumber(
+    existingItem,
+    existingBatches,
+  );
+  const createdBatch = await inventoryBatchService.createInventoryBatch({
+    inventory_item_id: existingItem.id,
+    inventory_item_stock_form_id: stockForm?.id || null,
+    stock_form_barcode: definition.barcode,
+    stock_form_packaging: definition.packaging,
+    stock_form_units_per_packaging: definition.units_per_packaging,
+    stock_form_unit_of_measure: definition.unit_of_measure,
+    stock_form_unit_of_measure_value: definition.unit_of_measure_value,
+    batch_no: batchNo,
+    source_type: "LGU",
+    quantity_received: quantityReceived,
+    expiration_date: existingItem.is_perishable
+      ? localPayload.expiration_date || null
+      : null,
+    storage_location: "Mayor's Office Inventory",
+    created_by: actorUserId,
+    received_at: clientTimestamp || null,
+    allowBatchNumberReassignment: true,
+    forceBatchNumberReassignment: false,
+    dbClient,
+  });
+
+  return {
+    createdBatch,
+    batchNo,
+    quantityReceived,
+    definition,
+  };
+};
+
+const getEnrichedInventoryDuplicateServerPayload = async ({
+  error,
+  dbClient,
+}) => {
+  const fallbackPayload = error?.serverPayload || {};
+
+  if (error?.code !== DUPLICATE_INVENTORY_ITEM || !error?.entityServerId) {
+    return fallbackPayload;
+  }
+
+  try {
+    const existingItem = await getInventoryItemForSyncConflict(
+      error.entityServerId,
+      dbClient,
+    );
+    const stockForms = await getInventoryStockFormsForSyncConflict(
+      error.entityServerId,
+      dbClient,
+    );
+
+    return {
+      ...fallbackPayload,
+      ...(existingItem || {}),
+      inventory_item_stock_forms: stockForms,
+    };
+  } catch (_enrichmentError) {
+    return fallbackPayload;
+  }
+};
+
+const tryAutoMergeDuplicateInventoryItem = async ({
+  error,
+  entry,
+  auth,
+  actionConfig,
+  syncTransaction,
+  dbClient,
+}) => {
+  if (
+    error.code !== DUPLICATE_INVENTORY_ITEM ||
+    entry.action_key !== "INVENTORY_ITEM_CREATE"
+  ) {
+    return null;
+  }
+
+  const savepointName = "sync_duplicate_inventory_item_merge";
+  const canUseSavepoint = dbClient && typeof dbClient.query === "function";
+
+  if (canUseSavepoint) {
+    await dbClient.query(`SAVEPOINT ${savepointName}`);
+  }
+
+  try {
+    const existingItem = await getInventoryItemForSyncConflict(
+      error.entityServerId,
+      dbClient,
+    );
+    const stockForms = await getInventoryStockFormsForSyncConflict(
+      error.entityServerId,
+      dbClient,
+    );
+    const plan = getInventoryDuplicateItemPlan({
+      existingItem,
+      stockForms,
+      localPayload: entry.payload,
+    });
+
+    if (plan.kind !== "DIFFERENT_PACKAGING") {
+      if (canUseSavepoint) {
+        await dbClient.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+      }
+      return null;
+    }
+
+    const existingBatches = await getInventoryBatchesForDuplicateMerge(
+      existingItem?.id,
+      dbClient,
+    );
+    const mergeResult = await createBatchForDuplicateInventoryItem({
+      existingItem,
+      stockForm: plan.stockForm,
+      localPayload: entry.payload,
+      actorUserId: auth.userId,
+      clientTimestamp: entry.client_timestamp,
+      existingBatches,
+      dbClient,
+    });
+
+    if (!mergeResult) {
+      if (canUseSavepoint) {
+        await dbClient.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+      }
+      return null;
+    }
+
+    const resolvedAt = new Date().toISOString();
+    const resolution = {
+      automatic: true,
+      resolution_status: "RESOLVED_AUTOMATICALLY",
+      winner: "MERGED",
+      result: "PACKAGING_ADDED_AS_BATCH",
+      inventory_item_id: existingItem.id,
+      batch_id: mergeResult.createdBatch?.id || null,
+      batch_no: mergeResult.createdBatch?.batch_no || mergeResult.batchNo,
+      packaging: mergeResult.definition.packaging,
+      quantity_received: mergeResult.quantityReceived,
+      reason:
+        "The inventory item already existed, so the different packaging was added as a separate batch.",
+      resolved_at: resolvedAt,
+    };
+    const serverPayload = {
+      ...(error.serverPayload || {}),
+      ...existingItem,
+      inventory_item_stock_forms: stockForms,
+    };
+    const current = await syncRepository.recordConflictAndUpdateSyncTransaction({
+      syncTransactionId: syncTransaction.id,
+      transactionPayload: {
+        entity_server_id: existingItem.id,
+        server_timestamp: resolvedAt,
+        sync_status: SYNC_STATUS.SYNCED,
+        error_message: null,
+      },
+      conflictPayload: {
+        sync_transaction_id: syncTransaction.id,
+        entity_type: actionConfig.entityType,
+        entity_server_id: existingItem.id,
+        conflict_type: DUPLICATE_INVENTORY_ITEM,
+        local_payload_json: entry.payload,
+        server_payload_json: serverPayload,
+        resolution_strategy: RESOLUTION_STRATEGY.MERGED,
+        resolution_reason:
+          "The same inventory item was already saved; its different packaging was added as a separate batch automatically.",
+        resolved_payload_json: resolution,
+        resolved_by: null,
+        resolved_at: resolvedAt,
+        status: CONFLICT_STATUS.RESOLVED,
+      },
+      dbClient,
+    });
+
+    return {
+      ...current,
+      resolution,
+      createdBatch: mergeResult.createdBatch,
+      existingItem,
+    };
+  } catch (mergeError) {
+    if (canUseSavepoint) {
+      try {
+        await dbClient.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+      } catch (_rollbackError) {
+        // The outer sync error path will record the original duplicate safely.
+      }
+    }
+
+    await logErrorSafely({
+      actor: auth,
+      moduleName: "sync",
+      errorCode: "SYNC_DUPLICATE_INVENTORY_ITEM_AUTO_MERGE_FAILED",
+      errorMessage:
+        "Automatic inventory packaging merge could not be completed; the duplicate was left for review.",
+      error: mergeError,
+    });
+    return null;
+  }
 };
 
 const tryAutoResolveCrossBarangayDuplicate = async ({
@@ -1672,6 +2213,47 @@ const processSingleSyncEntry = async (entry, auth) => {
         }
       }
 
+      if (error.code === DUPLICATE_INVENTORY_ITEM) {
+        const automaticResolution = await tryAutoMergeDuplicateInventoryItem({
+          error,
+          entry,
+          auth: syncAuth,
+          actionConfig,
+          syncTransaction,
+          dbClient,
+        });
+
+        if (automaticResolution) {
+          if (automaticResolution.notificationOutboxEvent?.id) {
+            notificationOutboxEventIds.push(
+              automaticResolution.notificationOutboxEvent.id,
+            );
+          }
+
+          return {
+            client_sync_id: entry.client_sync_id,
+            sync_transaction_id: syncTransaction.id,
+            sync_status:
+              automaticResolution.syncTransaction?.sync_status ||
+              SYNC_STATUS.SYNCED,
+            resolution_status: "RESOLVED_AUTOMATICALLY",
+            message:
+              "The existing item was kept and this packaging was added as a new batch.",
+            data: {
+              inventory_item: automaticResolution.existingItem,
+              inventory_batch: automaticResolution.createdBatch,
+            },
+            conflict: automaticResolution.conflictRecord,
+          };
+        }
+      }
+
+      const duplicateConflictServerPayload =
+        await getEnrichedInventoryDuplicateServerPayload({
+          error,
+          dbClient,
+        });
+
       try {
         const {
           syncTransaction: conflictTransaction,
@@ -1696,7 +2278,7 @@ const processSingleSyncEntry = async (entry, auth) => {
               entity_server_id: conflictEntityServerId,
               conflict_type: error.code,
               local_payload_json: entry.payload,
-              server_payload_json: error.serverPayload || {},
+              server_payload_json: duplicateConflictServerPayload,
               resolution_strategy:
                 isCrossBarangayDuplicateConflict ||
                 isManualInventoryDuplicateConflict
@@ -1709,7 +2291,7 @@ const processSingleSyncEntry = async (entry, auth) => {
                 : {
                     winner: isEarlierDepartureResolution ? "INCOMING" : "SERVER",
                     reason: error.message,
-                    authoritative_payload: error.serverPayload || {},
+                    authoritative_payload: duplicateConflictServerPayload,
                     authoritative_departure_time: error.serverPayload?.time_out || null,
                   },
               resolved_by:
@@ -2170,6 +2752,72 @@ const applyManualInventoryDuplicateResolution = async ({
     userId: conflict.user_id,
     roleCode: ROLE_CODES.MAYOR,
   };
+
+  if (
+    conflict.conflict_type === DUPLICATE_INVENTORY_ITEM &&
+    action === RESOLUTION_ACTION.ACCEPT_BOTH
+  ) {
+    const existingItem = await getInventoryItemForSyncConflict(
+      conflict.entity_server_id,
+      dbClient,
+    );
+    const stockForms = await getInventoryStockFormsForSyncConflict(
+      conflict.entity_server_id,
+      dbClient,
+    );
+    const plan = getInventoryDuplicateItemPlan({
+      existingItem,
+      stockForms,
+      localPayload,
+    });
+
+    if (plan.kind !== "SAME_PACKAGING") {
+      throw createInvalidConflictResolutionInputError(
+        "Accept Both is available only when both offline entries use the same packaging.",
+      );
+    }
+
+    const existingBatches = await getInventoryBatchesForDuplicateMerge(
+      existingItem?.id,
+      dbClient,
+    );
+    const mergeResult = await createBatchForDuplicateInventoryItem({
+      existingItem,
+      stockForm: plan.stockForm,
+      localPayload,
+      actorUserId: conflict.user_id,
+      clientTimestamp: conflict.client_timestamp,
+      existingBatches,
+      dbClient,
+    });
+
+    if (!mergeResult) {
+      throw createInvalidConflictResolutionInputError(
+        "Both entries could not be kept because the saved inventory batch data is incomplete.",
+      );
+    }
+
+    const lastSavedBatch =
+      Array.isArray(existingBatches) && existingBatches.length > 0
+        ? existingBatches[existingBatches.length - 1]
+        : null;
+
+    return {
+      winner: "BOTH",
+      entityServerId: existingItem.id,
+      acceptedEntity: "INVENTORY_BATCH",
+      createdBatchId: mergeResult.createdBatch?.id || null,
+      batchNumber: mergeResult.createdBatch?.batch_no || mergeResult.batchNo,
+      requestedBatchNumber: mergeResult.batchNo,
+      batchNumberOrdering: {
+        basis: "EXISTING_ITEM_BATCH_SEQUENCE",
+        localEntryOrder: "NEXT_BATCH",
+        savedBatchNumberBefore: lastSavedBatch?.batch_no || null,
+        savedBatchNumberAfter: lastSavedBatch?.batch_no || null,
+        changes: [],
+      },
+    };
+  }
 
   if (
     conflict.conflict_type === DUPLICATE_INVENTORY_BATCH &&

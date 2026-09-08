@@ -1687,6 +1687,18 @@ const emitSyncConflictAlert = async (syncConflict) => {
     });
   }
 
+  // A different compatible packaging is resolved automatically as a separate
+  // batch. It is already recorded in Sync History, so do not present it as an
+  // unresolved critical conflict notification.
+  if (
+    syncConflict.conflict_type === "DUPLICATE_INVENTORY_ITEM" &&
+    syncConflict.status === "RESOLVED" &&
+    syncConflict.resolved_payload_json?.automatic === true &&
+    syncConflict.resolved_payload_json?.result === "PACKAGING_ADDED_AS_BATCH"
+  ) {
+    return null;
+  }
+
   const recipientRoleCode =
     await resolveSyncConflictRecipientRoleCode(syncConflict);
 

@@ -747,6 +747,44 @@ test("BRG-SC-04B automatic inventory conflicts do not become Mayor-wide review a
   );
 });
 
+test("automatically merged inventory packaging does not create a critical conflict alert", async () => {
+  const createdNotifications = [];
+
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        insertNotification: async (payload) => {
+          createdNotifications.push(payload);
+          return { id: "notification-automatic-packaging" };
+        },
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ emitSyncConflictAlert }) => {
+      const result = await emitSyncConflictAlert({
+        id: "conflict-automatic-packaging",
+        user_id: "mayor-a",
+        entity_type: "INVENTORY_ITEM",
+        conflict_type: "DUPLICATE_INVENTORY_ITEM",
+        status: "RESOLVED",
+        resolved_payload_json: {
+          automatic: true,
+          result: "PACKAGING_ADDED_AS_BATCH",
+        },
+      });
+
+      assert.equal(result, null);
+      assert.equal(createdNotifications.length, 0);
+    },
+  );
+});
+
 test("M02-04 processes a committed SYNC_CONFLICT outbox event immediately", async () => {
   const createdNotifications = [];
   const processedEvents = [];

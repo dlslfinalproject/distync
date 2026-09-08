@@ -199,6 +199,39 @@ const getInventoryBatchByItemIdAndBatchNo = async (
   return result.rows[0] || null;
 };
 
+const getInventoryBatchesByItemIdForUpdate = async (
+  inventoryItemId,
+  dbClient = pool,
+) => {
+  const result = await dbClient.query(
+    `
+      SELECT
+        id,
+        inventory_item_id,
+        inventory_item_stock_form_id,
+        batch_no,
+        source_type,
+        quantity_received,
+        quantity_available,
+        stock_version,
+        expiration_date,
+        received_at,
+        storage_location,
+        status,
+        created_by,
+        created_at,
+        updated_at
+      FROM inventory_batches
+      WHERE inventory_item_id = $1
+      ORDER BY received_at ASC NULLS LAST, created_at ASC, id ASC
+      FOR UPDATE
+    `,
+    [inventoryItemId],
+  );
+
+  return result.rows;
+};
+
 const insertInventoryBatch = async (batchData, dbClient = pool) => {
   const hasReceivedAt =
     batchData.received_at !== undefined && batchData.received_at !== null;
@@ -332,6 +365,7 @@ module.exports = {
   getInventoryBatchById,
   getInventoryItemById,
   getInventoryBatchByItemIdAndBatchNo,
+  getInventoryBatchesByItemIdForUpdate,
   insertInventoryBatch,
   updateInventoryBatchNumber,
   updateInventoryBatchExpiry,

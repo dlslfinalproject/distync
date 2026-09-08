@@ -631,6 +631,15 @@ const getSyncHistoryResolutionNote = (record = {}) => {
     record.sync_conflict_resolution_action || record.resolution_action,
   );
 
+  if (
+    normalizeKey(record.sync_conflict_resolution_strategy || record.resolution_strategy) ===
+      "MERGED" ||
+    normalizeKey(record.sync_conflict_resolved_payload_json?.result) ===
+      "PACKAGING_ADDED_AS_BATCH"
+  ) {
+    return "The existing item was kept; the other packaging was added as a separate batch.";
+  }
+
   return (
     SYNC_HISTORY_RESOLUTION_NOTES[action] ||
     "The synchronization conflict was resolved after review."
@@ -852,6 +861,13 @@ export const getConflictExplanation = (conflict) => {
     return "The same household was registered under different Barangays for the same disaster event.";
   }
 
+  if (
+    conflict?.conflict_type === "DUPLICATE_INVENTORY_ITEM" &&
+    conflict?.resolved_payload_json?.result === "PACKAGING_ADDED_AS_BATCH"
+  ) {
+    return "The same inventory item already existed, so this packaging was added as a separate batch.";
+  }
+
   if (conflict?.conflict_type === "DUPLICATE_INVENTORY_BATCH") {
     return "Two offline entries used the same item, packaging, and batch number. Choose whether to keep one or accept both.";
   }
@@ -922,6 +938,14 @@ export const getConflictResolutionSummary = (conflict = {}) => {
     conflict.availableResolutionActions.length > 0;
 
   if (isResolved && conflict.resolved_payload_json?.automatic) {
+    if (conflict.resolved_payload_json.result === "PACKAGING_ADDED_AS_BATCH") {
+      return {
+        result: "Packaging added as a new batch",
+        whatHappened:
+          "DISTYNC kept the existing item and added the other packaging as a separate inventory batch.",
+      };
+    }
+
     const retained = conflict.resolved_payload_json.result ===
       "EARLIER_REGISTRATION_RETAINED";
     return {

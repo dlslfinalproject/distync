@@ -582,6 +582,46 @@ test("BRG-SC-CONFLICT-P04A Accept Both explains offline batch ordering", async (
   });
 });
 
+test("automatic packaging merges are explained as a separate batch", async () => {
+  const {
+    getConflictExplanation,
+    getConflictResolutionSummary,
+    getSyncHistoryNotes,
+  } = await import(helperModulePath.href);
+  const conflict = {
+    status: "RESOLVED",
+    conflict_type: "DUPLICATE_INVENTORY_ITEM",
+    resolution_strategy: "MERGED",
+    resolved_payload_json: {
+      automatic: true,
+      result: "PACKAGING_ADDED_AS_BATCH",
+    },
+    local_payload_json: {
+      item_name: "Offline Rice",
+      packaging: "sack",
+    },
+  };
+
+  assert.equal(
+    getConflictExplanation(conflict),
+    "The same inventory item already existed, so this packaging was added as a separate batch.",
+  );
+  assert.deepEqual(getConflictResolutionSummary(conflict), {
+    result: "Packaging added as a new batch",
+    whatHappened:
+      "DISTYNC kept the existing item and added the other packaging as a separate inventory batch.",
+  });
+  assert.match(
+    getSyncHistoryNotes({
+      sync_conflict_status: "RESOLVED",
+      sync_conflict_resolution_strategy: "MERGED",
+      sync_conflict_resolved_payload_json: conflict.resolved_payload_json,
+      payload_json: { action_key: "INVENTORY_ITEM_CREATE", payload: {} },
+    }).join(" "),
+    /other packaging was added as a separate batch/i,
+  );
+});
+
 test("BRG-SC-CONFLICT-P05 Open conflict UX stays honest and keeps authorization separate", async () => {
   const { getConflictResolutionSummary } = await import(helperModulePath.href);
   const syncStatusSource = await fs.readFile(syncStatusSourcePath, "utf8");

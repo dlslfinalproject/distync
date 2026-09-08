@@ -23,6 +23,15 @@ const inventoryTransactionRepositoryPath = require.resolve(
   "../src/repositories/inventoryTransaction.repository",
 );
 const inventoryItemServicePath = require.resolve("../src/services/inventoryItem.service");
+const inventoryItemRepositoryPath = require.resolve(
+  "../src/repositories/inventoryItem.repository",
+);
+const inventoryItemStockFormRepositoryPath = require.resolve(
+  "../src/repositories/inventoryItemStockForm.repository",
+);
+const inventoryBatchRepositoryPath = require.resolve(
+  "../src/repositories/inventoryBatch.repository",
+);
 const inventoryBatchServicePath = require.resolve("../src/services/inventoryBatch.service");
 const systemLogPath = require.resolve("../src/utils/systemLog");
 const systemLogRepositoryPath = require.resolve(
@@ -4189,6 +4198,402 @@ test("EE-FIX-04 same-ID accepted inventory replay after closure does not rerun s
       assert.equal(result.data.id, "tx-accepted");
       assert.equal(serviceCalls, 0);
       assert.equal(updateCalls, 0);
+    },
+  );
+});
+
+test("duplicate offline item with different packaging is merged into a new batch automatically", async () => {
+  let conflictPayload = null;
+  let transactionPayload = null;
+  let createdBatchPayload = null;
+  const existingItem = {
+    id: "existing-item",
+    item_code: "RICE001",
+    item_name: "Offline Rice",
+    category: "Non-Perishable",
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    packaging: "piece",
+    is_perishable: false,
+    barcode: null,
+  };
+  const existingStockForm = {
+    id: "existing-piece-form",
+    inventory_item_id: existingItem.id,
+    barcode: null,
+    packaging: "piece",
+    units_per_packaging: 1,
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    is_active: true,
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async ({
+          conflictPayload: nextConflictPayload,
+          transactionPayload: nextTransactionPayload,
+        }) => {
+          conflictPayload = nextConflictPayload;
+          transactionPayload = nextTransactionPayload;
+
+          return {
+            syncTransaction: {
+              id: "sync-item-duplicate",
+              ...nextTransactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-item-merged",
+              ...nextConflictPayload,
+            },
+          };
+        },
+      }),
+      [inventoryItemServicePath]: {
+        createInventoryItem: async () => {
+          const error = new Error("An inventory item with this name already exists");
+          error.code = "DUPLICATE_INVENTORY_ITEM";
+          error.statusCode = 409;
+          error.entityServerId = existingItem.id;
+          error.serverPayload = {
+            id: existingItem.id,
+            item_name: existingItem.item_name,
+          };
+          throw error;
+        },
+      },
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemByIdForUpdate: async () => existingItem,
+      },
+      [inventoryItemStockFormRepositoryPath]: {
+        getInventoryItemStockFormsByItemId: async () => [existingStockForm],
+      },
+      [inventoryBatchRepositoryPath]: {
+        getInventoryBatchesByItemIdForUpdate: async () => [
+          {
+            id: "opening-batch",
+            inventory_item_id: existingItem.id,
+            batch_no: "RICE001-OPEN-100",
+            received_at: "2026-09-07T01:00:00.000Z",
+            created_at: "2026-09-07T01:00:00.000Z",
+          },
+        ],
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          createdBatchPayload = payload;
+          return {
+            id: "merged-batch",
+            batch_no: payload.batch_no,
+            inventory_item_id: payload.inventory_item_id,
+          };
+        },
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+        },
+        entries: [
+          {
+            client_sync_id: "item-duplicate-different-packaging",
+            action_key: "INVENTORY_ITEM_CREATE",
+            entity_type: "INVENTORY_ITEM",
+            entity_local_id: "Offline Rice",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T01:05:00.000Z",
+            payload: {
+              item_name: "Offline Rice",
+              category: "Non-Perishable",
+              unit_of_measure: "pc",
+              unit_of_measure_value: "1",
+              packaging: "sack",
+              packaging_count: "2",
+              quantity: "25",
+              reorder_level: "5",
+              barcode: null,
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.resolution_status, "RESOLVED_AUTOMATICALLY");
+      assert.equal(result.conflict.status, "RESOLVED");
+      assert.equal(transactionPayload.sync_status, "SYNCED");
+      assert.equal(transactionPayload.entity_server_id, existingItem.id);
+      assert.equal(conflictPayload.resolution_strategy, "MERGED");
+      assert.equal(conflictPayload.resolved_payload_json.winner, "MERGED");
+      assert.equal(
+        conflictPayload.resolved_payload_json.result,
+        "PACKAGING_ADDED_AS_BATCH",
+      );
+      assert.equal(createdBatchPayload.inventory_item_id, existingItem.id);
+      assert.equal(createdBatchPayload.inventory_item_stock_form_id, null);
+      assert.equal(createdBatchPayload.batch_no, "RICE001-BATCH-002");
+      assert.equal(createdBatchPayload.quantity_received, 50);
+      assert.equal(createdBatchPayload.stock_form_packaging, "sack");
+    },
+  );
+});
+
+test("duplicate offline item with the same packaging can be accepted as another batch", async () => {
+  let updatedTransactionPayload = null;
+  let createdBatchPayload = null;
+  const existingItem = {
+    id: "existing-item",
+    item_code: "RICE001",
+    item_name: "Offline Rice",
+    category: "Non-Perishable",
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    packaging: "piece",
+    is_perishable: false,
+    barcode: null,
+  };
+  const existingStockForm = {
+    id: "existing-piece-form",
+    inventory_item_id: existingItem.id,
+    barcode: null,
+    packaging: "piece",
+    units_per_packaging: 1,
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    is_active: true,
+  };
+  const baseConflict = {
+    id: "conflict-duplicate-item",
+    sync_transaction_id: "sync-duplicate-item",
+    user_id: "origin-mayor",
+    entity_type: "INVENTORY_ITEM",
+    entity_server_id: existingItem.id,
+    conflict_type: "DUPLICATE_INVENTORY_ITEM",
+    local_payload_json: {
+      item_name: "Offline Rice",
+      item_code: "RICE-OFFLINE-002",
+      category: "Non-Perishable",
+      unit_of_measure: "pc",
+      unit_of_measure_value: "1",
+      packaging: "piece",
+      packaging_count: "10",
+      quantity: "1",
+      barcode: null,
+    },
+    server_payload_json: {
+      ...existingItem,
+      inventory_item_stock_forms: [existingStockForm],
+    },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "CREATE",
+    client_timestamp: "2026-09-07T01:05:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        getSyncConflictByIdForMayor: async () => baseConflict,
+        lockSyncConflictById: async () => baseConflict,
+        updateSyncTransaction: async (id, payload) => {
+          updatedTransactionPayload = { id, ...payload };
+          return updatedTransactionPayload;
+        },
+        markSyncConflictResolved: async (payload) => ({
+          ...baseConflict,
+          status: "RESOLVED",
+          resolution_action: payload.resolutionAction,
+          resolution_reason: payload.resolutionReason,
+          resolved_payload_json: payload.resolvedPayloadJson,
+          resolved_by: payload.resolvedBy,
+          resolved_at: "2026-09-07T02:00:00.000Z",
+        }),
+      },
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemByIdForUpdate: async () => existingItem,
+      },
+      [inventoryItemStockFormRepositoryPath]: {
+        getInventoryItemStockFormsByItemId: async () => [existingStockForm],
+      },
+      [inventoryBatchRepositoryPath]: {
+        getInventoryBatchesByItemIdForUpdate: async () => [
+          {
+            id: "opening-batch",
+            inventory_item_id: existingItem.id,
+            batch_no: "RICE001-OPEN-100",
+            received_at: "2026-09-07T01:00:00.000Z",
+            created_at: "2026-09-07T01:00:00.000Z",
+          },
+        ],
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          createdBatchPayload = payload;
+          return {
+            id: "accepted-batch",
+            batch_no: payload.batch_no,
+          };
+        },
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async () => null,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail, resolveSyncConflict }) => {
+      const detail = await getSyncConflictDetail({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, [
+        "KEEP_SERVER",
+        "ACCEPT_BOTH",
+      ]);
+
+      const resolved = await resolveSyncConflict({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+        action: "ACCEPT_BOTH",
+        reason: "Both offline receipts use the same packaging.",
+      });
+
+      assert.equal(updatedTransactionPayload.sync_status, "SYNCED");
+      assert.equal(updatedTransactionPayload.entity_server_id, existingItem.id);
+      assert.equal(createdBatchPayload.inventory_item_id, existingItem.id);
+      assert.equal(
+        createdBatchPayload.inventory_item_stock_form_id,
+        existingStockForm.id,
+      );
+      assert.equal(createdBatchPayload.batch_no, "RICE001-BATCH-002");
+      assert.equal(createdBatchPayload.quantity_received, 10);
+      assert.equal(resolved.status, "RESOLVED");
+      assert.equal(resolved.sync_status, "SYNCED");
+      assert.equal(resolved.entity_server_id, existingItem.id);
+      assert.equal(
+        resolved.resolved_payload_json.batchNumberOrdering.localEntryOrder,
+        "NEXT_BATCH",
+      );
+    },
+  );
+});
+
+test("duplicate offline item with a barcode packaging mismatch stays open", async () => {
+  let conflictPayload = null;
+  let createBatchCalled = false;
+  const existingItem = {
+    id: "existing-item",
+    item_code: "RICE001",
+    item_name: "Offline Rice",
+    category: "Non-Perishable",
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    packaging: "piece",
+    is_perishable: false,
+    barcode: null,
+  };
+  const existingStockForm = {
+    id: "existing-piece-form",
+    inventory_item_id: existingItem.id,
+    barcode: "48000000",
+    packaging: "piece",
+    units_per_packaging: 1,
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    is_active: true,
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async ({ conflictPayload: nextConflict }) => {
+          conflictPayload = nextConflict;
+
+          return {
+            syncTransaction: {
+              id: "sync-item-barcode-conflict",
+              sync_status: "CONFLICT",
+            },
+            conflictRecord: {
+              id: "conflict-item-barcode",
+              ...nextConflict,
+            },
+          };
+        },
+      }),
+      [inventoryItemServicePath]: {
+        createInventoryItem: async () => {
+          const error = new Error("An inventory item with this name already exists");
+          error.code = "DUPLICATE_INVENTORY_ITEM";
+          error.statusCode = 409;
+          error.entityServerId = existingItem.id;
+          throw error;
+        },
+      },
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemByIdForUpdate: async () => existingItem,
+      },
+      [inventoryItemStockFormRepositoryPath]: {
+        getInventoryItemStockFormsByItemId: async () => [existingStockForm],
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async () => {
+          createBatchCalled = true;
+          throw new Error("Barcode mismatch must not create a batch");
+        },
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+        },
+        entries: [
+          {
+            client_sync_id: "item-duplicate-barcode-packaging",
+            action_key: "INVENTORY_ITEM_CREATE",
+            entity_type: "INVENTORY_ITEM",
+            entity_local_id: "Offline Rice",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T01:05:00.000Z",
+            payload: {
+              item_name: "Offline Rice",
+              category: "Non-Perishable",
+              unit_of_measure: "pc",
+              unit_of_measure_value: "1",
+              packaging: "sack",
+              packaging_count: "2",
+              quantity: "25",
+              barcode: "48000000",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.status, "OPEN");
+      assert.equal(createBatchCalled, false);
+      assert.deepEqual(
+        conflictPayload.server_payload_json.inventory_item_stock_forms,
+        [existingStockForm],
+      );
     },
   );
 });
