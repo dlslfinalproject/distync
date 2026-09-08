@@ -8,11 +8,13 @@ import {
   MAYOR_OFFLINE_ACCESS_MESSAGE,
 } from "../../features/offline/mayorOfflineAccess";
 import {
-  BARANGAY_OFFLINE_ACCESS_MESSAGE,
   isBarangayOfflineBlockedRoute,
 } from "../../features/offline/barangayOfflineAccess";
 import distyncLogo from "../../assets/distync-logo.png";
 import SidebarAccountMenu from "./SidebarAccountMenu";
+
+const BARANGAY_SIDEBAR_OFFLINE_ACCESS_MESSAGE =
+  "Internet connection required";
 
 const layoutBrandStyles = {
   topBar: {
@@ -350,13 +352,14 @@ const Sidebar = ({
               currentRole === ROLE_CODES.BARANGAY &&
               isOffline &&
               isBarangayOfflineBlockedRoute(item.to);
+            const isMayorOfflineRouteLocked =
+              currentRole === ROLE_CODES.MAYOR &&
+              isOffline &&
+              isMayorOfflineBlockedRoute(item.to);
             const isMayorOfflineLocked =
-              (currentRole === ROLE_CODES.MAYOR &&
-                isOffline &&
-                isMayorOfflineBlockedRoute(item.to)) ||
-              isBarangayOfflineLocked;
+              isMayorOfflineRouteLocked || isBarangayOfflineLocked;
             const offlineAccessMessage = isBarangayOfflineLocked
-              ? BARANGAY_OFFLINE_ACCESS_MESSAGE
+              ? BARANGAY_SIDEBAR_OFFLINE_ACCESS_MESSAGE
               : MAYOR_OFFLINE_ACCESS_MESSAGE;
             const handleNavigationClick = (event) => {
               if (isMayorOfflineLocked) {
@@ -420,7 +423,11 @@ const Sidebar = ({
                           : isActive
                             ? "0 8px 18px rgba(66, 108, 154, 0.10)"
                             : "none",
-                      opacity: isMayorOfflineLocked ? 0.62 : 1,
+                      opacity: isBarangayOfflineLocked
+                        ? 0.55
+                        : isMayorOfflineLocked
+                          ? 0.62
+                          : 1,
                       transition:
                         "background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease",
                       marginBottom: 0,
