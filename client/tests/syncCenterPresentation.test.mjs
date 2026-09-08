@@ -124,7 +124,7 @@ test("BRG-SC-P05 transaction and conflict status filters are not mixed", async (
   const source = await fs.readFile(pageSourcePath, "utf8");
 
   assert.match(source, /const TRANSACTION_STATUS_OPTIONS = \[[\s\S]*LOCAL_SYNC_STATUS\.CONFLICT/);
-  assert.doesNotMatch(
+  assert.match(
     source.match(/const TRANSACTION_STATUS_OPTIONS = \[[\s\S]*?\];/)?.[0] || "",
     /RESOLVED/,
   );

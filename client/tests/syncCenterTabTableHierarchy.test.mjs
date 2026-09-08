@@ -165,6 +165,6 @@ test("Sync Center empty states and actions stay inside the shared tab panels", a
   assert.match(source, /aria-label=\{`Retry synchronization for \$\{details\.subject\}`\}/);
   assert.match(source, /aria-label="View synchronization details"/);
   assert.match(source, /<SyncStatusBadge status=\{entry\.status\} \/>/);
-  assert.match(source, /<SyncStatusBadge status=\{transaction\.sync_status\} \/>/);
+  assert.match(source, /<SyncStatusBadge status=\{getSyncHistoryStatus\(transaction\)\} \/>/);
   assert.match(source, /<SyncStatusBadge[\s\S]*status=\{conflict\.status === "RESOLVED"/);
 });

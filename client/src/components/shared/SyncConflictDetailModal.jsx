@@ -141,7 +141,7 @@ const modalStyles = {
 
 const ACTION_LABELS = {
   MARK_REVIEWED: "Mark Reviewed",
-  KEEP_SERVER: "Keep Saved Record",
+  KEEP_SERVER: "Keep Saved / Discard This Entry",
   APPLY_LOCAL: "Use This Device Record",
   ACCEPT_BOTH: "Accept Both Entries",
 };
@@ -377,7 +377,8 @@ const SyncConflictDetailModal = ({
               {availableActions.includes("KEEP_SERVER") ? (
                 <p style={modalStyles.warningText}>
                   Keeping the saved DISTYNC record closes the conflict without
-                  changing operational data.
+                  changing operational data. This device entry is not added to
+                  Inventory, but the decision remains in Sync History.
                 </p>
               ) : null}
               {availableActions.includes("ACCEPT_BOTH") ? (

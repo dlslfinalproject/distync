@@ -343,11 +343,17 @@ export const clearSyncedEntries = async () => {
   const syncedEntries = await db.syncQueue
     .orderBy("updatedAt")
     .filter(
-      (entry) =>
-        (isSyncEntryVisibleForContext(entry) ||
-          entry.resolutionStatus === "RESOLVED_AUTOMATICALLY") &&
-        (entry.status === LOCAL_SYNC_STATUS.SYNCED ||
-          entry.resolutionStatus === "RESOLVED_AUTOMATICALLY"),
+      (entry) => {
+        const resolutionStatus = String(entry.resolutionStatus || "").toUpperCase();
+        const isResolved =
+          resolutionStatus === "RESOLVED" ||
+          resolutionStatus === "RESOLVED_AUTOMATICALLY";
+
+        return (
+          (isSyncEntryVisibleForContext(entry) || isResolved) &&
+          (entry.status === LOCAL_SYNC_STATUS.SYNCED || isResolved)
+        );
+      },
     )
     .toArray();
 

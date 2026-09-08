@@ -17,6 +17,7 @@ import {
   subscribeToSyncUpdates,
 } from "../offline/syncService";
 import {
+  clearSyncedEntries,
   getVisibleSyncQueueEntriesByUpdatedAt,
   updateSyncEntryStatus,
 } from "../offline/syncQueue";
@@ -35,6 +36,7 @@ import {
   getConflictReasonLabel,
   getResolutionStatusLabel,
   getSyncHistoryNotes,
+  getSyncHistoryStatus,
   getSyncQueueNotes,
   getSyncRecordDetails,
   getSyncRecordBarangayId,
@@ -84,6 +86,7 @@ const TRANSACTION_STATUS_OPTIONS = [
   { value: LOCAL_SYNC_STATUS.SYNCED, label: "Synced" },
   { value: LOCAL_SYNC_STATUS.FAILED, label: "Failed" },
   { value: LOCAL_SYNC_STATUS.CONFLICT, label: "Conflict" },
+  { value: "RESOLVED", label: "Resolved" },
 ];
 
 const CONFLICT_STATUS_OPTIONS = [
@@ -469,10 +472,35 @@ const SyncManagementPage = () => {
     [addBarangayDisplayName, scopedSyncQueueEntries],
   );
 
-  const displayTransactions = useMemo(
-    () => syncHistory.transactions.map(addBarangayDisplayName),
-    [addBarangayDisplayName, syncHistory.transactions],
-  );
+  const displayTransactions = useMemo(() => {
+    const conflictsByTransactionId = new Map(
+      syncHistory.conflicts
+        .filter((conflict) => conflict?.sync_transaction_id)
+        .map((conflict) => [conflict.sync_transaction_id, conflict]),
+    );
+
+    return syncHistory.transactions.map((transaction) => {
+      const conflict = conflictsByTransactionId.get(
+        transaction.id || transaction.sync_transaction_id,
+      );
+
+      if (!conflict) {
+        return addBarangayDisplayName(transaction);
+      }
+
+      return addBarangayDisplayName({
+        ...transaction,
+        sync_conflict_status: conflict.status,
+        sync_conflict_type: conflict.conflict_type,
+        sync_conflict_resolution_action: conflict.resolution_action,
+        sync_conflict_resolution_reason: conflict.resolution_reason,
+        sync_conflict_resolution_strategy: conflict.resolution_strategy,
+        sync_conflict_resolved_payload_json: conflict.resolved_payload_json,
+        sync_conflict_resolved_at: conflict.resolved_at,
+        ...(conflict.status === "RESOLVED" ? { status: "RESOLVED" } : {}),
+      });
+    });
+  }, [addBarangayDisplayName, syncHistory.conflicts, syncHistory.transactions]);
 
   const displayConflicts = useMemo(
     () => syncHistory.conflicts.map(addBarangayDisplayName),
@@ -562,7 +590,7 @@ const SyncManagementPage = () => {
       applySyncFilters(
         displayTransactions,
         filters,
-        (transaction) => transaction.sync_status,
+        (transaction) => getSyncHistoryStatus(transaction),
         { includeBarangay: isMswdoPortal },
       ),
     [displayTransactions, filters, isMswdoPortal],
@@ -986,6 +1014,12 @@ const SyncManagementPage = () => {
     }
   };
 
+  const handleCloseConflictDetail = useCallback(() => {
+    setSelectedConflictDetail(null);
+    setResolutionReason("");
+    setReplacementBarcode("");
+  }, []);
+
   const handleResolveConflict = async (action) => {
     if (!selectedConflictDetail?.id || isResolvingConflict) {
       return;
@@ -1028,6 +1062,13 @@ const SyncManagementPage = () => {
           entityServerId: resolvedConflict?.entity_server_id || localEntry.entityServerId || null,
           serverMessage: resolvedConflict?.resolution_reason || "Sync conflict resolved.",
         });
+      }
+
+      try {
+        await clearSyncedEntries();
+      } catch (_cleanupError) {
+        // The server decision is already recorded. A later sync refresh can
+        // clean up a stale local row if browser storage is temporarily busy.
       }
 
       setSelectedConflictDetail(
@@ -1484,7 +1525,7 @@ const SyncManagementPage = () => {
                     <tr key={transaction.id}>
                       {renderRecordCells(transaction, { includeBarangay: false })}
                       <td style={tableStyles.td}>
-                        <SyncStatusBadge status={transaction.sync_status} />
+                        <SyncStatusBadge status={getSyncHistoryStatus(transaction)} />
                       </td>
                       <td style={tableStyles.td}>
                         {formatSyncDateTime(
@@ -1617,11 +1658,7 @@ const SyncManagementPage = () => {
       <SyncConflictDetailModal
         isOpen={Boolean(selectedConflictDetail)}
         conflict={selectedConflictDetail}
-        onClose={() => {
-          setSelectedConflictDetail(null);
-          setResolutionReason("");
-          setReplacementBarcode("");
-        }}
+        onClose={handleCloseConflictDetail}
         onResolve={handleResolveConflict}
         resolutionReason={resolutionReason}
         onResolutionReasonChange={setResolutionReason}

@@ -611,6 +611,32 @@ const collectUniqueDisplayValues = (values = []) => {
   return output;
 };
 
+const SYNC_HISTORY_RESOLUTION_NOTES = {
+  KEEP_SERVER: "Saved DISTYNC record kept; this device entry was discarded.",
+  ACCEPT_BOTH: "Both entries were kept as separate inventory batches.",
+  APPLY_LOCAL: "This device record was accepted after review.",
+  MARK_REVIEWED: "The conflict was reviewed and the saved DISTYNC record was kept.",
+};
+
+const getSyncHistoryResolutionNote = (record = {}) => {
+  const conflictStatus = normalizeKey(
+    record.sync_conflict_status || record.conflict_status,
+  );
+
+  if (conflictStatus !== "RESOLVED") {
+    return "";
+  }
+
+  const action = normalizeKey(
+    record.sync_conflict_resolution_action || record.resolution_action,
+  );
+
+  return (
+    SYNC_HISTORY_RESOLUTION_NOTES[action] ||
+    "The synchronization conflict was resolved after review."
+  );
+};
+
 export const getSyncHistoryNotes = (record = {}) => {
   const payload = getPayloadContainer(record);
   const details = getSyncRecordDetails(record);
@@ -626,6 +652,10 @@ export const getSyncHistoryNotes = (record = {}) => {
   ].map(normalizeDisplayText);
 
   const candidateNotes = [
+    getSyncHistoryResolutionNote(record),
+    record.sync_conflict_resolution_reason
+      ? `Review note: ${record.sync_conflict_resolution_reason}`
+      : "",
     getUnsupportedOfflineActionMessage(getActionKey(record)),
     getSafeSyncErrorMessage(record, ""),
     payload.remarks,
@@ -651,6 +681,21 @@ export const getSyncHistoryNotes = (record = {}) => {
   );
 
   return notes.length > 0 ? notes : [SYNC_MISSING_VALUE];
+};
+
+export const getSyncHistoryStatus = (record = {}) => {
+  const conflictStatus = normalizeKey(
+    record.sync_conflict_status || record.conflict_status,
+  );
+
+  if (
+    conflictStatus === "RESOLVED" ||
+    normalizeKey(record.resolution_status) === "RESOLVED"
+  ) {
+    return "RESOLVED";
+  }
+
+  return record.sync_status || record.status || SYNC_MISSING_VALUE;
 };
 
 export const buildSyncSearchText = (
