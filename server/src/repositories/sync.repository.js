@@ -541,6 +541,32 @@ const selectAttributedSyncTransactionFields = `
 
 const selectAttributedSyncConflictFields = `
   sc.*,
+  COALESCE(
+    CASE
+      WHEN sc.entity_type = 'INVENTORY_ITEM'
+      THEN sc.entity_server_id::text
+      ELSE NULL
+    END,
+    sc.local_payload_json ->> 'inventory_item_id',
+    sc.server_payload_json ->> 'inventory_item_id',
+    sc.local_payload_json #>> '{payload,inventory_item_id}',
+    sc.server_payload_json #>> '{payload,inventory_item_id}',
+    sc.local_payload_json ->> 'inventoryItemId',
+    sc.server_payload_json ->> 'inventoryItemId',
+    sc.local_payload_json #>> '{payload,inventoryItemId}',
+    sc.server_payload_json #>> '{payload,inventoryItemId}',
+    CASE
+      WHEN sc.entity_type = 'INVENTORY_BATCH'
+        AND sc.entity_server_id IS NOT NULL
+      THEN (
+        SELECT ib.inventory_item_id::text
+        FROM inventory_batches ib
+        WHERE ib.id = sc.entity_server_id
+        LIMIT 1
+      )
+      ELSE NULL
+    END
+  ) AS affected_inventory_item_id,
   st.user_id,
   st.entity_local_id,
   st.sync_status,

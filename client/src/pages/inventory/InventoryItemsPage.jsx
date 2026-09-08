@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
@@ -428,6 +428,7 @@ const InventoryItemsPage = () => {
   );
   const [resolvedConflictTransactionIds, setResolvedConflictTransactionIds] =
     useState(() => new Set());
+  const mayorConflictRefreshSequence = useRef(0);
   const isInventoryOffline = () =>
     !isOnline ||
     (typeof navigator !== "undefined" && navigator.onLine === false);
@@ -444,6 +445,9 @@ const InventoryItemsPage = () => {
       return;
     }
 
+    const refreshSequence = mayorConflictRefreshSequence.current + 1;
+    mayorConflictRefreshSequence.current = refreshSequence;
+
     const [openConflictsResult, resolvedConflictsResult] =
       await Promise.allSettled([
         fetchSyncHistory({ limit: 200, conflict_status: "OPEN" }),
@@ -454,8 +458,12 @@ const InventoryItemsPage = () => {
       const openConflicts = Array.isArray(openConflictsResult.value?.conflicts)
         ? openConflictsResult.value.conflicts
         : [];
-      const { openItemIds } = getMayorInventoryConflictState(openConflicts);
-      setServerConflictItemIds(openItemIds);
+      if (refreshSequence === mayorConflictRefreshSequence.current) {
+        const { openItemIds } = getMayorInventoryConflictState(openConflicts, {
+          inventoryBatches,
+        });
+        setServerConflictItemIds(openItemIds);
+      }
     }
 
     if (resolvedConflictsResult.status === "fulfilled") {
@@ -464,10 +472,13 @@ const InventoryItemsPage = () => {
       )
         ? resolvedConflictsResult.value.conflicts
         : [];
-      const { resolvedTransactionIds } =
-        getMayorInventoryConflictState(resolvedConflicts);
+      const { resolvedTransactionIds } = getMayorInventoryConflictState(
+        resolvedConflicts,
+      );
 
-      setResolvedConflictTransactionIds(resolvedTransactionIds);
+      if (refreshSequence === mayorConflictRefreshSequence.current) {
+        setResolvedConflictTransactionIds(resolvedTransactionIds);
+      }
 
       try {
         await reconcileResolvedSyncEntries(resolvedConflicts);

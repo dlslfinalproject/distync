@@ -26,6 +26,7 @@ export const fetchSyncHistory = async (filters = {}) => {
     `${API_BASE_URL}/api/v1/sync/history${
       searchParams.toString() ? `?${searchParams.toString()}` : ""
     }`,
+    { cache: "no-store" },
   );
 
   return handleJsonResponse(response, "Failed to load sync history");

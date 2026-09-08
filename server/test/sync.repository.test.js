@@ -503,6 +503,9 @@ test("MAYOR municipality sync queries are limited to inventory-owned records", a
       /st\.entity_type IN \('INVENTORY_ITEM', 'INVENTORY_BATCH', 'INVENTORY_TRANSACTION'\)/,
     );
   }
+
+  assert.match(captured[1].query, /AS affected_inventory_item_id/);
+  assert.match(captured[1].query, /FROM inventory_batches ib/);
 });
 
 test("H03F-07/H03F-08/H03F-09 claim decisions protect stale, active, and legacy pending rows", async () => {

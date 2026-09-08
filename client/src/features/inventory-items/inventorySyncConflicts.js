@@ -70,7 +70,10 @@ const getConflictPayloadObjects = (conflict = {}) => [
 const getPayloadInventoryItemId = (payloadObjects = []) => {
   for (const payloadObject of payloadObjects) {
     const directId = normalizeId(
-      payloadObject.inventory_item_id || payloadObject.item_id,
+      payloadObject.inventory_item_id ||
+        payloadObject.inventoryItemId ||
+        payloadObject.item_id ||
+        payloadObject.itemId,
     );
 
     if (directId) {
@@ -86,6 +89,23 @@ const getPayloadInventoryItemId = (payloadObjects = []) => {
       if (nestedItemId) {
         return nestedItemId;
       }
+    }
+  }
+
+  return "";
+};
+
+const getPayloadInventoryBatchId = (payloadObjects = []) => {
+  for (const payloadObject of payloadObjects) {
+    const batchId = normalizeId(
+      payloadObject.inventory_batch_id ||
+        payloadObject.inventoryBatchId ||
+        payloadObject.batch_id ||
+        payloadObject.batchId,
+    );
+
+    if (batchId) {
+      return batchId;
     }
   }
 
@@ -123,13 +143,27 @@ export const getSyncConflictStatus = (conflict = {}) =>
       conflict.resolution_status,
   );
 
-export const getInventoryItemIdFromSyncConflict = (conflict = {}) => {
+export const getInventoryItemIdFromSyncConflict = (
+  conflict = {},
+  { inventoryBatches = [] } = {},
+) => {
   if (!isMayorInventorySyncConflict(conflict)) {
     return "";
   }
 
   const entityType = normalizeKey(conflict.entity_type || conflict.entityType);
   const payloadObjects = getConflictPayloadObjects(conflict);
+
+  const explicitItemId = normalizeId(
+    conflict.affected_inventory_item_id ||
+      conflict.affectedInventoryItemId ||
+      conflict.inventory_item_id ||
+      conflict.inventoryItemId,
+  );
+
+  if (explicitItemId) {
+    return explicitItemId;
+  }
 
   if (entityType === "INVENTORY_ITEM") {
     return (
@@ -139,10 +173,30 @@ export const getInventoryItemIdFromSyncConflict = (conflict = {}) => {
     );
   }
 
-  return getPayloadInventoryItemId(payloadObjects);
+  const payloadItemId = getPayloadInventoryItemId(payloadObjects);
+
+  if (payloadItemId) {
+    return payloadItemId;
+  }
+
+  const payloadBatchId = getPayloadInventoryBatchId(payloadObjects);
+  const batchId =
+    (entityType === "INVENTORY_BATCH"
+      ? normalizeId(conflict.entity_server_id || conflict.entityServerId)
+      : "") || payloadBatchId;
+  const matchingBatch = (Array.isArray(inventoryBatches) ? inventoryBatches : []).find(
+    (batch) => normalizeId(batch?.id) === batchId,
+  );
+
+  return normalizeId(
+    matchingBatch?.inventory_item_id || matchingBatch?.inventoryItemId,
+  );
 };
 
-export const getMayorInventoryConflictState = (conflicts = []) => {
+export const getMayorInventoryConflictState = (
+  conflicts = [],
+  { inventoryBatches = [] } = {},
+) => {
   const openItemIds = new Set();
   const resolvedTransactionIds = new Set();
 
@@ -154,7 +208,9 @@ export const getMayorInventoryConflictState = (conflicts = []) => {
     const conflictStatus = getSyncConflictStatus(conflict);
 
     if (conflictStatus === "OPEN") {
-      const itemId = getInventoryItemIdFromSyncConflict(conflict);
+      const itemId = getInventoryItemIdFromSyncConflict(conflict, {
+        inventoryBatches,
+      });
 
       if (itemId) {
         openItemIds.add(itemId);

@@ -25,6 +25,28 @@ test("Mayor inventory conflict state maps item and batch conflicts to the affect
 
   assert.equal(getInventoryItemIdFromSyncConflict(itemConflict), "item-1");
   assert.equal(getInventoryItemIdFromSyncConflict(batchConflict), "item-2");
+  assert.equal(
+    getInventoryItemIdFromSyncConflict({
+      entity_type: "INVENTORY_BATCH",
+      entity_server_id: "batch-3",
+      status: "OPEN",
+    }, {
+      inventoryBatches: [
+        { id: "batch-3", inventory_item_id: "item-3" },
+      ],
+    }),
+    "item-3",
+  );
+  assert.equal(
+    getInventoryItemIdFromSyncConflict({
+      entity_type: "INVENTORY_TRANSACTION",
+      local_payload_json: {
+        inventory_state_basis: { inventoryItemId: "item-4" },
+      },
+      status: "OPEN",
+    }),
+    "item-4",
+  );
 
   const state = getMayorInventoryConflictState([
     itemConflict,
