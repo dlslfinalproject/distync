@@ -1919,6 +1919,9 @@ const processSingleSyncEntry = async (entry, auth) => {
     const syncBusinessSavepoint = "sync_business_action";
     const canUseSyncBusinessSavepoint =
       dbClient && typeof dbClient.query === "function";
+    const isEarlierDepartureResolution = (error) =>
+      error?.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" &&
+      error?.incomingDepartureWasEarlier === true;
 
     try {
       if (canUseSyncBusinessSavepoint) {
@@ -2074,7 +2077,15 @@ const processSingleSyncEntry = async (entry, auth) => {
       conflict: conflictRecord,
     };
     } catch (error) {
-      if (!businessEffectApplied && canUseSyncBusinessSavepoint) {
+      // departHousehold updates the existing evacuation log to the earlier
+      // original departure and then throws a typed duplicate-resolution error
+      // so this branch can reconcile the sync history. That update is the
+      // successful business effect and must survive the savepoint rollback.
+      if (
+        !businessEffectApplied &&
+        canUseSyncBusinessSavepoint &&
+        !isEarlierDepartureResolution(error)
+      ) {
         try {
           await dbClient.query(`ROLLBACK TO SAVEPOINT ${syncBusinessSavepoint}`);
         } catch (rollbackError) {
@@ -2128,16 +2139,12 @@ const processSingleSyncEntry = async (entry, auth) => {
       ].includes(error.code);
       const isSystemResolvedDuplicate =
         isInventoryItrDuplicate;
-      const isEarlierDepartureResolution =
-        error.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" &&
-        error.incomingDepartureWasEarlier === true;
-      const departureResolutionStrategy =
-        error.code === "DUPLICATE_HOUSEHOLD_DEPARTURE"
-          ? RESOLUTION_STRATEGY.EARLIEST_ORIGINAL
-          : RESOLUTION_STRATEGY.FIRST_ACCEPTED;
+      const isEarlierDepartureResolutionResult =
+        isEarlierDepartureResolution(error);
+      const departureResolutionStrategy = RESOLUTION_STRATEGY.FIRST_ACCEPTED;
 
       if (
-        isEarlierDepartureResolution &&
+        isEarlierDepartureResolutionResult &&
         typeof syncRepository.findHouseholdDepartureSyncTransactions === "function"
       ) {
         const priorDepartureTransactions =
@@ -2270,10 +2277,10 @@ const processSingleSyncEntry = async (entry, auth) => {
             transactionPayload: {
               entity_server_id: entityServerId,
               server_timestamp: serverTimestamp,
-              sync_status: isEarlierDepartureResolution
+              sync_status: isEarlierDepartureResolutionResult
                 ? SYNC_STATUS.SYNCED
                 : SYNC_STATUS.CONFLICT,
-              error_message: isEarlierDepartureResolution
+              error_message: isEarlierDepartureResolutionResult
                 ? null
                 : error.message || "Duplicate offline action was ignored",
             },
@@ -2294,7 +2301,7 @@ const processSingleSyncEntry = async (entry, auth) => {
                 isManualInventoryDuplicateConflict
                 ? null
                 : {
-                    winner: isEarlierDepartureResolution ? "INCOMING" : "SERVER",
+                    winner: isEarlierDepartureResolutionResult ? "INCOMING" : "SERVER",
                     reason: error.message,
                     authoritative_payload: duplicateConflictServerPayload,
                     authoritative_departure_time: error.serverPayload?.time_out || null,
@@ -2326,10 +2333,10 @@ const processSingleSyncEntry = async (entry, auth) => {
         return {
           client_sync_id: entry.client_sync_id,
           sync_transaction_id: syncTransaction.id,
-          sync_status: isEarlierDepartureResolution
+          sync_status: isEarlierDepartureResolutionResult
             ? SYNC_STATUS.SYNCED
             : SYNC_STATUS.CONFLICT,
-          message: isEarlierDepartureResolution
+          message: isEarlierDepartureResolutionResult
             ? "Earlier departure timestamp retained automatically."
             : error.message || "Duplicate offline action was ignored",
           data: conflictTransaction,

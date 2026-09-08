@@ -1156,7 +1156,7 @@ test("BRG-SC-06-H02 later-arriving earlier departure becomes authoritative", asy
        assert.equal(result.sync_status, "SYNCED");
       assert.equal(result.conflict.id, "conflict-household-depart-first-accepted");
       assert.equal(result.conflict.conflict_type, "DUPLICATE_HOUSEHOLD_DEPARTURE");
-       assert.equal(result.conflict.resolution_strategy, "EARLIEST_ORIGINAL");
+       assert.equal(result.conflict.resolution_strategy, "FIRST_ACCEPTED");
       assert.equal(result.conflict.status, "RESOLVED");
        assert.equal(result.conflict.resolved_payload_json.winner, "INCOMING");
       assert.equal(
@@ -1254,8 +1254,133 @@ test("BRG-SC-06-H02 earlier late departure supersedes the first accepted attempt
       );
       assert.equal(priorUpdates[0].id, "prior-sync-transaction");
       assert.equal(priorUpdates[0].payload.sync_status, "CONFLICT");
-      assert.equal(priorConflicts[0].resolution_strategy, "EARLIEST_ORIGINAL");
+       assert.equal(priorConflicts[0].resolution_strategy, "FIRST_ACCEPTED");
       assert.equal(priorConflicts[0].resolved_payload_json.winner, "INCOMING");
+    },
+  );
+});
+
+test("BRG-SC-06-H02 reverse-order iPad/iPhone departures keep the winning earlier operation SYNCED", async () => {
+  const householdId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const eventId = "11111111-1111-4111-8111-111111111111";
+  let authoritativeDeparture = "2026-09-08T14:52:00.000Z";
+  const executedQueries = [];
+  const fakeDbClient = {
+    query: async (query) => {
+      executedQueries.push(String(query));
+      return { rows: [] };
+    },
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => callback(fakeDbClient),
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+        findHouseholdDepartureSyncTransactions: async () => [
+          {
+            id: "sync-ipad-1052",
+            payload_json: {
+              action_key: "HOUSEHOLD_DEPART",
+              payload: {
+                disaster_event_id: eventId,
+                barangay_id: baseAuth.defaultBarangayId,
+                departure_time: "2026-09-08T14:52:00.000Z",
+              },
+            },
+          },
+        ],
+        recordSyncConflictOnly: async (payload) => payload,
+        recordConflictAndUpdateSyncTransaction: async ({
+          syncTransactionId,
+          transactionPayload,
+          conflictPayload,
+        }) => ({
+          syncTransaction: { id: syncTransactionId, ...transactionPayload },
+          conflictRecord: { id: "iphone-earlier-conflict", ...conflictPayload },
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (entityServerId, departureDetails) => {
+          if (departureDetails.departure_time === "2026-09-08T14:52:00.000Z") {
+            authoritativeDeparture = departureDetails.departure_time;
+            return {
+              household_id: entityServerId,
+              latest_departure_time: authoritativeDeparture,
+              status: "ARCHIVED",
+            };
+          }
+
+          authoritativeDeparture = departureDetails.departure_time;
+          const error = new Error(
+            "Duplicate household departure detected. Accepted server departure time was kept.",
+          );
+          error.statusCode = 409;
+          error.code = "DUPLICATE_HOUSEHOLD_DEPARTURE";
+          error.entityServerId = entityServerId;
+          error.incomingDepartureWasEarlier = true;
+          error.incomingDepartureTime = departureDetails.departure_time;
+          error.serverPayload = {
+            household_id: entityServerId,
+            status: "LEFT",
+            time_out: authoritativeDeparture,
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "sync-ipad-1052",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: householdId,
+            client_timestamp: "2026-09-08T14:52:00.000Z",
+            payload: {
+              disaster_event_id: eventId,
+              barangay_id: baseAuth.defaultBarangayId,
+              departure_time: "2026-09-08T14:52:00.000Z",
+            },
+          },
+          {
+            client_sync_id: "sync-iphone-1049",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: householdId,
+            client_timestamp: "2026-09-08T14:49:00.000Z",
+            payload: {
+              disaster_event_id: eventId,
+              barangay_id: baseAuth.defaultBarangayId,
+              departure_time: "2026-09-08T14:49:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(results.map((result) => result.sync_status), ["SYNCED", "SYNCED"]);
+      assert.equal(authoritativeDeparture, "2026-09-08T14:49:00.000Z");
+      assert.equal(
+        results[1].conflict.resolution_strategy,
+        "FIRST_ACCEPTED",
+      );
+      assert.equal(
+        executedQueries.some((query) => query.includes("ROLLBACK TO SAVEPOINT")),
+        false,
+      );
     },
   );
 });
