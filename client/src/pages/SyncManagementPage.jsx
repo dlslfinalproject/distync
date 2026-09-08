@@ -777,6 +777,13 @@ const SyncManagementPage = () => {
   }, [loadSyncHistory]);
 
   useEffect(() => {
+    void clearSyncedEntries().catch(() => {
+      // Cleanup is best effort; the queue remains available if local storage
+      // is temporarily busy and will be checked again on the next transition.
+    });
+  }, [isOnline]);
+
+  useEffect(() => {
     if (!isMswdoPortal) {
       setBarangayOptions([]);
       setBarangayOptionsError("");
