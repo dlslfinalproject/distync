@@ -14,6 +14,7 @@ const RELIEF_PACK_DISASTER_TYPE_OPTIONS = [
 ];
 const POSITIVE_INTEGER_PATTERN = /^\d+$/;
 const RELIEF_PACK_TEMPLATE_NAME_MAX_LENGTH = 150;
+const MAX_RELIEF_PACK_DEMAND_EVENT_IDS = 100;
 
 const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
@@ -122,11 +123,13 @@ const validateGetReliefPackTemplates = (req, res, next) => {
       search,
       disaster_event_id,
       disaster_type,
+      include_items,
     } = req.query;
 
     const parsedIsActive = parseOptionalBoolean(is_active);
     const parsedBasedOnFamilySize = parseOptionalBoolean(based_on_family_size);
     const parsedBasedOnSector = parseOptionalBoolean(based_on_sector);
+    const parsedIncludeItems = parseOptionalBoolean(include_items);
 
     if (parsedIsActive.value === "invalid") {
       return res.status(400).json({
@@ -143,6 +146,12 @@ const validateGetReliefPackTemplates = (req, res, next) => {
     if (parsedBasedOnSector.value === "invalid") {
       return res.status(400).json({
         message: "based_on_sector must be true or false when provided",
+      });
+    }
+
+    if (parsedIncludeItems.value === "invalid") {
+      return res.status(400).json({
+        message: "include_items must be true or false when provided",
       });
     }
 
@@ -174,12 +183,65 @@ const validateGetReliefPackTemplates = (req, res, next) => {
         typeof disaster_type === "string" && disaster_type.trim()
           ? disaster_type.trim()
           : null,
+      include_items: parsedIncludeItems.isProvided
+        ? parsedIncludeItems.value
+        : false,
     };
 
     return next();
   } catch (error) {
     return res.status(500).json({
       message: "Failed to validate relief pack template filters",
+      error: error.message,
+    });
+  }
+};
+
+const validateGetReliefPackDemand = (req, res, next) => {
+  try {
+    const rawDisasterEventIds = req.query.disaster_event_ids;
+
+    if (typeof rawDisasterEventIds !== "string") {
+      return res.status(400).json({
+        message: "disaster_event_ids is required",
+      });
+    }
+
+    const disasterEventIds = Array.from(
+      new Set(
+        rawDisasterEventIds
+          .split(",")
+          .map((disasterEventId) => disasterEventId.trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (disasterEventIds.length === 0) {
+      return res.status(400).json({
+        message: "disaster_event_ids must contain at least one UUID",
+      });
+    }
+
+    if (disasterEventIds.length > MAX_RELIEF_PACK_DEMAND_EVENT_IDS) {
+      return res.status(400).json({
+        message: `disaster_event_ids must contain no more than ${MAX_RELIEF_PACK_DEMAND_EVENT_IDS} UUIDs`,
+      });
+    }
+
+    if (disasterEventIds.some((disasterEventId) => !isValidUuid(disasterEventId))) {
+      return res.status(400).json({
+        message: "disaster_event_ids must contain valid UUID values",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_ids: disasterEventIds,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate relief pack demand request",
       error: error.message,
     });
   }
@@ -631,6 +693,7 @@ module.exports = {
   validateReliefPackTemplateId,
   validateReliefPackTemplateStatus,
   validateGetReliefPackTemplates,
+  validateGetReliefPackDemand,
   validateCreateReliefPackTemplate,
   validateUpdateReliefPackTemplate,
   validateReplaceReliefPackTemplateItems,

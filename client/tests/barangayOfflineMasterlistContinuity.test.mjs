@@ -42,7 +42,7 @@ test("Offline Data Ready requires the persisted Masterlist read-back", async () 
 
   assert.match(source, /getCachedMasterlistRows/);
   assert.match(source, /hasRequiredMasterlistCache/);
-  assert.match(source, /expectedMasterlistCount === 0 \|\| cachedMasterlistRows\.length > 0/);
+  assert.match(source, /cachedMasterlistRows\.length >= expectedMasterlistCount/);
 });
 
 test("new offline household occurrences do not derive local IDs from names", async () => {

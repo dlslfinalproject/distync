@@ -483,6 +483,12 @@ const getReliefPackTemplates = async (filters) => {
   }));
 };
 
+const getReliefPackTemplateDemand = async ({ disaster_event_ids = [] } = {}) => {
+  return reliefPackTemplateRepository.getReliefPackTemplateDemand(
+    disaster_event_ids,
+  );
+};
+
 const getReliefPackTemplateById = async (id) => {
   const template = await reliefPackTemplateRepository.getReliefPackTemplateById(id);
 
@@ -978,6 +984,7 @@ const setReliefPackTemplateStatus = async (
 
 module.exports = {
   getReliefPackTemplates,
+  getReliefPackTemplateDemand,
   getReliefPackTemplateById,
   createReliefPackTemplate,
   updateReliefPackTemplate,

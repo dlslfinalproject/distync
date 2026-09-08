@@ -6,6 +6,7 @@ const {
   validateReliefPackTemplateId,
   validateReliefPackTemplateStatus,
   validateGetReliefPackTemplates,
+  validateGetReliefPackDemand,
   validateCreateReliefPackTemplate,
   validateUpdateReliefPackTemplate,
   validateReplaceReliefPackTemplateItems,
@@ -31,6 +32,32 @@ router.get(
       message: error.message || "Failed to fetch relief pack templates",
     });
   }
+  },
+);
+
+router.get(
+  "/demand",
+  requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  validateGetReliefPackDemand,
+  async (req, res) => {
+    try {
+      const demand = await reliefPackTemplateService.getReliefPackTemplateDemand(
+        req.validatedQuery,
+      );
+
+      return res.status(200).json({
+        filters: {
+          disaster_event_ids: req.validatedQuery.disaster_event_ids,
+        },
+        data: demand,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to fetch relief pack demand aggregates",
+      });
+    }
   },
 );
 

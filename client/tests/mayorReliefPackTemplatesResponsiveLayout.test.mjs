@@ -73,8 +73,8 @@ test("Mayor relief pack templates page exposes scoped responsive hooks", async (
     /activeTab === "customization" \? \([\s\S]*?className="mayor-relief-pack-filter-button-wrap"[\s\S]*?<ResponsiveFilterPopover/,
   );
   assert.doesNotMatch(pageSource, /overflowX:\s*"hidden"/);
-  assert.match(pageSource, /isHouseholdEligibleForReliefPackDemand/);
-  assert.match(pageSource, /\.filter\(isHouseholdEligibleForReliefPackDemand\)/);
+  assert.match(pageSource, /fetchReliefPackDemand/);
+  assert.match(pageSource, /demandAggregates/);
   assert.match(pageSource, /isReliefPackInventoryBatchEligible/);
   assert.match(pageSource, /allDisasterEvents/);
   assert.match(pageSource, /targetDisasterEventId/);
