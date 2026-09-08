@@ -276,6 +276,207 @@ const findAvailableBatchNumber = async ({
   return null;
 };
 
+const parseBatchTimestamp = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+};
+
+const createInventoryBatchResequencingError = (message) => {
+  const error = new Error(message);
+  error.statusCode = 409;
+  error.code = "INVENTORY_BATCH_RESEQUENCING_FAILED";
+  return error;
+};
+
+const resequenceInventoryBatchForAcceptBoth = async ({
+  existingBatchId,
+  requestedBatchNo,
+  localCapturedAt,
+  dbClient,
+}) => {
+  if (!dbClient) {
+    throw createInventoryBatchResequencingError(
+      "Batch resequencing requires an active synchronization transaction.",
+    );
+  }
+
+  const normalizedRequestedBatchNo = String(requestedBatchNo || "").trim();
+
+  if (!existingBatchId || !normalizedRequestedBatchNo) {
+    throw createInventoryBatchResequencingError(
+      "The conflicting inventory batch could not be resequenced safely.",
+    );
+  }
+
+  let existingBatch = await inventoryBatchRepository.getInventoryBatchById(
+    existingBatchId,
+    dbClient,
+  );
+
+  if (!existingBatch?.inventory_item_id) {
+    throw createInventoryBatchResequencingError(
+      "The saved inventory batch no longer exists.",
+    );
+  }
+
+  const lockInventoryItem =
+    typeof inventoryItemRepository.getInventoryItemByIdForUpdate === "function"
+      ? inventoryItemRepository.getInventoryItemByIdForUpdate
+      : inventoryBatchRepository.getInventoryItemById;
+  const lockedInventoryItem = await lockInventoryItem(
+    existingBatch.inventory_item_id,
+    dbClient,
+  );
+
+  if (!lockedInventoryItem) {
+    throw createInventoryBatchResequencingError(
+      "The inventory item for this conflict no longer exists.",
+    );
+  }
+
+  // Re-read after taking the item lock so the conflict is resolved against the
+  // current batch number, not the stale snapshot stored with the conflict.
+  existingBatch = await inventoryBatchRepository.getInventoryBatchById(
+    existingBatchId,
+    dbClient,
+  );
+
+  if (!existingBatch) {
+    throw createInventoryBatchResequencingError(
+      "The saved inventory batch no longer exists.",
+    );
+  }
+
+  const localTimestamp = parseBatchTimestamp(localCapturedAt);
+  const savedTimestamp = parseBatchTimestamp(
+    existingBatch.received_at || existingBatch.created_at,
+  );
+  const result = {
+    inventoryItemId: existingBatch.inventory_item_id,
+    existingBatchId: existingBatch.id,
+    requestedBatchNumber: normalizedRequestedBatchNo,
+    existingBatchNumberBefore: existingBatch.batch_no,
+    existingBatchNumberAfter: existingBatch.batch_no,
+    localCapturedAt: localCapturedAt || null,
+    savedCapturedAt:
+      existingBatch.received_at || existingBatch.created_at || null,
+    orderingBasis: "OFFLINE_CAPTURE_TIME",
+    reordered: false,
+    batchNumberChanges: [],
+  };
+
+  // The saved entry remains first when timestamps are equal or unavailable.
+  // This preserves the previous safe behavior instead of guessing an order.
+  if (
+    existingBatch.batch_no !== normalizedRequestedBatchNo ||
+    localTimestamp === null ||
+    savedTimestamp === null ||
+    localTimestamp >= savedTimestamp
+  ) {
+    return result;
+  }
+
+  const plannedMoves = [];
+  let freeOffset = null;
+
+  for (
+    let offset = 1;
+    offset <= MAX_BATCH_NUMBER_REASSIGNMENT_ATTEMPTS;
+    offset += 1
+  ) {
+    const candidateBatchNo = buildBatchNumberCandidate(
+      normalizedRequestedBatchNo,
+      offset,
+    );
+    const occupyingBatch =
+      await inventoryBatchRepository.getInventoryBatchByItemIdAndBatchNo(
+        existingBatch.inventory_item_id,
+        candidateBatchNo,
+        dbClient,
+      );
+
+    if (!occupyingBatch) {
+      freeOffset = offset;
+      break;
+    }
+
+    if (String(occupyingBatch.id) === String(existingBatch.id)) {
+      throw createInventoryBatchResequencingError(
+        "The saved inventory batch has an unexpected batch-number collision.",
+      );
+    }
+
+    plannedMoves.push({
+      batch: occupyingBatch,
+      targetBatchNo: buildBatchNumberCandidate(
+        normalizedRequestedBatchNo,
+        offset + 1,
+      ),
+    });
+  }
+
+  if (freeOffset === null) {
+    throw createInventoryBatchResequencingError(
+      "There are too many consecutive batch numbers to reorder safely.",
+    );
+  }
+
+  const batchNumberChanges = [
+    {
+      batchId: existingBatch.id,
+      from: existingBatch.batch_no,
+      to: buildBatchNumberCandidate(normalizedRequestedBatchNo, 1),
+    },
+    ...plannedMoves.map(({ batch, targetBatchNo }) => ({
+      batchId: batch.id,
+      from: batch.batch_no,
+      to: targetBatchNo,
+    })),
+  ];
+
+  // Move the tail first. This avoids the unique (item, batch_no) constraint
+  // while making room for the earlier offline entry at the requested number.
+  for (let index = plannedMoves.length - 1; index >= 0; index -= 1) {
+    const move = plannedMoves[index];
+    const updatedBatch =
+      await inventoryBatchRepository.updateInventoryBatchNumber(
+        move.batch.id,
+        move.targetBatchNo,
+        dbClient,
+      );
+
+    if (!updatedBatch) {
+      throw createInventoryBatchResequencingError(
+        "A saved inventory batch could not be reordered safely.",
+      );
+    }
+  }
+
+  const updatedExistingBatch =
+    await inventoryBatchRepository.updateInventoryBatchNumber(
+      existingBatch.id,
+      buildBatchNumberCandidate(normalizedRequestedBatchNo, 1),
+      dbClient,
+    );
+
+  if (!updatedExistingBatch) {
+    throw createInventoryBatchResequencingError(
+      "The saved inventory batch could not be reordered safely.",
+    );
+  }
+
+  return {
+    ...result,
+    existingBatchNumberAfter: updatedExistingBatch.batch_no,
+    reordered: true,
+    batchNumberChanges,
+  };
+};
+
 const areBatchPackagingDefinitionsEqual = ({
   existingBatch,
   requestedStockFormId,
@@ -1174,6 +1375,7 @@ module.exports = {
   getInventoryBatchById,
   getInventoryBatchDetail,
   createInventoryBatch,
+  resequenceInventoryBatchForAcceptBoth,
   updateInventoryBatchExpiry,
   exportInventoryBatches,
 };

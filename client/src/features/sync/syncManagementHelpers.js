@@ -949,10 +949,15 @@ export const getConflictResolutionSummary = (conflict = {}) => {
   }
 
   if (action === "ACCEPT_BOTH") {
+    const batchNumberOrdering = conflict.resolved_payload_json?.batchNumberOrdering;
+    const earlierLocalEntry =
+      batchNumberOrdering?.localEntryOrder === "EARLIER";
+
     return {
       result: "Both entries kept",
-      whatHappened:
-        "DISTYNC kept the saved batch and added this device entry with the next free batch number.",
+      whatHappened: earlierLocalEntry
+        ? "DISTYNC kept both entries in offline capture order. The earlier entry received the earlier batch number."
+        : "DISTYNC kept both entries. The saved entry stayed first, and this device entry received the next free batch number.",
     };
   }
 

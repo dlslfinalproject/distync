@@ -5665,10 +5665,11 @@ test("M04-02 KEEP_SERVER resolves stock drift without changing original sync sta
   );
 });
 
-test("Mayor can accept both same-packaging batch entries and sync assigns a new batch number", async () => {
+test("Mayor can accept both same-packaging batch entries in offline capture order", async () => {
   let updatedTransactionPayload = null;
   let resolvedConflictPayload = null;
   let createdBatchPayload = null;
+  let resequencePayload = null;
   const baseConflict = {
     id: "conflict-duplicate-batch",
     sync_transaction_id: "sync-duplicate-batch",
@@ -5688,6 +5689,7 @@ test("Mayor can accept both same-packaging batch entries and sync assigns a new 
       inventory_item_stock_form_id: "stock-form-1",
       batch_no: "LOT-A",
       quantity_received: 10,
+      received_at: "2026-08-09T02:00:00.000Z",
     },
     resolution_strategy: "MANUAL_REVIEW",
     resolution_action: null,
@@ -5725,11 +5727,30 @@ test("Mayor can accept both same-packaging batch entries and sync assigns a new 
         },
       },
       [inventoryBatchServicePath]: {
+        resequenceInventoryBatchForAcceptBoth: async (payload) => {
+          resequencePayload = payload;
+          return {
+            inventoryItemId: "item-1",
+            existingBatchId: "existing-batch",
+            requestedBatchNumber: "LOT-A",
+            existingBatchNumberBefore: "LOT-A",
+            existingBatchNumberAfter: "LOT-A-2",
+            orderingBasis: "OFFLINE_CAPTURE_TIME",
+            reordered: true,
+            batchNumberChanges: [
+              {
+                batchId: "existing-batch",
+                from: "LOT-A",
+                to: "LOT-A-2",
+              },
+            ],
+          };
+        },
         createInventoryBatch: async (payload) => {
           createdBatchPayload = payload;
           return {
             id: "new-batch-2",
-            batch_no: "LOT-A-2",
+            batch_no: "LOT-A",
           };
         },
       },
@@ -5763,11 +5784,37 @@ test("Mayor can accept both same-packaging batch entries and sync assigns a new 
         reason: "These are separate receipts of the same packaging.",
       });
 
-      assert.equal(createdBatchPayload.forceBatchNumberReassignment, true);
+      assert.deepEqual(resequencePayload, {
+        existingBatchId: "existing-batch",
+        requestedBatchNo: "LOT-A",
+        localCapturedAt: "2026-08-09T01:00:00.000Z",
+        dbClient: {},
+      });
+      assert.equal(createdBatchPayload.inventory_item_id, "item-1");
+      assert.equal(
+        createdBatchPayload.received_at,
+        "2026-08-09T01:00:00.000Z",
+      );
+      assert.equal(createdBatchPayload.forceBatchNumberReassignment, false);
       assert.equal(createdBatchPayload.created_by, "origin-mayor");
       assert.equal(updatedTransactionPayload.sync_status, "SYNCED");
       assert.equal(updatedTransactionPayload.entity_server_id, "new-batch-2");
       assert.equal(resolvedConflictPayload.resolvedPayloadJson.winner, "BOTH");
+      assert.equal(
+        resolvedConflictPayload.resolvedPayloadJson.batchNumberOrdering
+          .localEntryOrder,
+        "EARLIER",
+      );
+      assert.deepEqual(
+        resolvedConflictPayload.resolvedPayloadJson.batchNumberOrdering.changes,
+        [
+          {
+            batchId: "existing-batch",
+            from: "LOT-A",
+            to: "LOT-A-2",
+          },
+        ],
+      );
       assert.equal(resolved.status, "RESOLVED");
       assert.equal(resolved.sync_status, "SYNCED");
       assert.equal(resolved.entity_server_id, "new-batch-2");

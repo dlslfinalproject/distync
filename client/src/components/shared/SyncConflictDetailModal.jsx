@@ -383,8 +383,8 @@ const SyncConflictDetailModal = ({
               ) : null}
               {availableActions.includes("ACCEPT_BOTH") ? (
                 <p style={modalStyles.warningText}>
-                  This saves the device entry as another batch with a new free
-                  batch number.
+                  This keeps both entries. The earlier offline entry gets the
+                  earlier batch number.
                 </p>
               ) : null}
             </div>
