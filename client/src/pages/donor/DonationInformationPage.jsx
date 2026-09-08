@@ -40,6 +40,7 @@ import LoadingState from "../../components/shared/LoadingState";
 import distyncLogo from "../../assets/distync-logo.png";
 import distyncLogoCropped from "../../assets/distync-logo-cropped.png";
 import { fetchDonationPortalData } from "../../features/donations/donationService";
+import { createDonationPortalRefreshCoordinator } from "../../features/donations/donationPortalRefreshCoordinator.mjs";
 import {
   formatDonationDateOnly,
 } from "../../features/donations/donationFormatters";
@@ -3333,20 +3334,24 @@ const DonationInformationPage = () => {
       });
     };
 
-    const loadDonationOverview = async ({ showLoading = false } = {}) => {
-      const loadStartedAt = Date.now();
+    const refreshCoordinator = createDonationPortalRefreshCoordinator({
+      refreshIntervalMs: PUBLIC_PORTAL_REFRESH_INTERVAL_MS,
+      load: ({ signal }) => fetchDonationPortalData({ signal }),
+      onRequestStart: ({ isInitialRequest }) => {
+        if (!isMounted || !isInitialRequest) {
+          return;
+        }
 
-      if (showLoading) {
         setPageState((currentState) => ({
           ...currentState,
           isLoading: true,
           errorMessage: "",
         }));
-      }
-
-      try {
-        const publicPortalData = await fetchDonationPortalData();
-
+      },
+      onRequestSuccess: async (
+        publicPortalData,
+        { isInitialRequest, startedAt },
+      ) => {
         if (!isMounted) {
           return;
         }
@@ -3387,8 +3392,8 @@ const DonationInformationPage = () => {
           ? publicPortalData.public_contact_config
           : DEFAULT_PUBLIC_CONTACT_CONFIG;
 
-        if (showLoading) {
-          await waitForInitialLoadingCue(loadStartedAt);
+        if (isInitialRequest) {
+          await waitForInitialLoadingCue(startedAt);
         }
 
         if (!isMounted) {
@@ -3415,13 +3420,17 @@ const DonationInformationPage = () => {
             ),
           ]),
         });
-      } catch (error) {
+      },
+      onRequestError: async (
+        error,
+        { isInitialRequest, startedAt },
+      ) => {
         if (!isMounted) {
           return;
         }
 
-        if (showLoading) {
-          await waitForInitialLoadingCue(loadStartedAt);
+        if (isInitialRequest) {
+          await waitForInitialLoadingCue(startedAt);
 
           if (!isMounted) {
             return;
@@ -3445,27 +3454,14 @@ const DonationInformationPage = () => {
           ...currentState,
           isLoading: false,
         }));
-      }
-    };
+      },
+    });
 
-    loadDonationOverview({ showLoading: true });
-
-    const refreshTimer = window.setInterval(
-      () => loadDonationOverview(),
-      PUBLIC_PORTAL_REFRESH_INTERVAL_MS,
-    );
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        loadDonationOverview();
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    refreshCoordinator.start();
 
     return () => {
       isMounted = false;
-      window.clearInterval(refreshTimer);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      refreshCoordinator.stop();
     };
   }, []);
 

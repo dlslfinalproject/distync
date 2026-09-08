@@ -42,14 +42,14 @@ const appendFilters = (searchParams, filters = {}) => {
 };
 
 export const fetchDonationPortalData = async (filters = {}) => {
+  const { signal, ...queryFilters } = filters || {};
   const searchParams = new URLSearchParams();
-  appendFilters(searchParams, filters);
+  appendFilters(searchParams, queryFilters);
 
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/donations/public-portal${
-      searchParams.toString() ? `?${searchParams.toString()}` : ""
-    }`,
-  );
+  const url = `${API_BASE_URL}/api/v1/donations/public-portal${
+    searchParams.toString() ? `?${searchParams.toString()}` : ""
+  }`;
+  const response = signal ? await fetch(url, { signal }) : await fetch(url);
 
   return handleJsonResponse(response, "Failed to fetch donor portal data");
 };
