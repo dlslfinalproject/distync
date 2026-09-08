@@ -207,6 +207,38 @@ const validateExportMswdoMasterlist = (req, res, next) => {
   }
 };
 
+const validateGetMswdoMasterlistExportMetadata = (req, res, next) => {
+  try {
+    const { disaster_event_id, record_status } = req.query;
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id is required and must be a valid UUID",
+      });
+    }
+
+    const normalizedRecordStatus = String(record_status || "all").toLowerCase();
+
+    if (!["active", "archived", "all"].includes(normalizedRecordStatus)) {
+      return res.status(400).json({
+        message: "record_status must be active, archived, or all when provided",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_id,
+      record_status: normalizedRecordStatus,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate masterlist export metadata request",
+      error: error.message,
+    });
+  }
+};
+
 const validateGetBarangayDashboard = (req, res, next) => {
   try {
     const { user_id, disaster_event_id, event_scope, override_barangay_id } =
@@ -279,6 +311,7 @@ const validateGetBarangayDashboard = (req, res, next) => {
 
 module.exports = {
   validateExportMswdoMasterlist,
+  validateGetMswdoMasterlistExportMetadata,
   validateGetMasterlist,
   validateGetBarangayDashboard,
 };

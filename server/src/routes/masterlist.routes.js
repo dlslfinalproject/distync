@@ -8,6 +8,7 @@ const {
 const masterlistService = require("../services/masterlist.service");
 const {
   validateExportMswdoMasterlist,
+  validateGetMswdoMasterlistExportMetadata,
   validateGetBarangayDashboard,
   validateGetMasterlist,
 } = require("../validators/masterlist.validator");
@@ -65,6 +66,29 @@ router.get(
 
       return res.status(statusCode).json({
         message: error.message || "Failed to fetch MSWDO masterlist dashboard",
+      });
+    }
+  },
+);
+
+router.get(
+  "/export-metadata",
+  requireAuthentication,
+  requireRoles(ROLE_CODES.MSWDO),
+  validateGetMswdoMasterlistExportMetadata,
+  async (req, res) => {
+    try {
+      const metadata =
+        await masterlistService.getMswdoMasterlistExportMetadata(
+          req.validatedQuery,
+        );
+
+      return res.status(200).json(metadata);
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to fetch MSWDO masterlist export metadata",
       });
     }
   },

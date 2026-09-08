@@ -257,6 +257,35 @@ const getMasterlist = async (filters) => {
   return response;
 };
 
+const getMswdoMasterlistExportMetadata = async (filters) => {
+  const disasterEvent =
+    await masterlistRepository.getDisasterEventSummaryById(
+      filters.disaster_event_id,
+    );
+
+  if (!disasterEvent) {
+    const error = new Error("Disaster event not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const recordStatus = String(filters.record_status || "all").toLowerCase();
+  const metadata = await masterlistRepository.getMswdoMasterlistExportMetadata(
+    filters.disaster_event_id,
+    recordStatus,
+  );
+
+  return {
+    filters: {
+      disaster_event_id: filters.disaster_event_id,
+      record_status: recordStatus,
+    },
+    barangay_ids: metadata.barangay_ids || [],
+    sector_ids: metadata.sector_ids || [],
+    sector_codes: metadata.sector_codes || [],
+  };
+};
+
 const getMswdoMasterlistDashboard = async (filters) => {
   await disasterEventService.syncOverdueActiveDisasterEvents();
 
@@ -780,5 +809,6 @@ module.exports = {
   exportMswdoMasterlist,
   getBarangayDashboard,
   getMasterlist,
+  getMswdoMasterlistExportMetadata,
   getMswdoMasterlistDashboard,
 };

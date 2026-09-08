@@ -6,12 +6,11 @@ import {
   departHousehold,
   fetchHouseholdDetails,
   formatDateTime,
-  isOperationallyActiveHousehold,
   restoreHousehold,
 } from "../masterlist/masterlistService";
 import {
   exportConsolidatedMasterlist,
-  fetchConsolidatedMasterlist,
+  fetchMswdoMasterlistExportMetadata,
 } from "./mswdoMasterlistService";
 import {
   formatReliefPeriod,
@@ -312,40 +311,19 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       }
 
       try {
-        const payload = await fetchConsolidatedMasterlist({
+        const payload = await fetchMswdoMasterlistExportMetadata({
           disasterEventId: selectedExportDisasterEventId,
-          barangayId: null,
-          recordStatus: "all",
+          recordStatus: selectedExportRecordStatus,
         });
 
         if (!isMounted) {
           return;
         }
 
-        const scopedHouseholds =
-          selectedExportRecordStatus === "archived"
-            ? (payload.data || []).filter(
-                (household) => !isOperationallyActiveHousehold(household),
-              )
-            : selectedExportRecordStatus === "all"
-              ? payload.data || []
-              : (payload.data || []).filter(isOperationallyActiveHousehold);
-
-        const nextSectorIds = [
-          ...scopedHouseholds.flatMap((household) => [
-            ...(household.household_sectors || []).map((sector) =>
-              getCanonicalMemberSectorCode(sector.code),
-            ),
-            ...(household.members || []).flatMap((member) =>
-              (member.sectors || []).map((sector) =>
-                getCanonicalMemberSectorCode(sector.code),
-              ),
-            ),
-          ]),
-        ].filter(Boolean);
-        const nextBarangayIds = scopedHouseholds
-          .map((household) => household?.barangay?.id)
+        const nextSectorIds = (payload.sector_codes || [])
+          .map((sectorCode) => getCanonicalMemberSectorCode(sectorCode))
           .filter(Boolean);
+        const nextBarangayIds = (payload.barangay_ids || []).filter(Boolean);
 
         setAvailableExportSectorIds([...new Set(nextSectorIds)]);
         setAvailableExportBarangayIds([...new Set(nextBarangayIds)]);

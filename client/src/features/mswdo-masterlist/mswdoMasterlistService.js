@@ -88,6 +88,36 @@ export const fetchConsolidatedMasterlist = async ({
   return handleJsonResponse(response, "Failed to fetch consolidated masterlist");
 };
 
+export const fetchMswdoMasterlistExportMetadata = async ({
+  disasterEventId,
+  recordStatus = "all",
+}) => {
+  if (!disasterEventId) {
+    return {
+      filters: {
+        disaster_event_id: null,
+        record_status: recordStatus,
+      },
+      barangay_ids: [],
+      sector_ids: [],
+      sector_codes: [],
+    };
+  }
+
+  const searchParams = new URLSearchParams({
+    disaster_event_id: disasterEventId,
+    record_status: recordStatus || "all",
+  });
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/masterlist/export-metadata?${searchParams.toString()}`,
+  );
+
+  return handleJsonResponse(
+    response,
+    "Failed to fetch MSWDO masterlist export metadata",
+  );
+};
+
 export const fetchConsolidatedMasterlistDashboard = async ({
   disasterEventId,
   barangayId,

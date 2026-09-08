@@ -1163,6 +1163,137 @@ const getHouseholdsByFilters = async (
   };
 };
 
+const getMswdoMasterlistExportMetadata = async (
+  disasterEventId,
+  recordStatus = "all",
+) => {
+  const query = `
+    WITH household_scope AS (
+      SELECT
+        h.id AS household_id,
+        h.barangay_id,
+        h.is_active,
+        h.family_head_evacuee_id
+      FROM households h
+      WHERE h.disaster_event_id = $1
+    ),
+    family_head_evacuee_fallbacks AS (
+      SELECT DISTINCT ON (e.household_id)
+        e.household_id,
+        e.id AS fallback_evacuee_id
+      FROM evacuees e
+      WHERE e.is_family_head = TRUE
+      ORDER BY e.household_id, e.created_at ASC, e.id ASC
+    ),
+    family_head_evacuees AS (
+      SELECT
+        hs.household_id,
+        COALESCE(
+          hs.family_head_evacuee_id,
+          fhf.fallback_evacuee_id
+        ) AS family_head_evacuee_id
+      FROM household_scope hs
+      LEFT JOIN family_head_evacuee_fallbacks fhf
+        ON fhf.household_id = hs.household_id
+    ),
+    record_scope AS (
+      SELECT
+        hs.household_id,
+        hs.barangay_id,
+        hs.is_active,
+        el.status AS attendance_status,
+        el.time_out AS attendance_time_out
+      FROM household_scope hs
+      LEFT JOIN family_head_evacuees fhe
+        ON fhe.household_id = hs.household_id
+      LEFT JOIN evacuation_logs el
+        ON el.household_id = hs.household_id
+        AND el.disaster_event_id = $1
+        AND el.evacuee_id = fhe.family_head_evacuee_id
+    ),
+    filtered_households AS (
+      SELECT rs.*
+      FROM record_scope rs
+      WHERE $2::text = 'all'
+        OR (
+          $2::text = 'active'
+          AND rs.is_active IS NOT FALSE
+          AND rs.attendance_time_out IS NULL
+          AND UPPER(COALESCE(rs.attendance_status, '')) <> 'LEFT'
+        )
+        OR (
+          $2::text = 'archived'
+          AND NOT (
+            rs.is_active IS NOT FALSE
+            AND rs.attendance_time_out IS NULL
+            AND UPPER(COALESCE(rs.attendance_status, '')) <> 'LEFT'
+          )
+        )
+    ),
+    sector_rows AS (
+      SELECT
+        fh.household_id,
+        s.id AS sector_id,
+        UPPER(s.code) AS sector_code
+      FROM filtered_households fh
+      INNER JOIN household_sectors hs
+        ON hs.household_id = fh.household_id
+      INNER JOIN sectors s
+        ON s.id = hs.sector_id
+
+      UNION ALL
+
+      SELECT
+        fh.household_id,
+        s.id AS sector_id,
+        UPPER(s.code) AS sector_code
+      FROM filtered_households fh
+      INNER JOIN evacuees e
+        ON e.household_id = fh.household_id
+      INNER JOIN evacuee_sectors es
+        ON es.evacuee_id = e.id
+      INNER JOIN sectors s
+        ON s.id = es.sector_id
+    )
+    SELECT
+      COALESCE(
+        ARRAY_AGG(DISTINCT fh.barangay_id ORDER BY fh.barangay_id)
+          FILTER (WHERE fh.barangay_id IS NOT NULL),
+        ARRAY[]::uuid[]
+      ) AS barangay_ids,
+      COALESCE(
+        (
+          SELECT ARRAY_AGG(DISTINCT sr.sector_id ORDER BY sr.sector_id)
+          FROM sector_rows sr
+          WHERE sr.sector_id IS NOT NULL
+        ),
+        ARRAY[]::uuid[]
+      ) AS sector_ids,
+      COALESCE(
+        (
+          SELECT ARRAY_AGG(DISTINCT sr.sector_code ORDER BY sr.sector_code)
+          FROM sector_rows sr
+          WHERE sr.sector_code IS NOT NULL
+        ),
+        ARRAY[]::text[]
+      ) AS sector_codes
+    FROM filtered_households fh
+  `;
+
+  const result = await pool.query(query, [disasterEventId, recordStatus]);
+  const metadata = result.rows[0] || {};
+
+  return {
+    barangay_ids: Array.isArray(metadata.barangay_ids)
+      ? metadata.barangay_ids
+      : [],
+    sector_ids: Array.isArray(metadata.sector_ids) ? metadata.sector_ids : [],
+    sector_codes: Array.isArray(metadata.sector_codes)
+      ? metadata.sector_codes
+      : [],
+  };
+};
+
 const getStubsByHouseholdIds = async (householdIds) => {
   if (householdIds.length === 0) {
     return [];
@@ -1304,6 +1435,7 @@ module.exports = {
   getBarangayDashboardMetrics,
   getMswdoMasterlistAnalytics,
   getHouseholdsByFilters,
+  getMswdoMasterlistExportMetadata,
   getStubsByHouseholdIds,
   getHouseholdSectorsByHouseholdIds,
   getMembersByHouseholdIds,
