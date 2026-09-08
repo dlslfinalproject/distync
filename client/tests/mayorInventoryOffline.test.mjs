@@ -432,6 +432,10 @@ test("MAYOR-OFFLINE-07 unsafe inventory actions stay online-only with direct off
   assert.match(actionsSource, /disabled=\{Boolean\(exportingFormat\) \|\| isOffline\}/);
   assert.match(detailSource, /isOffline = false/);
   assert.match(detailSource, /disabled=\{isBatchEditDisabled\}/);
+  assert.match(formSource, /findMayorInventoryItemByBarcode/);
+  assert.match(formSource, /barcodeMatchedItem \|\|/);
+  assert.match(formSource, /isBarcodeResolvedExistingItem/);
+  assert.match(formSource, /isBarcodeResolvedExistingItem;?/);
   assert.match(formSource, /duplicateBarcodeItem/);
   assert.match(formSource, /This barcode is already assigned to another item\./);
   assert.match(

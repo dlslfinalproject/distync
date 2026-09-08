@@ -6,6 +6,7 @@ import {
   isValidInventoryBarcode,
   normalizeInventoryBarcode,
 } from "../../features/inventory-items/inventoryBarcode";
+import { findMayorInventoryItemByBarcode } from "../../offline/mayorInventoryOfflineModel";
 
 const overlayStyles = {
   position: "fixed",
@@ -527,6 +528,14 @@ const InventoryItemFormModal = ({
       ? normalizeInventoryBarcode(scannedBarcode || values.barcode)
       : normalizeInventoryBarcode(values.barcode);
   const rawTrimmedBarcode = getEffectiveBarcode(formValues);
+  const barcodeMatchedExistingItem =
+    mode === "create" && rawTrimmedBarcode
+      ? findMayorInventoryItemByBarcode(
+          eligibleExistingItems,
+          rawTrimmedBarcode,
+        )
+      : null;
+  const barcodeMatchedItem = barcodeMatchedExistingItem?.item || null;
   const exactNameDuplicateItem =
     mode === "create" && trimmedItemName
       ? eligibleExistingItems.find(
@@ -545,11 +554,24 @@ const InventoryItemFormModal = ({
         ) || null
       : null;
   const matchedExistingItem =
-    mode === "create" && selectedExistingItemId
-      ? eligibleExistingItems.find(
-          (item) => String(item?.id) === String(selectedExistingItemId),
-        ) || null
-      : exactNameMatchedExistingItem;
+    mode === "create"
+      ? isAddingNewStockForm
+        ? eligibleExistingItems.find(
+            (item) => String(item?.id) === String(selectedExistingItemId),
+          ) || null
+        : barcodeMatchedItem ||
+          (selectedExistingItemId
+            ? eligibleExistingItems.find(
+                (item) => String(item?.id) === String(selectedExistingItemId),
+              ) || null
+            : null) ||
+          exactNameMatchedExistingItem
+      : null;
+  const isBarcodeResolvedExistingItem = Boolean(
+    barcodeMatchedItem &&
+      matchedExistingItem &&
+      String(barcodeMatchedItem.id) === String(matchedExistingItem.id),
+  );
   const duplicateBarcodeItem =
     mode === "create" && rawTrimmedBarcode
       ? eligibleExistingItems.find((item) => {
@@ -586,8 +608,13 @@ const InventoryItemFormModal = ({
       Boolean(String(stockForm?.barcode || "").trim()),
     );
   const hasScannedBarcode = source === "scan" && Boolean(rawTrimmedBarcode);
+  const barcodeMatchedExistingStockForm =
+    isBarcodeResolvedExistingItem
+      ? barcodeMatchedExistingItem?.stockForm || null
+      : null;
   const matchedExistingStockForm =
-    matchedExistingItem && selectedExistingStockFormId != null
+    barcodeMatchedExistingStockForm ||
+    (matchedExistingItem && selectedExistingStockFormId != null
       ? matchedExistingItemStockForms.find(
           (stockForm) =>
             String(stockForm?.id) === String(selectedExistingStockFormId),
@@ -596,7 +623,7 @@ const InventoryItemFormModal = ({
           !hasScannedBarcode &&
           matchedExistingItemStockForms.length === 1
         ? matchedExistingItemStockForms[0]
-        : null;
+        : null);
   const isExactBarcodeStockFormMatch =
     source === "scan" &&
     Boolean(rawTrimmedBarcode) &&
@@ -605,14 +632,20 @@ const InventoryItemFormModal = ({
     source === "scan" &&
     Boolean(rawTrimmedBarcode) &&
     Boolean(matchedExistingItem) &&
-    !matchedExistingStockForm;
+    !matchedExistingStockForm &&
+    !isBarcodeResolvedExistingItem;
   const isAddingBarcodeStockForm =
     isScannedNewBarcodeStockForm ||
-    (isAddingNewStockForm && isBarcodeManagedItem);
+    (isAddingNewStockForm &&
+      isBarcodeManagedItem &&
+      !isBarcodeResolvedExistingItem);
   const isAddingStockFormMode =
-    isScannedNewBarcodeStockForm || isAddingNewStockForm;
+    isScannedNewBarcodeStockForm ||
+    (isAddingNewStockForm && !isBarcodeResolvedExistingItem);
   const isRestockMode = mode === "create" && Boolean(matchedExistingItem);
-  const matchedBarcodeValue = matchedExistingStockForm
+  const matchedBarcodeValue = isBarcodeResolvedExistingItem
+    ? rawTrimmedBarcode
+    : matchedExistingStockForm
     ? matchedExistingStockForm.barcode || ""
     : isAddingNewStockForm
       ? matchedExistingItem?.barcode ||
@@ -799,8 +832,10 @@ const InventoryItemFormModal = ({
     }
 
     const matchedItemKey = `${matchedExistingItem?.id || ""}:${
-      selectedExistingStockFormId || ""
-    }:${isAddingNewStockForm ? "new-stock-form" : "existing-stock-form"}`;
+      selectedExistingStockFormId || matchedExistingStockForm?.id || ""
+    }:${isAddingNewStockForm ? "new-stock-form" : "existing-stock-form"}:${
+      isBarcodeResolvedExistingItem ? rawTrimmedBarcode : ""
+    }`;
 
     if (previousMatchedItemKeyRef.current === matchedItemKey) {
       return;
@@ -824,8 +859,10 @@ const InventoryItemFormModal = ({
       ...prev,
       item_name: matchedExistingItem.item_name || prev.item_name,
       barcode:
-        isAddingNewStockForm && isBarcodeManagedItem
+        isAddingNewStockForm && isBarcodeManagedItem && !isBarcodeResolvedExistingItem
           ? ""
+          : isBarcodeResolvedExistingItem
+            ? rawTrimmedBarcode
           : source === "scan" && !isExactBarcodeStockFormMatch
           ? prev.barcode
           : isExactBarcodeStockFormMatch
@@ -875,6 +912,8 @@ const InventoryItemFormModal = ({
     isAddingNewStockForm,
     isAddingStockFormMode,
     isBarcodeManagedItem,
+    isBarcodeResolvedExistingItem,
+    rawTrimmedBarcode,
   ]);
 
   useEffect(() => {
@@ -1072,6 +1111,7 @@ const InventoryItemFormModal = ({
     (isEditMode && hasExistingBarcode) ||
     hasScannedBarcode ||
     isExactBarcodeStockFormMatch ||
+    isBarcodeResolvedExistingItem ||
     (!isAddingBarcodeStockForm &&
       isRestockMode &&
       Boolean(String(matchedBarcodeValue).trim()));
@@ -1083,7 +1123,8 @@ const InventoryItemFormModal = ({
     isEditMode ||
     isExactBarcodeStockFormMatch ||
     (isRestockMode && Boolean(matchedExistingStockForm)) ||
-    Boolean(matchingStockFormByDefinition && !hasBarcodePackagingConflict);
+    Boolean(matchingStockFormByDefinition && !hasBarcodePackagingConflict) ||
+    isBarcodeResolvedExistingItem;
   const packagingFieldStyles =
     shouldLockRestockStockFormFields
       ? lockedInputStyles
