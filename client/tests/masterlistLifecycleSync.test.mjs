@@ -321,6 +321,9 @@ test("conflicted departure does not synthesize a placeholder and preserves the a
   assert.equal(rows[0].household_id, "household-1");
   assert.equal(rows[0].family_head_name, "Ellen Adarna");
   assert.equal(rows[0].departure_time_value, "2026-01-02T09:53:00.000Z");
+  assert.equal(rows[0].departure_sync_status, "SYNCED");
+  assert.equal(rows[0].departure_sync_detailed_status, "SYNCED");
+  assert.equal(rows[0].departure_sync_tooltip, "Departure synchronized");
 
   const withoutAuthoritativeRow = resolveEffectiveMasterlistRows({
     rows: [],
@@ -332,6 +335,32 @@ test("conflicted departure does not synthesize a placeholder and preserves the a
 
   assert.equal(withoutAuthoritativeRow.length, 0);
   assert.equal(conflictedDeparture.status, "CONFLICT");
+});
+
+test("unresolved failed departure keeps the archived warning presentation", () => {
+  const failedDeparture = entry({
+    id: "household-failed",
+    actionKey: "HOUSEHOLD_DEPART",
+    status: "FAILED",
+    timestamp: "2026-01-02T10:00:00.000Z",
+  });
+  const authoritativeRow = {
+    ...activeRow("household-failed"),
+    is_active: false,
+    is_operationally_active: false,
+    departure_time_value: "2026-01-02T09:53:00.000Z",
+  };
+
+  const rows = resolveEffectiveMasterlistRows({
+    rows: [authoritativeRow],
+    recordStatus: "archived",
+    selectedEventId: "event-a",
+    assignedBarangayId: "barangay-a",
+    syncQueueEntries: [failedDeparture],
+  });
+
+  assert.equal(rows[0].departure_sync_status, "FAILED");
+  assert.equal(rows[0].departure_sync_detailed_status, "FAILED");
 });
 
 test("departure status maps persisted queue states to the three departure icons", () => {
