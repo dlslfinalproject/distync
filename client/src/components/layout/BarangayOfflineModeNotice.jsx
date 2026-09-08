@@ -18,7 +18,11 @@ const noticeStyles = {
   borderColor: "#cbdbea",
 };
 
-const BarangayOfflineModeNotice = ({ secondaryMessage = "" }) => {
+const BarangayOfflineModeNotice = ({
+  message = BARANGAY_OFFLINE_MODE_MESSAGE,
+  secondaryMessage = "",
+  style,
+}) => {
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine !== false,
   );
@@ -38,12 +42,17 @@ const BarangayOfflineModeNotice = ({ secondaryMessage = "" }) => {
   if (isOnline) return null;
 
   return (
-    <section aria-live="polite" aria-label={BARANGAY_OFFLINE_MODE_TITLE} role="status" style={noticeStyles}>
+    <section
+      aria-live="polite"
+      aria-label={BARANGAY_OFFLINE_MODE_TITLE}
+      role="status"
+      style={{ ...noticeStyles, ...style }}
+    >
       <h2 style={{ margin: 0, color: "#17324d", fontSize: "17px" }}>
         {BARANGAY_OFFLINE_MODE_TITLE}
       </h2>
       <p style={{ margin: 0, color: "#60738a", fontSize: "14px", lineHeight: 1.6 }}>
-        {BARANGAY_OFFLINE_MODE_MESSAGE}
+        {message}
       </p>
       {secondaryMessage ? (
         <p style={{ margin: "2px 0 0", color: "#60738a", fontSize: "14px", lineHeight: 1.6 }}>

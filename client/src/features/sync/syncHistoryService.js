@@ -47,7 +47,10 @@ export const fetchSyncConflictDetail = async (conflictId) => {
   return handleJsonResponse(response, "Failed to load sync conflict detail");
 };
 
-export const resolveSyncConflict = async (conflictId, { action, reason }) => {
+export const resolveSyncConflict = async (
+  conflictId,
+  { action, reason, replacementBarcode = null },
+) => {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/sync/conflicts/${conflictId}/resolve`,
     {
@@ -55,7 +58,11 @@ export const resolveSyncConflict = async (conflictId, { action, reason }) => {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ action, reason }),
+      body: JSON.stringify({
+        action,
+        reason,
+        replacement_barcode: replacementBarcode || null,
+      }),
     },
   );
 

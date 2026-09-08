@@ -3,6 +3,10 @@ import { NavLink } from "react-router-dom";
 import { FiMenu, FiX } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_CODES } from "../../utils/roleSession";
+import {
+  isMayorOfflineBlockedRoute,
+  MAYOR_OFFLINE_ACCESS_MESSAGE,
+} from "../../features/offline/mayorOfflineAccess";
 import distyncLogo from "../../assets/distync-logo.png";
 import SidebarAccountMenu from "./SidebarAccountMenu";
 
@@ -228,6 +232,7 @@ const Sidebar = ({
   navigationId,
   onNavigate,
   onClose,
+  isOffline = false,
 }) => {
   const { currentRole } = useAuth();
   const sidebarRef = useRef(null);
@@ -337,15 +342,37 @@ const Sidebar = ({
               );
             }
 
+            const isMayorOfflineLocked =
+              currentRole === ROLE_CODES.MAYOR &&
+              isOffline &&
+              isMayorOfflineBlockedRoute(item.to);
+            const handleNavigationClick = (event) => {
+              if (isMayorOfflineLocked) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+              }
+
+              onNavigate?.();
+            };
+
             return (
               <NavLink
                 key={item.to}
                 to={item.to}
-                onClick={onNavigate}
+                onClick={handleNavigationClick}
+                aria-disabled={isMayorOfflineLocked ? "true" : undefined}
+                tabIndex={isMayorOfflineLocked ? -1 : undefined}
+                title={
+                  isMayorOfflineLocked
+                    ? MAYOR_OFFLINE_ACCESS_MESSAGE
+                    : undefined
+                }
                 style={{
                   textDecoration: "none",
                   display: "block",
                   marginLeft: item.isSectionChild && !isCollapsed ? "8px" : 0,
+                  cursor: isMayorOfflineLocked ? "not-allowed" : "pointer",
                 }}
               >
                 {({ isActive }) => (
@@ -353,15 +380,35 @@ const Sidebar = ({
                     className="distync-sidebar__nav-item"
                     style={{
                       backgroundColor: isActive
-                        ? "#e1eef9"
-                        : "transparent",
-                      color: isActive ? "#1f4f7d" : "#26435f",
-                      border: `1px solid ${isActive ? "#b8d0e7" : "transparent"}`,
+                        ? isMayorOfflineLocked
+                          ? "#edf2f6"
+                          : "#e1eef9"
+                        : isMayorOfflineLocked
+                          ? "#edf2f6"
+                          : "transparent",
+                      color: isActive
+                        ? isMayorOfflineLocked
+                          ? "#8b9aaa"
+                          : "#1f4f7d"
+                        : isMayorOfflineLocked
+                          ? "#8b9aaa"
+                          : "#26435f",
+                      border: `1px solid ${
+                        isMayorOfflineLocked
+                          ? "#d7e2ef"
+                          : isActive
+                            ? "#b8d0e7"
+                            : "transparent"
+                      }`,
                       borderRadius: "10px",
                       padding: "10px 12px",
-                      boxShadow: isActive
-                        ? "0 8px 18px rgba(66, 108, 154, 0.10)"
-                        : "none",
+                      boxShadow:
+                        isMayorOfflineLocked
+                          ? "none"
+                          : isActive
+                            ? "0 8px 18px rgba(66, 108, 154, 0.10)"
+                            : "none",
+                      opacity: isMayorOfflineLocked ? 0.62 : 1,
                       transition:
                         "background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease",
                       marginBottom: 0,

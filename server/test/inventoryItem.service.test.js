@@ -242,6 +242,77 @@ test("createInventoryItem creates opening stock batch and transaction with Mayor
   );
 });
 
+test("createInventoryItem normalizes an offline category and fills missing perishability", async () => {
+  const { calls, stubs } = buildServiceStubs();
+  const offlinePayload = buildInventoryItemPayload({
+    item_name: "Offline Perishable Item",
+    category: "perishable",
+  });
+
+  delete offlinePayload.is_perishable;
+
+  await withStubbedInventoryItemService(stubs, async ({ createInventoryItem }) => {
+    await createInventoryItem(offlinePayload, {
+      userId: "mayor-user-1",
+      roleCode: "MAYOR",
+    });
+  });
+
+  assert.equal(calls.insertedItem.category, "Perishable");
+  assert.equal(calls.insertedItem.is_perishable, true);
+});
+
+test("createInventoryItem reports an existing item code as a reviewable duplicate", async () => {
+  const { stubs } = buildServiceStubs({
+    [inventoryItemRepositoryPath]: {
+      getInventoryItemByCode: async () => ({
+        id: "existing-item",
+        item_code: "RICE-001",
+        item_name: "Rice",
+      }),
+    },
+  });
+
+  await withStubbedInventoryItemService(stubs, async ({ createInventoryItem }) => {
+    await assert.rejects(
+      createInventoryItem(buildInventoryItemPayload({ item_code: "RICE-001" })),
+      (error) => {
+        assert.equal(error.code, "DUPLICATE_INVENTORY_ITEM");
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.entityServerId, "existing-item");
+        assert.equal(error.duplicateField, "item_code");
+        return true;
+      },
+    );
+  });
+});
+
+test("createInventoryItem reports an existing barcode as a reviewable barcode conflict", async () => {
+  const { stubs } = buildServiceStubs({
+    [inventoryItemRepositoryPath]: {
+      getInventoryItemByBarcode: async () => ({
+        id: "existing-item",
+        item_code: "RICE-001",
+        item_name: "Rice",
+        barcode: "0748485100081",
+      }),
+    },
+  });
+
+  await withStubbedInventoryItemService(stubs, async ({ createInventoryItem }) => {
+    await assert.rejects(
+      createInventoryItem(buildInventoryItemPayload()),
+      (error) => {
+        assert.equal(error.code, "DUPLICATE_INVENTORY_BARCODE");
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.entityServerId, "existing-item");
+        assert.equal(error.serverPayload.barcode, "0748485100081");
+        return true;
+      },
+    );
+  });
+});
+
 test("createInventoryItem rolls back when opening batch persistence fails", async () => {
   const { events, calls, stubs } = buildServiceStubs({
     [inventoryBatchRepositoryPath]: {

@@ -97,6 +97,170 @@ test("MAYOR-OFFLINE-02 pending stock-in projects with explicit quantity and stab
   assert.deepEqual(merged.map((batch) => batch.client_sync_id), [entry.id]);
 });
 
+test("MAYOR-OFFLINE-08 offline new items project opening stock immediately", async () => {
+  const { mergeInventoryItemsWithSyncStatus } = await import(
+    "../src/features/inventory-items/inventoryItemSync.js"
+  );
+  const {
+    buildQueuedInventoryItemOpeningBatch,
+    mergeInventoryBatchesWithSyncStatus,
+  } = await import("../src/offline/mayorInventoryOfflineModel.js");
+
+  const entry = {
+    id: "33333333-3333-4333-8333-333333333333",
+    moduleName: "mayor-inventory",
+    actionKey: "INVENTORY_ITEM_CREATE",
+    entityType: "INVENTORY_ITEM",
+    entityLocalId: "LOCAL-RICE-001",
+    clientTimestamp: "2026-09-01T01:02:03.000Z",
+    status: "PENDING",
+    payload: {
+      item_name: "Offline Rice",
+      category: "Non-Perishable",
+      unit_of_measure: "kg",
+      unit_of_measure_value: 25,
+      packaging: "sack",
+      packaging_count: 2,
+      quantity: 25,
+      barcode: "12345678",
+      expiration_date: null,
+    },
+  };
+
+  const [projectedItem] = mergeInventoryItemsWithSyncStatus([], [entry]);
+  assert.equal(projectedItem.id, entry.entityLocalId);
+  assert.equal(projectedItem.is_local_only, true);
+  assert.equal(projectedItem.stock_forms[0].barcode, "12345678");
+
+  const openingBatch = buildQueuedInventoryItemOpeningBatch(entry, [projectedItem]);
+  assert.equal(openingBatch.quantity_received, 50);
+  assert.equal(openingBatch.quantity_available, 50);
+  assert.equal(openingBatch.batch_no, "Pending opening batch");
+  assert.equal(openingBatch.is_local_only, true);
+
+  const mergedBatches = mergeInventoryBatchesWithSyncStatus({
+    inventoryBatches: [],
+    inventoryItems: [projectedItem],
+    syncQueueEntries: [entry],
+  });
+  assert.equal(mergedBatches.length, 1);
+  assert.equal(mergedBatches[0].quantity_available, 50);
+  assert.equal(mergedBatches[0].inventory_item_id, entry.entityLocalId);
+});
+
+test("MAYOR-OFFLINE-09 pending new packaging projects its barcode for later local matching", async () => {
+  const { mergeInventoryItemsWithSyncStatus } = await import(
+    "../src/features/inventory-items/inventoryItemSync.js"
+  );
+  const {
+    findMayorInventoryItemByBarcode,
+    mergeInventoryBatchesWithSyncStatus,
+  } = await import("../src/offline/mayorInventoryOfflineModel.js");
+
+  const entry = {
+    id: "44444444-4444-4444-8444-444444444444",
+    moduleName: "mayor-inventory",
+    actionKey: "INVENTORY_BATCH_CREATE",
+    entityType: "INVENTORY_BATCH",
+    entityLocalId: "RICE-BATCH-004",
+    clientTimestamp: "2026-09-01T02:02:03.000Z",
+    status: "PENDING",
+    payload: {
+      inventory_item_id: "item-1",
+      inventory_item_stock_form_id: null,
+      stock_form_barcode: "87654321",
+      stock_form_packaging: "box",
+      stock_form_units_per_packaging: 12,
+      stock_form_unit_of_measure: "pc",
+      stock_form_unit_of_measure_value: 1,
+      batch_no: "RICE-BATCH-004",
+      quantity_received: 24,
+      source_type: "LGU",
+      expiration_date: null,
+    },
+  };
+
+  const [projectedItem] = mergeInventoryItemsWithSyncStatus([mayorItem], [entry]);
+  const projectedStockForm = projectedItem.stock_forms.find(
+    (stockForm) => stockForm.barcode === "87654321",
+  );
+  assert.ok(projectedStockForm);
+  assert.equal(projectedStockForm.is_local_only, true);
+
+  const barcodeMatch = findMayorInventoryItemByBarcode(
+    [projectedItem],
+    "87654321",
+  );
+  assert.equal(barcodeMatch.item.id, "item-1");
+  assert.equal(barcodeMatch.stockForm.id, projectedStockForm.id);
+
+  const [projectedBatch] = mergeInventoryBatchesWithSyncStatus({
+    inventoryBatches: [],
+    inventoryItems: [projectedItem],
+    syncQueueEntries: [entry],
+  });
+  assert.equal(projectedBatch.quantity_available, 24);
+  assert.equal(projectedBatch.inventory_item_stock_form_id, projectedStockForm.id);
+  assert.equal(projectedBatch.stock_form_packaging, "box");
+});
+
+test("MAYOR-OFFLINE-10 offline restock and added packaging mark the existing item pending", async () => {
+  const { mergeInventoryItemsWithSyncStatus } = await import(
+    "../src/features/inventory-items/inventoryItemSync.js"
+  );
+
+  const restockEntry = {
+    id: "55555555-5555-4555-8555-555555555555",
+    moduleName: "mayor-inventory",
+    actionKey: "INVENTORY_BATCH_CREATE",
+    entityType: "INVENTORY_BATCH",
+    entityLocalId: "RICE-BATCH-005",
+    status: "PENDING",
+    payload: {
+      inventory_item_id: "item-1",
+      inventory_item_stock_form_id: "stock-form-1",
+      batch_no: "RICE-BATCH-005",
+      quantity_received: 50,
+      source_type: "LGU",
+    },
+  };
+
+  const [restockedItem] = mergeInventoryItemsWithSyncStatus(
+    [mayorItem],
+    [restockEntry],
+  );
+  assert.equal(restockedItem.sync_status, "PENDING");
+
+  const packagingEntry = {
+    ...restockEntry,
+    id: "66666666-6666-4666-8666-666666666666",
+    entityLocalId: "RICE-BATCH-006",
+    payload: {
+      ...restockEntry.payload,
+      inventory_item_stock_form_id: null,
+      stock_form_barcode: "87654321",
+      stock_form_packaging: "box",
+      stock_form_units_per_packaging: 12,
+    },
+  };
+
+  const [packagedItem] = mergeInventoryItemsWithSyncStatus(
+    [mayorItem],
+    [packagingEntry],
+  );
+  assert.equal(packagedItem.sync_status, "PENDING");
+  assert.equal(
+    packagedItem.stock_forms.some((stockForm) => stockForm.packaging === "box"),
+    true,
+  );
+
+  const [failedItem] = mergeInventoryItemsWithSyncStatus(
+    [mayorItem],
+    [{ ...restockEntry, status: "FAILED" }],
+  );
+  assert.equal(failedItem.sync_status, "FAILED");
+});
+
 test("MAYOR-OFFLINE-03 cache requires complete datasets and scopes records to the Mayor device", async () => {
   const {
     buildMayorInventoryCacheRecord,
@@ -144,13 +308,14 @@ test("MAYOR-OFFLINE-03 cache requires complete datasets and scopes records to th
 });
 
 test("MAYOR-OFFLINE-04 page and queue contracts use durable restoration and safe status handling", async () => {
-  const [dbSource, cacheSource, preparationSource, hookSource, pageSource, queueSource, syncSource] =
+  const [dbSource, cacheSource, preparationSource, hookSource, pageSource, batchesPageSource, queueSource, syncSource] =
     await Promise.all([
       readSource("../src/offline/db.js"),
       readSource("../src/offline/mayorInventoryCache.js"),
       readSource("../src/offline/mayorInventoryPreparation.js"),
       readSource("../src/features/offline/useMayorInventoryOfflinePreparation.js"),
       readSource("../src/pages/inventory/InventoryItemsPage.jsx"),
+      readSource("../src/pages/inventory/InventoryBatchesPage.jsx"),
       readSource("../src/offline/syncQueue.js"),
       readSource("../src/offline/syncService.js"),
     ]);
@@ -167,9 +332,18 @@ test("MAYOR-OFFLINE-04 page and queue contracts use durable restoration and safe
   assert.doesNotMatch(cacheSource, /syncQueue\.(clear|bulkDelete|delete)/);
   assert.match(preparationSource, /finally \{\s*jobs\.delete\(jobKey\)/);
   assert.match(hookSource, /actual complete cache read/);
+  assert.match(hookSource, /refreshRequestedRef/);
+  assert.match(hookSource, /refreshRequestedRef\.current = true/);
+  assert.match(hookSource, /cache && !shouldRefreshOnline/);
   assert.match(pageSource, /navigator\.onLine === false/);
   assert.match(pageSource, /getMayorInventoryCacheSnapshot/);
   assert.match(pageSource, /persistMayorInventoryCacheSnapshot/);
+  assert.match(pageSource, /MAYOR_INVENTORY_PREPARATION_STATUS\.READY/);
+  assert.match(pageSource, /distync-offline-preparation-updated/);
+  assert.match(pageSource, /void restoreMayorInventoryCache\(\)/);
+  assert.match(batchesPageSource, /MAYOR_INVENTORY_PREPARATION_STATUS\.READY/);
+  assert.match(batchesPageSource, /distync-offline-preparation-updated/);
+  assert.match(batchesPageSource, /void restoreMayorInventoryCache\(filters\)/);
   assert.match(pageSource, /buildReservedBatchRows/);
   assert.match(pageSource, /is_local_only/);
   assert.match(queueSource, /await db\.syncQueue\.put/);
@@ -195,6 +369,75 @@ test("MAYOR-OFFLINE-05 destructive inventory status changes remain online-only w
   assert.match(pwaSource, /url\.pathname\.startsWith\("\/api\/"\)/);
   assert.match(pwaSource, /handler: "NetworkOnly"/);
   assert.match(pwaSource, /request\.mode === "navigate"/);
+});
+
+test("MAYOR-OFFLINE-07 unsafe inventory actions stay online-only with direct offline guidance", async () => {
+  const [itemServiceSource, batchServiceSource, pageSource, noticeSource, tableSource, actionsSource, detailSource, formSource] = await Promise.all([
+    readSource("../src/features/inventory-items/inventoryItemService.js"),
+    readSource("../src/features/inventory-batches/inventoryBatchService.js"),
+    readSource("../src/pages/inventory/InventoryItemsPage.jsx"),
+    readSource("../src/components/layout/BarangayOfflineModeNotice.jsx"),
+    readSource("../src/components/inventory-items/InventoryItemsTable.jsx"),
+    readSource("../src/components/inventory-items/InventoryPageActions.jsx"),
+    readSource("../src/components/inventory-items/InventoryItemDetailModal.jsx"),
+    readSource("../src/components/inventory-items/InventoryItemFormModal.jsx"),
+  ]);
+  const updateStart = itemServiceSource.indexOf(
+    "export const updateInventoryItem",
+  );
+  const updateEnd = itemServiceSource.indexOf(
+    "export const runInventoryForecast",
+  );
+  const updateSource = itemServiceSource.slice(updateStart, updateEnd);
+
+  assert.match(updateSource, /performOnlineOnlyMutation/);
+  assert.doesNotMatch(updateSource, /performSyncableMutation/);
+  assert.match(
+    updateSource,
+    /Editing inventory items requires an internet connection\./,
+  );
+  assert.match(itemServiceSource, /getMayorInventoryCacheSnapshot/);
+  assert.match(
+    itemServiceSource,
+    /canQueueOffline: async \(\) => Boolean\(await getMayorInventoryCacheSnapshot\(\)\)/,
+  );
+  assert.match(pageSource, /MAYOR_INVENTORY_OFFLINE_SCOPE_MESSAGE/);
+  assert.match(pageSource, /MAYOR_INVENTORY_OFFLINE_MESSAGE/);
+  assert.match(
+    pageSource,
+    /You can add inventory items and stock-in existing items offline\./,
+  );
+  assert.match(pageSource, /isInventoryOffline/);
+  assert.match(
+    pageSource,
+    /Editing batch expiry requires an internet connection\./,
+  );
+  assert.match(
+    pageSource,
+    /Exporting inventory data requires an internet connection\./,
+  );
+  assert.doesNotMatch(pageSource, /matchedScannedStockForm\?\.is_local_only/);
+  assert.doesNotMatch(pageSource, /selectedLocalStockForm\?\.is_local_only/);
+  assert.doesNotMatch(batchServiceSource, /LOCAL_STOCK_FORM_PENDING/);
+  assert.match(pageSource, /inventory_item_local_id: matchedExistingItem\.id/);
+  assert.match(pageSource, /inventory_item_local_id: matchedScannedItem\.id/);
+  assert.match(noticeSource, /message = BARANGAY_OFFLINE_MODE_MESSAGE/);
+  assert.match(noticeSource, /secondaryMessage/);
+  assert.match(tableSource, /isOffline = false/);
+  assert.match(tableSource, /isOffline \|\| typeof onEditItem/);
+  assert.match(tableSource, /isOffline \|\| typeof onLogStatus/);
+  assert.match(tableSource, /SyncStatusIcon/);
+  assert.match(tableSource, /item\.sync_status !== "SYNCED" \|\| isOffline/);
+  assert.doesNotMatch(tableSource, /SyncStatusBadge/);
+  assert.match(actionsSource, /disabled=\{Boolean\(exportingFormat\) \|\| isOffline\}/);
+  assert.match(detailSource, /isOffline = false/);
+  assert.match(detailSource, /disabled=\{isBatchEditDisabled\}/);
+  assert.match(formSource, /duplicateBarcodeItem/);
+  assert.match(formSource, /This barcode is already assigned to another item\./);
+  assert.match(
+    formSource,
+    /This barcode is already assigned to another packaging\./,
+  );
 });
 
 test("MAYOR-OFFLINE-06 fallback identifiers remain valid UUIDs and client timestamps reach sync handlers", async () => {

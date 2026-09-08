@@ -284,7 +284,6 @@ const getActionKey = (record = {}) =>
   normalizeKey(
     record.actionKey ||
       record.action_key ||
-      record.operation_type ||
       record.payload_json?.action_key ||
       record.payload_json?.payload?.action_key ||
       record.payload?.action_key ||
@@ -773,6 +772,18 @@ export const getConflictReasonLabel = (conflict) => {
     return "Possible Cross-Barangay Duplicate";
   }
 
+  if (conflict?.conflict_type === "DUPLICATE_INVENTORY_BATCH") {
+    return "Possible Duplicate Inventory Batch";
+  }
+
+  if (conflict?.conflict_type === "DUPLICATE_INVENTORY_BARCODE") {
+    return "Barcode Used for Another Packaging";
+  }
+
+  if (conflict?.conflict_type === "DUPLICATE_INVENTORY_ITEM") {
+    return "Duplicate Inventory Item";
+  }
+
   if (conflict?.conflict_type === "UPDATED_AT_MISMATCH") {
     return "Record Changed in Two Places";
   }
@@ -794,6 +805,18 @@ export const getConflictExplanation = (conflict) => {
     conflict?.resolved_payload_json?.automatic
   ) {
     return "The same household was registered under different Barangays for the same disaster event.";
+  }
+
+  if (conflict?.conflict_type === "DUPLICATE_INVENTORY_BATCH") {
+    return "Two offline entries used the same item, packaging, and batch number. Choose whether to keep one or accept both.";
+  }
+
+  if (conflict?.conflict_type === "DUPLICATE_INVENTORY_BARCODE") {
+    return "The same barcode was used for different item or packaging details. Keep the saved record or enter a different barcode for this device record.";
+  }
+
+  if (conflict?.conflict_type === "DUPLICATE_INVENTORY_ITEM") {
+    return "An inventory item with the same name or item code was already saved in DISTYNC.";
   }
 
   if (conflict?.error_message && !isUuidLikeValue(conflict.error_message)) {
@@ -880,11 +903,24 @@ export const getConflictResolutionSummary = (conflict = {}) => {
     };
   }
 
+  if (action === "ACCEPT_BOTH") {
+    return {
+      result: "Both entries kept",
+      whatHappened:
+        "DISTYNC kept the saved batch and added this device entry with the next free batch number.",
+    };
+  }
+
   if (winner === "LOCAL" || action === "APPLY_LOCAL") {
     return {
-      result: "This device record applied",
+      result:
+        conflict.conflict_type === "DUPLICATE_INVENTORY_BARCODE"
+          ? "Corrected device record applied"
+          : "This device record applied",
       whatHappened:
-        "The synchronized record from this device was accepted after review.",
+        conflict.conflict_type === "DUPLICATE_INVENTORY_BARCODE"
+          ? "DISTYNC saved this device record with the replacement barcode provided during review."
+          : "The synchronized record from this device was accepted after review.",
     };
   }
 
@@ -956,6 +992,33 @@ const getPayloadComparisonDetails = (payload = {}) => {
         normalizedPayload.quantity_received,
     ),
     batchNo: asDisplayValue(normalizedPayload.batch_no),
+    barcode: asDisplayValue(
+      pickComparisonValue(normalizedPayload, [
+        "barcode",
+        "item_barcode",
+        "stock_form_barcode",
+        "inventory_item.barcode",
+        "inventory_item_stock_form.barcode",
+        "stock_form.barcode",
+      ]),
+    ),
+    packaging: asDisplayValue(
+      pickComparisonValue(normalizedPayload, [
+        "packaging",
+        "stock_form_packaging",
+        "inventory_item.packaging",
+        "inventory_item_stock_form.packaging",
+        "stock_form.packaging",
+      ]),
+    ),
+    unitsPerPackaging: asDisplayValue(
+      pickComparisonValue(normalizedPayload, [
+        "units_per_packaging",
+        "stock_form_units_per_packaging",
+        "inventory_item_stock_form.units_per_packaging",
+        "stock_form.units_per_packaging",
+      ]),
+    ),
     donorName: asDisplayValue(normalizedPayload.donor_name),
     updatedAt: formatSyncHistoryDateTime(normalizedPayload.updated_at),
     registeredAt: formatSyncHistoryDateTime(normalizedPayload.registered_at),
@@ -1016,6 +1079,9 @@ export const getConflictComparisonRows = (conflict = {}) => {
     ["Status", "status"],
     ["Remarks", "remarks"],
     ["Item", "item"],
+    ["Barcode", "barcode"],
+    ["Packaging", "packaging"],
+    ["Units per Packaging", "unitsPerPackaging"],
     ["Quantity", "quantity"],
     ["Batch No.", "batchNo"],
     ["Donor", "donorName"],

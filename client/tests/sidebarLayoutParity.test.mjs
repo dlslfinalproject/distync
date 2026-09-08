@@ -72,6 +72,8 @@ test("Barangay and MSWDO share the shell, active-item, responsive, and profile c
   assert.equal((sidebar.match(/className="distync-sidebar__nav-section-label"/g) || []).length, 1);
   assert.match(sidebar, /<NavLink[\s\S]*\{\(\{ isActive \}\) =>/);
   assert.match(sidebar, /backgroundColor: isActive[\s\S]*borderRadius: "10px"/);
+  assert.match(sidebar, /isMayorOfflineBlockedRoute/);
+  assert.match(sidebar, /aria-disabled=\{isMayorOfflineLocked/);
   assert.match(sidebar, /aria-hidden=\{isCollapsed \? "true" : undefined\}/);
   assert.match(sidebar, /className="distync-sidebar__account-area"/);
   assert.match(sidebar, /accountArea:[\s\S]*marginTop: "auto"/);

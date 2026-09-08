@@ -1905,6 +1905,131 @@ test("INV-M-02 successful offline inventory sync runs domain audit and alerts af
   );
 });
 
+test("MAYOR-OFFLINE-ITEM-01 item creation queue reaches the supported sync handler", async () => {
+  let receivedPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [inventoryItemServicePath]: {
+        createInventoryItem: async (payload, auth, options) => {
+          receivedPayload = { payload, auth, options };
+          return { id: "33333333-3333-4333-8333-333333333333" };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "mayor-offline-item-create-1",
+            action_key: "INVENTORY_ITEM_CREATE",
+            entity_type: "INVENTORY_ITEM",
+            entity_local_id: "Offline Rice",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T01:00:00.000Z",
+            payload: {
+              item_name: "Offline Rice",
+              category: "non-perishable",
+              unit_of_measure: "pc",
+              unit_of_measure_value: "1",
+              packaging: "piece",
+              packaging_count: "10",
+              quantity: "1",
+              reorder_level: "5",
+              barcode: null,
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+    },
+  );
+
+  assert.equal(receivedPayload.payload.item_name, "Offline Rice");
+  assert.equal(receivedPayload.auth.roleCode, "MAYOR");
+  assert.equal(
+    receivedPayload.options.clientTimestamp,
+    "2026-09-07T01:00:00.000Z",
+  );
+});
+
+test("MAYOR-OFFLINE-ITEM-02 restock queued for a local item resolves after item creation sync", async () => {
+  let receivedPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        findSyncedEntityServerIdByLocalId: async (lookup) => {
+          assert.deepEqual(lookup, {
+            entityType: "INVENTORY_ITEM",
+            actionKey: "INVENTORY_ITEM_CREATE",
+            entityLocalId: "Offline Rice",
+            userId: baseAuth.userId,
+          });
+          return {
+            entity_server_id: "33333333-3333-4333-8333-333333333333",
+          };
+        },
+      }),
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          receivedPayload = payload;
+          return { id: "batch-1" };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "mayor-offline-item-restock-1",
+            action_key: "INVENTORY_BATCH_CREATE",
+            entity_type: "INVENTORY_BATCH",
+            entity_local_id: "Offline Rice-BATCH-002",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T01:05:00.000Z",
+            payload: {
+              inventory_item_id: "Offline Rice",
+              inventory_item_local_id: "Offline Rice",
+              inventory_item_stock_form_id: "local-stock-form:item-create-1",
+              stock_form_packaging: "sack",
+              stock_form_units_per_packaging: 25,
+              stock_form_unit_of_measure: "kg",
+              stock_form_unit_of_measure_value: 25,
+              batch_no: "RICE-BATCH-002",
+              quantity_received: 25,
+              source_type: "LGU",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+    },
+  );
+
+  assert.equal(
+    receivedPayload.inventory_item_id,
+    "33333333-3333-4333-8333-333333333333",
+  );
+  assert.equal(receivedPayload.inventory_item_stock_form_id, null);
+  assert.equal(receivedPayload.stock_form_packaging, "sack");
+});
+
 test("M02-18 H-05 duplicate QR claim conflict carries SYNC_CONFLICT notification intent", async () => {
   const processedIntentIds = [];
 
@@ -3977,7 +4102,7 @@ test("EE-FIX-04 same-ID accepted inventory replay after closure does not rerun s
   );
 });
 
-test("INVENTORY_BATCH_CREATE duplicate becomes resolved FIRST_ACCEPTED conflict", async () => {
+test("INVENTORY_BATCH_CREATE duplicate stays open for packaging-aware review", async () => {
   let conflictPayload;
   let transactionPayload;
 
@@ -4055,12 +4180,12 @@ test("INVENTORY_BATCH_CREATE duplicate becomes resolved FIRST_ACCEPTED conflict"
       );
       assert.equal(conflictPayload.conflict_type, "DUPLICATE_INVENTORY_BATCH");
       assert.equal(conflictPayload.entity_server_id, "44444444-4444-4444-8444-444444444444");
-      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
-      assert.equal(conflictPayload.status, "RESOLVED");
+      assert.equal(conflictPayload.resolution_strategy, "MANUAL_REVIEW");
+      assert.equal(conflictPayload.status, "OPEN");
       assert.equal(conflictPayload.resolved_by, null);
       assert.equal(conflictPayload.local_payload_json.quantity_received, 20);
       assert.equal(conflictPayload.server_payload_json.quantity_available, 10);
-      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+      assert.equal(conflictPayload.resolved_payload_json, null);
     },
   );
 });
@@ -5449,6 +5574,219 @@ test("M04-02 KEEP_SERVER resolves stock drift without changing original sync sta
   );
 });
 
+test("Mayor can accept both same-packaging batch entries and sync assigns a new batch number", async () => {
+  let updatedTransactionPayload = null;
+  let resolvedConflictPayload = null;
+  let createdBatchPayload = null;
+  const baseConflict = {
+    id: "conflict-duplicate-batch",
+    sync_transaction_id: "sync-duplicate-batch",
+    user_id: "origin-mayor",
+    entity_type: "INVENTORY_BATCH",
+    entity_server_id: "existing-batch",
+    conflict_type: "DUPLICATE_INVENTORY_BATCH",
+    local_payload_json: {
+      inventory_item_id: "item-1",
+      inventory_item_stock_form_id: "stock-form-1",
+      batch_no: "LOT-A",
+      quantity_received: 20,
+    },
+    server_payload_json: {
+      id: "existing-batch",
+      inventory_item_id: "item-1",
+      inventory_item_stock_form_id: "stock-form-1",
+      batch_no: "LOT-A",
+      quantity_received: 10,
+    },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "CREATE",
+    client_timestamp: "2026-08-09T01:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        getSyncConflictByIdForMayor: async () => baseConflict,
+        lockSyncConflictById: async () => baseConflict,
+        updateSyncTransaction: async (id, payload) => {
+          updatedTransactionPayload = { id, ...payload };
+          return updatedTransactionPayload;
+        },
+        markSyncConflictResolved: async (payload) => {
+          resolvedConflictPayload = payload;
+          return {
+            ...baseConflict,
+            status: "RESOLVED",
+            resolution_action: payload.resolutionAction,
+            resolution_reason: payload.resolutionReason,
+            resolved_payload_json: payload.resolvedPayloadJson,
+            resolved_by: payload.resolvedBy,
+            resolved_at: "2026-08-09T05:00:00.000Z",
+          };
+        },
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          createdBatchPayload = payload;
+          return {
+            id: "new-batch-2",
+            batch_no: "LOT-A-2",
+          };
+        },
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async () => null,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail, resolveSyncConflict }) => {
+      const detail = await getSyncConflictDetail({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, [
+        "KEEP_SERVER",
+        "ACCEPT_BOTH",
+      ]);
+
+      const resolved = await resolveSyncConflict({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+        action: "ACCEPT_BOTH",
+        reason: "These are separate receipts of the same packaging.",
+      });
+
+      assert.equal(createdBatchPayload.forceBatchNumberReassignment, true);
+      assert.equal(createdBatchPayload.created_by, "origin-mayor");
+      assert.equal(updatedTransactionPayload.sync_status, "SYNCED");
+      assert.equal(updatedTransactionPayload.entity_server_id, "new-batch-2");
+      assert.equal(resolvedConflictPayload.resolvedPayloadJson.winner, "BOTH");
+      assert.equal(resolved.status, "RESOLVED");
+      assert.equal(resolved.sync_status, "SYNCED");
+      assert.equal(resolved.entity_server_id, "new-batch-2");
+    },
+  );
+});
+
+test("Mayor can apply a barcode conflict with a replacement barcode", async () => {
+  let updatedTransactionPayload = null;
+  let createdItemPayload = null;
+  const baseConflict = {
+    id: "conflict-duplicate-barcode",
+    sync_transaction_id: "sync-duplicate-barcode",
+    user_id: "origin-mayor",
+    entity_type: "INVENTORY_ITEM",
+    entity_server_id: "saved-item",
+    conflict_type: "DUPLICATE_INVENTORY_BARCODE",
+    local_payload_json: {
+      item_name: "Rice Offline",
+      item_code: "RICE-OFFLINE",
+      barcode: "0748485100081",
+      packaging: "sack",
+      packaging_count: 1,
+      quantity: 10,
+      skip_opening_stock: true,
+    },
+    server_payload_json: {
+      id: "saved-item",
+      item_name: "Rice",
+      barcode: "0748485100081",
+      packaging: "box",
+    },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "CREATE",
+    client_timestamp: "2026-08-09T01:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        getSyncConflictByIdForMayor: async () => baseConflict,
+        lockSyncConflictById: async () => baseConflict,
+        updateSyncTransaction: async (id, payload) => {
+          updatedTransactionPayload = { id, ...payload };
+          return updatedTransactionPayload;
+        },
+        markSyncConflictResolved: async (payload) => ({
+          ...baseConflict,
+          status: "RESOLVED",
+          resolution_action: payload.resolutionAction,
+          resolution_reason: payload.resolutionReason,
+          resolved_payload_json: payload.resolvedPayloadJson,
+          resolved_by: payload.resolvedBy,
+          resolved_at: "2026-08-09T05:00:00.000Z",
+        }),
+      },
+      [inventoryItemServicePath]: {
+        createInventoryItem: async (payload) => {
+          createdItemPayload = payload;
+          return { id: "new-item" };
+        },
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async () => null,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail, resolveSyncConflict }) => {
+      const detail = await getSyncConflictDetail({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, [
+        "KEEP_SERVER",
+        "APPLY_LOCAL",
+      ]);
+
+      const resolved = await resolveSyncConflict({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+        action: "APPLY_LOCAL",
+        reason: "The device entry is a separate item.",
+        replacementBarcode: "0748485100099",
+      });
+
+      assert.equal(createdItemPayload.barcode, "0748485100099");
+      assert.equal(updatedTransactionPayload.sync_status, "SYNCED");
+      assert.equal(updatedTransactionPayload.entity_server_id, "new-item");
+      assert.equal(resolved.sync_status, "SYNCED");
+      assert.equal(resolved.entity_server_id, "new-item");
+    },
+  );
+});
+
 test("BRG-SC-04B APPLY_LOCAL remains rejected for eligible stock-drift conflict", async () => {
   const baseConflict = {
     id: "conflict-stock-drift",
@@ -5809,6 +6147,7 @@ test("MAYOR-OFFLINE-DEVICE-01 processes the real client queue shape with a canon
   assert.equal(batchPayloads.length, 1);
   assert.equal(batchPayloads[0].created_by, baseAuth.userId);
   assert.equal(batchPayloads[0].received_at, clientTimestamp);
+  assert.equal(batchPayloads[0].allowBatchNumberReassignment, true);
 });
 
 test("device resolution does not bypass shared sync action authorization", async () => {

@@ -1732,6 +1732,8 @@ const emitSyncConflictResolutionAlert = async (syncConflict) => {
   const actionLabel =
     syncConflict.resolution_action === "APPLY_LOCAL"
       ? "Local change applied"
+      : syncConflict.resolution_action === "ACCEPT_BOTH"
+        ? "Both inventory entries kept"
       : syncConflict.resolution_action === "KEEP_SERVER"
         ? "Server record kept"
         : "Conflict reviewed";

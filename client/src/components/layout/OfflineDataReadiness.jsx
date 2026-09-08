@@ -35,7 +35,7 @@ export default function OfflineDataReadiness({
       : "Preparing Offline Data"
     : ready
       ? isMayorInventory
-        ? "Mayor Inventory Offline Ready"
+        ? "Offline Data Ready"
         : "Offline Data Ready"
       : previousCache
         ? isMayorInventory
@@ -50,7 +50,7 @@ export default function OfflineDataReadiness({
       : "DISTYNC is preparing the information needed for offline use. Keep this device online until preparation is complete."
     : ready
       ? isMayorInventory
-        ? "Complete inventory reference data is saved on this device. You can use the supported manual and scanner stock-in flow offline."
+        ? "The information needed for supported offline operations is available on this device."
         : "The information needed for supported offline operations is available on this device."
       : previousCache
         ? isMayorInventory

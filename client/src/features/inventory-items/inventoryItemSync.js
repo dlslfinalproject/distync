@@ -1,4 +1,81 @@
+import { normalizeInventoryBarcode } from "./inventoryBarcode.js";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus.js";
+
+const MAYOR_INVENTORY_MODULE = "mayor-inventory";
+const OUTSTANDING_SYNC_STATUSES = new Set([
+  "PENDING",
+  "FAILED",
+  "CONFLICT",
+]);
+
+const normalizeId = (value) => String(value || "").trim();
+
+const getPositiveNumber = (value) => {
+  const normalizedValue = Number(value);
+  return Number.isFinite(normalizedValue) && normalizedValue > 0
+    ? normalizedValue
+    : 0;
+};
+
+const isOutstandingBatchCreateEntry = (entry = {}) =>
+  entry?.moduleName === MAYOR_INVENTORY_MODULE &&
+  entry?.actionKey === "INVENTORY_BATCH_CREATE" &&
+  OUTSTANDING_SYNC_STATUSES.has(entry?.status);
+
+const isInventoryBatchEntryForItem = (entry = {}, item = null) =>
+  isOutstandingBatchCreateEntry(entry) &&
+  normalizeId(entry.payload?.inventory_item_id) === normalizeId(item?.id);
+
+const getItemStockForms = (item) =>
+  Array.isArray(item?.stock_forms) ? item.stock_forms : [];
+
+export const buildQueuedInventoryStockForm = (entry = {}, item = null) => {
+  const payload = entry.payload || {};
+  const inventoryItemId = normalizeId(payload.inventory_item_id || item?.id);
+  const stockFormId = normalizeId(payload.inventory_item_stock_form_id);
+  const existingStockForm = getItemStockForms(item).find(
+    (stockForm) => stockFormId && normalizeId(stockForm?.id) === stockFormId,
+  );
+
+  if (existingStockForm) {
+    return existingStockForm;
+  }
+
+  const packaging = String(
+    payload.stock_form_packaging || payload.packaging || "",
+  ).trim();
+  const barcode = normalizeInventoryBarcode(
+    payload.stock_form_barcode || payload.barcode,
+  );
+
+  if (!packaging && !barcode) {
+    return null;
+  }
+
+  const unitsPerPackaging =
+    getPositiveNumber(
+      payload.stock_form_units_per_packaging ||
+        payload.units_per_packaging ||
+        payload.quantity,
+    ) || (packaging.toLowerCase() === "piece" ? 1 : 0);
+
+  return {
+    id: stockFormId || `local-stock-form:${entry.id || entry.entityLocalId}`,
+    inventory_item_id: inventoryItemId,
+    barcode: barcode || null,
+    packaging: packaging || "piece",
+    units_per_packaging: unitsPerPackaging || 1,
+    unit_of_measure:
+      payload.stock_form_unit_of_measure || payload.unit_of_measure || "pc",
+    unit_of_measure_value:
+      payload.stock_form_unit_of_measure_value ||
+      payload.unit_of_measure_value ||
+      1,
+    is_active: true,
+    is_local_only: true,
+    client_sync_id: entry.id || null,
+  };
+};
 
 export const buildQueuedInventoryItem = (entry) => {
   const payload = entry.payload || {};
@@ -44,19 +121,20 @@ export const buildQueuedInventoryItem = (entry) => {
 };
 
 export const mergeInventoryItemsWithSyncStatus = (
-  inventoryItems,
-  syncQueueEntries,
+  inventoryItems = [],
+  syncQueueEntries = [],
 ) => {
-  const syncedItems = inventoryItems.map((item) => {
+  const syncedItems = (Array.isArray(inventoryItems) ? inventoryItems : []).map((item) => {
     const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
-      if (entry.moduleName !== "mayor-inventory") {
+      if (entry.moduleName !== MAYOR_INVENTORY_MODULE) {
         return false;
       }
 
-      return (
+      const isItemEntry =
         entry.entityType === "INVENTORY_ITEM" &&
-        (entry.entityServerId === item.id || entry.entityLocalId === item.id)
-      );
+        (entry.entityServerId === item.id || entry.entityLocalId === item.id);
+
+      return isItemEntry || isInventoryBatchEntryForItem(entry, item);
     });
 
     return {
@@ -69,7 +147,7 @@ export const mergeInventoryItemsWithSyncStatus = (
   const optimisticItems = syncQueueEntries
     .filter((entry) => {
       return (
-        entry.moduleName === "mayor-inventory" &&
+        entry.moduleName === MAYOR_INVENTORY_MODULE &&
         entry.actionKey === "INVENTORY_ITEM_CREATE" &&
         !syncedItems.some(
           (item) =>
@@ -79,5 +157,36 @@ export const mergeInventoryItemsWithSyncStatus = (
     })
     .map(buildQueuedInventoryItem);
 
-  return [...optimisticItems, ...syncedItems];
+  const mergedItems = [...optimisticItems, ...syncedItems];
+
+  return mergedItems.map((item) => {
+    const pendingStockForms = syncQueueEntries
+      .filter((entry) => isInventoryBatchEntryForItem(entry, item))
+      .map((entry) => buildQueuedInventoryStockForm(entry, item))
+      .filter(Boolean);
+
+    if (pendingStockForms.length === 0) {
+      return item;
+    }
+
+    const stockForms = getItemStockForms(item);
+    const stockFormIds = new Set(stockForms.map((stockForm) => normalizeId(stockForm?.id)));
+    const nextStockForms = [...stockForms];
+
+    pendingStockForms.forEach((stockForm) => {
+      const stockFormId = normalizeId(stockForm.id);
+
+      if (stockFormIds.has(stockFormId)) {
+        return;
+      }
+
+      stockFormIds.add(stockFormId);
+      nextStockForms.push(stockForm);
+    });
+
+    return {
+      ...item,
+      stock_forms: nextStockForms,
+    };
+  });
 };

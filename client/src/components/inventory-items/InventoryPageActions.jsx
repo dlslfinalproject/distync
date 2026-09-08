@@ -14,6 +14,7 @@ const InventoryPageActions = ({
   onOpenExportModal,
   showScanAndAdd = true,
   showExport = true,
+  isOffline = false,
 }) => {
   return (
     <div className="inventory-items-actions-row" style={inventoryPageStyles.topActionsRow}>
@@ -40,11 +41,16 @@ const InventoryPageActions = ({
         <button
           type="button"
           onClick={onOpenExportModal}
-          disabled={Boolean(exportingFormat)}
+          disabled={Boolean(exportingFormat) || isOffline}
+          title={
+            isOffline
+              ? "Exporting inventory data requires an internet connection."
+              : "Export inventory"
+          }
           style={{
             ...secondaryTopBtn,
-            opacity: exportingFormat ? 0.7 : 1,
-            cursor: exportingFormat ? "not-allowed" : "pointer",
+            opacity: exportingFormat || isOffline ? 0.7 : 1,
+            cursor: exportingFormat || isOffline ? "not-allowed" : "pointer",
           }}
         >
           <FiFileText size={16} />

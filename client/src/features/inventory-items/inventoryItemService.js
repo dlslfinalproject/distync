@@ -1,7 +1,9 @@
 import {
   buildOfflineQueuedResponse,
+  performOnlineOnlyMutation,
   performSyncableMutation,
 } from "../../offline/syncService";
+import { getMayorInventoryCacheSnapshot } from "../../offline/mayorInventoryCache.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -138,6 +140,7 @@ export const createInventoryItem = async (payload) => {
     entityLocalId: payload?.item_code || payload?.item_name || null,
     payload,
     requiredFields: ["item_name", "category", "unit_of_measure"],
+    canQueueOffline: async () => Boolean(await getMayorInventoryCacheSnapshot()),
     request: async () => {
       const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items`, {
         method: "POST",
@@ -165,11 +168,7 @@ export const createInventoryItem = async (payload) => {
 };
 
 export const updateInventoryItem = async (inventoryItemId, payload) => {
-  return performSyncableMutation({
-    moduleName: "mayor-inventory",
-    actionKey: "INVENTORY_ITEM_UPDATE",
-    entityType: "INVENTORY_ITEM",
-    entityServerId: inventoryItemId,
+  return performOnlineOnlyMutation({
     payload,
     requiredFields: ["item_name", "category", "unit_of_measure"],
     request: async () => {
@@ -186,18 +185,8 @@ export const updateInventoryItem = async (inventoryItemId, payload) => {
 
       return handleJsonResponse(response, "Failed to update inventory item");
     },
-    buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
-      buildOfflineQueuedResponse({
-        message:
-          "Inventory item update saved offline. Pending sync once connection is restored.",
-        data: {
-          id: inventoryItemId,
-          updated_at: clientTimestamp,
-        },
-        clientSyncId,
-        entityLocalId: inventoryItemId,
-        clientTimestamp,
-      }),
+    offlineMessage:
+      "Editing inventory items requires an internet connection.",
   });
 };
 

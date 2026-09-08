@@ -25,12 +25,16 @@ test("offline readiness remains a separate Barangay layout concern", async () =>
   assert.match(layout, /<OfflineDataReadiness \{\.\.\.offlinePreparation\} \/>/);
 });
 
-test("Mayor Inventory reference still owns its existing scoped banner", async () => {
+test("Mayor Inventory reuses the exact Barangay offline notice", async () => {
   const inventory = await readSource("pages/inventory/InventoryItemsPage.jsx");
-  const banner = await readSource("components/layout/SyncStatusBanner.jsx");
+  const notice = await readSource("components/layout/BarangayOfflineModeNotice.jsx");
 
-  assert.match(inventory, /<SyncStatusBanner scope="mayor-inventory" \/>/);
-  assert.match(banner, /Offline Mode Active/);
+  assert.match(
+    inventory,
+    /<BarangayOfflineModeNotice[\s\S]*message=\{MAYOR_INVENTORY_OFFLINE_MESSAGE\}[\s\S]*secondaryMessage=\{MAYOR_INVENTORY_OFFLINE_SCOPE_MESSAGE\}/,
+  );
+  assert.match(inventory, /<SyncStatusBanner scope="mayor-inventory" showOffline=\{false\} \/>/);
+  assert.match(notice, /message = BARANGAY_OFFLINE_MODE_MESSAGE/);
 });
 
 test("Masterlist no longer emits the redundant page-level offline messages", async () => {

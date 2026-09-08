@@ -839,6 +839,32 @@ const findHouseholdRegistrationSyncTransaction = async ({
   return result.rows[0] || null;
 };
 
+const findSyncedEntityServerIdByLocalId = async ({
+  entityType,
+  actionKey,
+  entityLocalId,
+  userId,
+}, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      SELECT entity_server_id
+      FROM sync_transactions
+      WHERE entity_type = $1
+        AND operation_type = 'CREATE'
+        AND payload_json->>'action_key' = $2
+        AND entity_local_id = $3
+        AND user_id = $4
+        AND sync_status = 'SYNCED'
+        AND entity_server_id IS NOT NULL
+      ORDER BY updated_at DESC, created_at DESC, id DESC
+      LIMIT 1
+    `,
+    [entityType, actionKey, entityLocalId, userId],
+  );
+
+  return result.rows[0] || null;
+};
+
 const getBarangayNamesByIds = async (barangayIds, dbClient = pool) => {
   const ids = [...new Set((barangayIds || []).filter(Boolean))];
   if (ids.length === 0) {
@@ -1186,6 +1212,7 @@ module.exports = {
   getDisasterEventTitlesByIds,
   getSyncConflictsByUser,
   findHouseholdRegistrationSyncTransaction,
+  findSyncedEntityServerIdByLocalId,
   getBarangayNamesByIds,
   getSyncConflictsByMunicipality,
   getSyncConflictsByMayor,

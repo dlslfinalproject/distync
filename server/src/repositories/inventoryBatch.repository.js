@@ -168,24 +168,31 @@ const getInventoryBatchByItemIdAndBatchNo = async (
 ) => {
   const query = `
     SELECT
-      id,
-      inventory_item_id,
-      inventory_item_stock_form_id,
-      batch_no,
-      source_type,
-      quantity_received,
-      quantity_available,
-      stock_version,
-      expiration_date,
-      received_at,
-      storage_location,
-      status,
-      created_by,
-      created_at,
-      updated_at
+      inventory_batches.id,
+      inventory_batches.inventory_item_id,
+      inventory_batches.inventory_item_stock_form_id,
+      inventory_batches.batch_no,
+      inventory_batches.source_type,
+      inventory_batches.quantity_received,
+      inventory_batches.quantity_available,
+      inventory_batches.stock_version,
+      inventory_batches.expiration_date,
+      inventory_batches.received_at,
+      inventory_batches.storage_location,
+      inventory_batches.status,
+      inventory_batches.created_by,
+      inventory_batches.created_at,
+      inventory_batches.updated_at,
+      stock_forms.barcode AS stock_form_barcode,
+      stock_forms.packaging AS stock_form_packaging,
+      stock_forms.units_per_packaging AS stock_form_units_per_packaging,
+      stock_forms.unit_of_measure AS stock_form_unit_of_measure,
+      stock_forms.unit_of_measure_value AS stock_form_unit_of_measure_value
     FROM inventory_batches
-    WHERE inventory_item_id = $1
-      AND batch_no = $2
+    LEFT JOIN inventory_item_stock_forms stock_forms
+      ON stock_forms.id = inventory_batches.inventory_item_stock_form_id
+    WHERE inventory_batches.inventory_item_id = $1
+      AND inventory_batches.batch_no = $2
   `;
 
   const result = await dbClient.query(query, [inventoryItemId, batchNo]);

@@ -959,3 +959,181 @@ test("createInventoryBatch maps ON CONFLICT race loser to canonical duplicate wi
   assert.equal(insertCalls, 1);
   assert.equal(lookupCalls, 2);
 });
+
+test("createInventoryBatch keeps a same-packaging offline collision for Conflict Review", async () => {
+  await withStubbedInventoryBatchService(
+    baseStubs({
+      getInventoryBatchByItemIdAndBatchNo: async () => ({
+        id: "batch-existing",
+        inventory_item_id: "item-1",
+        inventory_item_stock_form_id: "stock-form-1",
+        batch_no: "LOT-A",
+      }),
+      insertInventoryBatch: async () => {
+        throw new Error("same-packaging collision must not insert");
+      },
+    }),
+    async ({ createInventoryBatch }) => {
+      await assert.rejects(
+        createInventoryBatch({
+          inventory_item_id: "item-1",
+          inventory_item_stock_form_id: "stock-form-1",
+          batch_no: "LOT-A",
+          source_type: "LGU",
+          quantity_received: 20,
+          created_by: "user-1",
+          allowBatchNumberReassignment: true,
+        }),
+        (error) => {
+          assert.equal(error.code, "DUPLICATE_INVENTORY_BATCH");
+          assert.equal(error.entityServerId, "batch-existing");
+          return true;
+        },
+      );
+    },
+  );
+});
+
+test("createInventoryBatch reassigns an offline duplicate batch number when packaging differs", async () => {
+  const occupiedBatchNumbers = new Set([
+    "RICE-BATCH-003",
+    "RICE-BATCH-004",
+  ]);
+  let insertedBatchPayload = null;
+
+  await withStubbedInventoryBatchService(
+    baseStubs({
+      getInventoryBatchByItemIdAndBatchNo: async (_itemId, batchNo) =>
+        occupiedBatchNumbers.has(batchNo)
+          ? {
+              id: `existing-${batchNo}`,
+              inventory_item_id: "item-1",
+              batch_no: batchNo,
+            }
+          : null,
+      insertInventoryBatch: async (batchData) => {
+        insertedBatchPayload = batchData;
+        occupiedBatchNumbers.add(batchData.batch_no);
+        return {
+          id: "batch-created-reassigned",
+          ...batchData,
+        };
+      },
+      getInventoryBatchById: async () => ({
+        id: "batch-created-reassigned",
+        inventory_item_id: "item-1",
+        inventory_item_stock_form_id: null,
+        batch_no: insertedBatchPayload.batch_no,
+        source_type: "LGU",
+        quantity_received: 20,
+        quantity_available: 20,
+        stock_version: 0,
+        expiration_date: null,
+        received_at: "2026-08-09T00:00:00.000Z",
+        storage_location: "Mayor's Office Inventory",
+        status: "AVAILABLE",
+        created_by: "user-1",
+        item_code: "RICE",
+        item_name: "Rice",
+        category: "Food",
+        unit_of_measure: "sack",
+        is_active: true,
+      }),
+    }),
+    async ({ createInventoryBatch }) => {
+      const batch = await createInventoryBatch({
+        inventory_item_id: "item-1",
+        batch_no: "RICE-BATCH-003",
+        source_type: "LGU",
+        quantity_received: 20,
+        created_by: "user-1",
+        allowBatchNumberReassignment: true,
+        stock_form_packaging: "box",
+        stock_form_units_per_packaging: 10,
+        stock_form_unit_of_measure: "pc",
+        stock_form_unit_of_measure_value: 1,
+      });
+
+      assert.equal(batch.batch_no, "RICE-BATCH-005");
+      assert.equal(batch.batch_number_was_reassigned, true);
+      assert.equal(batch.requested_batch_no, "RICE-BATCH-003");
+    },
+  );
+
+  assert.equal(insertedBatchPayload.batch_no, "RICE-BATCH-005");
+});
+
+test("createInventoryBatch retries a concurrent offline batch collision", async () => {
+  const occupiedBatchNumbers = new Set(["RICE-BATCH-003"]);
+  const insertedBatchNumbers = [];
+  let insertCalls = 0;
+
+  await withStubbedInventoryBatchService(
+    baseStubs({
+      getInventoryBatchByItemIdAndBatchNo: async (_itemId, batchNo) =>
+        occupiedBatchNumbers.has(batchNo)
+          ? {
+              id: `existing-${batchNo}`,
+              inventory_item_id: "item-1",
+              batch_no: batchNo,
+            }
+          : null,
+      insertInventoryBatch: async (batchData) => {
+        insertCalls += 1;
+        insertedBatchNumbers.push(batchData.batch_no);
+
+        if (insertCalls === 1) {
+          occupiedBatchNumbers.add(batchData.batch_no);
+          return null;
+        }
+
+        occupiedBatchNumbers.add(batchData.batch_no);
+        return {
+          id: "batch-created-after-retry",
+          ...batchData,
+        };
+      },
+      getInventoryBatchById: async () => ({
+        id: "batch-created-after-retry",
+        inventory_item_id: "item-1",
+        inventory_item_stock_form_id: null,
+        batch_no: "RICE-BATCH-005",
+        source_type: "LGU",
+        quantity_received: 20,
+        quantity_available: 20,
+        stock_version: 0,
+        expiration_date: null,
+        received_at: "2026-08-09T00:00:00.000Z",
+        storage_location: "Mayor's Office Inventory",
+        status: "AVAILABLE",
+        created_by: "user-1",
+        item_code: "RICE",
+        item_name: "Rice",
+        category: "Food",
+        unit_of_measure: "sack",
+        is_active: true,
+      }),
+    }),
+    async ({ createInventoryBatch }) => {
+      const batch = await createInventoryBatch({
+        inventory_item_id: "item-1",
+        batch_no: "RICE-BATCH-003",
+        source_type: "LGU",
+        quantity_received: 20,
+        created_by: "user-1",
+        allowBatchNumberReassignment: true,
+        stock_form_packaging: "box",
+        stock_form_units_per_packaging: 10,
+        stock_form_unit_of_measure: "pc",
+        stock_form_unit_of_measure_value: 1,
+      });
+
+      assert.equal(batch.batch_no, "RICE-BATCH-005");
+    },
+  );
+
+  assert.deepEqual(insertedBatchNumbers, [
+    "RICE-BATCH-004",
+    "RICE-BATCH-005",
+  ]);
+});

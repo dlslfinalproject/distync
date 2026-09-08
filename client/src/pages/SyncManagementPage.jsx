@@ -104,6 +104,9 @@ const SYNC_SECTION_TABS = [
   { value: "CONFLICTS", label: "Conflict Review" },
   { value: "AUDIT", label: "Sync History" },
 ];
+const SYNC_TAB_OFFLINE_MESSAGE = "Connect online to access this tab.";
+const isSyncTabUnavailableOffline = (isOnline, tabValue) =>
+  !isOnline && tabValue !== "QUEUE";
 
 const BARANGAY_COLUMN_LABEL = "Barangay";
 const EMPTY_MESSAGE = "No matching records found. Try adjusting your search or filters.";
@@ -178,6 +181,12 @@ const syncTabButtonStyles = (isActive) => ({
   transition: "color 160ms ease, border-color 160ms ease",
   whiteSpace: "nowrap",
 });
+
+const syncTabDisabledStyles = {
+  color: "#9aaaba",
+  cursor: "not-allowed",
+  opacity: 0.62,
+};
 
 const syncCenterPageStyles = {
   display: "flex",
@@ -396,6 +405,7 @@ const SyncManagementPage = () => {
   const [isResolvingConflict, setIsResolvingConflict] = useState(false);
   const [selectedConflictDetail, setSelectedConflictDetail] = useState(null);
   const [resolutionReason, setResolutionReason] = useState("");
+  const [replacementBarcode, setReplacementBarcode] = useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [activeSyncTab, setActiveSyncTab] = useState("QUEUE");
   const [paginationByTab, setPaginationByTab] = useState(
@@ -470,7 +480,7 @@ const SyncManagementPage = () => {
   );
 
   const [isOnline, setIsOnline] = useState(() =>
-    typeof navigator === "undefined" ? true : navigator.onLine,
+    typeof navigator === "undefined" ? true : navigator.onLine !== false,
   );
   const statusOptions = useMemo(() => {
     if (activeSyncTab === "CONFLICTS") {
@@ -692,6 +702,17 @@ const SyncManagementPage = () => {
     setIsLoadingHistory(true);
     setErrorMessage("");
 
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setSyncHistory({ transactions: [], conflicts: [] });
+      setSyncStatusSummary({
+        conflictCount: null,
+        lastSuccessfulSyncAt: null,
+        backendReachable: false,
+      });
+      setIsLoadingHistory(false);
+      return;
+    }
+
     try {
       const historyFilters = { limit: 100 };
 
@@ -770,7 +791,19 @@ const SyncManagementPage = () => {
     }
 
     const updateConnectivity = () => {
-      setIsOnline(navigator.onLine);
+      const nextIsOnline = navigator.onLine !== false;
+      setIsOnline(nextIsOnline);
+
+      if (!nextIsOnline) {
+        setActiveSyncTab("QUEUE");
+        setErrorMessage("");
+        setBarangayOptionsError("");
+        setSelectedConflictDetail(null);
+        setResolutionReason("");
+        setReplacementBarcode("");
+      } else {
+        void loadSyncHistory();
+      }
     };
 
     window.addEventListener("online", updateConnectivity);
@@ -780,7 +813,7 @@ const SyncManagementPage = () => {
       window.removeEventListener("online", updateConnectivity);
       window.removeEventListener("offline", updateConnectivity);
     };
-  }, []);
+  }, [loadSyncHistory]);
 
   useEffect(() => {
     const validStatuses = statusOptions.map((option) => option.value);
@@ -808,6 +841,10 @@ const SyncManagementPage = () => {
   };
 
   const handleRetrySync = async (entryIds = null) => {
+    if (!isOnline) {
+      return;
+    }
+
     const retryTargets = entryIds
       ? failedQueueEntries.filter((entry) => entryIds.includes(entry.id))
       : failedQueueEntries;
@@ -934,6 +971,7 @@ const SyncManagementPage = () => {
           : null,
       );
       setResolutionReason("");
+      setReplacementBarcode("");
     } catch (error) {
       setFeedback({
         type: "error",
@@ -955,7 +993,10 @@ const SyncManagementPage = () => {
 
     const trimmedReason = resolutionReason.trim();
 
-    if (["KEEP_SERVER", "APPLY_LOCAL"].includes(action) && !trimmedReason) {
+    if (
+      ["KEEP_SERVER", "APPLY_LOCAL", "ACCEPT_BOTH"].includes(action) &&
+      !trimmedReason
+    ) {
       setFeedback({
         type: "error",
         title: "Resolution Reason Required",
@@ -970,6 +1011,7 @@ const SyncManagementPage = () => {
       const response = await resolveSyncConflict(selectedConflictDetail.id, {
         action,
         reason: trimmedReason,
+        replacementBarcode: replacementBarcode.trim(),
       });
       const resolvedConflict = response?.data || null;
 
@@ -999,6 +1041,7 @@ const SyncManagementPage = () => {
           : null,
       );
       setResolutionReason("");
+      setReplacementBarcode("");
       await loadSyncHistory();
       setFeedback({
         type: "success",
@@ -1246,8 +1289,23 @@ const SyncManagementPage = () => {
               aria-selected={activeSyncTab === tab.value}
               aria-controls={SYNC_TABPANEL_IDS[tab.value]}
               type="button"
-              onClick={() => setActiveSyncTab(tab.value)}
-              style={syncTabButtonStyles(activeSyncTab === tab.value)}
+              onClick={() => {
+                if (!isSyncTabUnavailableOffline(isOnline, tab.value)) {
+                  setActiveSyncTab(tab.value);
+                }
+              }}
+              disabled={isSyncTabUnavailableOffline(isOnline, tab.value)}
+              title={
+                isSyncTabUnavailableOffline(isOnline, tab.value)
+                  ? SYNC_TAB_OFFLINE_MESSAGE
+                  : undefined
+              }
+              style={{
+                ...syncTabButtonStyles(activeSyncTab === tab.value),
+                ...(isSyncTabUnavailableOffline(isOnline, tab.value)
+                  ? syncTabDisabledStyles
+                  : {}),
+              }}
             >
               {tab.label}
             </button>
@@ -1562,10 +1620,13 @@ const SyncManagementPage = () => {
         onClose={() => {
           setSelectedConflictDetail(null);
           setResolutionReason("");
+          setReplacementBarcode("");
         }}
         onResolve={handleResolveConflict}
         resolutionReason={resolutionReason}
         onResolutionReasonChange={setResolutionReason}
+        replacementBarcode={replacementBarcode}
+        onReplacementBarcodeChange={setReplacementBarcode}
         isResolving={isResolvingConflict}
         includeBarangay={isMswdoPortal}
       />

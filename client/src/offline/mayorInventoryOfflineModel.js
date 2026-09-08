@@ -1,11 +1,17 @@
 import { LOCAL_SYNC_STATUS } from "./syncStatusConstants.js";
 import { normalizeInventoryBarcode } from "../features/inventory-items/inventoryBarcode.js";
-import { buildQueuedInventoryItem } from "../features/inventory-items/inventoryItemSync.js";
+import {
+  buildQueuedInventoryItem,
+  buildQueuedInventoryStockForm,
+} from "../features/inventory-items/inventoryItemSync.js";
 
 export const MAYOR_INVENTORY_CACHE_VERSION = 2;
 
 export const MAYOR_INVENTORY_OFFLINE_ACTIONS = Object.freeze([
   "INVENTORY_ITEM_CREATE",
+  // Keep legacy queued edits visible in Sync Center. New edits are blocked by
+  // the online-only item service, but an edit captured before that policy
+  // changed should not disappear from the user's queue summary.
   "INVENTORY_ITEM_UPDATE",
   "INVENTORY_BATCH_CREATE",
 ]);
@@ -115,7 +121,7 @@ export const buildQueuedInventoryBatch = (entry = {}, inventoryItems = []) => {
         (candidate) =>
           normalizeId(candidate?.id) ===
           normalizeId(payload.inventory_item_stock_form_id),
-      ) || null
+      ) || buildQueuedInventoryStockForm(entry, inventoryItem)
     : null;
 
   return {
@@ -126,6 +132,19 @@ export const buildQueuedInventoryBatch = (entry = {}, inventoryItems = []) => {
       payload.inventory_item_stock_form_id || stockForm?.id || null,
     inventory_item: inventoryItem,
     inventory_item_stock_form: stockForm,
+    stock_form_barcode: payload.stock_form_barcode || stockForm?.barcode || null,
+    stock_form_packaging:
+      payload.stock_form_packaging || stockForm?.packaging || null,
+    stock_form_units_per_packaging:
+      payload.stock_form_units_per_packaging ||
+      stockForm?.units_per_packaging ||
+      null,
+    stock_form_unit_of_measure:
+      payload.stock_form_unit_of_measure || stockForm?.unit_of_measure || null,
+    stock_form_unit_of_measure_value:
+      payload.stock_form_unit_of_measure_value ||
+      stockForm?.unit_of_measure_value ||
+      null,
     source_type: payload.source_type || "OTHER",
     quantity_received: quantityReceived,
     quantity_available:
@@ -135,6 +154,59 @@ export const buildQueuedInventoryBatch = (entry = {}, inventoryItems = []) => {
     created_at: entry.clientTimestamp || null,
     updated_at: entry.clientUpdatedAt || entry.clientTimestamp || null,
     status: payload.status || "AVAILABLE",
+    sync_status: entry.status || LOCAL_SYNC_STATUS.PENDING,
+    is_local_only: true,
+    client_sync_id: entry.id || null,
+  };
+};
+
+export const buildQueuedInventoryItemOpeningBatch = (
+  entry = {},
+  inventoryItems = [],
+) => {
+  const payload = entry.payload || {};
+  const inventoryItemId = normalizeId(entry.entityLocalId || entry.id);
+  const inventoryItem =
+    (Array.isArray(inventoryItems) ? inventoryItems : []).find(
+      (item) => normalizeId(item?.id) === inventoryItemId,
+    ) || null;
+
+  if (!inventoryItem) {
+    return null;
+  }
+
+  const packaging = String(payload.packaging || "piece").trim().toLowerCase();
+  const packagingCount = normalizePositiveQuantity(payload.packaging_count);
+  const unitsPerPackaging =
+    normalizePositiveQuantity(payload.quantity) || (packaging === "piece" ? 1 : 0);
+  const quantityReceived = packagingCount * unitsPerPackaging;
+  const stockForm = (Array.isArray(inventoryItem.stock_forms)
+    ? inventoryItem.stock_forms
+    : [])[0] || null;
+
+  return {
+    id: `${LOCAL_BATCH_ID_PREFIX}opening:${entry.id || inventoryItemId}`,
+    batch_no: payload.batch_no || "Pending opening batch",
+    inventory_item_id: inventoryItemId,
+    inventory_item_stock_form_id: stockForm?.id || null,
+    inventory_item: inventoryItem,
+    inventory_item_stock_form: stockForm,
+    stock_form_barcode: stockForm?.barcode || payload.barcode || null,
+    stock_form_packaging: stockForm?.packaging || packaging,
+    stock_form_units_per_packaging:
+      stockForm?.units_per_packaging || unitsPerPackaging || null,
+    stock_form_unit_of_measure:
+      stockForm?.unit_of_measure || payload.unit_of_measure || "pc",
+    stock_form_unit_of_measure_value:
+      stockForm?.unit_of_measure_value || payload.unit_of_measure_value || 1,
+    source_type: "LGU",
+    quantity_received: quantityReceived,
+    quantity_available: quantityReceived,
+    expiration_date: payload.expiration_date || null,
+    received_at: entry.clientTimestamp || null,
+    created_at: entry.clientTimestamp || null,
+    updated_at: entry.clientUpdatedAt || entry.clientTimestamp || null,
+    status: "AVAILABLE",
     sync_status: entry.status || LOCAL_SYNC_STATUS.PENDING,
     is_local_only: true,
     client_sync_id: entry.id || null,
@@ -176,10 +248,17 @@ export const mergeInventoryBatchesWithSyncStatus = ({
     .filter(
       (entry) =>
         entry?.moduleName === MAYOR_INVENTORY_MODULE &&
-        entry?.actionKey === "INVENTORY_BATCH_CREATE" &&
+        ["INVENTORY_ITEM_CREATE", "INVENTORY_BATCH_CREATE"].includes(
+          entry?.actionKey,
+        ) &&
         isOutstandingMayorInventoryQueueEntry(entry),
     )
-    .map((entry) => buildQueuedInventoryBatch(entry, inventoryItems))
+    .map((entry) =>
+      entry.actionKey === "INVENTORY_ITEM_CREATE"
+        ? buildQueuedInventoryItemOpeningBatch(entry, inventoryItems)
+        : buildQueuedInventoryBatch(entry, inventoryItems),
+    )
+    .filter(Boolean)
     .filter((batch) => !serverIdentities.has(getInventoryBatchIdentity(batch)));
 
   return [...optimisticRows, ...serverRows];
