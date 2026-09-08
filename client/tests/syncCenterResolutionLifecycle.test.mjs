@@ -66,3 +66,18 @@ test("keep saved conflict resolution explains that the losing entry stays in his
   assert.match(modalSource, /This device entry is not added to/);
   assert.match(modalSource, /decision remains in Sync History/);
 });
+
+test("missing conflict review notes are shown inline under the field", async () => {
+  const [pageSource, modalSource] = await Promise.all([
+    fs.readFile(pageSourcePath, "utf8"),
+    fs.readFile(modalSourcePath, "utf8"),
+  ]);
+
+  assert.match(pageSource, /const \[resolutionReasonError, setResolutionReasonError\]/);
+  assert.match(pageSource, /setResolutionReasonError\("Review note is required\."\)/);
+  assert.doesNotMatch(pageSource, /title: "Resolution Reason Required"/);
+  assert.match(pageSource, /Review note is required\./);
+  assert.match(modalSource, /resolutionReasonError/);
+  assert.match(modalSource, /aria-invalid=\{Boolean\(resolutionReasonError\)\}/);
+  assert.match(modalSource, /role="alert"/);
+});

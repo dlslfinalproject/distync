@@ -137,6 +137,13 @@ const modalStyles = {
     fontSize: "13px",
     lineHeight: 1.5,
   },
+  errorText: {
+    margin: "4px 0 0",
+    color: "#b2434f",
+    fontSize: "12px",
+    fontWeight: 700,
+    lineHeight: 1.4,
+  },
 };
 
 const ACTION_LABELS = {
@@ -192,6 +199,7 @@ const SyncConflictDetailModal = ({
   onResolve,
   resolutionReason,
   onResolutionReasonChange,
+  resolutionReasonError = "",
   replacementBarcode = "",
   onReplacementBarcodeChange,
   isResolving = false,
@@ -360,18 +368,41 @@ const SyncConflictDetailModal = ({
               ) : null}
               {availableActions.length > 0 ? (
                 <label style={modalStyles.field}>
-                  <span style={modalStyles.fieldLabel}>Review Note</span>
+                  <span style={modalStyles.fieldLabel}>
+                    Review Note{requiresReason ? " *" : ""}
+                  </span>
                   <textarea
                     value={resolutionReason}
                     onChange={(event) => onResolutionReasonChange(event.target.value)}
-                    style={modalStyles.textarea}
+                    style={{
+                      ...modalStyles.textarea,
+                      ...(resolutionReasonError
+                        ? { borderColor: "#b2434f" }
+                        : {}),
+                    }}
                     placeholder={
                       requiresReason
                         ? "Reason required for this review action"
                         : "Optional review note"
                     }
+                    aria-required={requiresReason}
+                    aria-invalid={Boolean(resolutionReasonError)}
+                    aria-describedby={
+                      resolutionReasonError
+                        ? "sync-conflict-review-note-error"
+                        : undefined
+                    }
                     disabled={isResolving}
                   />
+                  {resolutionReasonError ? (
+                    <p
+                      id="sync-conflict-review-note-error"
+                      role="alert"
+                      style={modalStyles.errorText}
+                    >
+                      {resolutionReasonError}
+                    </p>
+                  ) : null}
                 </label>
               ) : null}
               {availableActions.includes("KEEP_SERVER") ? (

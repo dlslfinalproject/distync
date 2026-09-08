@@ -409,6 +409,7 @@ const SyncManagementPage = () => {
   const [isResolvingConflict, setIsResolvingConflict] = useState(false);
   const [selectedConflictDetail, setSelectedConflictDetail] = useState(null);
   const [resolutionReason, setResolutionReason] = useState("");
+  const [resolutionReasonError, setResolutionReasonError] = useState("");
   const [replacementBarcode, setReplacementBarcode] = useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [activeSyncTab, setActiveSyncTab] = useState("QUEUE");
@@ -1044,6 +1045,7 @@ const SyncManagementPage = () => {
           : null,
       );
       setResolutionReason("");
+      setResolutionReasonError("");
       setReplacementBarcode("");
     } catch (error) {
       setFeedback({
@@ -1062,7 +1064,15 @@ const SyncManagementPage = () => {
   const handleCloseConflictDetail = useCallback(() => {
     setSelectedConflictDetail(null);
     setResolutionReason("");
+    setResolutionReasonError("");
     setReplacementBarcode("");
+  }, []);
+
+  const handleResolutionReasonChange = useCallback((value) => {
+    setResolutionReason(value);
+    if (value.trim()) {
+      setResolutionReasonError("");
+    }
   }, []);
 
   const handleResolveConflict = async (action) => {
@@ -1076,11 +1086,7 @@ const SyncManagementPage = () => {
       ["KEEP_SERVER", "APPLY_LOCAL", "ACCEPT_BOTH"].includes(action) &&
       !trimmedReason
     ) {
-      setFeedback({
-        type: "error",
-        title: "Resolution Reason Required",
-        message: "Add a reason before submitting this resolution.",
-      });
+      setResolutionReasonError("Review note is required.");
       return;
     }
 
@@ -1136,6 +1142,7 @@ const SyncManagementPage = () => {
           : null,
       );
       setResolutionReason("");
+      setResolutionReasonError("");
       setReplacementBarcode("");
       await loadSyncHistory();
       setFeedback({
@@ -1715,7 +1722,8 @@ const SyncManagementPage = () => {
         onClose={handleCloseConflictDetail}
         onResolve={handleResolveConflict}
         resolutionReason={resolutionReason}
-        onResolutionReasonChange={setResolutionReason}
+        onResolutionReasonChange={handleResolutionReasonChange}
+        resolutionReasonError={resolutionReasonError}
         replacementBarcode={replacementBarcode}
         onReplacementBarcodeChange={setReplacementBarcode}
         isResolving={isResolvingConflict}
