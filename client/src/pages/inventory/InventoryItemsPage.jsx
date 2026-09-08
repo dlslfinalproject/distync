@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
@@ -442,11 +442,6 @@ const InventoryItemsPage = () => {
     userId: authenticatedUser?.id || "",
     roleCode: currentRole,
   });
-  const refreshGateRef = useRef(null);
-
-  if (!refreshGateRef.current) {
-    refreshGateRef.current = createInventoryRefreshGate();
-  }
 
   const refreshMayorInventoryConflictState = async () => {
     if (!isMayorPortal || isInventoryOffline()) {
@@ -679,7 +674,7 @@ const InventoryItemsPage = () => {
       }
 
       if (typeof navigator !== "undefined" && navigator.onLine) {
-        void requestInventoryRefresh({ trigger: "sync-finished" });
+        loadInventoryData();
         if (isMayorPortal) {
           void refreshMayorInventoryConflictState();
         }
@@ -704,10 +699,9 @@ const InventoryItemsPage = () => {
 
     const handleVisibilityRefresh = () => {
       if (document.visibilityState === "visible") {
-        refreshInventoryMonitor("visibility");
+        refreshInventoryMonitor();
       }
     };
-    const handleFocusRefresh = () => refreshInventoryMonitor("focus");
 
     if (isMayorPortal && isOnline) {
       void refreshMayorInventoryConflictState();
