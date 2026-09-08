@@ -14,6 +14,8 @@ import {
   buildMasterlistFilterSectorOptions,
 } from "../../utils/registrationOptions";
 
+const REMOTE_MASTERLIST_REVALIDATION_INTERVAL_MS = 60 * 1000;
+
 export const useBarangayMasterlistSync = ({
   rows,
   syncQueueEntries,
@@ -136,13 +138,39 @@ export const useBarangayMasterlistSync = ({
   }, []);
 
   useEffect(() => {
-    const unsubscribe = subscribeToSyncUpdates(() => {
-      if (typeof navigator !== "undefined" && navigator.onLine) {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const isRevalidationAllowed = () =>
+      typeof navigator === "undefined" ||
+      (navigator.onLine !== false &&
+        typeof document !== "undefined" &&
+        document.visibilityState !== "hidden");
+
+    const revalidate = () => {
+      if (isRevalidationAllowed()) {
         reloadMasterlist();
       }
-    });
+    };
 
-    return () => unsubscribe();
+    const unsubscribe = subscribeToSyncUpdates(revalidate);
+    const intervalId = window.setInterval(
+      revalidate,
+      REMOTE_MASTERLIST_REVALIDATION_INTERVAL_MS,
+    );
+    window.addEventListener("online", revalidate);
+    window.addEventListener("focus", revalidate);
+    const documentObject = typeof document !== "undefined" ? document : null;
+    documentObject?.addEventListener("visibilitychange", revalidate);
+
+    return () => {
+      unsubscribe();
+      window.clearInterval(intervalId);
+      window.removeEventListener("online", revalidate);
+      window.removeEventListener("focus", revalidate);
+      documentObject?.removeEventListener("visibilitychange", revalidate);
+    };
   }, [reloadMasterlist]);
 
   return {

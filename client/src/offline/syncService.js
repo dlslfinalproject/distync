@@ -307,6 +307,7 @@ const flushSelectedSyncEntries = async (
           result.data?.household?.id ||
           result.data?.distribution_transaction_id ||
           result.data?.transaction_id ||
+          entry.entityServerId ||
           null,
         syncedAt: isTerminalResult ? getIsoNow() : null,
         lastError:

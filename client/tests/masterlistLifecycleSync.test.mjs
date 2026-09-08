@@ -155,6 +155,58 @@ test("pending departure overlays the server Active occurrence into Archived exac
   assert.equal(activeRows.length, 0);
 });
 
+test("Keng reverse-order revalidation keeps one row and prefers refreshed server departure", () => {
+  const staleLaptopDeparture = entry({
+    id: "household-keng",
+    actionKey: "HOUSEHOLD_DEPART",
+    status: "SYNCED",
+    timestamp: "2026-09-08T06:52:00.000Z",
+  });
+
+  const rows = resolveEffectiveMasterlistRows({
+    rows: [
+      {
+        ...activeRow("household-keng"),
+        family_head_name: "Keng Gaspar",
+        is_active: false,
+        is_operationally_active: false,
+        departure_time_value: "2026-09-08T06:49:00.000Z",
+        departure_time_text: "Sep 8, 2026, 2:49 PM",
+        members_count: 4,
+      },
+    ],
+    recordStatus: "archived",
+    selectedEventId: "event-a",
+    assignedBarangayId: "barangay-a",
+    syncQueueEntries: [staleLaptopDeparture],
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].family_head_name, "Keng Gaspar");
+  assert.equal(rows[0].departure_time_value, "2026-09-08T06:49:00.000Z");
+  assert.notEqual(rows[0].family_head_name, "Pending household");
+  assert.equal(rows.filter((row) => row.family_head_name === "Pending household").length, 0);
+});
+
+test("synced departure still in the queue cannot synthesize a pending household", () => {
+  const syncedDeparture = entry({
+    id: "household-keng",
+    actionKey: "HOUSEHOLD_DEPART",
+    status: "SYNCED",
+    timestamp: "2026-09-08T06:52:00.000Z",
+  });
+
+  const rows = resolveEffectiveMasterlistRows({
+    rows: [],
+    recordStatus: "archived",
+    selectedEventId: "event-a",
+    assignedBarangayId: "barangay-a",
+    syncQueueEntries: [syncedDeparture],
+  });
+
+  assert.equal(rows.length, 0);
+});
+
 test("archived Masterlist sorts by actual departure time regardless of sync status", () => {
   const rows = [
     { household_id: "a", family_head_name: "Ara Mina", departure_time_value: "2026-09-07T06:05:00.000Z", registered_at: "2026-09-07T08:00:00.000Z", departure_sync_status: "PENDING" },
