@@ -10,7 +10,10 @@ test("Barangay offline notice is shared and reactive", async () => {
   const layout = await readSource("components/layout/BarangayLayout.jsx");
 
   assert.match(notice, /Offline Mode Active/);
-  assert.match(notice, /supported offline actions/);
+  assert.match(notice, /register new evacuees/);
+  assert.match(notice, /record departures for saved evacuees/);
+  assert.match(notice, /scan QR codes or confirm relief goods distributions/);
+  assert.match(notice, /Other functions require an internet connection/);
   assert.match(notice, /addEventListener\("offline"/);
   assert.match(notice, /addEventListener\("online"/);
   assert.match(notice, /return null/);

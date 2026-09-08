@@ -15,6 +15,10 @@ import OfflineDataReadiness, {
 import BarangayOfflineModeNotice from "./BarangayOfflineModeNotice";
 import MayorOfflineAccessNotice from "./MayorOfflineAccessNotice";
 import { isMayorOfflineBlockedRoute } from "../../features/offline/mayorOfflineAccess";
+import {
+  BARANGAY_OFFLINE_ACCESS_MESSAGE,
+  isBarangayOfflineBlockedRoute,
+} from "../../features/offline/barangayOfflineAccess";
 
 const SIDEBAR_EXPANDED_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "0px";
@@ -164,6 +168,9 @@ const BarangayLayout = () => {
   const isMayorOffline = isMayorPortal && !isOnline;
   const shouldBlockMayorOfflineRoute =
     isMayorOffline && isMayorOfflineBlockedRoute(location.pathname);
+  const isBarangayOffline = isBarangayPortal && !isOnline;
+  const shouldBlockBarangayOfflineRoute =
+    isBarangayOffline && isBarangayOfflineBlockedRoute(location.pathname);
   const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
   const isMayorAnomalyRoute = location.pathname.startsWith("/inventory/anomalies");
   const shouldShowSyncStatusBanner =
@@ -314,7 +321,7 @@ const BarangayLayout = () => {
               isCollapsed={isSidebarCollapsed}
               isMobileNavigation={isMobileNavigation}
               navigationId={SIDEBAR_NAVIGATION_ID}
-              isOffline={isMayorOffline}
+              isOffline={!isOnline}
               onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
               onClose={() => {
                 setIsSidebarCollapsed(true);
@@ -356,6 +363,8 @@ const BarangayLayout = () => {
               {isBarangayPortal ? <OfflineDataReadiness {...offlinePreparation} /> : null}
               {shouldBlockMayorOfflineRoute ? (
                 <MayorOfflineAccessNotice />
+              ) : shouldBlockBarangayOfflineRoute ? (
+                <MayorOfflineAccessNotice message={BARANGAY_OFFLINE_ACCESS_MESSAGE} />
               ) : (
                 <Outlet />
               )}

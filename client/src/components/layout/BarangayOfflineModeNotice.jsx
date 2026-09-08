@@ -2,7 +2,9 @@ import React, { useEffect, useState } from "react";
 
 export const BARANGAY_OFFLINE_MODE_TITLE = "Offline Mode Active";
 export const BARANGAY_OFFLINE_MODE_MESSAGE =
-  "You can continue supported offline actions. DISTYNC will save changes on this device and synchronize them when the internet connection returns.";
+  "You can register new evacuees, record departures for saved evacuees, and scan QR codes or confirm relief goods distributions for saved evacuees offline. DISTYNC will save these changes on this device and synchronize them when the internet connection returns.";
+export const BARANGAY_OFFLINE_MODE_SCOPE_MESSAGE =
+  "Other functions require an internet connection.";
 
 const noticeStyles = {
   backgroundColor: "#ffffff",
@@ -20,7 +22,7 @@ const noticeStyles = {
 
 const BarangayOfflineModeNotice = ({
   message = BARANGAY_OFFLINE_MODE_MESSAGE,
-  secondaryMessage = "",
+  secondaryMessage = BARANGAY_OFFLINE_MODE_SCOPE_MESSAGE,
   style,
 }) => {
   const [isOnline, setIsOnline] = useState(() =>

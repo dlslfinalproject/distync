@@ -11,6 +11,7 @@ import {
   DEFAULT_TABLE_PAGE_SIZE,
   TABLE_PAGE_SIZE_OPTIONS,
 } from "../../features/pagination/pagination.mjs";
+import { shouldShowSyncStatusIcon } from "../../offline/syncStatus";
 
 const tableStyles = {
   table: {
@@ -107,6 +108,7 @@ const MasterlistTable = ({
   onViewHousehold,
   onEditHousehold,
   isOffline = false,
+  showOfflineSyncStatus = false,
   onRestoreHousehold,
   isDepartureReadOnly = false,
   departureReadOnlyText = "-",
@@ -365,6 +367,17 @@ const MasterlistTable = ({
                 row.household_id,
               );
               const actionItems = buildActionItems(row);
+              const syncStatus = isArchivedRow
+                ? row.departure_sync_detailed_status ||
+                  row.departure_sync_status ||
+                  "SYNCED"
+                : row.sync_status || "SYNCED";
+              const syncLabel = isArchivedRow
+                ? row.departure_sync_tooltip || "Departure synchronized"
+                : null;
+              const shouldShowSyncStatus = showOfflineSyncStatus
+                ? shouldShowSyncStatusIcon(syncStatus, isOffline)
+                : isArchivedRow;
 
               return (
                 <tr
@@ -403,12 +416,10 @@ const MasterlistTable = ({
                       }}
                     >
                       <span>{row.family_head_name}</span>
-                      {isArchivedRow ? (
+                      {shouldShowSyncStatus ? (
                         <SyncStatusIcon
-                          status={row.departure_sync_status || "SYNCED"}
-                          label={
-                            row.departure_sync_tooltip || "Departure synchronized"
-                          }
+                          status={syncStatus}
+                          label={syncLabel}
                         />
                       ) : null}
                     </div>

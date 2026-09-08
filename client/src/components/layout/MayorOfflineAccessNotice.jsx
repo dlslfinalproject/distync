@@ -12,7 +12,7 @@ const noticeStyles = {
   boxSizing: "border-box",
 };
 
-const MayorOfflineAccessNotice = () => (
+const MayorOfflineAccessNotice = ({ message = MAYOR_OFFLINE_ACCESS_MESSAGE }) => (
   <section
     aria-live="polite"
     aria-label="Online access required"
@@ -27,7 +27,7 @@ const MayorOfflineAccessNotice = () => (
         lineHeight: 1.35,
       }}
     >
-      {MAYOR_OFFLINE_ACCESS_MESSAGE}
+      {message}
     </h2>
   </section>
 );

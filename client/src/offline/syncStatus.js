@@ -173,6 +173,10 @@ export const getNormalizedSyncStatus = (status) => {
   return LOCAL_SYNC_STATUS.SYNCED;
 };
 
+export const shouldShowSyncStatusIcon = (status, isOffline = false) =>
+  Boolean(isOffline) ||
+  getNormalizedSyncStatus(status) !== LOCAL_SYNC_STATUS.SYNCED;
+
 export const getSyncLabel = (status) => {
   if (status === "OPEN") {
     return "Open";

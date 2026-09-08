@@ -305,7 +305,28 @@ const StubDistributionPage = () => {
     value: "",
     until: 0,
   });
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine !== false,
+  );
+  const isOfflineForDisplay = !isOnline;
   const fallbackBarangayId = authenticatedUser?.default_barangay_id || "";
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   const {
     accessMode,
@@ -1309,6 +1330,7 @@ const StubDistributionPage = () => {
         pagination={stubPagination}
         onPageChange={setCurrentPage}
         onPageSizeChange={setPageSize}
+        isOffline={isOfflineForDisplay}
       />
 
       <StubClaimConfirmModal

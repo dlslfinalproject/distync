@@ -7,6 +7,10 @@ import {
   isMayorOfflineBlockedRoute,
   MAYOR_OFFLINE_ACCESS_MESSAGE,
 } from "../../features/offline/mayorOfflineAccess";
+import {
+  BARANGAY_OFFLINE_ACCESS_MESSAGE,
+  isBarangayOfflineBlockedRoute,
+} from "../../features/offline/barangayOfflineAccess";
 import distyncLogo from "../../assets/distync-logo.png";
 import SidebarAccountMenu from "./SidebarAccountMenu";
 
@@ -342,10 +346,18 @@ const Sidebar = ({
               );
             }
 
-            const isMayorOfflineLocked =
-              currentRole === ROLE_CODES.MAYOR &&
+            const isBarangayOfflineLocked =
+              currentRole === ROLE_CODES.BARANGAY &&
               isOffline &&
-              isMayorOfflineBlockedRoute(item.to);
+              isBarangayOfflineBlockedRoute(item.to);
+            const isMayorOfflineLocked =
+              (currentRole === ROLE_CODES.MAYOR &&
+                isOffline &&
+                isMayorOfflineBlockedRoute(item.to)) ||
+              isBarangayOfflineLocked;
+            const offlineAccessMessage = isBarangayOfflineLocked
+              ? BARANGAY_OFFLINE_ACCESS_MESSAGE
+              : MAYOR_OFFLINE_ACCESS_MESSAGE;
             const handleNavigationClick = (event) => {
               if (isMayorOfflineLocked) {
                 event.preventDefault();
@@ -365,7 +377,7 @@ const Sidebar = ({
                 tabIndex={isMayorOfflineLocked ? -1 : undefined}
                 title={
                   isMayorOfflineLocked
-                    ? MAYOR_OFFLINE_ACCESS_MESSAGE
+                    ? offlineAccessMessage
                     : undefined
                 }
                 style={{
