@@ -42,6 +42,7 @@ import {
 } from "../../features/household-registration/householdRegistrationService";
 import { getActiveCrossEventTitles } from "../../features/household-registration/crossEventInformation";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
+import { getCachedMasterlistRows } from "../../offline/masterlistCache.js";
 import {
   buildExportSuccessMessage,
   downloadExportFile,
@@ -162,6 +163,17 @@ const BarangayMasterlistPage = () => {
     userId: authenticatedUser?.id || "",
   });
 
+  const cachedMasterlistRows =
+    useLiveQuery(
+      () =>
+        getCachedMasterlistRows({
+          disasterEventId: selectedDisasterEventId || "",
+          barangayId: assignedBarangay?.id || "",
+        }),
+      [selectedDisasterEventId, assignedBarangay?.id],
+      [],
+    ) || [];
+
   const selectedSectorIds = selectedSectorIdsByScope[eventScope] || [];
   const selectedSortOrder = sortOrderByScope[eventScope] || "newest";
 
@@ -267,6 +279,7 @@ const BarangayMasterlistPage = () => {
     recordStatus,
     sortOrder: selectedSortOrder,
     reloadMasterlist,
+    cachedMasterlistRows,
   });
 
   const pendingDepartureRow = filteredRows.find(

@@ -6,6 +6,7 @@ let pool;
 let notificationService;
 let disasterEventService;
 let inventoryTransactionService;
+let inventoryBatchStatusService;
 let httpServer;
 
 try {
@@ -26,6 +27,7 @@ try {
   notificationService = require("./modules/notifications/notification.service");
   disasterEventService = require("./services/disasterEvent.service");
   inventoryTransactionService = require("./services/inventoryTransaction.service");
+  inventoryBatchStatusService = require("./services/inventoryBatchStatus.service");
 } catch (error) {
   if (error.name === "AccessModeConfigurationError") {
     console.error(error.message);
@@ -39,6 +41,8 @@ try {
 const PORT = process.env.PORT || 5000;
 const isStartupMaintenanceEnabled =
   process.env.ENABLE_STARTUP_MAINTENANCE !== "false";
+const isInventoryBatchStatusMaintenanceEnabled =
+  process.env.ENABLE_INVENTORY_BATCH_STATUS_MAINTENANCE === "true";
 
 const startServer = async () => {
   try {
@@ -66,6 +70,16 @@ const startServer = async () => {
         console.error(
           `Inventory domain effect recovery failed: ${inventoryDomainEffectError.message}`,
         );
+      }
+      if (isInventoryBatchStatusMaintenanceEnabled) {
+        try {
+          await inventoryBatchStatusService.initializeInventoryBatchStatusMaintenance();
+        } catch (inventoryBatchStatusMaintenanceError) {
+          console.error(
+            "Inventory batch status maintenance failed to initialize:",
+            inventoryBatchStatusMaintenanceError.message,
+          );
+        }
       }
     } else {
       console.log("Startup maintenance disabled by ENABLE_STARTUP_MAINTENANCE=false.");

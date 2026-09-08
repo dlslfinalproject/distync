@@ -28,6 +28,9 @@ const reliefPackAssignmentServicePath = require.resolve(
 );
 const systemLogPath = require.resolve("../src/utils/systemLog");
 const mswdoReportExportPath = require.resolve("../src/utils/mswdoReportExport");
+const inventoryBatchStatusServicePath = require.resolve(
+  "../src/services/inventoryBatchStatus.service",
+);
 
 const withStubbedDistributionService = async (stubs, runTest) => {
   const dependencyPaths = Object.keys(stubs);
@@ -171,6 +174,9 @@ const createBaseStubs = ({
       Object.fromEntries(keys.map((key) => [key, value?.[key]]).filter(([, item]) => item !== undefined)),
   },
   [mswdoReportExportPath]: {},
+  [inventoryBatchStatusServicePath]: {
+    refreshDerivedInventoryBatchStatusesForItems: async () => {},
+  },
 });
 
 test("H05-02 createDistributionTransaction emits STUB_ALREADY_CLAIMED for an accepted claimed stub", async () => {
@@ -784,8 +790,10 @@ test("manual template distribution releases every assigned template with shared 
   stubs[inventoryItemRepositoryPath] = {
     getInventoryItemByIdForUpdate: async (inventoryItemId) =>
       inventoryItems.get(inventoryItemId) || null,
-    updateInventoryItemStockSnapshot: async (inventoryItemId, snapshot) => {
-      updatedSnapshots.push({ inventoryItemId, snapshot });
+    updateInventoryItemStockSnapshot: async () => {
+      throw new Error(
+        "stock movements must not update inventory item packaging metadata",
+      );
     },
   };
   stubs[distributionTransactionRepositoryPath] = {
@@ -979,7 +987,7 @@ test("manual template distribution releases every assigned template with shared 
       ),
     ),
   );
-  assert.equal(updatedSnapshots.length, 3);
+  assert.equal(updatedSnapshots.length, 0);
   assert.equal(batches.get(donatedSharedBatchId).quantity_available, 0);
   assert.equal(batches.get(sharedBatchId).quantity_available, 5);
   assert.equal(batches.get(standardBatchId).quantity_available, 1);

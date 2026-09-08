@@ -87,7 +87,9 @@ export const useMasterlist = ({
             sortOrder,
           });
           if (cachedData) {
-            cachedData.rows = sortMasterlistRows(cachedData.rows, sortOrder);
+            cachedData.rows = sortMasterlistRows(cachedData.rows, sortOrder, {
+              recordStatus,
+            });
           }
           const fallbackData =
             cachedData || lastSuccessfulDataRef.current || null;

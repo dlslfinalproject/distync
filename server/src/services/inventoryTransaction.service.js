@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
+const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
 const {
@@ -13,7 +14,10 @@ const {
   isValidInventoryTransactionReferenceNo,
   normalizeInventoryTransactionReferenceNo,
 } = require("../utils/inventoryTransactionReference");
-const { getInventoryBatchStatus } = require("../utils/inventoryBatchStatus");
+const {
+  getInventoryBatchStatus,
+  isInventoryBatchDerivedStatus,
+} = require("../utils/inventoryBatchStatus");
 const additiveTransactionTypes = new Set(["INFLOW", "RETURN", "ADJUSTMENT"]);
 const subtractiveTransactionTypes = new Set([
   "OUTFLOW",
@@ -40,39 +44,6 @@ const createDisasterEventNotActiveError = () => {
 
 const buildFullName = (firstName, lastName) => {
   return [firstName, lastName].filter(Boolean).join(" ");
-};
-
-const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
-  const normalizedOnHandQuantity = Math.max(Number(onHandQuantity || 0), 0);
-  const normalizedPackaging = String(inventoryItem?.packaging || "").toLowerCase();
-  const unitsPerPackage = Number(inventoryItem?.quantity || 0);
-  const existingPackagingCount = Number(inventoryItem?.packaging_count || 0);
-
-  if (normalizedPackaging === "piece" || unitsPerPackage <= 1) {
-    return {
-      quantity: 1,
-      packaging_count: normalizedOnHandQuantity > 0 ? normalizedOnHandQuantity : null,
-    };
-  }
-
-  if (normalizedOnHandQuantity === 0) {
-    return {
-      quantity: inventoryItem?.quantity || null,
-      packaging_count: null,
-    };
-  }
-
-  if (normalizedOnHandQuantity % unitsPerPackage === 0) {
-    return {
-      quantity: inventoryItem?.quantity || null,
-      packaging_count: normalizedOnHandQuantity / unitsPerPackage,
-    };
-  }
-
-  return {
-    quantity: inventoryItem?.quantity || null,
-    packaging_count: existingPackagingCount > 0 ? existingPackagingCount : null,
-  };
 };
 
 const mapInventoryTransaction = (transaction) => {
@@ -487,17 +458,55 @@ const createInventoryTransaction = async (transactionData) => {
     }
 
     if (transactionData.inventory_batch_id) {
-      inventoryBatch =
-        await inventoryTransactionRepository.getInventoryBatchByIdForUpdate(
-          transactionData.inventory_batch_id,
-          client,
-        );
+      if (
+        typeof inventoryTransactionRepository.getInventoryBatchById ===
+        "function"
+      ) {
+        const batchIdentity =
+          await inventoryTransactionRepository.getInventoryBatchById(
+            transactionData.inventory_batch_id,
+            client,
+          );
 
-      if (inventoryBatch?.inventory_item_id) {
-        inventoryItem = await inventoryItemRepository.getInventoryItemByIdForUpdate(
-          inventoryBatch.inventory_item_id,
-          client,
-        );
+        if (batchIdentity?.inventory_item_id) {
+          inventoryItem =
+            typeof inventoryItemRepository.getInventoryItemByIdForUpdate ===
+            "function"
+              ? await inventoryItemRepository.getInventoryItemByIdForUpdate(
+                  batchIdentity.inventory_item_id,
+                  client,
+                )
+              : await inventoryItemRepository.getInventoryItemById(
+                  batchIdentity.inventory_item_id,
+                  client,
+                );
+        }
+
+        inventoryBatch =
+          await inventoryTransactionRepository.getInventoryBatchByIdForUpdate(
+            transactionData.inventory_batch_id,
+            client,
+          );
+      } else {
+        inventoryBatch =
+          await inventoryTransactionRepository.getInventoryBatchByIdForUpdate(
+            transactionData.inventory_batch_id,
+            client,
+          );
+
+        if (inventoryBatch?.inventory_item_id) {
+          inventoryItem =
+            typeof inventoryItemRepository.getInventoryItemByIdForUpdate ===
+            "function"
+              ? await inventoryItemRepository.getInventoryItemByIdForUpdate(
+                  inventoryBatch.inventory_item_id,
+                  client,
+                )
+              : await inventoryItemRepository.getInventoryItemById(
+                  inventoryBatch.inventory_item_id,
+                  client,
+                );
+        }
       }
     } else if (transactionData.inventory_item_id) {
       const error = new Error(
@@ -545,12 +554,14 @@ const createInventoryTransaction = async (transactionData) => {
       currentItemQuantity - Number(inventoryBatch.quantity_available || 0) +
         Number(newQuantityAvailable || 0),
     );
-    const newBatchStatus = getInventoryBatchStatus({
-      quantityAvailable: newQuantityAvailable,
-      totalQuantityAvailable: projectedItemQuantity,
-      expirationDate: inventoryBatch.expiration_date,
-      reorderLevel: inventoryItem.reorder_level,
-    });
+    const newBatchStatus = isInventoryBatchDerivedStatus(inventoryBatch.status)
+      ? getInventoryBatchStatus({
+          quantityAvailable: newQuantityAvailable,
+          totalQuantityAvailable: projectedItemQuantity,
+          expirationDate: inventoryBatch.expiration_date,
+          reorderLevel: inventoryItem.reorder_level,
+        })
+      : inventoryBatch.status;
 
     const createdTransaction =
       await inventoryTransactionRepository.insertInventoryTransaction(
@@ -570,26 +581,9 @@ const createInventoryTransaction = async (transactionData) => {
       client,
     );
 
-    const recomputedQuantityResult = await client.query(
-      `
-        SELECT COALESCE(SUM(quantity_available), 0)::integer AS total_quantity
-        FROM inventory_batches
-        WHERE inventory_item_id = $1
-      `,
-      [inventoryBatch.inventory_item_id],
-    );
-    const nextItemQuantity = Number(
-      recomputedQuantityResult.rows[0]?.total_quantity || 0,
-    );
-    const nextItemSnapshot = buildUpdatedItemStockSnapshot(
-      inventoryItem,
-      nextItemQuantity,
-    );
-
-    await inventoryItemRepository.updateInventoryItemStockSnapshot(
+    await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
       inventoryBatch.inventory_item_id,
-      nextItemSnapshot,
-      client,
+      { dbClient: client },
     );
 
     const domainSideEffect = {

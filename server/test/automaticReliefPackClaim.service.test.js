@@ -19,9 +19,14 @@ const reliefPackTemplateRepositoryPath = require.resolve(
 const reliefPackAssignmentServicePath = require.resolve(
   "../src/services/reliefPackAssignment.service",
 );
+const inventoryBatchStatusServicePath = require.resolve(
+  "../src/services/inventoryBatchStatus.service",
+);
 
 const withStubbedAutomaticClaimService = async (stubs, runTest) => {
-  const dependencyPaths = Object.keys(stubs);
+  const dependencyPaths = [
+    ...new Set([...Object.keys(stubs), inventoryBatchStatusServicePath]),
+  ];
   const originalEntries = new Map(
     dependencyPaths.map((modulePath) => [modulePath, require.cache[modulePath]]),
   );
@@ -35,7 +40,13 @@ const withStubbedAutomaticClaimService = async (stubs, runTest) => {
         id: modulePath,
         filename: modulePath,
         loaded: true,
-        exports: stubs[modulePath],
+        exports:
+          stubs[modulePath] ||
+          (modulePath === inventoryBatchStatusServicePath
+            ? {
+                refreshDerivedInventoryBatchStatusesForItems: async () => {},
+              }
+            : {}),
       };
     });
 
@@ -297,8 +308,10 @@ test("automatic claims link and consume inventory for standard and multiple addi
       },
       [inventoryItemRepositoryPath]: {
         getInventoryItemsByIdsForUpdate: async () => inventoryItems,
-        updateInventoryItemStockSnapshot: async (_id, snapshot) => {
-          updatedItemSnapshots.push(snapshot);
+        updateInventoryItemStockSnapshot: async () => {
+          throw new Error(
+            "stock movements must not update inventory item packaging metadata",
+          );
         },
       },
       [reliefPackTemplateRepositoryPath]: {
@@ -419,7 +432,7 @@ test("automatic claims link and consume inventory for standard and multiple addi
         9,
       );
       assert.equal(updatedBatches.find((batch) => batch.id === "blanket-batch").quantity_available, 4);
-      assert.equal(updatedItemSnapshots.length, 2);
+      assert.equal(updatedItemSnapshots.length, 0);
     },
   );
 });

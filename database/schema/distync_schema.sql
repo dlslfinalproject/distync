@@ -454,24 +454,27 @@ CREATE TABLE public.inventory_batches (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   inventory_item_id uuid NOT NULL,
   inventory_item_stock_form_id uuid,
-  batch_no character varying NOT NULL,
-  source_type character varying NOT NULL DEFAULT 'LGU'::character varying CHECK (source_type::text = ANY (ARRAY['PURCHASED'::character varying, 'DONATED'::character varying, 'DSWD'::character varying, 'LGU'::character varying, 'OTHER'::character varying]::text[])),
+  batch_no character varying(100) NOT NULL,
+  source_type character varying(30) NOT NULL DEFAULT 'LGU'::character varying CHECK (source_type::text = ANY (ARRAY['PURCHASED'::character varying, 'DONATED'::character varying, 'DSWD'::character varying, 'LGU'::character varying, 'OTHER'::character varying]::text[])),
   quantity_received integer NOT NULL CHECK (quantity_received >= 0),
   quantity_available integer NOT NULL CHECK (quantity_available >= 0),
   stock_version integer NOT NULL DEFAULT 0,
   expiration_date date,
   received_at timestamp with time zone NOT NULL DEFAULT now(),
-  storage_location character varying,
-  status character varying NOT NULL DEFAULT 'AVAILABLE'::character varying CHECK (status::text = ANY (ARRAY['AVAILABLE'::character varying, 'LOW_STOCK'::character varying, 'EXPIRED'::character varying, 'DEPLETED'::character varying, 'MISSING'::character varying, 'DAMAGED'::character varying]::text[])),
+  storage_location character varying(200),
+  status character varying(30) NOT NULL DEFAULT 'AVAILABLE'::character varying CHECK (status::text = ANY (ARRAY['AVAILABLE'::character varying, 'LOW_STOCK'::character varying, 'EXPIRED'::character varying, 'DEPLETED'::character varying, 'MISSING'::character varying, 'DAMAGED'::character varying]::text[])),
   created_by uuid,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT inventory_batches_pkey PRIMARY KEY (id),
   CONSTRAINT inventory_batches_inventory_item_id_batch_no_unique UNIQUE (inventory_item_id, batch_no),
-  CONSTRAINT inventory_batches_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
+  CONSTRAINT inventory_batches_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id) ON DELETE RESTRICT,
   CONSTRAINT inventory_batches_inventory_item_stock_form_id_fkey FOREIGN KEY (inventory_item_stock_form_id) REFERENCES public.inventory_item_stock_forms(id),
-  CONSTRAINT inventory_batches_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
+  CONSTRAINT inventory_batches_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id) ON DELETE SET NULL
 );
+
+CREATE INDEX idx_inventory_batches_inventory_item_id
+ON public.inventory_batches USING btree (inventory_item_id);
 
 CREATE OR REPLACE FUNCTION public.increment_inventory_batch_stock_version()
 RETURNS trigger AS $$

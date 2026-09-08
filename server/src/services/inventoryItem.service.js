@@ -3,6 +3,7 @@ const inventoryItemRepository = require("../repositories/inventoryItem.repositor
 const inventoryItemStockFormRepository = require("../repositories/inventoryItemStockForm.repository");
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
+const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
 const forecastRepository = require("../repositories/forecast.repository");
 const systemLogRepository = require("../repositories/systemLog.repository");
 const inventoryItemExport = require("../utils/inventoryItemExport");
@@ -1101,6 +1102,11 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
         client,
       );
 
+    await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
+      createdItem.id,
+      { dbClient: client },
+    );
+
     if (!externalClient) {
       await client.query("COMMIT");
     }
@@ -1157,63 +1163,99 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
 };
 
 const updateInventoryItem = async (id, itemData, actor = null, options = {}) => {
-  const existingItem = await inventoryItemRepository.getInventoryItemById(id);
+  const externalClient = options.dbClient || null;
+  const client = externalClient || (await pool.connect());
+  let transactionStarted = false;
 
-  if (!existingItem) {
-    const error = new Error("Inventory item not found");
-    error.statusCode = 404;
-    throw error;
-  }
+  try {
+    if (!externalClient) {
+      await client.query("BEGIN");
+      transactionStarted = true;
+    }
 
-  const inventoryItemToUpdate = {
-    ...itemData,
-    barcode: normalizeAndValidateItemBarcode(itemData.barcode),
-    item_code: itemData.item_code || existingItem.item_code,
-  };
+    const existingItem =
+      typeof inventoryItemRepository.getInventoryItemByIdForUpdate ===
+      "function"
+        ? await inventoryItemRepository.getInventoryItemByIdForUpdate(id, client)
+        : await inventoryItemRepository.getInventoryItemById(id, client);
 
-  await ensureUniqueFields(inventoryItemToUpdate, id);
+    if (!existingItem) {
+      const error = new Error("Inventory item not found");
+      error.statusCode = 404;
+      throw error;
+    }
 
-  const updatedItem = await inventoryItemRepository.updateInventoryItem(
-    id,
-    inventoryItemToUpdate,
-    options.dbClient,
-  );
+    const inventoryItemToUpdate = {
+      ...itemData,
+      barcode: normalizeAndValidateItemBarcode(itemData.barcode),
+      item_code: itemData.item_code || existingItem.item_code,
+    };
 
-  const existingStockForms =
-    await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(
+    await ensureUniqueFields(inventoryItemToUpdate, id, client);
+
+    const updatedItem = await inventoryItemRepository.updateInventoryItem(
       id,
-      options.dbClient,
+      inventoryItemToUpdate,
+      client,
     );
-  const primaryStockForm = existingStockForms[0] || null;
-  const nextStockFormPayload = buildStockFormPayloadFromItem(
-    updatedItem,
-    inventoryItemToUpdate,
-    primaryStockForm,
-  );
 
-  if (primaryStockForm) {
-    await inventoryItemStockFormRepository.updateInventoryItemStockForm(
-      primaryStockForm.id,
-      nextStockFormPayload,
-      options.dbClient,
+    const existingStockForms =
+      await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(
+        id,
+        client,
+      );
+    const primaryStockForm = existingStockForms[0] || null;
+    const nextStockFormPayload = buildStockFormPayloadFromItem(
+      updatedItem,
+      inventoryItemToUpdate,
+      primaryStockForm,
     );
-  } else {
-    await inventoryItemStockFormRepository.insertInventoryItemStockForm(
-      nextStockFormPayload,
-      options.dbClient,
-    );
+
+    if (primaryStockForm) {
+      await inventoryItemStockFormRepository.updateInventoryItemStockForm(
+        primaryStockForm.id,
+        nextStockFormPayload,
+        client,
+      );
+    } else {
+      await inventoryItemStockFormRepository.insertInventoryItemStockForm(
+        nextStockFormPayload,
+        client,
+      );
+    }
+
+    if (existingItem.reorder_level !== updatedItem.reorder_level) {
+      await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
+        id,
+        { dbClient: client },
+      );
+    }
+
+    await logAuditSafely({
+      actor,
+      action: "INVENTORY_ITEM_UPDATE",
+      entityType: "INVENTORY_ITEM",
+      entityId: updatedItem.id,
+      oldValues: summarizeInventoryItem(existingItem),
+      newValues: summarizeInventoryItem(updatedItem),
+    });
+
+    if (!externalClient) {
+      await client.query("COMMIT");
+      transactionStarted = false;
+    }
+
+    return updatedItem;
+  } catch (error) {
+    if (!externalClient && transactionStarted) {
+      await client.query("ROLLBACK");
+    }
+    throw error;
+  } finally {
+    if (!externalClient) {
+      client.release();
+    }
   }
-
-  await logAuditSafely({
-    actor,
-    action: "INVENTORY_ITEM_UPDATE",
-    entityType: "INVENTORY_ITEM",
-    entityId: updatedItem.id,
-    oldValues: summarizeInventoryItem(existingItem),
-    newValues: summarizeInventoryItem(updatedItem),
-  });
-
-  return updatedItem;
 };
 
 module.exports = {

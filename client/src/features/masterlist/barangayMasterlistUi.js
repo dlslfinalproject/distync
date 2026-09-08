@@ -5,6 +5,8 @@ import {
   MASTERLIST_FILTER_SECTOR_CODES,
 } from "../../utils/registrationOptions.js";
 import { deriveAgeGroup } from "../../utils/ageGroup.js";
+import { buildSyncDescriptor } from "../../offline/syncStatus.js";
+import { LOCAL_SYNC_STATUS } from "../../offline/syncStatusConstants.js";
 
 const formatDateTime = (value) => {
   if (!value) {
@@ -241,6 +243,11 @@ export const buildQueuedHouseholdRow = (
   options = {},
 ) => {
   const payload = entry.payload || {};
+  const departureStatus = buildSyncDescriptor(entry).status;
+  const departureDisplayStatus =
+    departureStatus === LOCAL_SYNC_STATUS.CONFLICT
+      ? LOCAL_SYNC_STATUS.FAILED
+      : departureStatus;
   const familyHeadName = buildFamilyHeadName(payload.family_head);
   const submittedMembers = getSubmittedMembers(payload);
   const currentAddress =
@@ -264,6 +271,21 @@ export const buildQueuedHouseholdRow = (
     can_record_departure: false,
     is_local_only: true,
     sync_status: entry.status,
+    ...(entry.actionKey === "HOUSEHOLD_DEPART"
+      ? {
+          departure_sync_status: departureDisplayStatus,
+          departure_sync_detailed_status: departureStatus,
+          departure_sync_tooltip:
+            departureStatus === LOCAL_SYNC_STATUS.PENDING
+              ? "Departure pending synchronization"
+              : departureStatus === LOCAL_SYNC_STATUS.CONFLICT
+                ? "Departure synchronization conflict"
+                : departureStatus === LOCAL_SYNC_STATUS.FAILED
+                  ? "Departure synchronization failed"
+                  : "Departure synchronized",
+          departure_sync_entry_id: entry.id || null,
+        }
+      : {}),
     sync_entry_id: entry.id,
     offline_household_details: buildQueuedHouseholdDetails(entry, sectorOptions, {
       disasterEventTitle: options.disasterEventTitle,
@@ -308,6 +330,44 @@ export const getLatestHouseholdLifecycleEntry = (syncEntries = [], row = null) =
     )
     .sort((left, right) => getEntryTimestamp(right) - getEntryTimestamp(left))[0] || null;
 
+export const getLatestHouseholdDepartureEntry = (syncEntries = [], row = null) =>
+  syncEntries
+    .filter(
+      (entry) =>
+        entry?.actionKey === "HOUSEHOLD_DEPART" &&
+        entry?.entityType === "HOUSEHOLD" &&
+        isEntryForRow(entry, row),
+    )
+    .sort((left, right) => getEntryTimestamp(right) - getEntryTimestamp(left))[0] || null;
+
+export const resolveDepartureSyncStatus = ({
+  row = null,
+  syncQueueEntries = [],
+} = {}) => {
+  const entry = getLatestHouseholdDepartureEntry(syncQueueEntries, row);
+  const detailedStatus = entry
+    ? buildSyncDescriptor(entry).status
+    : LOCAL_SYNC_STATUS.SYNCED;
+  const displayStatus =
+    detailedStatus === LOCAL_SYNC_STATUS.CONFLICT
+      ? LOCAL_SYNC_STATUS.FAILED
+      : detailedStatus;
+
+  return {
+    status: displayStatus,
+    detailedStatus,
+    tooltip:
+      detailedStatus === LOCAL_SYNC_STATUS.PENDING
+        ? "Departure pending synchronization"
+        : detailedStatus === LOCAL_SYNC_STATUS.CONFLICT
+          ? "Departure synchronization conflict"
+          : detailedStatus === LOCAL_SYNC_STATUS.FAILED
+            ? "Departure synchronization failed"
+            : "Departure synchronized",
+    entry,
+  };
+};
+
 const isActiveLifecycleAction = (actionKey, row) => {
   if (actionKey === "HOUSEHOLD_DEPART") {
     return false;
@@ -327,20 +387,38 @@ const isActiveLifecycleAction = (actionKey, row) => {
 const isReconciledDuplicate = (entry) =>
   entry?.resolutionStatus === "DUPLICATE_HOUSEHOLD";
 
+// A terminal registration conflict remains in the queue for Sync Center and
+// Conflict Review, but its optimistic local household is not a valid
+// Masterlist occurrence. Failed entries remain projected because they retain
+// the existing retry/error behavior.
+const isRejectedHouseholdRegistration = (entry) =>
+  entry?.actionKey === "HOUSEHOLD_REGISTER" &&
+  entry?.status === "CONFLICT";
+
+const isRejectedHouseholdDeparture = (entry) =>
+  entry?.actionKey === "HOUSEHOLD_DEPART" &&
+  entry?.status === "CONFLICT";
+
 const applyLifecycleOverlay = (row, lifecycleEntry) => {
   if (!lifecycleEntry) {
     return row;
   }
 
   const isActive = isActiveLifecycleAction(lifecycleEntry.actionKey, row);
+  const isConflictedDeparture =
+    lifecycleEntry.actionKey === "HOUSEHOLD_DEPART" &&
+    lifecycleEntry.status === LOCAL_SYNC_STATUS.CONFLICT;
+  const projectedIsActive = isConflictedDeparture
+    ? row.is_operationally_active !== false
+    : isActive;
 
   return {
     ...row,
     sync_status: lifecycleEntry.status || row.sync_status,
-    is_active: isActive,
-    is_operationally_active: isActive,
-    can_record_departure: isActive && row.can_record_departure,
-    ...(isActive
+    is_active: projectedIsActive,
+    is_operationally_active: projectedIsActive,
+    can_record_departure: projectedIsActive && row.can_record_departure,
+    ...(projectedIsActive || isConflictedDeparture
       ? {}
       : {
           departure_time_value: lifecycleEntry.clientTimestamp || row.departure_time_value,
@@ -376,32 +454,68 @@ export const resolveEffectiveMasterlistRows = ({
 } = {}) => {
   const scopedEntries = syncQueueEntries.filter((entry) => {
     const payload = entry?.payload || {};
+    const entryBarangayId = entry?.barangayId || payload.barangay_id || "";
     return (
       HOUSEHOLD_LIFECYCLE_ACTIONS.has(entry?.actionKey) &&
       entry?.entityType === "HOUSEHOLD" &&
       !isReconciledDuplicate(entry) &&
       (!selectedEventId || String(payload.disaster_event_id || "") === String(selectedEventId)) &&
-      (!assignedBarangayId || String(payload.barangay_id || "") === String(assignedBarangayId))
+      (!assignedBarangayId || String(entryBarangayId) === String(assignedBarangayId))
     );
   });
 
-  const resolvedRows = rows.map((row) =>
-    applyLifecycleOverlay(
+  const resolvedRows = rows.map((row) => {
+    const resolvedRow = applyLifecycleOverlay(
       row,
       getLatestHouseholdLifecycleEntry(scopedEntries, row),
-    ),
-  );
+    );
+
+    if (resolvedRow.is_operationally_active !== false) {
+      return resolvedRow;
+    }
+
+    const departureSync = resolveDepartureSyncStatus({
+      row: resolvedRow,
+      syncQueueEntries: scopedEntries,
+    });
+
+    return {
+      ...resolvedRow,
+      departure_sync_status: departureSync.status,
+      departure_sync_detailed_status: departureSync.detailedStatus,
+      departure_sync_tooltip: departureSync.tooltip,
+      departure_sync_entry_id: departureSync.entry?.id || null,
+    };
+  });
   const representedIds = new Set(
     resolvedRows.flatMap((row) => getRowIdentityValues(row)),
   );
 
   scopedEntries
-    .filter((entry) => ["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION", "HOUSEHOLD_DEPART"].includes(entry.actionKey) && !isReconciledDuplicate(entry))
+    .filter(
+      (entry) =>
+        ["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION", "HOUSEHOLD_DEPART"].includes(
+          entry.actionKey,
+        ) &&
+        !isReconciledDuplicate(entry) &&
+        !isRejectedHouseholdRegistration(entry) &&
+        !isRejectedHouseholdDeparture(entry),
+    )
     .sort((left, right) => getEntryTimestamp(right) - getEntryTimestamp(left))
     .forEach((entry) => {
       const localId = entry.entityLocalId || entry.entityServerId || entry.id;
 
-      if (!localId || representedIds.has(String(localId))) {
+      const entryProjectionIds = [
+        ...getEntryIdentityValues(entry),
+        entry?.id,
+      ]
+        .filter(Boolean)
+        .map(String);
+
+      if (
+        !localId ||
+        entryProjectionIds.some((entryId) => representedIds.has(entryId))
+      ) {
         return;
       }
 
@@ -420,6 +534,7 @@ export const resolveEffectiveMasterlistRows = ({
   return sortMasterlistRows(
     resolvedRows.filter((row) => matchesRecordStatus(row, recordStatus)),
     sortOrder,
+    { recordStatus },
   );
 };
 

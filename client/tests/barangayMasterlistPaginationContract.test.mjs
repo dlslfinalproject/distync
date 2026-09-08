@@ -74,6 +74,19 @@ test("Barangay Masterlist follows final conditional paginator UI", async () => {
   assert.doesNotMatch(normalizedCssSource, /masterlist-pagination-/);
 });
 
+test("offline Archived Masterlist sorts the complete filtered cache before slicing pages", async () => {
+  const serviceSource = normalizeSource(
+    await readSource("src/features/masterlist/masterlistService.js"),
+  );
+  const sortIndex = serviceSource.indexOf(
+    "const sortedRows = sortMasterlistRows(filteredRows, sortOrder, { recordStatus });",
+  );
+  const sliceIndex = serviceSource.indexOf("const rows = sortedRows.slice(", sortIndex);
+
+  assert.ok(sortIndex >= 0, "Missing full-result Archived sort");
+  assert.ok(sliceIndex > sortIndex, "Pagination must happen after Archived sorting");
+});
+
 test("Barangay Masterlist resets or revalidates page for result-scope changes", async () => {
   const pageSource = await readSource("src/pages/barangay/BarangayMasterlistPage.jsx");
 

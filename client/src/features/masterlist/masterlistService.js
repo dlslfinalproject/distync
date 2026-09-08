@@ -405,6 +405,7 @@ export const buildCachedMasterlistResult = ({
   pageSize = 25,
   search = "",
   sectorIds = [],
+  sortOrder = "newest",
 } = {}) => {
   const normalizedSearch = String(search || "").trim().toLowerCase();
   const requestedSectorIds = new Set((Array.isArray(sectorIds) ? sectorIds : []).map(String));
@@ -419,7 +420,8 @@ export const buildCachedMasterlistResult = ({
   const safePageSize = Math.max(Number(pageSize) || 25, 1);
   const safePage = Math.max(Number(page) || 1, 1);
   const totalPages = Math.ceil(filteredRows.length / safePageSize);
-  const rows = filteredRows.slice((safePage - 1) * safePageSize, safePage * safePageSize);
+  const sortedRows = sortMasterlistRows(filteredRows, sortOrder, { recordStatus });
+  const rows = sortedRows.slice((safePage - 1) * safePageSize, safePage * safePageSize);
 
   return rows.length || cachedRows.length
     ? {

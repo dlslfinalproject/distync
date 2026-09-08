@@ -19,6 +19,9 @@ const inventoryStateBasisPath = require.resolve("../src/utils/inventoryStateBasi
 const mayorReportExportPath = require.resolve("../src/utils/mayorReportExport");
 const systemLogPath = require.resolve("../src/utils/systemLog");
 const dbPath = require.resolve("../src/config/db");
+const inventoryBatchStatusServicePath = require.resolve(
+  "../src/services/inventoryBatchStatus.service",
+);
 
 const sampleItem = {
   id: "item-1",
@@ -50,6 +53,7 @@ const withStubbedInventoryItemService = async (stubs, runTest) => {
     mayorReportExportPath,
     systemLogPath,
     dbPath,
+    inventoryBatchStatusServicePath,
   ];
   const originalEntries = new Map(
     dependencyPaths.map((modulePath) => [modulePath, require.cache[modulePath]]),
@@ -113,6 +117,9 @@ const baseStubs = (overrides = {}) => ({
   [systemLogPath]: {
     logAuditSafely: async () => {},
     pickDefined: (value) => value || {},
+  },
+  [inventoryBatchStatusServicePath]: {
+    refreshDerivedInventoryBatchStatusesForItem: async () => {},
   },
   [dbPath]: {
     connect: async () => {

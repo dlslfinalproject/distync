@@ -29,14 +29,14 @@ const getIcon = (status) => {
   return <FiCheckCircle size={14} />;
 };
 
-const SyncStatusIcon = ({ status = "SYNCED" }) => {
+const SyncStatusIcon = ({ status = "SYNCED", label = null }) => {
   const palette = getSyncBadgePalette(status);
-  const label = getSyncLabel(status);
+  const accessibleLabel = label || getSyncLabel(status);
 
   return (
     <span
-      title={label}
-      aria-label={label}
+      title={accessibleLabel}
+      aria-label={accessibleLabel}
       style={{
         width: "24px",
         height: "24px",

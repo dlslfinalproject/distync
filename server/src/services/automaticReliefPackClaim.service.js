@@ -2,6 +2,7 @@ const distributionTransactionRepository = require("../repositories/distributionT
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate.repository");
+const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
 const {
   getPrimaryAssignedReliefPackTemplate,
   resolveAssignedReliefPackTemplatesForHousehold,
@@ -10,6 +11,7 @@ const {
   getInventoryBatchStatus,
   isInventoryBatchExpired,
   isInventoryBatchNearExpiry,
+  isInventoryBatchDerivedStatus,
 } = require("../utils/inventoryBatchStatus");
 const {
   isReliefPackClaimHouseholdCurrentlyEligible,
@@ -18,37 +20,20 @@ const {
   getDistributionItemSourceReliefTypeSnapshot,
 } = require("../utils/distributionTransactionItemSnapshot");
 
-const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
-  const normalizedOnHandQuantity = Math.max(Number(onHandQuantity || 0), 0);
-  const normalizedPackaging = String(inventoryItem?.packaging || "").toLowerCase();
-  const unitsPerPackage = Number(inventoryItem?.quantity || 0);
-  const existingPackagingCount = Number(inventoryItem?.packaging_count || 0);
+const lockInventoryItemsForUpdate = async (inventoryItemIds, client) => {
+  const uniqueInventoryItemIds = [
+    ...new Set((inventoryItemIds || []).filter(Boolean).map(String)),
+  ].sort();
 
-  if (normalizedPackaging === "piece" || unitsPerPackage <= 1) {
-    return {
-      quantity: 1,
-      packaging_count: normalizedOnHandQuantity > 0 ? normalizedOnHandQuantity : null,
-    };
+  if (
+    uniqueInventoryItemIds.length > 0 &&
+    typeof inventoryItemRepository.getInventoryItemsByIdsForUpdate === "function"
+  ) {
+    await inventoryItemRepository.getInventoryItemsByIdsForUpdate(
+      uniqueInventoryItemIds,
+      client,
+    );
   }
-
-  if (normalizedOnHandQuantity === 0) {
-    return {
-      quantity: inventoryItem?.quantity || null,
-      packaging_count: null,
-    };
-  }
-
-  if (normalizedOnHandQuantity % unitsPerPackage === 0) {
-    return {
-      quantity: inventoryItem?.quantity || null,
-      packaging_count: normalizedOnHandQuantity / unitsPerPackage,
-    };
-  }
-
-  return {
-    quantity: inventoryItem?.quantity || null,
-    packaging_count: existingPackagingCount > 0 ? existingPackagingCount : null,
-  };
 };
 
 const getTemplateFamilySizeCoverage = (template) => {
@@ -275,6 +260,15 @@ const buildDonatedReliefPackClaimPlan = async (
   client,
   queuePosition,
 ) => {
+  const candidateRows =
+    await distributionTransactionRepository.getDonatedReliefPackItemsByDisasterEventId(
+      disasterEventId,
+      client,
+    );
+  await lockInventoryItemsForUpdate(
+    candidateRows.map((row) => row.inventory_item_id),
+    client,
+  );
   const donatedRows =
     await distributionTransactionRepository.getDonatedReliefPackItemsByDisasterEventId(
       disasterEventId,
@@ -480,6 +474,16 @@ const buildDonatedLooseItemClaimPlan = async (
       .filter(Boolean),
   );
 
+  const candidateRows =
+    await distributionTransactionRepository.getAvailableDonatedLooseItemsByDisasterEventId(
+      disasterEventId,
+      client,
+    );
+  await lockInventoryItemsForUpdate(
+    candidateRows.map((row) => row.inventory_item_id),
+    client,
+  );
+
   const availableRows =
     await distributionTransactionRepository.getAvailableDonatedLooseItemsByDisasterEventId(
       disasterEventId,
@@ -628,6 +632,10 @@ const buildAutomaticClaimAllocations = async (
   }
 
   const availableBatchesByInventoryItemId = new Map();
+  await lockInventoryItemsForUpdate(
+    [...requiredItemsByInventoryItemId.keys()],
+    client,
+  );
   const availableBatches =
     await inventoryTransactionRepository.getDistributableInventoryBatchesByItemIdsForUpdate(
       [...requiredItemsByInventoryItemId.keys()],
@@ -777,52 +785,6 @@ const buildAutomaticClaimAllocations = async (
   }
 
   return allocations;
-};
-
-const syncTouchedInventoryItems = async (inventoryItemIds, client) => {
-  const uniqueInventoryItemIds = [...new Set(inventoryItemIds || [])].filter(Boolean);
-
-  if (uniqueInventoryItemIds.length === 0) {
-    return;
-  }
-
-  const inventoryItems =
-    await inventoryItemRepository.getInventoryItemsByIdsForUpdate(
-      uniqueInventoryItemIds,
-      client,
-    );
-  const recomputedQuantityResult = await client.query(
-    `
-      SELECT
-        inventory_item_id,
-        COALESCE(SUM(quantity_available), 0)::integer AS total_quantity
-      FROM inventory_batches
-      WHERE inventory_item_id = ANY($1::uuid[])
-      GROUP BY inventory_item_id
-    `,
-    [uniqueInventoryItemIds],
-  );
-  const quantityByInventoryItemId = new Map(
-    recomputedQuantityResult.rows.map((row) => [
-      row.inventory_item_id,
-      Number(row.total_quantity || 0),
-    ]),
-  );
-
-  for (const inventoryItem of inventoryItems) {
-    if (!inventoryItem) {
-      continue;
-    }
-
-    const nextItemQuantity =
-      quantityByInventoryItemId.get(inventoryItem.id) || 0;
-
-    await inventoryItemRepository.updateInventoryItemStockSnapshot(
-      inventoryItem.id,
-      buildUpdatedItemStockSnapshot(inventoryItem, nextItemQuantity),
-      client,
-    );
-  }
 };
 
 const recordAutomaticReliefPackClaim = async ({
@@ -1090,12 +1052,16 @@ const recordAutomaticReliefPackClaim = async ({
       (currentItemStockById.get(allocation.inventory_item_id) || 0) -
         (releasedQuantityByItemId.get(allocation.inventory_item_id) || 0),
     );
-    const nextBatchStatus = getInventoryBatchStatus({
-      quantityAvailable: remainingQuantity,
-      expirationDate: allocation.expiration_date,
-      reorderLevel: allocation.reorder_level,
-      totalQuantityAvailable: nextItemQuantity,
-    });
+    const nextBatchStatus = isInventoryBatchDerivedStatus(
+      allocation.previous_status,
+    )
+      ? getInventoryBatchStatus({
+          quantityAvailable: remainingQuantity,
+          expirationDate: allocation.expiration_date,
+          reorderLevel: allocation.reorder_level,
+          totalQuantityAvailable: nextItemQuantity,
+        })
+      : allocation.previous_status;
     const updatedBatch =
       await distributionTransactionRepository.updateInventoryBatchQuantityAndStatus(
         allocation.inventory_batch_id,
@@ -1141,7 +1107,10 @@ const recordAutomaticReliefPackClaim = async ({
     touchedInventoryItemIds.add(allocation.inventory_item_id);
   }
 
-  await syncTouchedInventoryItems([...touchedInventoryItemIds], client);
+  await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItems(
+    [...touchedInventoryItemIds],
+    { dbClient: client },
+  );
 
   const touchedDonationIds = [
     ...new Set(

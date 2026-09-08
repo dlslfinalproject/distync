@@ -20,6 +20,9 @@ const notificationServicePath = require.resolve(
 const systemLogRepositoryPath = require.resolve(
   "../src/repositories/systemLog.repository",
 );
+const inventoryBatchStatusServicePath = require.resolve(
+  "../src/services/inventoryBatchStatus.service",
+);
 
 const withStubbedInventoryRepository = async (poolStub, runTest) => {
   const originalRepository = require.cache[repositoryPath];
@@ -59,6 +62,7 @@ const withStubbedInventoryService = async (stubs, runTest) => {
     inventoryItemRepositoryPath,
     notificationServicePath,
     systemLogRepositoryPath,
+    inventoryBatchStatusServicePath,
     dbPath,
   ];
   const originalEntries = new Map(
@@ -76,6 +80,15 @@ const withStubbedInventoryService = async (stubs, runTest) => {
         exports: stubs[modulePath] || {},
       };
     });
+    require.cache[inventoryBatchStatusServicePath] = {
+      id: inventoryBatchStatusServicePath,
+      filename: inventoryBatchStatusServicePath,
+      loaded: true,
+      exports: {
+        refreshDerivedInventoryBatchStatusesForItem: async () => {},
+        refreshDerivedInventoryBatchStatusesForItems: async () => {},
+      },
+    };
 
     const service = require(servicePath);
     await runTest(service);
@@ -354,9 +367,10 @@ const buildInventoryCreateStubs = ({
         packaging_count: 20,
       };
     },
-    updateInventoryItemStockSnapshot: async (id, snapshot) => {
-      events.push(`item-update:${id}:${snapshot.packaging_count}`);
-      return { id, ...snapshot };
+    updateInventoryItemStockSnapshot: async () => {
+      throw new Error(
+        "stock movements must not update inventory item packaging metadata",
+      );
     },
   },
   [inventoryBatchRepositoryPath]: {
@@ -415,7 +429,6 @@ test("EE-FIX-04 ACTIVE event-specific manual OUTFLOW proceeds with existing vali
         "item:item-1",
         "insert:ITR-2026-000321",
         "batch-update:batch-1:15:AVAILABLE",
-        "item-update:item-1:15",
         "intent:tx-1",
       ]);
     },

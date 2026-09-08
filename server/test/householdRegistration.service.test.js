@@ -1527,7 +1527,7 @@ test("BRG-SC-06-H01 TEST B rejects foreign already-departed Barangay household b
     incomingTime: "2026-08-09T03:30:00.000Z",
   },
 ].forEach(({ label, incomingTime }) => {
-  test(`BRG-SC-06-H02 ${label} duplicate departure returns FIRST_ACCEPTED domain duplicate without mutation`, async () => {
+  test(`BRG-SC-06-H02 ${label} duplicate departure preserves earliest original occurrence`, async () => {
     const events = [];
     const acceptedAttendance = {
       id: "accepted-log-1",
@@ -1567,9 +1567,9 @@ test("BRG-SC-06-H01 TEST B rejects foreign already-departed Barangay household b
         events.push("MARK_DEPARTURE");
         throw new Error("Duplicate departure must not mark departure again");
       },
-      updateHouseholdDepartureTimestamp: async () => {
+      updateHouseholdDepartureTimestamp: async (_householdId, departureTime) => {
         events.push("REWRITE_DEPARTURE_TIME");
-        throw new Error("Duplicate departure must not rewrite accepted time_out");
+        return [{ ...acceptedAttendance, time_out: departureTime }];
       },
       archiveHousehold: async () => {
         events.push("ARCHIVE");
@@ -1599,7 +1599,16 @@ test("BRG-SC-06-H01 TEST B rejects foreign already-departed Barangay household b
           assert.equal(error.statusCode, 409);
           assert.equal(error.code, "DUPLICATE_HOUSEHOLD_DEPARTURE");
           assert.equal(error.entityServerId, "household-local-archived");
-          assert.deepEqual(error.serverPayload, acceptedAttendance);
+          assert.equal(
+            error.incomingDepartureWasEarlier,
+            label === "earlier",
+          );
+          assert.deepEqual(
+            error.serverPayload,
+            label === "earlier"
+              ? { ...acceptedAttendance, time_out: incomingTime }
+              : acceptedAttendance,
+          );
           return true;
         },
       );
@@ -1608,6 +1617,7 @@ test("BRG-SC-06-H01 TEST B rejects foreign already-departed Barangay household b
         "SUMMARY",
         "LOCK:true",
         "LATEST:household-local-archived:true",
+        ...(label === "earlier" ? ["REWRITE_DEPARTURE_TIME"] : []),
       ]);
     } finally {
       harness.restore();

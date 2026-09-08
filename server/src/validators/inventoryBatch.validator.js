@@ -6,6 +6,10 @@ const {
   isValidInventoryBarcode,
   normalizeInventoryBarcode,
 } = require("../utils/inventoryBarcode");
+const {
+  INVENTORY_BATCH_STORAGE_LOCATION_MAX_LENGTH,
+  isInventoryBatchStorageLocationLengthValid,
+} = require("../utils/inventoryBatchStorageLocation");
 
 const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
@@ -253,6 +257,12 @@ const validateCreateInventoryBatch = (req, res, next) => {
     ) {
       return res.status(400).json({
         message: "storage_location must be a string or null",
+      });
+    }
+
+    if (!isInventoryBatchStorageLocationLengthValid(storage_location)) {
+      return res.status(400).json({
+        message: `storage_location must not exceed ${INVENTORY_BATCH_STORAGE_LOCATION_MAX_LENGTH} characters`,
       });
     }
 
