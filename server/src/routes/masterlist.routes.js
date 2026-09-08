@@ -148,6 +148,11 @@ router.get(
             ...req.validatedQuery,
             barangay_id: req.auth.defaultBarangayId,
           }
+        : req.auth.roleCode === ROLE_CODES.MSWDO
+          ? {
+              ...req.validatedQuery,
+              source_role: req.auth.roleCode,
+            }
         : req.validatedQuery;
     const masterlist = await masterlistService.getMasterlist(protectedQuery);
 

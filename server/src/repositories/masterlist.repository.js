@@ -1,5 +1,81 @@
 const pool = require("../config/db");
 const BARANGAY_ROLE_CODE = "BARANGAY";
+const MSWDO_MASTERLIST_MODE = "mswdo";
+
+const MSWDO_SECTOR_CODE_ALIASES = Object.freeze({
+  LACTATING: "LACTATING_MOTHER",
+  INFANT_0_6_MONTHS: "INFANT",
+  TODDLER_7M_2Y: "TODDLER",
+  PRESCHOOL_3_5: "PRE_SCHOOLER",
+  CHILD_6_12: "SCHOOL_AGE",
+  TEEN_13_17: "TEENAGE",
+  ADULT_18_59: "ADULT",
+  SENIOR_60_ABOVE: "SENIOR_CITIZEN",
+});
+
+const normalizeMswdoSectorCode = (value) => {
+  const normalizedValue = String(value || "").trim().toUpperCase();
+  return MSWDO_SECTOR_CODE_ALIASES[normalizedValue] || normalizedValue;
+};
+
+const escapeLikePattern = (value) =>
+  String(value || "").replace(/[\\%_]/g, (character) => `\\${character}`);
+
+const MSWDO_SECTOR_CODE_SQL = (alias = "s") => `
+  CASE UPPER(${alias}.code)
+    WHEN 'LACTATING' THEN 'LACTATING_MOTHER'
+    WHEN 'INFANT_0_6_MONTHS' THEN 'INFANT'
+    WHEN 'TODDLER_7M_2Y' THEN 'TODDLER'
+    WHEN 'PRESCHOOL_3_5' THEN 'PRE_SCHOOLER'
+    WHEN 'CHILD_6_12' THEN 'SCHOOL_AGE'
+    WHEN 'TEEN_13_17' THEN 'TEENAGE'
+    WHEN 'ADULT_18_59' THEN 'ADULT'
+    WHEN 'SENIOR_60_ABOVE' THEN 'SENIOR_CITIZEN'
+    ELSE UPPER(${alias}.code)
+  END
+`;
+
+const MSWDO_SECTOR_LABEL_SQL = (alias = "s") => `
+  CASE ${MSWDO_SECTOR_CODE_SQL(alias)}
+    WHEN 'INFANT' THEN 'Infant'
+    WHEN 'TODDLER' THEN 'Toddler'
+    WHEN 'PRE_SCHOOLER' THEN 'Pre-schooler'
+    WHEN 'SCHOOL_AGE' THEN 'School Age'
+    WHEN 'TEENAGE' THEN 'Teenage'
+    WHEN 'ADULT' THEN 'Adult'
+    WHEN 'SENIOR_CITIZEN' THEN 'Senior Citizen'
+    WHEN 'PREGNANT' THEN 'Pregnant'
+    WHEN 'LACTATING_MOTHER' THEN 'Lactating Mother'
+    WHEN 'PWD' THEN 'Persons with Disabilities'
+    WHEN 'INDIGENOUS' THEN 'Indigenous'
+    WHEN 'FOUR_PS' THEN '4Ps Beneficiaries'
+    WHEN 'CHILD_HEADED' THEN 'Child-Headed Family'
+    WHEN 'SINGLE_HEADED' THEN 'Single-Headed Family'
+    WHEN 'SOLO_PARENT' THEN 'Solo Parents'
+    ELSE COALESCE(NULLIF(${alias}.name, ''), '')
+  END
+`;
+
+const MSWDO_SECTOR_ORDER_SQL = (alias = "sector_rows") => `
+  CASE ${alias}.sector_code
+    WHEN 'INFANT' THEN 0
+    WHEN 'TODDLER' THEN 1
+    WHEN 'PRE_SCHOOLER' THEN 2
+    WHEN 'SCHOOL_AGE' THEN 3
+    WHEN 'TEENAGE' THEN 4
+    WHEN 'ADULT' THEN 5
+    WHEN 'SENIOR_CITIZEN' THEN 6
+    WHEN 'PREGNANT' THEN 7
+    WHEN 'LACTATING_MOTHER' THEN 8
+    WHEN 'PWD' THEN 9
+    WHEN 'INDIGENOUS' THEN 10
+    WHEN 'FOUR_PS' THEN 11
+    WHEN 'CHILD_HEADED' THEN 12
+    WHEN 'SINGLE_HEADED' THEN 13
+    WHEN 'SOLO_PARENT' THEN 14
+    ELSE 1000
+  END
+`;
 
 const buildMasterlistPaginationMetadata = ({ page, pageSize, totalItems }) => {
   const totalPages = totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
@@ -807,19 +883,40 @@ const getHouseholdsByFilters = async (
   let sectorCodeFilterClause = "";
   let paginationClause = "";
   const isPaginated = Boolean(options.page && options.pageSize);
+  const isMswdoMode = options.mode === MSWDO_MASTERLIST_MODE && isPaginated;
   const page = Number(options.page || 1);
   const pageSize = Number(options.pageSize || 25);
   const searchTerm = String(options.search || "").trim();
   const sectorIds = Array.isArray(options.sector_ids) ? options.sector_ids : [];
   const sectorCodes = Array.isArray(options.sector_codes) ? options.sector_codes : [];
   const sortOrder = String(options.sort_order || "newest").toLowerCase();
+  const memberSectorActiveFilterClause =
+    isMswdoMode && recordStatus !== "active"
+      ? ""
+      : "WHERE e.is_active = TRUE";
 
   if (barangayId) {
     values.push(barangayId);
     barangayFilterClause = `AND h.barangay_id = $${values.length}`;
   }
 
-  if (recordStatus === "active") {
+  if (isMswdoMode && recordStatus === "active") {
+    recordStatusFilterClause = `
+      AND (
+        records.is_active IS NOT FALSE
+        AND records.attendance_time_out IS NULL
+        AND UPPER(COALESCE(records.attendance_status, '')) <> 'LEFT'
+      )
+    `;
+  } else if (isMswdoMode && recordStatus === "archived") {
+    recordStatusFilterClause = `
+      AND NOT (
+        records.is_active IS NOT FALSE
+        AND records.attendance_time_out IS NULL
+        AND UPPER(COALESCE(records.attendance_status, '')) <> 'LEFT'
+      )
+    `;
+  } else if (recordStatus === "active") {
     recordStatusFilterClause = `
       AND (
         records.is_active = TRUE
@@ -846,18 +943,35 @@ const getHouseholdsByFilters = async (
   }
 
   if (searchTerm) {
-    values.push(`%${searchTerm.toLowerCase()}%`);
+    values.push(
+      `%${
+        isMswdoMode
+          ? escapeLikePattern(searchTerm.toLowerCase())
+          : searchTerm.toLowerCase()
+      }%`,
+    );
     const searchParamIndex = values.length;
-    searchFilterClause = `
-      AND (
-        LOWER(records.family_head_name) LIKE $${searchParamIndex}
-        OR LOWER(COALESCE(records.current_address_details, records.location_label, '')) LIKE $${searchParamIndex}
-        OR LOWER(COALESCE(records.sectors_text, '')) LIKE $${searchParamIndex}
-        OR LOWER(COALESCE(records.attendance_status, '')) LIKE $${searchParamIndex}
-        OR LOWER(COALESCE(records.arrival_time_text, '')) LIKE $${searchParamIndex}
-        OR LOWER(COALESCE(records.departure_time_text, '')) LIKE $${searchParamIndex}
-      )
-    `;
+    searchFilterClause = isMswdoMode
+      ? `
+        AND (
+          LOWER(records.client_family_head_name) LIKE $${searchParamIndex} ESCAPE '\\'
+          OR LOWER(records.client_address) LIKE $${searchParamIndex} ESCAPE '\\'
+          OR LOWER(records.client_sector_text) LIKE $${searchParamIndex} ESCAPE '\\'
+          OR LOWER(records.client_arrival_time_text) LIKE $${searchParamIndex} ESCAPE '\\'
+          OR LOWER(records.client_departure_time_text) LIKE $${searchParamIndex} ESCAPE '\\'
+          OR LOWER(COALESCE(records.barangay_name, '')) LIKE $${searchParamIndex} ESCAPE '\\'
+        )
+      `
+      : `
+        AND (
+          LOWER(records.family_head_name) LIKE $${searchParamIndex}
+          OR LOWER(COALESCE(records.current_address_details, records.location_label, '')) LIKE $${searchParamIndex}
+          OR LOWER(COALESCE(records.sectors_text, '')) LIKE $${searchParamIndex}
+          OR LOWER(COALESCE(records.attendance_status, '')) LIKE $${searchParamIndex}
+          OR LOWER(COALESCE(records.arrival_time_text, '')) LIKE $${searchParamIndex}
+          OR LOWER(COALESCE(records.departure_time_text, '')) LIKE $${searchParamIndex}
+        )
+      `;
   }
 
   if (sectorIds.length > 0) {
@@ -868,13 +982,19 @@ const getHouseholdsByFilters = async (
   }
 
   if (sectorCodes.length > 0) {
-    values.push(sectorCodes.map((sectorCode) => String(sectorCode).toUpperCase()));
+    values.push(
+      sectorCodes.map((sectorCode) =>
+        isMswdoMode
+          ? normalizeMswdoSectorCode(sectorCode)
+          : String(sectorCode).toUpperCase(),
+      ),
+    );
     sectorCodeFilterClause = `
       AND records.sector_codes && $${values.length}::text[]
     `;
   }
 
-  const sortExpressionsByOrder = {
+  const legacySortExpressionsByOrder = {
     oldest: `
       sort_timestamp ASC NULLS LAST,
       family_head_name ASC,
@@ -896,7 +1016,33 @@ const getHouseholdsByFilters = async (
       masterlist_record_id ASC
     `,
   };
-  const sortExpression = sortExpressionsByOrder[sortOrder] || sortExpressionsByOrder.newest;
+  const mswdoSortExpressionsByOrder = {
+    oldest: `
+      client_sort_timestamp ASC,
+      UPPER(TRIM(client_family_head_name)) ASC,
+      masterlist_record_id ASC
+    `,
+    az: `
+      UPPER(TRIM(client_family_head_name)) ASC,
+      client_sort_timestamp DESC,
+      masterlist_record_id ASC
+    `,
+    za: `
+      UPPER(TRIM(client_family_head_name)) DESC,
+      client_sort_timestamp DESC,
+      masterlist_record_id ASC
+    `,
+    newest: `
+      client_sort_timestamp DESC,
+      UPPER(TRIM(client_family_head_name)) ASC,
+      masterlist_record_id ASC
+    `,
+  };
+  const sortExpressionsByOrder = isMswdoMode
+    ? mswdoSortExpressionsByOrder
+    : legacySortExpressionsByOrder;
+  const sortExpression =
+    sortExpressionsByOrder[sortOrder] || sortExpressionsByOrder.newest;
 
   if (isPaginated) {
     values.push(pageSize);
@@ -909,33 +1055,133 @@ const getHouseholdsByFilters = async (
     `;
   }
 
-  const query = `
-    WITH household_scope AS (
+  const rawFamilyHeadNameSql = `CONCAT_WS(
+    ' ',
+    hs.family_head_first_name,
+    hs.family_head_middle_name,
+    hs.family_head_last_name,
+    hs.family_head_suffix
+  )`;
+  const clientFamilyHeadNameSql = `COALESCE(NULLIF(${rawFamilyHeadNameSql}, ''), '-')`;
+  const clientLocationLabelSql = `CASE
+    WHEN hs.residency_status = 'NON_RESIDENT' THEN 'Non-Resident (Outside Malvar)'
+    ELSE hs.barangay_name
+  END`;
+  const clientBaseAddressSql = `COALESCE(
+    NULLIF(hs.current_address_details, ''),
+    ${clientLocationLabelSql},
+    '-'
+  )`;
+  const clientAddressSql = `CASE
+    WHEN COALESCE(hs.barangay_name, '') <> ''
+      AND POSITION(hs.barangay_name IN ${clientBaseAddressSql}) = 0
+      THEN ${clientBaseAddressSql} || ' | ' || hs.barangay_name
+    ELSE ${clientBaseAddressSql}
+  END`;
+  const clientNonAdmittedSql = `
+    hs.residency_status = 'RESIDENT'
+    AND hs.is_active = FALSE
+    AND hs.current_stay_type IN ('RELATIVES', 'OTHER_SAFE_PLACE')
+    AND ao.attendance_time_in IS NULL
+    AND ao.attendance_time_out IS NULL
+    AND UPPER(COALESCE(ao.attendance_status, '')) <> 'PRESENT'
+  `;
+  const clientArrivalTimeSql = `CASE
+    WHEN ${clientNonAdmittedSql}
+      THEN CASE hs.current_stay_type
+        WHEN 'RELATIVES' THEN 'Staying with Relatives'
+        WHEN 'OTHER_SAFE_PLACE' THEN 'Other Safe Place'
+        ELSE '—'
+      END
+    ELSE COALESCE(
+      TO_CHAR(ao.attendance_time_in AT TIME ZONE 'Asia/Manila', 'Mon FMDD, YYYY, FMHH12:MI AM'),
+      '-'
+    )
+  END`;
+  const clientDepartureTimeSql = `CASE
+    WHEN ${clientNonAdmittedSql} THEN 'None'
+    ELSE COALESCE(
+      TO_CHAR(ao.attendance_time_out AT TIME ZONE 'Asia/Manila', 'Mon FMDD, YYYY, FMHH12:MI AM'),
+      '-'
+    )
+  END`;
+  const clientSortTimestampSql =
+    "COALESCE(ao.attendance_time_in, hs.registered_at, TIMESTAMPTZ 'epoch')";
+  const legacyArrivalTimeSql = `CASE
+    WHEN hs.residency_status = 'RESIDENT'
+      AND hs.is_active = FALSE
+      AND hs.current_stay_type IN ('RELATIVES', 'OTHER_SAFE_PLACE')
+      AND ao.attendance_log_id IS NULL
+    THEN INITCAP(REPLACE(LOWER(hs.current_stay_type), '_', ' '))
+    ELSE TO_CHAR(ao.attendance_time_in AT TIME ZONE 'Asia/Manila', 'Mon FMDD, YYYY, FMHH12:MI AM')
+  END`;
+  const legacyDepartureTimeSql = `CASE
+    WHEN hs.residency_status = 'RESIDENT'
+      AND hs.is_active = FALSE
+      AND hs.current_stay_type IN ('RELATIVES', 'OTHER_SAFE_PLACE')
+      AND ao.attendance_log_id IS NULL
+    THEN 'None'
+    ELSE TO_CHAR(ao.attendance_time_out AT TIME ZONE 'Asia/Manila', 'Mon FMDD, YYYY, FMHH12:MI AM')
+  END`;
+  const arrivalTimeSql = isMswdoMode ? clientArrivalTimeSql : legacyArrivalTimeSql;
+  const departureTimeSql = isMswdoMode
+    ? clientDepartureTimeSql
+    : legacyDepartureTimeSql;
+
+  const sectorAggregatesSql = isMswdoMode
+    ? `
+    sector_rows AS (
       SELECT
-        h.id AS household_id,
-        h.disaster_event_id,
-        h.barangay_id,
-        h.residency_status,
-        h.family_head_first_name,
-        h.family_head_middle_name,
-        h.family_head_last_name,
-        h.family_head_suffix,
-        h.household_size,
-        h.current_stay_type,
-        h.current_address_details,
-        h.contact_number,
-        h.is_active,
-        h.registered_at,
-        h.family_head_evacuee_id,
-        b.code AS barangay_code,
-        b.name AS barangay_name,
-        b.municipality_name,
-        b.province_name
-      FROM households h
-      LEFT JOIN barangays b ON b.id = h.barangay_id
-      WHERE h.disaster_event_id = $1
-      ${barangayFilterClause}
+        hs.household_id,
+        s.id AS sector_id,
+        ${MSWDO_SECTOR_CODE_SQL("s")} AS sector_code,
+        ${MSWDO_SECTOR_LABEL_SQL("s")} AS sector_label,
+        0 AS source_order
+      FROM household_sectors hs
+      INNER JOIN sectors s ON s.id = hs.sector_id
+
+      UNION ALL
+
+      SELECT
+        e.household_id,
+        s.id AS sector_id,
+        ${MSWDO_SECTOR_CODE_SQL("s")} AS sector_code,
+        ${MSWDO_SECTOR_LABEL_SQL("s")} AS sector_label,
+        1 AS source_order
+      FROM evacuee_sectors es
+      INNER JOIN evacuees e ON e.id = es.evacuee_id
+      INNER JOIN sectors s ON s.id = es.sector_id
+      ${memberSectorActiveFilterClause}
     ),
+    sector_rows_deduped AS (
+      SELECT DISTINCT ON (household_id, sector_code)
+        household_id,
+        sector_id,
+        sector_code,
+        sector_label
+      FROM sector_rows
+      ORDER BY household_id, sector_code, source_order, sector_id
+    ),
+    sector_aggregates AS (
+      SELECT
+        sector_rows_deduped.household_id,
+        ARRAY_AGG(DISTINCT sector_rows_deduped.sector_id)
+          FILTER (WHERE sector_rows_deduped.sector_id IS NOT NULL) AS sector_ids,
+        ARRAY_AGG(DISTINCT sector_rows_deduped.sector_code)
+          FILTER (WHERE sector_rows_deduped.sector_code IS NOT NULL) AS sector_codes,
+        COALESCE(
+          STRING_AGG(
+            NULLIF(sector_rows_deduped.sector_label, ''),
+            ', ' ORDER BY ${MSWDO_SECTOR_ORDER_SQL("sector_rows_deduped")},
+            sector_rows_deduped.sector_code
+          ),
+          ''
+        ) AS sectors_text
+      FROM sector_rows_deduped
+      GROUP BY sector_rows_deduped.household_id
+    ),
+  `
+    : `
     sector_aggregates AS (
       SELECT
         sector_rows.household_id,
@@ -965,6 +1211,36 @@ const getHouseholdsByFilters = async (
       ) sector_rows
       GROUP BY sector_rows.household_id
     ),
+  `;
+
+  const query = `
+    WITH household_scope AS (
+      SELECT
+        h.id AS household_id,
+        h.disaster_event_id,
+        h.barangay_id,
+        h.residency_status,
+        h.family_head_first_name,
+        h.family_head_middle_name,
+        h.family_head_last_name,
+        h.family_head_suffix,
+        h.household_size,
+        h.current_stay_type,
+        h.current_address_details,
+        h.contact_number,
+        h.is_active,
+        h.registered_at,
+        h.family_head_evacuee_id,
+        b.code AS barangay_code,
+        b.name AS barangay_name,
+        b.municipality_name,
+        b.province_name
+      FROM households h
+      LEFT JOIN barangays b ON b.id = h.barangay_id
+      WHERE h.disaster_event_id = $1
+      ${barangayFilterClause}
+    ),
+    ${sectorAggregatesSql}
     family_head_evacuees AS (
       SELECT
         hs.household_id,
@@ -1028,37 +1304,20 @@ const getHouseholdsByFilters = async (
         ao.attendance_created_at,
         ao.attendance_updated_at,
         COALESCE(ao.attendance_log_id::text, hs.household_id::text) AS masterlist_record_id,
-        CONCAT_WS(
-          ' ',
-          hs.family_head_first_name,
-          hs.family_head_middle_name,
-          hs.family_head_last_name,
-          hs.family_head_suffix
-        ) AS family_head_name,
-        CASE
-          WHEN hs.residency_status = 'NON_RESIDENT' THEN 'Non-Resident (Outside Malvar)'
-          ELSE hs.barangay_name
-        END AS location_label,
+        ${rawFamilyHeadNameSql} AS family_head_name,
+        ${clientLocationLabelSql} AS location_label,
         COALESCE(sa.sector_ids, ARRAY[]::uuid[]) AS sector_ids,
         COALESCE(sa.sector_codes, ARRAY[]::text[]) AS sector_codes,
         COALESCE(sa.sectors_text, '') AS sectors_text,
-        CASE
-          WHEN hs.residency_status = 'RESIDENT'
-            AND hs.is_active = FALSE
-            AND hs.current_stay_type IN ('RELATIVES', 'OTHER_SAFE_PLACE')
-            AND ao.attendance_log_id IS NULL
-          THEN INITCAP(REPLACE(LOWER(hs.current_stay_type), '_', ' '))
-          ELSE TO_CHAR(ao.attendance_time_in AT TIME ZONE 'Asia/Manila', 'Mon FMDD, YYYY, FMHH12:MI AM')
-        END AS arrival_time_text,
-        CASE
-          WHEN hs.residency_status = 'RESIDENT'
-            AND hs.is_active = FALSE
-            AND hs.current_stay_type IN ('RELATIVES', 'OTHER_SAFE_PLACE')
-            AND ao.attendance_log_id IS NULL
-          THEN 'None'
-          ELSE TO_CHAR(ao.attendance_time_out AT TIME ZONE 'Asia/Manila', 'Mon FMDD, YYYY, FMHH12:MI AM')
-        END AS departure_time_text,
+        ${arrivalTimeSql} AS arrival_time_text,
+        ${departureTimeSql} AS departure_time_text,
         COALESCE(ao.attendance_time_out, ao.attendance_time_in, hs.registered_at) AS sort_timestamp,
+        ${clientFamilyHeadNameSql} AS client_family_head_name,
+        ${clientAddressSql} AS client_address,
+        COALESCE(NULLIF(sa.sectors_text, ''), '-') AS client_sector_text,
+        ${clientArrivalTimeSql} AS client_arrival_time_text,
+        ${clientDepartureTimeSql} AS client_departure_time_text,
+        ${clientSortTimestampSql} AS client_sort_timestamp,
         EXISTS (
           SELECT 1
           FROM households successor

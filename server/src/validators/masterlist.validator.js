@@ -16,9 +16,16 @@ const parseUuidList = (value) => {
     .filter(Boolean);
 };
 
-const parsePositiveInteger = (value, fallback) => {
-  const parsedValue = Number.parseInt(value, 10);
-  return Number.isInteger(parsedValue) && parsedValue > 0 ? parsedValue : fallback;
+const isStrictPositiveInteger = (value) => {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value > 0;
+  }
+
+  return (
+    typeof value === "string" &&
+    /^[1-9]\d*$/.test(value) &&
+    Number.isSafeInteger(Number(value))
+  );
 };
 
 const validateGetMasterlist = (req, res, next) => {
@@ -57,29 +64,24 @@ const validateGetMasterlist = (req, res, next) => {
 
     const hasPage = page !== undefined;
     const hasPageSize = pageSize !== undefined;
-    const parsedPage = hasPage ? parsePositiveInteger(page, 1) : null;
-    const parsedPageSize = hasPageSize
-      ? Math.min(parsePositiveInteger(pageSize, 25), 100)
-      : null;
+    const parsedPage = hasPage ? Number(page) : null;
+    const parsedPageSize = hasPageSize ? Number(pageSize) : null;
     const parsedSectorTokens = parseUuidList(sector_ids);
     const parsedSectorIds = parsedSectorTokens.filter(isValidUuid);
     const parsedSectorCodes = parsedSectorTokens.filter(
       (sectorToken) => !isValidUuid(sectorToken),
     );
 
-    if (hasPage && String(parsedPage) !== String(Number.parseInt(page, 10))) {
+    if (hasPage && !isStrictPositiveInteger(page)) {
       return res.status(400).json({
         message: "page must be a positive integer when provided",
       });
     }
 
     if (hasPageSize) {
-      const requestedPageSize = Number.parseInt(pageSize, 10);
-
       if (
-        !Number.isInteger(requestedPageSize) ||
-        requestedPageSize < 1 ||
-        requestedPageSize > 100
+        !isStrictPositiveInteger(pageSize) ||
+        parsedPageSize > 100
       ) {
         return res.status(400).json({
           message: "pageSize must be an integer between 1 and 100",

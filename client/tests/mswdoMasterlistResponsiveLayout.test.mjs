@@ -29,11 +29,11 @@ test("MSWDO masterlist exposes Barangay-parity responsive hooks for target-speci
   assert.match(cardsSource, /className="mswdo-masterlist-summary-grid"/);
   assert.match(
     pageSource,
-    /<MasterlistTable[\s\S]*?rows=\{paginatedRows\}[\s\S]*?showAddressColumn=\{!selectedBarangayId\}/,
+    /<MasterlistTable[\s\S]*?rows=\{displayedRows\}[\s\S]*?showAddressColumn=\{!selectedBarangayId\}/,
   );
-  assert.match(pageSource, /getTablePaginationState/);
-  assert.match(pageSource, /paginateRows/);
   assert.match(pageSource, /pagination=\{\{/);
+  assert.match(pageSource, /onPageSizeChange=\{setPageSize\}/);
+  assert.doesNotMatch(pageSource, /getTablePaginationState|paginateRows/);
   assert.match(pageSource, /onPageChange=\{setCurrentPage\}/);
   assert.match(pageSource, /totalItems=\{pagination\.totalItems\}/);
 

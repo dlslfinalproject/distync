@@ -79,9 +79,12 @@ test("metadata IDs/codes reuse existing MSWDO reference ordering and labels", as
   assert.match(modalSource, /barangay\.name/);
 });
 
-test("live MSWDO table and dashboard continue using their existing full-data paths", async () => {
+test("live MSWDO table uses the server-authoritative paginated path while dashboard scope stays separate", async () => {
   const liveHookSource = await readSource(
     "features/mswdo-masterlist/useMswdoMasterlist.js",
+  );
+  const liveServiceSource = await readSource(
+    "features/mswdo-masterlist/mswdoMasterlistService.js",
   );
   const pageSource = await readSource(
     "features/mswdo-masterlist/useMswdoMasterlistPage.js",
@@ -89,6 +92,16 @@ test("live MSWDO table and dashboard continue using their existing full-data pat
 
   assert.match(liveHookSource, /fetchConsolidatedMasterlist\(\{/);
   assert.match(liveHookSource, /recordStatus,/);
+  assert.match(liveHookSource, /page: currentPage/);
+  assert.match(liveHookSource, /pageSize/);
+  assert.match(liveHookSource, /search: searchTerm/);
+  assert.match(liveHookSource, /sectorCodes: selectedSectorIds/);
+  assert.match(liveHookSource, /sortOrder: selectedSortOrder/);
+  assert.doesNotMatch(liveHookSource, /fetchConsolidatedMasterlist\(\{[\s\S]*\}\);[\s\S]*fetchConsolidatedMasterlist\(/);
+  assert.match(liveServiceSource, /searchParams\.set\("page", page\)/);
+  assert.match(liveServiceSource, /searchParams\.set\("pageSize", pageSize\)/);
+  assert.match(liveServiceSource, /searchParams\.set\("sector_ids", sectorCodes\.join\(","\)\)/);
   assert.match(liveHookSource, /fetchConsolidatedMasterlistDashboard\(\{/);
+  assert.doesNotMatch(liveHookSource, /sortMasterlistRows|paginateRows/);
   assert.match(pageSource, /fetchMswdoMasterlistExportMetadata/);
 });

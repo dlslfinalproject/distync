@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ROLE_CODES } from "../../utils/roleSession";
 import {
   fetchActiveDisasterEvents,
@@ -9,10 +9,12 @@ import {
 } from "./mswdoMasterlistService";
 import { fetchSectors } from "../household-registration/householdRegistrationService";
 import {
-  isOperationallyActiveHousehold,
   mapMasterlistRow,
-  sortMasterlistRows,
 } from "../masterlist/masterlistService";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../pagination/pagination.mjs";
 import {
   buildMasterlistFilterSectorOptions,
   getCanonicalMemberSectorCode,
@@ -51,10 +53,6 @@ const emptyDashboardPayload = {
     per_barangay: [],
   },
   has_data: false,
-};
-
-const formatSearchValue = (value) => {
-  return value ? String(value).toLowerCase() : "";
 };
 
 const getMappedRows = (
@@ -102,60 +100,6 @@ const getMappedRows = (
   });
 };
 
-const getStatusScopedRows = (households, recordStatus) => {
-  if (recordStatus === "archived") {
-    return households.filter(
-      (household) => !isOperationallyActiveHousehold(household),
-    );
-  }
-
-  if (recordStatus === "all") {
-    return households;
-  }
-
-  return households.filter(isOperationallyActiveHousehold);
-};
-
-const getDisplayedRows = (
-  rows,
-  searchTerm,
-  selectedSectorIds,
-  selectedSortOrder = "newest",
-) => {
-  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
-
-  const filteredRows = rows.filter((household) => {
-    const matchesSectorFilter =
-      selectedSectorIds.length === 0 ||
-      selectedSectorIds.some((sectorId) =>
-        (household.sector_codes || []).includes(sectorId),
-      );
-
-    if (!matchesSectorFilter) {
-      return false;
-    }
-
-    if (!normalizedSearchTerm) {
-      return true;
-    }
-
-    const searchableValues = [
-      household.family_head_name,
-      household.address,
-      household.sectors_text,
-      household.arrival_time_text,
-      household.departure_time_text,
-      household.barangay_name,
-    ];
-
-    return searchableValues.some((value) =>
-      formatSearchValue(value).includes(normalizedSearchTerm),
-    );
-  });
-
-  return sortMasterlistRows(filteredRows, selectedSortOrder);
-};
-
 const getSummaryMetrics = (dashboardPayload) => {
   const summary = dashboardPayload.summary_metrics || emptyDashboardPayload.summary_metrics;
 
@@ -182,11 +126,11 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
         userId,
       }) || "",
   );
-  const [selectedBarangayId, setSelectedBarangayId] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedSectorIds, setSelectedSectorIds] = useState([]);
-  const [selectedSortOrder, setSelectedSortOrder] = useState("newest");
-  const [recordStatus, setRecordStatus] = useState("active");
+  const [selectedBarangayId, setSelectedBarangayIdState] = useState("");
+  const [searchTerm, setSearchTermState] = useState("");
+  const [selectedSectorIds, setSelectedSectorIdsState] = useState([]);
+  const [selectedSortOrder, setSelectedSortOrderState] = useState("newest");
+  const [recordStatus, setRecordStatusState] = useState("active");
   const [masterlistPayload, setMasterlistPayload] = useState(emptyMasterlistPayload);
   const [dashboardPayload, setDashboardPayload] = useState(emptyDashboardPayload);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
@@ -195,11 +139,30 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
   const [errorMessage, setErrorMessage] = useState("");
   const [dashboardErrorMessage, setDashboardErrorMessage] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const [currentPage, setCurrentPageState] = useState(1);
+  const [pageSize, setPageSizeState] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const masterlistRequestSequenceRef = useRef(0);
+  const resetPage = useCallback(() => {
+    setCurrentPageState(1);
+  }, []);
+
+  const setPageSize = useCallback((nextPageSize) => {
+    const numericPageSize = Number(nextPageSize);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(numericPageSize)) {
+      return;
+    }
+
+    setPageSizeState(numericPageSize);
+    setCurrentPageState(1);
+  }, []);
+
   const setSelectedDisasterEventId = useCallback(
     (nextEventId) => {
       const nextEvent = disasterEvents.find((event) => event.id === nextEventId);
 
       setSelectedDisasterEventIdState(nextEventId);
+      resetPage();
       persistOperationalDisasterEventSelection({
         roleCode: ROLE_CODES.MSWDO,
         userId,
@@ -207,7 +170,47 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
         eventScope: nextEvent?.status === "ACTIVE" ? "active" : "ended",
       });
     },
-    [disasterEvents, userId],
+    [disasterEvents, resetPage, userId],
+  );
+
+  const setSelectedBarangayId = useCallback(
+    (nextBarangayId) => {
+      setSelectedBarangayIdState(nextBarangayId);
+      resetPage();
+    },
+    [resetPage],
+  );
+
+  const setSelectedSectorIds = useCallback(
+    (nextSectorIds) => {
+      setSelectedSectorIdsState(nextSectorIds);
+      resetPage();
+    },
+    [resetPage],
+  );
+
+  const setSelectedSortOrder = useCallback(
+    (nextSortOrder) => {
+      setSelectedSortOrderState(nextSortOrder);
+      resetPage();
+    },
+    [resetPage],
+  );
+
+  const setSearchTerm = useCallback(
+    (nextSearchTerm) => {
+      setSearchTermState(nextSearchTerm);
+      resetPage();
+    },
+    [resetPage],
+  );
+
+  const setRecordStatus = useCallback(
+    (nextRecordStatus) => {
+      setRecordStatusState(nextRecordStatus);
+      resetPage();
+    },
+    [resetPage],
   );
 
   useEffect(() => {
@@ -290,10 +293,17 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
 
   useEffect(() => {
     let isMounted = true;
+    const requestSequence = masterlistRequestSequenceRef.current + 1;
+    masterlistRequestSequenceRef.current = requestSequence;
 
     const loadMasterlist = async () => {
       if (!selectedDisasterEventId) {
-        setMasterlistPayload(emptyMasterlistPayload);
+        if (
+          isMounted &&
+          masterlistRequestSequenceRef.current === requestSequence
+        ) {
+          setMasterlistPayload(emptyMasterlistPayload);
+        }
         return;
       }
 
@@ -305,18 +315,32 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
           disasterEventId: selectedDisasterEventId,
           barangayId: selectedBarangayId || null,
           recordStatus,
+          page: currentPage,
+          pageSize,
+          search: searchTerm,
+          sectorCodes: selectedSectorIds,
+          sortOrder: selectedSortOrder,
         });
 
-        if (isMounted) {
+        if (
+          isMounted &&
+          masterlistRequestSequenceRef.current === requestSequence
+        ) {
           setMasterlistPayload(payload);
         }
       } catch (error) {
-        if (isMounted) {
+        if (
+          isMounted &&
+          masterlistRequestSequenceRef.current === requestSequence
+        ) {
           setMasterlistPayload(emptyMasterlistPayload);
           setErrorMessage(error.message || "Failed to load consolidated masterlist");
         }
       } finally {
-        if (isMounted) {
+        if (
+          isMounted &&
+          masterlistRequestSequenceRef.current === requestSequence
+        ) {
           setIsLoadingMasterlist(false);
         }
       }
@@ -327,7 +351,17 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
     return () => {
       isMounted = false;
     };
-  }, [recordStatus, reloadKey, selectedBarangayId, selectedDisasterEventId]);
+  }, [
+    currentPage,
+    pageSize,
+    recordStatus,
+    reloadKey,
+    searchTerm,
+    selectedBarangayId,
+    selectedDisasterEventId,
+    selectedSectorIds,
+    selectedSortOrder,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -370,24 +404,39 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
   }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
 
   const mappedRows = useMemo(() => {
-    const allHouseholds = masterlistPayload.data || [];
-    const statusScopedHouseholds = getStatusScopedRows(allHouseholds, recordStatus);
+    const pageHouseholds = masterlistPayload.data || [];
 
     return getMappedRows(
-      statusScopedHouseholds,
-      allHouseholds,
+      pageHouseholds,
+      pageHouseholds,
       selectedDisasterEventId,
     );
-  }, [masterlistPayload.data, recordStatus, selectedDisasterEventId]);
+  }, [masterlistPayload.data, selectedDisasterEventId]);
 
-  const displayedRows = useMemo(() => {
-    return getDisplayedRows(
-      mappedRows,
-      searchTerm,
-      selectedSectorIds,
-      selectedSortOrder,
-    );
-  }, [mappedRows, searchTerm, selectedSectorIds, selectedSortOrder]);
+  const displayedRows = mappedRows;
+
+  const pagination = useMemo(
+    () =>
+      masterlistPayload.pagination || {
+        page: currentPage,
+        pageSize,
+        totalItems: 0,
+        totalPages: 0,
+        hasPreviousPage: false,
+        hasNextPage: false,
+      },
+    [currentPage, masterlistPayload.pagination, pageSize],
+  );
+
+  useEffect(() => {
+    const totalPages = Number(pagination.totalPages || 0);
+    const safePage =
+      totalPages > 0 ? Math.min(Math.max(currentPage, 1), totalPages) : 1;
+
+    if (currentPage !== safePage) {
+      setCurrentPageState(safePage);
+    }
+  }, [currentPage, pagination.totalPages]);
 
   const summaryMetrics = useMemo(() => {
     return getSummaryMetrics(dashboardPayload);
@@ -411,6 +460,9 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
     searchTerm,
     recordStatus,
     displayedRows,
+    pagination,
+    currentPage,
+    pageSize,
     summaryMetrics,
     isLoadingFilters,
     isLoadingMasterlist,
@@ -424,6 +476,8 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
     setSelectedSortOrder,
     setSearchTerm,
     setRecordStatus,
+    setCurrentPage: setCurrentPageState,
+    setPageSize,
     reloadMasterlist: () => {
       setReloadKey((currentValue) => currentValue + 1);
     },

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
 import ActiveCrossEventInformationModal from "../../components/masterlist/ActiveCrossEventInformationModal";
 import PageHeader from "../../components/layout/PageHeader";
@@ -14,12 +14,7 @@ import MswdoMasterlistEventSummary from "../../components/mswdo-masterlist/Mswdo
 import MswdoMasterlistScopeSection from "../../components/mswdo-masterlist/MswdoMasterlistScopeSection";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
 import FeedbackToast from "../../components/shared/FeedbackToast";
-import {
-  DEFAULT_TABLE_PAGE_SIZE,
-  getTablePaginationState,
-  paginateRows,
-  TABLE_PAGE_SIZE_OPTIONS,
-} from "../../features/pagination/pagination.mjs";
+import { TABLE_PAGE_SIZE_OPTIONS } from "../../features/pagination/pagination.mjs";
 import { useAuth } from "../../context/AuthContext";
 import { useMswdoMasterlistPage } from "../../features/mswdo-masterlist/useMswdoMasterlistPage";
 
@@ -35,6 +30,9 @@ const ConsolidatedEvacueeMasterlist = () => {
     searchTerm,
     selectedRecordStatus,
     displayedRows,
+    pagination,
+    currentPage,
+    pageSize,
     summaryMetrics,
     isLoadingFilters,
     isLoadingMasterlist,
@@ -90,6 +88,8 @@ const ConsolidatedEvacueeMasterlist = () => {
     setSelectedDisasterEventId,
     setSelectedBarangayId,
     setSearchTerm,
+    setCurrentPage,
+    setPageSize,
     setSelectedExportFormat,
     setSelectedExportDisasterEventId,
     setSelectedExportBarangayIds,
@@ -152,55 +152,6 @@ const ConsolidatedEvacueeMasterlist = () => {
     sectors: "",
     barangays: "",
   });
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
-
-  const pagination = useMemo(
-    () =>
-      getTablePaginationState({
-        totalItems: displayedRows.length,
-        currentPage,
-        pageSize,
-        pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
-      }),
-    [currentPage, displayedRows.length, pageSize],
-  );
-  const paginatedRows = useMemo(
-    () => paginateRows(displayedRows, pagination.currentPage, pagination.pageSize),
-    [displayedRows, pagination.currentPage, pagination.pageSize],
-  );
-
-  useEffect(() => {
-    setCurrentPage((previousPage) =>
-      previousPage === pagination.currentPage
-        ? previousPage
-        : pagination.currentPage,
-    );
-  }, [pagination.currentPage]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [
-    activeTab,
-    searchTerm,
-    selectedBarangayId,
-    selectedDisasterEventId,
-    selectedRecordStatus,
-    selectedSectorIds,
-    selectedSortOrder,
-  ]);
-
-  const handlePageSizeChange = (value) => {
-    const nextPageSize = Number(value);
-
-    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
-      return;
-    }
-
-    setPageSize(nextPageSize);
-    setCurrentPage(1);
-  };
-
   useEffect(() => {
     if (!isExportModalOpen) {
       setExportValidationErrors({ sectors: "", barangays: "" });
@@ -327,7 +278,7 @@ const ConsolidatedEvacueeMasterlist = () => {
       />
 
       <MasterlistTable
-        rows={paginatedRows}
+        rows={displayedRows}
         hasSelectedEvent={Boolean(selectedDisasterEventId)}
         isLoading={isLoadingFilters || isLoadingMasterlist}
         errorMessage={errorMessage}
@@ -342,13 +293,13 @@ const ConsolidatedEvacueeMasterlist = () => {
         onSelectAll={handleSelectAll}
         showAddressColumn={!selectedBarangayId}
         pagination={{
-          page: pagination.currentPage,
-          pageSize: pagination.pageSize,
+          page: currentPage,
+          pageSize,
           totalItems: pagination.totalItems,
         }}
         pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
         onPageChange={setCurrentPage}
-        onPageSizeChange={handlePageSizeChange}
+        onPageSizeChange={setPageSize}
         totalItems={pagination.totalItems}
       />
 
