@@ -49,6 +49,11 @@ export const fetchConsolidatedMasterlist = async ({
   barangayId,
   eventScope,
   recordStatus = "active",
+  page,
+  pageSize,
+  search = "",
+  sectorCodes = [],
+  sortOrder = "newest",
 }) => {
   if (!disasterEventId) {
     return {
@@ -74,11 +79,29 @@ export const fetchConsolidatedMasterlist = async ({
     searchParams.set("event_scope", eventScope);
   }
 
+  const isPaginatedRequest = page !== undefined && pageSize !== undefined;
   const requestedRecordStatus =
-    recordStatus === "archived" ? "all" : recordStatus;
+    !isPaginatedRequest && recordStatus === "archived" ? "all" : recordStatus;
 
   if (requestedRecordStatus) {
     searchParams.set("record_status", requestedRecordStatus);
+  }
+
+  if (isPaginatedRequest) {
+    searchParams.set("page", page);
+    searchParams.set("pageSize", pageSize);
+
+    if (search && search.trim()) {
+      searchParams.set("search", search.trim());
+    }
+
+    if (Array.isArray(sectorCodes) && sectorCodes.length > 0) {
+      searchParams.set("sector_ids", sectorCodes.join(","));
+    }
+
+    if (sortOrder) {
+      searchParams.set("sort_order", sortOrder);
+    }
   }
 
   const response = await fetch(

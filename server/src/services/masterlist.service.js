@@ -77,6 +77,12 @@ const getMasterlist = async (filters) => {
       sector_ids: filters.sector_ids,
       sector_codes: filters.sector_codes,
       sort_order: filters.sort_order,
+      mode:
+        filters.source_role === ROLE_CODES.MSWDO &&
+        Number.isInteger(filters.page) &&
+        Number.isInteger(filters.pageSize)
+          ? "mswdo"
+          : "legacy",
     },
   );
   const households = Array.isArray(householdResult)
