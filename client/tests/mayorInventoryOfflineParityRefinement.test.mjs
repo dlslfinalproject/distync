@@ -90,13 +90,21 @@ test("MAYOR-OFFLINE-PARITY-02 Item Details uses local data offline and removes t
 });
 
 test("MAYOR-OFFLINE-PARITY-03 the Mayor inventory status card is scoped to Items Management", async () => {
-  const [layoutSource, itemsSource, batchesSource, transactionsSource, syncBannerSource] =
+  const [
+    layoutSource,
+    itemsSource,
+    batchesSource,
+    transactionsSource,
+    syncBannerSource,
+    barangayOfflineNoticeSource,
+  ] =
     await Promise.all([
       readSource("../src/components/layout/BarangayLayout.jsx"),
       readSource("../src/pages/inventory/InventoryItemsPage.jsx"),
       readSource("../src/pages/inventory/InventoryBatchesPage.jsx"),
       readSource("../src/pages/inventory/InventoryTransactionsPage.jsx"),
       readSource("../src/components/layout/SyncStatusBanner.jsx"),
+      readSource("../src/components/layout/BarangayOfflineModeNotice.jsx"),
     ]);
   const otherMayorPageSources = await Promise.all(
     [
@@ -114,7 +122,22 @@ test("MAYOR-OFFLINE-PARITY-03 the Mayor inventory status card is scoped to Items
     layoutSource,
     /shouldShowSyncStatusBanner =\s*!isBarangayPortal[\s\S]*?!isMayorPortal/,
   );
-  assert.match(itemsSource, /<SyncStatusBanner scope="mayor-inventory" \/>/);
+  assert.match(
+    itemsSource,
+    /<BarangayOfflineModeNotice[\s\S]*message=\{MAYOR_INVENTORY_OFFLINE_MESSAGE\}[\s\S]*secondaryMessage=\{MAYOR_INVENTORY_OFFLINE_SCOPE_MESSAGE\}/,
+  );
+  assert.match(
+    itemsSource,
+    /<SyncStatusBanner scope="mayor-inventory" showOffline=\{false\} \/>/,
+  );
+  assert.match(
+    itemsSource,
+    /<BarangayOfflineModeNotice[\s\S]*<PageHeader/,
+  );
+  assert.match(
+    barangayOfflineNoticeSource,
+    /message = BARANGAY_OFFLINE_MODE_MESSAGE/,
+  );
   assert.doesNotMatch(batchesSource, /OfflineDataReadiness/);
   assert.doesNotMatch(batchesSource, /dataSourceNotice/);
   assert.doesNotMatch(transactionsSource, /OfflineDataReadiness/);
@@ -129,6 +152,7 @@ test("MAYOR-OFFLINE-PARITY-03 the Mayor inventory status card is scoped to Items
     syncBannerSource,
     /!isMayorInventoryContext && isOnline && retryableQueueCount/,
   );
+  assert.doesNotMatch(syncBannerSource, /label: "All changes synced"/);
 });
 
 test("MAYOR-OFFLINE-PARITY-04 transport loss keeps claimed work pending and reconnect is shared", async () => {
@@ -155,7 +179,7 @@ test("MAYOR-OFFLINE-PARITY-05 the contextual Mayor card hides after an online at
 
   assert.match(
     source,
-    /!isOnline \|\| isSyncing \|\| \(counts\[LOCAL_SYNC_STATUS\.PENDING\] > 0 && !hasProcessedOnlineSync\)/,
+    /showOffline[\s\S]*!isOnline \|\| isSyncing \|\| \(counts\[LOCAL_SYNC_STATUS\.PENDING\] > 0 && !hasProcessedOnlineSync\)/,
   );
   assert.match(source, /event\.source === "automatic"/);
   assert.match(source, /if \(isMayorInventoryContext\) \{\s*return;/);

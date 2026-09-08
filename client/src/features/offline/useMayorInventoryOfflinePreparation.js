@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ROLE_CODES } from "../../utils/roleSession.js";
 import {
   getMayorInventoryCacheSnapshot,
@@ -20,6 +20,7 @@ export const useMayorInventoryOfflinePreparation = ({
   const [diagnostics, setDiagnostics] = useState(null);
   const [hasCompleteCache, setHasCompleteCache] = useState(false);
   const [revision, setRevision] = useState(0);
+  const refreshRequestedRef = useRef(false);
 
   useEffect(() => {
     if (!enabled || roleCode !== ROLE_CODES.MAYOR || !userId) {
@@ -45,9 +46,17 @@ export const useMayorInventoryOfflinePreparation = ({
         setDiagnostics(preparation);
       }
 
+      const isOffline =
+        typeof navigator !== "undefined" && navigator.onLine === false;
+      const shouldRefreshOnline =
+        !isOffline &&
+        (refreshRequestedRef.current ||
+          preparation?.status ===
+            MAYOR_INVENTORY_PREPARATION_STATUS.NEEDS_REFRESH);
+
       // Readiness is derived from an actual complete cache read, not merely
       // from a flag left behind by an interrupted preparation run.
-      if (cache) {
+      if (cache && !shouldRefreshOnline) {
         setReadiness(
           preparation?.status === MAYOR_INVENTORY_PREPARATION_STATUS.NEEDS_REFRESH
             ? MAYOR_INVENTORY_PREPARATION_STATUS.NEEDS_REFRESH
@@ -56,8 +65,15 @@ export const useMayorInventoryOfflinePreparation = ({
         return;
       }
 
-      if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        setReadiness(MAYOR_INVENTORY_PREPARATION_STATUS.NOT_READY);
+      if (isOffline) {
+        setReadiness(
+          cache
+            ? preparation?.status ===
+              MAYOR_INVENTORY_PREPARATION_STATUS.NEEDS_REFRESH
+              ? MAYOR_INVENTORY_PREPARATION_STATUS.NEEDS_REFRESH
+              : MAYOR_INVENTORY_PREPARATION_STATUS.READY
+            : MAYOR_INVENTORY_PREPARATION_STATUS.NOT_READY,
+        );
         return;
       }
 
@@ -72,6 +88,7 @@ export const useMayorInventoryOfflinePreparation = ({
             return;
           }
           setHasCompleteCache(Boolean(verifiedCache));
+          refreshRequestedRef.current = false;
           setReadiness(
             result?.status || MAYOR_INVENTORY_PREPARATION_STATUS.READY,
           );
@@ -120,7 +137,10 @@ export const useMayorInventoryOfflinePreparation = ({
       });
     };
 
-    const handleOnline = () => setRevision((value) => value + 1);
+    const handleOnline = () => {
+      refreshRequestedRef.current = true;
+      setRevision((value) => value + 1);
+    };
 
     void run();
     if (typeof window !== "undefined") {
@@ -151,6 +171,9 @@ export const useMayorInventoryOfflinePreparation = ({
     // refresh state to the user; block only when the actual cache is absent.
     isReady: hasCompleteCache,
     hasCompleteCache,
-    retry: () => setRevision((value) => value + 1),
+    retry: () => {
+      refreshRequestedRef.current = true;
+      setRevision((value) => value + 1);
+    },
   };
 };

@@ -8,7 +8,7 @@ import {
 } from "../../features/pagination/pagination.mjs";
 import TableActionsMenu from "../shared/TableActionsMenu";
 import StatusPill from "../shared/StatusPill";
-import SyncStatusBadge from "../shared/SyncStatusBadge";
+import SyncStatusIcon from "../shared/SyncStatusIcon";
 import TablePagination from "../shared/TablePagination";
 
 const styles = {
@@ -99,11 +99,17 @@ const styles = {
     minWidth: 0,
   },
   itemNameText: {
-    width: "100%",
     minWidth: 0,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
+  },
+  itemNameRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    width: "100%",
+    minWidth: 0,
   },
 };
 
@@ -133,6 +139,7 @@ const InventoryItemsTable = ({
   onEditItem,
   onViewDetails,
   onLogStatus,
+  isOffline = false,
 }) => {
   const safeRows = Array.isArray(rows) ? rows : [];
   const [currentPage, setCurrentPage] = useState(1);
@@ -267,16 +274,19 @@ const InventoryItemsTable = ({
                       style={{ ...styles.td, ...styles.leftCell }}
                     >
                       <div style={styles.itemCellContent}>
-                        <div
-                          className="inventory-items-item-name-text"
-                          style={styles.itemNameText}
-                          title={itemName}
-                        >
-                          {itemName}
+                        <div style={styles.itemNameRow}>
+                          <div
+                            className="inventory-items-item-name-text"
+                            style={styles.itemNameText}
+                            title={itemName}
+                          >
+                            {itemName}
+                          </div>
+                          {item.sync_status &&
+                          (item.sync_status !== "SYNCED" || isOffline) ? (
+                            <SyncStatusIcon status={item.sync_status} />
+                          ) : null}
                         </div>
-                        {item.sync_status && item.sync_status !== "SYNCED" ? (
-                          <SyncStatusBadge status={item.sync_status} compact />
-                        ) : null}
                       </div>
                     </td>
                     <td
@@ -355,15 +365,22 @@ const InventoryItemsTable = ({
                             key: "edit",
                             label: "Edit Item",
                             icon: <FiEdit2 size={18} />,
-                            disabled: typeof onEditItem !== "function",
-                            title: "Edit Item Details",
+                            disabled:
+                              isOffline || typeof onEditItem !== "function",
+                            title: isOffline
+                              ? "Editing inventory items requires an internet connection."
+                              : "Edit Item Details",
                             onClick: (selectedRow) => onEditItem?.(selectedRow),
                           },
                           {
                             key: "status-log",
                             label: "Log Status",
                             icon: <FiAlertCircle size={18} />,
-                            disabled: typeof onLogStatus !== "function",
+                            disabled:
+                              isOffline || typeof onLogStatus !== "function",
+                            title: isOffline
+                              ? "Status changes require an internet connection."
+                              : "Log Status",
                             onClick: (selectedRow) => onLogStatus?.(selectedRow),
                           },
                         ]}

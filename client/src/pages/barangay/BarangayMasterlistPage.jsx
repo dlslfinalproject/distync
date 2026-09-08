@@ -132,9 +132,29 @@ const BarangayMasterlistPage = () => {
     type: "",
     message: "",
   });
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine !== false,
+  );
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
-  const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+  const isOffline = !isOnline;
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   const {
     accessMode,
@@ -1142,6 +1162,7 @@ const BarangayMasterlistPage = () => {
         onViewHousehold={handleOpenHouseholdDetails}
         onEditHousehold={handleOpenEditHousehold}
         isOffline={isOffline}
+        showOfflineSyncStatus
         onRestoreHousehold={handleOpenRestoreHousehold}
         isDepartureReadOnly={isSelectedEventEnded}
         departureReadOnlyText={selectedEventEndedText}

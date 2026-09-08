@@ -261,6 +261,21 @@ const findMatchingStockFormByDefinition = (item, formValues) => {
   );
 };
 
+const findMatchingStockFormByBarcode = (item, barcode) => {
+  const normalizedBarcode = normalizeInventoryBarcode(barcode);
+
+  if (!normalizedBarcode) {
+    return null;
+  }
+
+  return (
+    getItemStockForms(item, { activeOnly: true }).find(
+      (stockForm) =>
+        normalizeInventoryBarcode(stockForm?.barcode) === normalizedBarcode,
+    ) || null
+  );
+};
+
 const formatPackagingLabel = (packaging) => {
   if (!packaging) {
     return "Packaging";
@@ -535,6 +550,27 @@ const InventoryItemFormModal = ({
           (item) => String(item?.id) === String(selectedExistingItemId),
         ) || null
       : exactNameMatchedExistingItem;
+  const duplicateBarcodeItem =
+    mode === "create" && rawTrimmedBarcode
+      ? eligibleExistingItems.find((item) => {
+          if (
+            matchedExistingItem &&
+            String(item?.id) === String(matchedExistingItem.id)
+          ) {
+            return false;
+          }
+
+          return [
+            item?.barcode,
+            ...getItemStockForms(item).map((stockForm) => stockForm?.barcode),
+          ].some(
+            (barcode) => normalizeInventoryBarcode(barcode) === rawTrimmedBarcode,
+          );
+        }) || null
+      : null;
+  const duplicateBarcodeMessage = duplicateBarcodeItem
+    ? "This barcode is already assigned to another item."
+    : "";
   const hasUnselectedDuplicateName = Boolean(
     exactNameDuplicateItem && !selectedExistingItemId && !matchedExistingItem,
   );
@@ -608,6 +644,10 @@ const InventoryItemFormModal = ({
     isAddingStockFormMode && rawTrimmedBarcode
       ? findMatchingStockFormByDefinition(matchedExistingItem, formValues)
       : null;
+  const matchingStockFormByBarcode =
+    isAddingStockFormMode && rawTrimmedBarcode
+      ? findMatchingStockFormByBarcode(matchedExistingItem, rawTrimmedBarcode)
+      : null;
   const matchingStockFormBarcode = normalizeInventoryBarcode(
     matchingStockFormByDefinition?.barcode,
   );
@@ -617,6 +657,123 @@ const InventoryItemFormModal = ({
   const scannedBarcodeAlreadyMatchesPackaging = Boolean(
     matchingStockFormBarcode && matchingStockFormBarcode === rawTrimmedBarcode,
   );
+  const isBarcodePackagingAutofillPending = Boolean(
+    matchingStockFormByBarcode && isBlank(formValues.packaging),
+  );
+  const allowedBarcodeStockFormId =
+    matchingStockFormByDefinition?.id ||
+    matchedExistingStockForm?.id ||
+    (isBarcodePackagingAutofillPending
+      ? matchingStockFormByBarcode?.id
+      : null) ||
+    null;
+  const itemBarcodeMatchesSelectedPackaging = Boolean(
+    normalizeInventoryBarcode(matchedExistingItem?.barcode) ===
+      rawTrimmedBarcode &&
+      ((matchingStockFormByDefinition &&
+        normalizeInventoryBarcode(matchingStockFormByDefinition.barcode) ===
+          rawTrimmedBarcode) ||
+        (matchedExistingStockForm &&
+          normalizeInventoryBarcode(matchedExistingStockForm.barcode) ===
+            rawTrimmedBarcode) ||
+        isBarcodePackagingAutofillPending),
+  );
+  const barcodeAlreadyAssignedToDifferentPackaging =
+    isAddingStockFormMode && rawTrimmedBarcode
+      ? Boolean(
+          getItemStockForms(matchedExistingItem).find((stockForm) => {
+            const stockFormBarcode = normalizeInventoryBarcode(stockForm?.barcode);
+
+            return (
+              stockFormBarcode === rawTrimmedBarcode &&
+              String(stockForm?.id || "") !== String(allowedBarcodeStockFormId || "")
+            );
+          }),
+        ) ||
+        (normalizeInventoryBarcode(matchedExistingItem?.barcode) ===
+          rawTrimmedBarcode &&
+          !itemBarcodeMatchesSelectedPackaging)
+      : false;
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      mode !== "create" ||
+      !isAddingStockFormMode ||
+      !matchingStockFormByBarcode
+    ) {
+      return;
+    }
+
+    const resolvedPackaging =
+      matchingStockFormByBarcode.packaging || matchedExistingItem?.packaging || "";
+    const resolvedTrackingMethod =
+      matchedExistingItem?.tracking_method ||
+      inferTrackingMethod(
+        matchedExistingItem?.unit_of_measure ||
+          matchedExistingItem?.unit ||
+          matchingStockFormByBarcode.unit_of_measure ||
+          "",
+      );
+    const resolvedUnitOfMeasure =
+      matchingStockFormByBarcode.unit_of_measure ||
+      matchedExistingItem?.unit_of_measure ||
+      matchedExistingItem?.unit ||
+      (resolvedTrackingMethod === "Count-Based" ? "pc" : "");
+    const resolvedUnitOfMeasureValue =
+      matchingStockFormByBarcode.unit_of_measure_value ??
+      matchedExistingItem?.unit_of_measure_value ??
+      (resolvedTrackingMethod === "Count-Based" ? "1" : "");
+    const resolvedQuantity =
+      getNormalizedInventoryText(resolvedPackaging) === "piece"
+        ? "1"
+        : matchingStockFormByBarcode.units_per_packaging != null
+          ? String(matchingStockFormByBarcode.units_per_packaging)
+          : "";
+
+    setFormValues((previousValues) => {
+      const nextValues = {
+        ...previousValues,
+        packaging: resolvedPackaging,
+        quantity: resolvedQuantity,
+        unit_of_measure: resolvedUnitOfMeasure,
+        unit_of_measure_value: resolvedUnitOfMeasureValue,
+      };
+
+      if (
+        previousValues.packaging === nextValues.packaging &&
+        String(previousValues.quantity || "") === String(nextValues.quantity || "") &&
+        previousValues.unit_of_measure === nextValues.unit_of_measure &&
+        String(previousValues.unit_of_measure_value || "") ===
+          String(nextValues.unit_of_measure_value || "")
+      ) {
+        return previousValues;
+      }
+
+      return nextValues;
+    });
+
+    setFieldErrors((previousErrors) => {
+      const nextErrors = { ...previousErrors };
+      [
+        "barcode",
+        "packaging",
+        "quantity",
+        "unit_of_measure",
+        "unit_of_measure_value",
+      ].forEach((fieldName) => {
+        delete nextErrors[fieldName];
+      });
+      return nextErrors;
+    });
+  }, [
+    isOpen,
+    mode,
+    isAddingStockFormMode,
+    matchingStockFormByBarcode?.id,
+    matchedExistingItem?.id,
+    rawTrimmedBarcode,
+  ]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -996,6 +1153,11 @@ const InventoryItemFormModal = ({
       nextErrors.barcode = "Barcode is required for this packaging.";
     } else if (!isBlank(effectiveBarcode) && !isValidInventoryBarcode(effectiveBarcode)) {
       nextErrors.barcode = "Barcode must contain 8 to 18 digits.";
+    } else if (duplicateBarcodeItem) {
+      nextErrors.barcode = duplicateBarcodeMessage;
+    } else if (barcodeAlreadyAssignedToDifferentPackaging) {
+      nextErrors.barcode =
+        "This barcode is already assigned to another packaging.";
     }
 
     if (hasBarcodePackagingConflict) {

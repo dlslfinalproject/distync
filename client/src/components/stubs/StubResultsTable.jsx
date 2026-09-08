@@ -8,6 +8,7 @@ import SyncStatusIcon from "../shared/SyncStatusIcon";
 import TablePagination from "../shared/TablePagination";
 import QrCodePanel from "./QrCodePanel";
 import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
+import { shouldShowSyncStatusIcon } from "../../offline/syncStatus";
 
 const tableStyles = {
   table: {
@@ -243,6 +244,7 @@ const StubResultsTable = ({
   pagination = null,
   onPageChange = () => {},
   onPageSizeChange = () => {},
+  isOffline = false,
 }) => {
   const safeSelectedStubIds = Array.isArray(selectedStubIds)
     ? selectedStubIds
@@ -419,6 +421,7 @@ const StubResultsTable = ({
                 !isArchivedRow &&
                 !isRowBlockedByClaimSync(row);
               const isSelected = safeSelectedStubIds.includes(row.id);
+              const syncStatus = row.sync_status || "SYNCED";
 
               return (
                 <tr
@@ -449,7 +452,9 @@ const StubResultsTable = ({
                   >
                     <div style={tableStyles.familyHeadCell}>
                       <span>{row.household?.family_head_name || "-"}</span>
-                      <SyncStatusIcon status={row.sync_status} />
+                      {shouldShowSyncStatusIcon(syncStatus, isOffline) ? (
+                        <SyncStatusIcon status={syncStatus} />
+                      ) : null}
                     </div>
                   </td>
                   <td

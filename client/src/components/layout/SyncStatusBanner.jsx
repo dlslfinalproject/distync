@@ -60,7 +60,7 @@ const chipBaseStyles = {
   whiteSpace: "nowrap",
 };
 
-const SyncStatusBanner = ({ scope = "global" }) => {
+const SyncStatusBanner = ({ scope = "global", showOffline = true }) => {
   const location = useLocation();
   const isMayorInventoryContext = scope === "mayor-inventory";
   const [isOnline, setIsOnline] = useState(
@@ -188,7 +188,10 @@ const SyncStatusBanner = ({ scope = "global" }) => {
   }, [isMayorInventoryContext]);
 
   const shouldShowBanner = isMayorInventoryContext
-    ? !isOnline || isSyncing || (counts[LOCAL_SYNC_STATUS.PENDING] > 0 && !hasProcessedOnlineSync)
+    ? showOffline
+      ? !isOnline || isSyncing || (counts[LOCAL_SYNC_STATUS.PENDING] > 0 && !hasProcessedOnlineSync)
+      : isOnline &&
+        (isSyncing || (counts[LOCAL_SYNC_STATUS.PENDING] > 0 && !hasProcessedOnlineSync))
     : isOnline
       ? counts[LOCAL_SYNC_STATUS.PENDING] > 0 ||
         counts[LOCAL_SYNC_STATUS.FAILED] > 0 ||

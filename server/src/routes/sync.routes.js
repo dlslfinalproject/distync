@@ -141,6 +141,7 @@ router.post(
         conflictId: req.validatedParams.conflictId,
         action: req.validatedBody.action,
         reason: req.validatedBody.reason,
+        replacementBarcode: req.validatedBody.replacementBarcode,
       });
 
       return res.status(200).json({

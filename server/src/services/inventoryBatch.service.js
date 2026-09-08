@@ -13,6 +13,9 @@ const {
   createDuplicateInventoryBatchError,
 } = require("../utils/inventoryBatchIdentity");
 const {
+  createDuplicateInventoryBarcodeError,
+} = require("../utils/inventoryItemIdentity");
+const {
   INVENTORY_BATCH_STORAGE_LOCATION_MAX_LENGTH,
   isInventoryBatchStorageLocationLengthValid,
 } = require("../utils/inventoryBatchStorageLocation");
@@ -103,8 +106,8 @@ const mapInventoryBatch = (batch) => {
   };
 };
 
-const summarizeInventoryBatch = (batch) =>
-  pickDefined(batch, [
+const summarizeInventoryBatch = (batch) => {
+  const summary = pickDefined(batch, [
     "inventory_item_id",
     "inventory_item_stock_form_id",
     "batch_no",
@@ -117,6 +120,14 @@ const summarizeInventoryBatch = (batch) =>
     "status",
     "created_by",
   ]);
+
+  if (batch?.batch_number_was_reassigned) {
+    summary.batch_number_was_reassigned = true;
+    summary.requested_batch_no = batch.requested_batch_no || null;
+  }
+
+  return summary;
+};
 
 const normalizeStockFormDefinition = (batchData, inventoryItem) => {
   const packaging = String(
@@ -200,6 +211,116 @@ const hasStockFormDefinitionInput = (batchData) =>
     batchData?.stock_form_unit_of_measure_value,
   ].some((value) => value !== undefined && value !== null && value !== "");
 
+const MAX_BATCH_NUMBER_REASSIGNMENT_ATTEMPTS = 1000;
+
+const buildBatchNumberCandidate = (requestedBatchNo, offset) => {
+  const normalizedBatchNo = String(requestedBatchNo || "").trim();
+
+  if (offset === 0) {
+    return normalizedBatchNo;
+  }
+
+  const numericSuffixMatch = normalizedBatchNo.match(/^(.*?)(\d+)$/);
+
+  if (numericSuffixMatch) {
+    const [, prefix, numericSuffix] = numericSuffixMatch;
+    const startingNumber = Number(numericSuffix);
+    const candidateNumber = startingNumber + offset;
+
+    if (
+      Number.isSafeInteger(startingNumber) &&
+      Number.isSafeInteger(candidateNumber)
+    ) {
+      return `${prefix}${String(candidateNumber).padStart(
+        numericSuffix.length,
+        "0",
+      )}`;
+    }
+  }
+
+  return `${normalizedBatchNo}-${offset + 1}`;
+};
+
+const findAvailableBatchNumber = async ({
+  inventoryItemId,
+  requestedBatchNo,
+  startingOffset = 1,
+  dbClient,
+}) => {
+  const normalizedStartingOffset = Math.max(1, Number(startingOffset) || 1);
+
+  for (
+    let offset = normalizedStartingOffset;
+    offset <= MAX_BATCH_NUMBER_REASSIGNMENT_ATTEMPTS;
+    offset += 1
+  ) {
+    const candidateBatchNo = buildBatchNumberCandidate(
+      requestedBatchNo,
+      offset,
+    );
+    const existingBatch =
+      await inventoryBatchRepository.getInventoryBatchByItemIdAndBatchNo(
+        inventoryItemId,
+        candidateBatchNo,
+        dbClient || undefined,
+      );
+
+    if (!existingBatch) {
+      return {
+        batchNo: candidateBatchNo,
+        offset,
+      };
+    }
+  }
+
+  return null;
+};
+
+const areBatchPackagingDefinitionsEqual = ({
+  existingBatch,
+  requestedStockFormId,
+  batchData,
+  inventoryItem,
+}) => {
+  const existingStockFormId = existingBatch?.inventory_item_stock_form_id || null;
+  const normalizedRequestedStockFormId = requestedStockFormId || null;
+
+  if (existingStockFormId && normalizedRequestedStockFormId) {
+    return String(existingStockFormId) === String(normalizedRequestedStockFormId);
+  }
+
+  const requestedDefinition = normalizeStockFormDefinition(
+    batchData,
+    inventoryItem,
+  );
+
+  if (!requestedDefinition) {
+    return false;
+  }
+
+  const existingDefinition = {
+    packaging:
+      existingBatch?.stock_form_packaging || inventoryItem?.packaging || "piece",
+    units_per_packaging:
+      existingBatch?.stock_form_units_per_packaging ??
+      (String(existingBatch?.stock_form_packaging || inventoryItem?.packaging || "piece")
+        .trim()
+        .toLowerCase() === "piece"
+        ? 1
+        : null),
+    unit_of_measure:
+      existingBatch?.stock_form_unit_of_measure ||
+      inventoryItem?.unit_of_measure ||
+      "pc",
+    unit_of_measure_value:
+      existingBatch?.stock_form_unit_of_measure_value ??
+      inventoryItem?.unit_of_measure_value ??
+      null,
+  };
+
+  return areStockFormDefinitionsEqual(existingDefinition, requestedDefinition);
+};
+
 const validateBarcodeAssignmentTarget = async ({
   batchData,
   inventoryItem,
@@ -237,9 +358,9 @@ const validateBarcodeAssignmentTarget = async ({
       itemBarcodeOwner &&
       String(itemBarcodeOwner.id) !== String(inventoryItem.id)
     ) {
-      const error = new Error("This barcode is already assigned to another item");
-      error.statusCode = 409;
-      throw error;
+      throw createDuplicateInventoryBarcodeError({
+        existingItem: itemBarcodeOwner,
+      });
     }
   }
 
@@ -250,9 +371,19 @@ const validateBarcodeAssignmentTarget = async ({
     );
 
   if (barcodeOwner && String(barcodeOwner.id) !== String(stockForm.id)) {
-    const error = new Error("This barcode is already assigned to another packaging");
-    error.statusCode = 409;
-    throw error;
+    const existingItem =
+      typeof inventoryItemRepository.getInventoryItemById === "function"
+        ? await inventoryItemRepository.getInventoryItemById(
+            barcodeOwner.inventory_item_id,
+            dbClient || undefined,
+          )
+        : null;
+
+    throw createDuplicateInventoryBarcodeError({
+      existingItem,
+      existingStockForm: barcodeOwner,
+      packagingConflict: true,
+    });
   }
 
   const stockFormDefinition = normalizeStockFormDefinition(
@@ -402,6 +533,14 @@ const emitInventoryBatchCreatedSideEffects = async (mappedBatch, batchData) => {
 
 const createInventoryBatchWithoutTransaction = async (batchData) => {
   const dbClient = batchData.dbClient || null;
+  const allowBatchNumberReassignment =
+    batchData.allowBatchNumberReassignment === true;
+  const forceBatchNumberReassignment =
+    batchData.forceBatchNumberReassignment === true;
+  const requestedBatchNo = String(batchData.batch_no || "").trim();
+  let resolvedBatchNo = requestedBatchNo;
+  let resolvedBatchNumberOffset = 0;
+  let batchNumberWasReassigned = false;
   const inventoryItem =
     typeof inventoryItemRepository.getInventoryItemByIdForUpdate === "function"
       ? await inventoryItemRepository.getInventoryItemByIdForUpdate(
@@ -446,9 +585,9 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
       itemBarcodeOwner &&
       String(itemBarcodeOwner.id) !== String(inventoryItem.id)
     ) {
-      const error = new Error("This barcode is already assigned to another item");
-      error.statusCode = 409;
-      throw error;
+      throw createDuplicateInventoryBarcodeError({
+        existingItem: itemBarcodeOwner,
+      });
     }
   }
 
@@ -599,11 +738,19 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
           String(barcodeOwner.inventory_item_id) !== String(inventoryItem.id) ||
           !areStockFormDefinitionsEqual(barcodeOwner, stockFormDefinition))
       ) {
-        const error = new Error(
-          "This barcode is already assigned to another packaging",
-        );
-        error.statusCode = 409;
-        throw error;
+        const existingItem =
+          typeof inventoryItemRepository.getInventoryItemById === "function"
+            ? await inventoryItemRepository.getInventoryItemById(
+                barcodeOwner.inventory_item_id,
+                dbClient || undefined,
+              )
+            : null;
+
+        throw createDuplicateInventoryBarcodeError({
+          existingItem,
+          existingStockForm: barcodeOwner,
+          packagingConflict: true,
+        });
       }
     }
 
@@ -661,7 +808,34 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
     );
 
   if (existingBatch) {
-    throw createDuplicateInventoryBatchError(existingBatch);
+    const samePackaging = areBatchPackagingDefinitionsEqual({
+      existingBatch,
+      requestedStockFormId: resolvedStockFormId,
+      batchData,
+      inventoryItem,
+    });
+
+    if (
+      !allowBatchNumberReassignment ||
+      (samePackaging && !forceBatchNumberReassignment)
+    ) {
+      throw createDuplicateInventoryBatchError(existingBatch);
+    }
+
+    const availableBatchNumber = await findAvailableBatchNumber({
+      inventoryItemId: batchData.inventory_item_id,
+      requestedBatchNo,
+      startingOffset: 1,
+      dbClient,
+    });
+
+    if (!availableBatchNumber) {
+      throw createDuplicateInventoryBatchError(existingBatch);
+    }
+
+    resolvedBatchNo = availableBatchNumber.batchNo;
+    resolvedBatchNumberOffset = availableBatchNumber.offset;
+    batchNumberWasReassigned = true;
   }
 
   if (batchData.inventory_item_reorder_level !== undefined) {
@@ -700,37 +874,85 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
   const reorderLevel =
     batchData.inventory_item_reorder_level ?? inventoryItem.reorder_level;
 
-  const createdBatch = await inventoryBatchRepository.insertInventoryBatch(
-    {
-      inventory_item_id: batchData.inventory_item_id,
-      inventory_item_stock_form_id: resolvedStockFormId,
-      batch_no: batchData.batch_no,
-      source_type: batchData.source_type,
-      quantity_received: batchData.quantity_received,
-      quantity_available: batchData.quantity_received,
-      expiration_date: batchData.expiration_date,
-      received_at: batchData.received_at,
-      storage_location: batchData.storage_location,
-      status: getInventoryBatchStatus({
-        quantityAvailable: batchData.quantity_received,
-        totalQuantityAvailable: nextItemStock,
-        expirationDate: batchData.expiration_date,
-        reorderLevel,
-      }),
-      created_by: batchData.created_by,
-    },
-    dbClient || undefined,
-  );
+  let createdBatch = null;
+  let lastAuthoritativeBatch = null;
 
-  if (!createdBatch) {
-    const authoritativeBatch =
+  while (!createdBatch) {
+    createdBatch = await inventoryBatchRepository.insertInventoryBatch(
+      {
+        inventory_item_id: batchData.inventory_item_id,
+        inventory_item_stock_form_id: resolvedStockFormId,
+        batch_no: resolvedBatchNo,
+        source_type: batchData.source_type,
+        quantity_received: batchData.quantity_received,
+        quantity_available: batchData.quantity_received,
+        expiration_date: batchData.expiration_date,
+        received_at: batchData.received_at,
+        storage_location: batchData.storage_location,
+        status: getInventoryBatchStatus({
+          quantityAvailable: batchData.quantity_received,
+          totalQuantityAvailable: nextItemStock,
+          expirationDate: batchData.expiration_date,
+          reorderLevel,
+        }),
+        created_by: batchData.created_by,
+      },
+      dbClient || undefined,
+    );
+
+    if (createdBatch || !allowBatchNumberReassignment) {
+      break;
+    }
+
+    lastAuthoritativeBatch =
       await inventoryBatchRepository.getInventoryBatchByItemIdAndBatchNo(
         batchData.inventory_item_id,
-        batchData.batch_no,
+        resolvedBatchNo,
         dbClient || undefined,
       );
 
-    throw createDuplicateInventoryBatchError(authoritativeBatch);
+    if (!lastAuthoritativeBatch) {
+      break;
+    }
+
+    const samePackaging = areBatchPackagingDefinitionsEqual({
+      existingBatch: lastAuthoritativeBatch,
+      requestedStockFormId: resolvedStockFormId,
+      batchData,
+      inventoryItem,
+    });
+
+    if (samePackaging && !forceBatchNumberReassignment) {
+      throw createDuplicateInventoryBatchError(lastAuthoritativeBatch);
+    }
+
+    const availableBatchNumber = await findAvailableBatchNumber({
+      inventoryItemId: batchData.inventory_item_id,
+      requestedBatchNo,
+      startingOffset: resolvedBatchNumberOffset + 1,
+      dbClient,
+    });
+
+    if (!availableBatchNumber) {
+      break;
+    }
+
+    resolvedBatchNo = availableBatchNumber.batchNo;
+    resolvedBatchNumberOffset = availableBatchNumber.offset;
+    batchNumberWasReassigned = true;
+  }
+
+  if (!createdBatch) {
+    if (!lastAuthoritativeBatch) {
+      lastAuthoritativeBatch =
+        await inventoryBatchRepository.getInventoryBatchByItemIdAndBatchNo(
+          batchData.inventory_item_id,
+          resolvedBatchNo,
+          dbClient || undefined,
+        );
+    }
+
+    throw createDuplicateInventoryBatchError(lastAuthoritativeBatch);
   }
 
   const inflowTransaction = {
@@ -764,6 +986,11 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
   );
 
   const mappedBatch = mapInventoryBatch(fullBatch);
+
+  if (batchNumberWasReassigned) {
+    mappedBatch.batch_number_was_reassigned = true;
+    mappedBatch.requested_batch_no = requestedBatchNo;
+  }
 
   if (!dbClient) {
     await emitInventoryBatchCreatedSideEffects(mappedBatch, batchData);

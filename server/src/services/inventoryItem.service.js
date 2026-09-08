@@ -19,6 +19,10 @@ const {
   isValidInventoryBarcode,
   normalizeInventoryBarcode,
 } = require("../utils/inventoryBarcode");
+const {
+  createDuplicateInventoryBarcodeError,
+  createDuplicateInventoryItemError,
+} = require("../utils/inventoryItemIdentity");
 
 const OPEN_FOOD_FACTS_API_BASE_URL =
   process.env.OPEN_FOOD_FACTS_API_BASE_URL ||
@@ -32,6 +36,40 @@ const buildItemCodeSeed = (itemName) => {
     .slice(0, 24);
 
   return normalizedName || "ITEM";
+};
+
+const normalizeInventoryItemCategory = (category) => {
+  const normalizedCategory = String(category || "").trim().toLowerCase();
+
+  if (normalizedCategory === "perishable") {
+    return "Perishable";
+  }
+
+  if (normalizedCategory === "non-perishable") {
+    return "Non-Perishable";
+  }
+
+  return category;
+};
+
+const resolveInventoryItemPerishability = (value, category) => {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalizedValue = value.trim().toLowerCase();
+
+    if (normalizedValue === "true") {
+      return true;
+    }
+
+    if (normalizedValue === "false") {
+      return false;
+    }
+  }
+
+  return normalizeInventoryItemCategory(category) === "Perishable";
 };
 
 const generateInventoryItemCode = async (itemName, dbClient = pool) => {
@@ -64,9 +102,10 @@ const ensureUniqueFields = async (
   );
 
   if (existingItemByCode && existingItemByCode.id !== currentItemId) {
-    const error = new Error("item_code already exists");
-    error.statusCode = 409;
-    throw error;
+    throw createDuplicateInventoryItemError({
+      existingItem: existingItemByCode,
+      field: "item_code",
+    });
   }
 
   const existingItemByName = await inventoryItemRepository.getInventoryItemByName(
@@ -75,9 +114,10 @@ const ensureUniqueFields = async (
   );
 
   if (existingItemByName && existingItemByName.id !== currentItemId) {
-    const error = new Error("item_name already exists");
-    error.statusCode = 409;
-    throw error;
+    throw createDuplicateInventoryItemError({
+      existingItem: existingItemByName,
+      field: "item_name",
+    });
   }
 
   const normalizedBarcode = normalizeInventoryBarcode(itemData.barcode);
@@ -97,9 +137,9 @@ const ensureUniqueFields = async (
       existingItemByBarcode &&
       String(existingItemByBarcode.id) !== String(currentItemId)
     ) {
-      const error = new Error("barcode already exists");
-      error.statusCode = 409;
-      throw error;
+      throw createDuplicateInventoryBarcodeError({
+        existingItem: existingItemByBarcode,
+      });
     }
   }
 
@@ -117,9 +157,19 @@ const ensureUniqueFields = async (
       existingStockForm &&
       String(existingStockForm.inventory_item_id) !== String(currentItemId)
     ) {
-      const error = new Error("barcode already exists");
-      error.statusCode = 409;
-      throw error;
+      const existingItem =
+        typeof inventoryItemRepository.getInventoryItemById === "function"
+          ? await inventoryItemRepository.getInventoryItemById(
+              existingStockForm.inventory_item_id,
+              dbClient,
+            )
+          : null;
+
+      throw createDuplicateInventoryBarcodeError({
+        existingItem,
+        existingStockForm,
+        packagingConflict: true,
+      });
     }
   }
 };
@@ -948,8 +998,14 @@ const getInventoryItemDetail = async (id) => {
 const createInventoryItem = async (itemData, actor = null, options = {}) => {
   const externalClient = options.dbClient || null;
   const lookupClient = externalClient || pool;
+  const normalizedCategory = normalizeInventoryItemCategory(itemData.category);
   const inventoryItemToCreate = {
     ...itemData,
+    category: normalizedCategory,
+    is_perishable: resolveInventoryItemPerishability(
+      itemData.is_perishable,
+      normalizedCategory,
+    ),
     barcode: normalizeAndValidateItemBarcode(itemData.barcode),
     item_code:
       itemData.item_code ||

@@ -16,11 +16,27 @@ const RESOLUTION_ACTION = Object.freeze({
   MARK_REVIEWED: "MARK_REVIEWED",
   KEEP_SERVER: "KEEP_SERVER",
   APPLY_LOCAL: "APPLY_LOCAL",
+  ACCEPT_BOTH: "ACCEPT_BOTH",
 });
 
 const INVENTORY_STOCK_STATE_DRIFT = "INVENTORY_STOCK_STATE_DRIFT";
+const DUPLICATE_INVENTORY_ITEM = "DUPLICATE_INVENTORY_ITEM";
+const DUPLICATE_INVENTORY_BARCODE = "DUPLICATE_INVENTORY_BARCODE";
+const DUPLICATE_INVENTORY_BATCH = "DUPLICATE_INVENTORY_BATCH";
 const POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE =
   "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE";
+
+const INVENTORY_IDENTITY_CONFLICT_TYPES = new Set([
+  DUPLICATE_INVENTORY_ITEM,
+  DUPLICATE_INVENTORY_BARCODE,
+  DUPLICATE_INVENTORY_BATCH,
+]);
+
+const isManualMayorInventoryIdentityConflict = (conflict = {}) =>
+  conflict.status === CONFLICT_STATUS.OPEN &&
+  conflict.resolution_strategy === RESOLUTION_STRATEGY.MANUAL_REVIEW &&
+  INVENTORY_IDENTITY_CONFLICT_TYPES.has(conflict.conflict_type) &&
+  ["INVENTORY_ITEM", "INVENTORY_BATCH"].includes(conflict.entity_type);
 
 const isManualInventoryStockDriftReviewable = (conflict = {}) =>
   conflict.status === CONFLICT_STATUS.OPEN &&
@@ -32,7 +48,8 @@ const isSyncConflictOwnedByUser = (conflict = {}, auth = {}) =>
 
 const canReviewSyncConflict = (conflict = {}, auth = {}) =>
   auth?.roleCode === ROLE_CODES.MAYOR &&
-  isManualInventoryStockDriftReviewable(conflict);
+  (isManualInventoryStockDriftReviewable(conflict) ||
+    isManualMayorInventoryIdentityConflict(conflict));
 
 const getSyncConflictReviewCapability = (conflict = {}, auth = {}) => ({
   isOwnedByUser: isSyncConflictOwnedByUser(conflict, auth),
@@ -49,8 +66,13 @@ module.exports = {
   RESOLUTION_STRATEGY,
   RESOLUTION_ACTION,
   INVENTORY_STOCK_STATE_DRIFT,
+  DUPLICATE_INVENTORY_ITEM,
+  DUPLICATE_INVENTORY_BARCODE,
+  DUPLICATE_INVENTORY_BATCH,
+  INVENTORY_IDENTITY_CONFLICT_TYPES,
   POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE,
   isManualInventoryStockDriftReviewable,
+  isManualMayorInventoryIdentityConflict,
   isSyncConflictOwnedByUser,
   canReviewSyncConflict,
   getSyncConflictReviewCapability,

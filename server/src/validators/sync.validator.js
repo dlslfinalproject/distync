@@ -1,5 +1,9 @@
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const {
+  isValidInventoryBarcode,
+  normalizeInventoryBarcode,
+} = require("../utils/inventoryBarcode");
 
 const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
@@ -240,12 +244,14 @@ const ALLOWED_RESOLUTION_ACTIONS = new Set([
   "MARK_REVIEWED",
   "KEEP_SERVER",
   "APPLY_LOCAL",
+  "ACCEPT_BOTH",
 ]);
 
 const validateResolveSyncConflict = (req, res, next) => {
   try {
     const { conflictId } = req.params || {};
-    const { action, reason } = req.body || {};
+    const { action, reason, replacement_barcode: replacementBarcode } =
+      req.body || {};
 
     if (!isValidUuid(conflictId)) {
       return res.status(400).json({
@@ -259,7 +265,7 @@ const validateResolveSyncConflict = (req, res, next) => {
     if (!ALLOWED_RESOLUTION_ACTIONS.has(normalizedAction)) {
       return res.status(400).json({
         message:
-          "action must be one of: MARK_REVIEWED, KEEP_SERVER, APPLY_LOCAL",
+          "action must be one of: MARK_REVIEWED, KEEP_SERVER, APPLY_LOCAL, ACCEPT_BOTH",
       });
     }
 
@@ -270,11 +276,26 @@ const validateResolveSyncConflict = (req, res, next) => {
 
     if (
       (normalizedAction === "KEEP_SERVER" ||
-        normalizedAction === "APPLY_LOCAL") &&
+        normalizedAction === "APPLY_LOCAL" ||
+        normalizedAction === "ACCEPT_BOTH") &&
       !normalizedReason
     ) {
       return res.status(400).json({
         message: "reason is required for this resolution action",
+      });
+    }
+
+    const normalizedReplacementBarcode =
+      replacementBarcode === undefined || replacementBarcode === null
+        ? null
+        : normalizeInventoryBarcode(replacementBarcode);
+
+    if (
+      normalizedReplacementBarcode &&
+      !isValidInventoryBarcode(normalizedReplacementBarcode)
+    ) {
+      return res.status(400).json({
+        message: "replacement_barcode must contain 8 to 18 digits",
       });
     }
 
@@ -284,6 +305,7 @@ const validateResolveSyncConflict = (req, res, next) => {
     req.validatedBody = {
       action: normalizedAction,
       reason: normalizedReason,
+      replacementBarcode: normalizedReplacementBarcode,
     };
 
     return next();

@@ -124,7 +124,7 @@ test("BRG-SC-P05 transaction and conflict status filters are not mixed", async (
   const source = await fs.readFile(pageSourcePath, "utf8");
 
   assert.match(source, /const TRANSACTION_STATUS_OPTIONS = \[[\s\S]*LOCAL_SYNC_STATUS\.CONFLICT/);
-  assert.doesNotMatch(
+  assert.match(
     source.match(/const TRANSACTION_STATUS_OPTIONS = \[[\s\S]*?\];/)?.[0] || "",
     /RESOLVED/,
   );
@@ -258,6 +258,38 @@ test("BRG-SC-P10 server history notes omit duplicate family notes and preserve m
     }),
     ["No active standard relief pack is assigned to this family."],
   );
+});
+
+test("BRG-SC-P10B history uses the stored action key before the database operation type", async () => {
+  const { getSyncHistoryNotes } = await import(helperModulePath.href);
+
+  const notes = getSyncHistoryNotes({
+    sync_status: "SYNCED",
+    operation_type: "CREATE",
+    payload_json: {
+      action_key: "INVENTORY_ITEM_CREATE",
+      payload: {
+        item_name: "Offline Rice",
+        quantity: 10,
+      },
+    },
+  });
+
+  assert.doesNotMatch(notes.join(" "), /no longer supported/i);
+  assert.match(notes.join(" "), /Quantity: 10/);
+
+  const legacyNotes = getSyncHistoryNotes({
+    sync_status: "SYNCED",
+    entity_type: "INVENTORY_ITEM",
+    operation_type: "CREATE",
+    payload_json: {
+      payload: {
+        item_name: "Legacy Offline Rice",
+      },
+    },
+  });
+
+  assert.doesNotMatch(legacyNotes.join(" "), /no longer supported/i);
 });
 
 test("BRG-SC-P11 action-aware fallbacks replace generic sync record labels without raw UUIDs", async () => {

@@ -26,6 +26,7 @@ import {
   canUseMayorInventoryCacheAfterError,
   getMayorInventoryCacheSnapshot,
 } from "../../offline/mayorInventoryCache";
+import { MAYOR_INVENTORY_PREPARATION_STATUS } from "../../offline/mayorInventoryPreparation";
 import { useMayorInventoryOfflinePreparation } from "../../features/offline/useMayorInventoryOfflinePreparation";
 import { ROLE_CODES } from "../../utils/roleSession";
 import {
@@ -153,6 +154,21 @@ const InventoryBatchesPage = () => {
     downloadExportFile(file);
   };
 
+  const restoreMayorInventoryCache = async (activeFilters = filters) => {
+    if (!isMayorPortal) {
+      return false;
+    }
+
+    const cacheRow = await getMayorInventoryCacheSnapshot();
+    if (!cacheRow) {
+      return false;
+    }
+
+    setInventoryBatches(filterCachedBatches(cacheRow.batches, activeFilters));
+    setInventoryItems(cacheRow.items || []);
+    return true;
+  };
+
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -171,12 +187,9 @@ const InventoryBatchesPage = () => {
     setErrorMessage("");
 
     if (!isOnline && isMayorPortal) {
-      const cacheRow = await getMayorInventoryCacheSnapshot();
+      const restored = await restoreMayorInventoryCache(activeFilters);
 
-      if (cacheRow) {
-        setInventoryBatches(filterCachedBatches(cacheRow.batches, activeFilters));
-        setInventoryItems(cacheRow.items || []);
-      } else {
+      if (!restored) {
         setErrorMessage(
           "Inventory batches are not prepared on this device yet. Connect to DISTYNC before using offline stock-in.",
         );
@@ -196,11 +209,8 @@ const InventoryBatchesPage = () => {
       setInventoryItems(itemResponse || []);
     } catch (error) {
       if (isMayorPortal && canUseMayorInventoryCacheAfterError(error)) {
-        const cacheRow = await getMayorInventoryCacheSnapshot();
-        if (cacheRow) {
-          setInventoryBatches(filterCachedBatches(cacheRow.batches, activeFilters));
-          setInventoryItems(cacheRow.items || []);
-        } else {
+        const restored = await restoreMayorInventoryCache(activeFilters);
+        if (!restored) {
           setErrorMessage(error.message || "Failed to load inventory batches.");
         }
       } else {
@@ -210,6 +220,34 @@ const InventoryBatchesPage = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!isMayorPortal) {
+      return undefined;
+    }
+
+    const handlePreparationUpdate = (event) => {
+      if (
+        event.detail?.status !== MAYOR_INVENTORY_PREPARATION_STATUS.READY
+      ) {
+        return;
+      }
+
+      void restoreMayorInventoryCache(filters);
+    };
+
+    window.addEventListener(
+      "distync-offline-preparation-updated",
+      handlePreparationUpdate,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "distync-offline-preparation-updated",
+        handlePreparationUpdate,
+      );
+    };
+  }, [filters, isMayorPortal]);
 
   useEffect(() => {
     loadPageData(filters);

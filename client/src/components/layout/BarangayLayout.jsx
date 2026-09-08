@@ -13,6 +13,12 @@ import OfflineDataReadiness, {
   MayorOfflineReadyDismissalContext,
 } from "./OfflineDataReadiness";
 import BarangayOfflineModeNotice from "./BarangayOfflineModeNotice";
+import MayorOfflineAccessNotice from "./MayorOfflineAccessNotice";
+import { isMayorOfflineBlockedRoute } from "../../features/offline/mayorOfflineAccess";
+import {
+  BARANGAY_OFFLINE_ACCESS_MESSAGE,
+  isBarangayOfflineBlockedRoute,
+} from "../../features/offline/barangayOfflineAccess";
 
 const SIDEBAR_EXPANDED_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "0px";
@@ -136,6 +142,9 @@ const BarangayLayout = () => {
   const lastNonSettingsCollapseStateRef = useRef(false);
   const location = useLocation();
   const { currentRole, authenticatedUser } = useAuth();
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine !== false,
+  );
   const isDonorPortal = currentRole === ROLE_CODES.DONOR;
   const isBarangayPortal = currentRole === ROLE_CODES.BARANGAY;
   const { selectedEvent, assignedBarangay } = useBarangayDashboard({
@@ -156,6 +165,12 @@ const BarangayLayout = () => {
   const isSettingsRoute = location.pathname.endsWith("/settings");
   const isSyncRoute = location.pathname.endsWith("/sync");
   const isMayorPortal = currentRole === ROLE_CODES.MAYOR;
+  const isMayorOffline = isMayorPortal && !isOnline;
+  const shouldBlockMayorOfflineRoute =
+    isMayorOffline && isMayorOfflineBlockedRoute(location.pathname);
+  const isBarangayOffline = isBarangayPortal && !isOnline;
+  const shouldBlockBarangayOfflineRoute =
+    isBarangayOffline && isBarangayOfflineBlockedRoute(location.pathname);
   const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
   const isMayorAnomalyRoute = location.pathname.startsWith("/inventory/anomalies");
   const shouldShowSyncStatusBanner =
@@ -181,6 +196,19 @@ const BarangayLayout = () => {
 
   useEffect(() => {
     initializeSyncService();
+  }, []);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
   }, []);
 
   useEffect(() => {
@@ -293,6 +321,7 @@ const BarangayLayout = () => {
               isCollapsed={isSidebarCollapsed}
               isMobileNavigation={isMobileNavigation}
               navigationId={SIDEBAR_NAVIGATION_ID}
+              isOffline={!isOnline}
               onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
               onClose={() => {
                 setIsSidebarCollapsed(true);
@@ -332,7 +361,13 @@ const BarangayLayout = () => {
               }}
             >
               {isBarangayPortal ? <OfflineDataReadiness {...offlinePreparation} /> : null}
-              <Outlet />
+              {shouldBlockMayorOfflineRoute ? (
+                <MayorOfflineAccessNotice />
+              ) : shouldBlockBarangayOfflineRoute ? (
+                <MayorOfflineAccessNotice message={BARANGAY_OFFLINE_ACCESS_MESSAGE} />
+              ) : (
+                <Outlet />
+              )}
             </MayorOfflineReadyDismissalContext.Provider>
           </div>
         </main>

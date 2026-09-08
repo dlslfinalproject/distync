@@ -98,8 +98,11 @@ test("Mayor monitoring links preserve routes and shared active, role, and respon
   assert.match(
     sidebarSource,
     /backgroundColor: isActive[\s\S]*color: isActive[\s\S]*border:/,
-    "active styling is applied to child links rather than the section heading",
+    "active styling remains applied to child links alongside offline locking",
   );
+  assert.match(sidebarSource, /isMayorOfflineBlockedRoute/);
+  assert.match(sidebarSource, /aria-disabled=\{isMayorOfflineLocked/);
+  assert.match(sidebarSource, /MAYOR_OFFLINE_ACCESS_MESSAGE/);
   assert.match(
     sidebarSource,
     /marginLeft: item\.isSectionChild && !isCollapsed \? "8px" : 0/,
@@ -116,6 +119,9 @@ test("Mayor monitoring links preserve routes and shared active, role, and respon
     "mobile navigation still closes after selecting a child route",
   );
   assert.match(layoutSource, /distync-sidebar__scrim/);
+  assert.match(layoutSource, /isMayorOffline/);
+  assert.match(layoutSource, /shouldBlockMayorOfflineRoute/);
+  assert.match(layoutSource, /<MayorOfflineAccessNotice \/>/);
   assert.match(sidebarSource, /if \(currentRole === ROLE_CODES\.DONOR\) return null;/);
 });
 

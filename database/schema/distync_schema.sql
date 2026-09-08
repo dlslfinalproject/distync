@@ -958,7 +958,7 @@ CREATE TABLE public.sync_conflicts (
   local_payload_json jsonb NOT NULL,
   server_payload_json jsonb NOT NULL,
   resolution_strategy character varying NOT NULL CHECK (resolution_strategy::text = ANY (ARRAY['FIRST_ACCEPTED'::character varying, 'LATEST_TIMESTAMP'::character varying, 'MANUAL_REVIEW'::character varying, 'MERGED'::character varying]::text[])),
-  resolution_action character varying CHECK (resolution_action::text = ANY (ARRAY['MARK_REVIEWED'::character varying, 'KEEP_SERVER'::character varying, 'APPLY_LOCAL'::character varying]::text[])),
+  resolution_action character varying CHECK (resolution_action::text = ANY (ARRAY['MARK_REVIEWED'::character varying, 'KEEP_SERVER'::character varying, 'APPLY_LOCAL'::character varying, 'ACCEPT_BOTH'::character varying]::text[])),
   resolution_reason text,
   resolved_payload_json jsonb,
   resolved_by uuid,

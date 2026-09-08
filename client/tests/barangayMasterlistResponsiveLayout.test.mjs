@@ -49,7 +49,8 @@ test("Shared shell releases page width through a mobile navigation drawer", asyn
   assert.match(layoutSource, /onClose=\{\(\) => \{[\s\S]*?setIsSidebarCollapsed\(true\);[\s\S]*?sidebarToggleRef\.current\?\.focus\(\);/);
   assert.match(layoutSource, /onNavigate=\{\(\) => \{[\s\S]*?setIsSidebarCollapsed\(true\)/);
   assert.match(sidebarSource, /aria-label=\{title \|\| \(isCollapsed \? "Open navigation menu" : "Close navigation menu"\)\}/);
-  assert.match(sidebarSource, /onClick=\{onNavigate\}/);
+  assert.match(sidebarSource, /onClick=\{handleNavigationClick\}/);
+  assert.match(sidebarSource, /onNavigate\?\.\(\);/);
   assert.match(headerSource, /className="distync-shell__brand-area"/);
   assert.match(headerSource, /className="distync-shell__actions-area"/);
   assert.match(headerSource, /data-sidebar-collapsed=\{isSidebarCollapsed \? "true" : "false"\}/);

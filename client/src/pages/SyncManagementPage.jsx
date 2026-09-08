@@ -17,6 +17,7 @@ import {
   subscribeToSyncUpdates,
 } from "../offline/syncService";
 import {
+  clearSyncedEntries,
   getVisibleSyncQueueEntriesByUpdatedAt,
   updateSyncEntryStatus,
 } from "../offline/syncQueue";
@@ -35,6 +36,7 @@ import {
   getConflictReasonLabel,
   getResolutionStatusLabel,
   getSyncHistoryNotes,
+  getSyncHistoryStatus,
   getSyncQueueNotes,
   getSyncRecordDetails,
   getSyncRecordBarangayId,
@@ -84,6 +86,7 @@ const TRANSACTION_STATUS_OPTIONS = [
   { value: LOCAL_SYNC_STATUS.SYNCED, label: "Synced" },
   { value: LOCAL_SYNC_STATUS.FAILED, label: "Failed" },
   { value: LOCAL_SYNC_STATUS.CONFLICT, label: "Conflict" },
+  { value: "RESOLVED", label: "Resolved" },
 ];
 
 const CONFLICT_STATUS_OPTIONS = [
@@ -104,6 +107,9 @@ const SYNC_SECTION_TABS = [
   { value: "CONFLICTS", label: "Conflict Review" },
   { value: "AUDIT", label: "Sync History" },
 ];
+const SYNC_TAB_OFFLINE_MESSAGE = "Connect online to access this tab.";
+const isSyncTabUnavailableOffline = (isOnline, tabValue) =>
+  !isOnline && tabValue !== "QUEUE";
 
 const BARANGAY_COLUMN_LABEL = "Barangay";
 const EMPTY_MESSAGE = "No matching records found. Try adjusting your search or filters.";
@@ -178,6 +184,12 @@ const syncTabButtonStyles = (isActive) => ({
   transition: "color 160ms ease, border-color 160ms ease",
   whiteSpace: "nowrap",
 });
+
+const syncTabDisabledStyles = {
+  color: "#9aaaba",
+  cursor: "not-allowed",
+  opacity: 0.62,
+};
 
 const syncCenterPageStyles = {
   display: "flex",
@@ -396,6 +408,7 @@ const SyncManagementPage = () => {
   const [isResolvingConflict, setIsResolvingConflict] = useState(false);
   const [selectedConflictDetail, setSelectedConflictDetail] = useState(null);
   const [resolutionReason, setResolutionReason] = useState("");
+  const [replacementBarcode, setReplacementBarcode] = useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [activeSyncTab, setActiveSyncTab] = useState("QUEUE");
   const [paginationByTab, setPaginationByTab] = useState(
@@ -459,10 +472,35 @@ const SyncManagementPage = () => {
     [addBarangayDisplayName, scopedSyncQueueEntries],
   );
 
-  const displayTransactions = useMemo(
-    () => syncHistory.transactions.map(addBarangayDisplayName),
-    [addBarangayDisplayName, syncHistory.transactions],
-  );
+  const displayTransactions = useMemo(() => {
+    const conflictsByTransactionId = new Map(
+      syncHistory.conflicts
+        .filter((conflict) => conflict?.sync_transaction_id)
+        .map((conflict) => [conflict.sync_transaction_id, conflict]),
+    );
+
+    return syncHistory.transactions.map((transaction) => {
+      const conflict = conflictsByTransactionId.get(
+        transaction.id || transaction.sync_transaction_id,
+      );
+
+      if (!conflict) {
+        return addBarangayDisplayName(transaction);
+      }
+
+      return addBarangayDisplayName({
+        ...transaction,
+        sync_conflict_status: conflict.status,
+        sync_conflict_type: conflict.conflict_type,
+        sync_conflict_resolution_action: conflict.resolution_action,
+        sync_conflict_resolution_reason: conflict.resolution_reason,
+        sync_conflict_resolution_strategy: conflict.resolution_strategy,
+        sync_conflict_resolved_payload_json: conflict.resolved_payload_json,
+        sync_conflict_resolved_at: conflict.resolved_at,
+        ...(conflict.status === "RESOLVED" ? { status: "RESOLVED" } : {}),
+      });
+    });
+  }, [addBarangayDisplayName, syncHistory.conflicts, syncHistory.transactions]);
 
   const displayConflicts = useMemo(
     () => syncHistory.conflicts.map(addBarangayDisplayName),
@@ -470,7 +508,7 @@ const SyncManagementPage = () => {
   );
 
   const [isOnline, setIsOnline] = useState(() =>
-    typeof navigator === "undefined" ? true : navigator.onLine,
+    typeof navigator === "undefined" ? true : navigator.onLine !== false,
   );
   const statusOptions = useMemo(() => {
     if (activeSyncTab === "CONFLICTS") {
@@ -552,7 +590,7 @@ const SyncManagementPage = () => {
       applySyncFilters(
         displayTransactions,
         filters,
-        (transaction) => transaction.sync_status,
+        (transaction) => getSyncHistoryStatus(transaction),
         { includeBarangay: isMswdoPortal },
       ),
     [displayTransactions, filters, isMswdoPortal],
@@ -692,6 +730,17 @@ const SyncManagementPage = () => {
     setIsLoadingHistory(true);
     setErrorMessage("");
 
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setSyncHistory({ transactions: [], conflicts: [] });
+      setSyncStatusSummary({
+        conflictCount: null,
+        lastSuccessfulSyncAt: null,
+        backendReachable: false,
+      });
+      setIsLoadingHistory(false);
+      return;
+    }
+
     try {
       const historyFilters = { limit: 100 };
 
@@ -726,6 +775,13 @@ const SyncManagementPage = () => {
   useEffect(() => {
     void loadSyncHistory();
   }, [loadSyncHistory]);
+
+  useEffect(() => {
+    void clearSyncedEntries().catch(() => {
+      // Cleanup is best effort; the queue remains available if local storage
+      // is temporarily busy and will be checked again on the next transition.
+    });
+  }, [isOnline]);
 
   useEffect(() => {
     if (!isMswdoPortal) {
@@ -770,7 +826,19 @@ const SyncManagementPage = () => {
     }
 
     const updateConnectivity = () => {
-      setIsOnline(navigator.onLine);
+      const nextIsOnline = navigator.onLine !== false;
+      setIsOnline(nextIsOnline);
+
+      if (!nextIsOnline) {
+        setActiveSyncTab("QUEUE");
+        setErrorMessage("");
+        setBarangayOptionsError("");
+        setSelectedConflictDetail(null);
+        setResolutionReason("");
+        setReplacementBarcode("");
+      } else {
+        void loadSyncHistory();
+      }
     };
 
     window.addEventListener("online", updateConnectivity);
@@ -780,7 +848,7 @@ const SyncManagementPage = () => {
       window.removeEventListener("online", updateConnectivity);
       window.removeEventListener("offline", updateConnectivity);
     };
-  }, []);
+  }, [loadSyncHistory]);
 
   useEffect(() => {
     const validStatuses = statusOptions.map((option) => option.value);
@@ -808,6 +876,10 @@ const SyncManagementPage = () => {
   };
 
   const handleRetrySync = async (entryIds = null) => {
+    if (!isOnline) {
+      return;
+    }
+
     const retryTargets = entryIds
       ? failedQueueEntries.filter((entry) => entryIds.includes(entry.id))
       : failedQueueEntries;
@@ -934,6 +1006,7 @@ const SyncManagementPage = () => {
           : null,
       );
       setResolutionReason("");
+      setReplacementBarcode("");
     } catch (error) {
       setFeedback({
         type: "error",
@@ -948,6 +1021,12 @@ const SyncManagementPage = () => {
     }
   };
 
+  const handleCloseConflictDetail = useCallback(() => {
+    setSelectedConflictDetail(null);
+    setResolutionReason("");
+    setReplacementBarcode("");
+  }, []);
+
   const handleResolveConflict = async (action) => {
     if (!selectedConflictDetail?.id || isResolvingConflict) {
       return;
@@ -955,7 +1034,10 @@ const SyncManagementPage = () => {
 
     const trimmedReason = resolutionReason.trim();
 
-    if (["KEEP_SERVER", "APPLY_LOCAL"].includes(action) && !trimmedReason) {
+    if (
+      ["KEEP_SERVER", "APPLY_LOCAL", "ACCEPT_BOTH"].includes(action) &&
+      !trimmedReason
+    ) {
       setFeedback({
         type: "error",
         title: "Resolution Reason Required",
@@ -970,6 +1052,7 @@ const SyncManagementPage = () => {
       const response = await resolveSyncConflict(selectedConflictDetail.id, {
         action,
         reason: trimmedReason,
+        replacementBarcode: replacementBarcode.trim(),
       });
       const resolvedConflict = response?.data || null;
 
@@ -988,6 +1071,13 @@ const SyncManagementPage = () => {
         });
       }
 
+      try {
+        await clearSyncedEntries();
+      } catch (_cleanupError) {
+        // The server decision is already recorded. A later sync refresh can
+        // clean up a stale local row if browser storage is temporarily busy.
+      }
+
       setSelectedConflictDetail(
         resolvedConflict
           ? {
@@ -999,6 +1089,7 @@ const SyncManagementPage = () => {
           : null,
       );
       setResolutionReason("");
+      setReplacementBarcode("");
       await loadSyncHistory();
       setFeedback({
         type: "success",
@@ -1246,8 +1337,23 @@ const SyncManagementPage = () => {
               aria-selected={activeSyncTab === tab.value}
               aria-controls={SYNC_TABPANEL_IDS[tab.value]}
               type="button"
-              onClick={() => setActiveSyncTab(tab.value)}
-              style={syncTabButtonStyles(activeSyncTab === tab.value)}
+              onClick={() => {
+                if (!isSyncTabUnavailableOffline(isOnline, tab.value)) {
+                  setActiveSyncTab(tab.value);
+                }
+              }}
+              disabled={isSyncTabUnavailableOffline(isOnline, tab.value)}
+              title={
+                isSyncTabUnavailableOffline(isOnline, tab.value)
+                  ? SYNC_TAB_OFFLINE_MESSAGE
+                  : undefined
+              }
+              style={{
+                ...syncTabButtonStyles(activeSyncTab === tab.value),
+                ...(isSyncTabUnavailableOffline(isOnline, tab.value)
+                  ? syncTabDisabledStyles
+                  : {}),
+              }}
             >
               {tab.label}
             </button>
@@ -1426,7 +1532,7 @@ const SyncManagementPage = () => {
                     <tr key={transaction.id}>
                       {renderRecordCells(transaction, { includeBarangay: false })}
                       <td style={tableStyles.td}>
-                        <SyncStatusBadge status={transaction.sync_status} />
+                        <SyncStatusBadge status={getSyncHistoryStatus(transaction)} />
                       </td>
                       <td style={tableStyles.td}>
                         {formatSyncDateTime(
@@ -1559,13 +1665,12 @@ const SyncManagementPage = () => {
       <SyncConflictDetailModal
         isOpen={Boolean(selectedConflictDetail)}
         conflict={selectedConflictDetail}
-        onClose={() => {
-          setSelectedConflictDetail(null);
-          setResolutionReason("");
-        }}
+        onClose={handleCloseConflictDetail}
         onResolve={handleResolveConflict}
         resolutionReason={resolutionReason}
         onResolutionReasonChange={setResolutionReason}
+        replacementBarcode={replacementBarcode}
+        onReplacementBarcodeChange={setReplacementBarcode}
         isResolving={isResolvingConflict}
         includeBarangay={isMswdoPortal}
       />

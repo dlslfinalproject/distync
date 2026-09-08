@@ -267,6 +267,7 @@ const InventoryItemDetailModal = ({
   detail,
   onEditBatch,
   onClose,
+  isOffline = false,
 }) => {
   if (!isOpen) {
     return null;
@@ -403,6 +404,13 @@ const InventoryItemDetailModal = ({
                         batch.inventory_item_stock_form?.packaging ||
                         batch.stock_form_packaging ||
                         "--";
+                      const isBatchEditDisabled =
+                        isOffline || Boolean(batch.is_local_only);
+                      const batchEditTitle = isOffline
+                        ? "Editing batch expiry requires an internet connection."
+                        : batch.is_local_only
+                          ? "Pending offline stock-in must sync before its expiry can be edited."
+                          : "Edit Batch";
 
                       return (
                         <tr key={batch.id}>
@@ -437,8 +445,15 @@ const InventoryItemDetailModal = ({
                             <button
                               type="button"
                               onClick={() => onEditBatch?.(batch)}
-                              style={modalStyles.actionButton}
-                              title="Edit Batch"
+                              disabled={isBatchEditDisabled}
+                              style={{
+                                ...modalStyles.actionButton,
+                                opacity: isBatchEditDisabled ? 0.55 : 1,
+                                cursor: isBatchEditDisabled
+                                  ? "not-allowed"
+                                  : "pointer",
+                              }}
+                              title={batchEditTitle}
                               aria-label="Edit Batch"
                             >
                               <FiEdit2 size={14} />

@@ -12,6 +12,11 @@ test("Mayor READY popup acknowledgement is in-memory at the shared layout scope"
   assert.match(readiness, /MayorOfflineReadyDismissalContext/);
   assert.match(readiness, /mayorDismissal\?\.acknowledge\(\)/);
   assert.match(readiness, /readyAcknowledged/);
+  assert.match(readiness, /isMayorInventory\s*\?\s*"Offline Data Ready"/);
+  assert.match(
+    readiness,
+    /isMayorInventory\s*\?\s*"The information needed for supported offline operations is available on this device\."/,
+  );
   assert.match(layout, /MayorOfflineReadyDismissalContext\.Provider/);
   assert.match(layout, /isMayorInventoryReadyAcknowledged/);
   assert.doesNotMatch(layout, /localStorage|sessionStorage|indexedDB/i);

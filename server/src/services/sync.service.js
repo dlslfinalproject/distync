@@ -22,6 +22,10 @@ const {
   DUPLICATE_INVENTORY_BATCH,
 } = require("../utils/inventoryBatchIdentity");
 const {
+  DUPLICATE_INVENTORY_ITEM,
+  DUPLICATE_INVENTORY_BARCODE,
+} = require("../utils/inventoryItemIdentity");
+const {
   verifyInventoryStateBasis,
 } = require("../utils/inventoryStateBasis");
 const {
@@ -144,6 +148,49 @@ const getRequesterForSync = (auth) => ({
   defaultBarangayId: auth.defaultBarangayId || null,
   deviceId: auth.deviceId || null,
 });
+
+const resolveMayorInventoryBatchPayload = async ({
+  payload = {},
+  auth,
+  dbClient,
+}) => {
+  const localItemId = String(payload.inventory_item_local_id || "").trim();
+
+  if (!localItemId) {
+    return payload;
+  }
+
+  const syncedItem =
+    typeof syncRepository.findSyncedEntityServerIdByLocalId === "function"
+      ? await syncRepository.findSyncedEntityServerIdByLocalId(
+          {
+            entityType: "INVENTORY_ITEM",
+            actionKey: "INVENTORY_ITEM_CREATE",
+            entityLocalId: String(localItemId).trim(),
+            userId: auth.userId,
+          },
+          dbClient,
+        )
+      : null;
+
+  if (!syncedItem?.entity_server_id) {
+    const error = new Error(
+      "This stock entry is waiting for its new inventory item to finish syncing. Try again after the item is accepted.",
+    );
+    error.statusCode = 409;
+    error.code = "INVENTORY_ITEM_PENDING_SYNC";
+    throw error;
+  }
+
+  return {
+    ...payload,
+    inventory_item_id: syncedItem.entity_server_id,
+    inventory_item_stock_form_id:
+      uuidPattern.test(String(payload.inventory_item_stock_form_id || "").trim())
+        ? payload.inventory_item_stock_form_id
+        : null,
+  };
+};
 
 const canUseMswdoMunicipalitySyncRead = (auth) =>
   auth?.roleCode === ROLE_CODES.MSWDO &&
@@ -392,15 +439,29 @@ const ACTION_HANDLERS = {
     entityType: "INVENTORY_BATCH",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth, clientTimestamp, dbClient }) =>
-      inventoryBatchService.createInventoryBatch({
-        ...payload,
+    execute: async ({ payload, auth, clientTimestamp, dbClient }) => {
+      const resolvedPayload = await resolveMayorInventoryBatchPayload({
+        payload,
+        auth,
+        dbClient,
+      });
+
+      return inventoryBatchService.createInventoryBatch({
+        ...resolvedPayload,
         created_by: auth.userId,
         // Preserve the time the Mayor captured stock-in while keeping the
         // server-created audit timestamps authoritative for synchronization.
         received_at: clientTimestamp,
+        // Two devices can generate the same next batch number while offline.
+        // The sync path may assign the next available number instead of
+        // turning a genuinely different packaging into a duplicate conflict.
+        allowBatchNumberReassignment: true,
+        // Accepting the same packaging twice is an explicit Conflict Review
+        // decision; an offline payload must never bypass that review.
+        forceBatchNumberReassignment: false,
         dbClient,
-      }),
+      });
+    },
   },
   INVENTORY_TRANSACTION_CREATE: {
     entityType: "INVENTORY_TRANSACTION",
@@ -731,6 +792,33 @@ const getResolutionCapability = (conflict, auth) => {
       domainOwner: ROLE_CODES.MAYOR,
       basis:
         "Mayor inventory authority may review stock-state drift; losing inventory movement replay is not supported.",
+    };
+  }
+
+  if (
+    [
+      DUPLICATE_INVENTORY_ITEM,
+      DUPLICATE_INVENTORY_BARCODE,
+      DUPLICATE_INVENTORY_BATCH,
+    ].includes(conflict.conflict_type)
+  ) {
+    const mayResolve =
+      auth?.roleCode === ROLE_CODES.MAYOR &&
+      ["INVENTORY_ITEM", "INVENTORY_BATCH"].includes(conflict.entity_type);
+    const availableResolutionActions = mayResolve
+      ? conflict.conflict_type === DUPLICATE_INVENTORY_BATCH
+        ? [RESOLUTION_ACTION.KEEP_SERVER, RESOLUTION_ACTION.ACCEPT_BOTH]
+        : conflict.conflict_type === DUPLICATE_INVENTORY_BARCODE
+          ? [RESOLUTION_ACTION.KEEP_SERVER, RESOLUTION_ACTION.APPLY_LOCAL]
+          : [RESOLUTION_ACTION.KEEP_SERVER]
+      : [];
+
+    return {
+      availableResolutionActions,
+      canResolve: mayResolve,
+      domainOwner: ROLE_CODES.MAYOR,
+      basis:
+        "Mayor inventory authority must review duplicate item, barcode, and batch identities before the queued action is closed.",
     };
   }
 
@@ -1475,7 +1563,9 @@ const processSingleSyncEntry = async (entry, auth) => {
       error.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" ||
       error.code === "STUB_ALREADY_CLAIMED" ||
       error.code === DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO ||
-      error.code === DUPLICATE_INVENTORY_BATCH;
+      error.code === DUPLICATE_INVENTORY_BATCH ||
+      error.code === DUPLICATE_INVENTORY_ITEM ||
+      error.code === DUPLICATE_INVENTORY_BARCODE;
 
     if (isDuplicateConflict) {
       const serverTimestamp = new Date().toISOString();
@@ -1485,8 +1575,13 @@ const processSingleSyncEntry = async (entry, auth) => {
       const conflictEntityServerId = error.entityServerId || entityServerId;
       const isInventoryItrDuplicate =
         error.code === DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO;
+      const isManualInventoryDuplicateConflict = [
+        DUPLICATE_INVENTORY_ITEM,
+        DUPLICATE_INVENTORY_BARCODE,
+        DUPLICATE_INVENTORY_BATCH,
+      ].includes(error.code);
       const isSystemResolvedDuplicate =
-        isInventoryItrDuplicate || error.code === DUPLICATE_INVENTORY_BATCH;
+        isInventoryItrDuplicate;
       const isEarlierDepartureResolution =
         error.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" &&
         error.incomingDepartureWasEarlier === true;
@@ -1602,10 +1697,14 @@ const processSingleSyncEntry = async (entry, auth) => {
               conflict_type: error.code,
               local_payload_json: entry.payload,
               server_payload_json: error.serverPayload || {},
-              resolution_strategy: isCrossBarangayDuplicateConflict
+              resolution_strategy:
+                isCrossBarangayDuplicateConflict ||
+                isManualInventoryDuplicateConflict
                 ? RESOLUTION_STRATEGY.MANUAL_REVIEW
                 : departureResolutionStrategy,
-              resolved_payload_json: isCrossBarangayDuplicateConflict
+              resolved_payload_json:
+                isCrossBarangayDuplicateConflict ||
+                isManualInventoryDuplicateConflict
                 ? null
                 : {
                     winner: isEarlierDepartureResolution ? "INCOMING" : "SERVER",
@@ -1613,15 +1712,21 @@ const processSingleSyncEntry = async (entry, auth) => {
                     authoritative_payload: error.serverPayload || {},
                     authoritative_departure_time: error.serverPayload?.time_out || null,
                   },
-              resolved_by: isCrossBarangayDuplicateConflict
+              resolved_by:
+                isCrossBarangayDuplicateConflict ||
+                isManualInventoryDuplicateConflict
                 ? null
                 : isSystemResolvedDuplicate
                   ? null
                   : syncAuth.userId,
-              resolved_at: isCrossBarangayDuplicateConflict
+              resolved_at:
+                isCrossBarangayDuplicateConflict ||
+                isManualInventoryDuplicateConflict
                 ? null
                 : serverTimestamp,
-              status: isCrossBarangayDuplicateConflict
+              status:
+                isCrossBarangayDuplicateConflict ||
+                isManualInventoryDuplicateConflict
                 ? CONFLICT_STATUS.OPEN
                 : CONFLICT_STATUS.RESOLVED,
             },
@@ -2024,7 +2129,135 @@ const getSyncConflictDetail = async ({ auth, conflictId }) => {
   };
 };
 
-const resolveSyncConflict = async ({ auth, conflictId, action, reason = null }) => {
+const MANUAL_INVENTORY_DUPLICATE_CONFLICT_TYPES = new Set([
+  DUPLICATE_INVENTORY_ITEM,
+  DUPLICATE_INVENTORY_BARCODE,
+  DUPLICATE_INVENTORY_BATCH,
+]);
+
+const getConflictLocalPayload = (conflict) => {
+  const localPayload = conflict?.local_payload_json || {};
+
+  if (localPayload?.payload && typeof localPayload.payload === "object") {
+    return localPayload.payload;
+  }
+
+  return localPayload;
+};
+
+const createInvalidConflictResolutionInputError = (message) => {
+  const error = new Error(message);
+  error.statusCode = 400;
+  error.code = "SYNC_CONFLICT_RESOLUTION_INPUT_INVALID";
+  return error;
+};
+
+const applyManualInventoryDuplicateResolution = async ({
+  conflict,
+  action,
+  replacementBarcode,
+  dbClient,
+}) => {
+  if (action === RESOLUTION_ACTION.KEEP_SERVER) {
+    return {
+      winner: "SERVER",
+      entityServerId: conflict.entity_server_id || null,
+    };
+  }
+
+  const localPayload = getConflictLocalPayload(conflict);
+  const actor = {
+    userId: conflict.user_id,
+    roleCode: ROLE_CODES.MAYOR,
+  };
+
+  if (
+    conflict.conflict_type === DUPLICATE_INVENTORY_BATCH &&
+    action === RESOLUTION_ACTION.ACCEPT_BOTH
+  ) {
+    const createdBatch = await inventoryBatchService.createInventoryBatch({
+      ...localPayload,
+      created_by: conflict.user_id,
+      received_at: localPayload.received_at || conflict.client_timestamp || null,
+      allowBatchNumberReassignment: true,
+      forceBatchNumberReassignment: true,
+      dbClient,
+    });
+
+    return {
+      winner: "BOTH",
+      entityServerId: createdBatch?.id || null,
+      acceptedEntity: "INVENTORY_BATCH",
+      batchNumber: createdBatch?.batch_no || null,
+      requestedBatchNumber: localPayload.batch_no || null,
+    };
+  }
+
+  if (
+    conflict.conflict_type === DUPLICATE_INVENTORY_BARCODE &&
+    action === RESOLUTION_ACTION.APPLY_LOCAL
+  ) {
+    if (!replacementBarcode) {
+      throw createInvalidConflictResolutionInputError(
+        "A new barcode is required before accepting this device record.",
+      );
+    }
+
+    const correctedPayload = {
+      ...localPayload,
+    };
+
+    if (conflict.entity_type === "INVENTORY_ITEM") {
+      correctedPayload.barcode = replacementBarcode;
+      const createdItem = await inventoryItemService.createInventoryItem(
+        correctedPayload,
+        actor,
+        {
+          clientTimestamp: conflict.client_timestamp,
+          dbClient,
+        },
+      );
+
+      return {
+        winner: "LOCAL",
+        entityServerId: createdItem?.id || null,
+        acceptedEntity: "INVENTORY_ITEM",
+        replacementBarcode,
+      };
+    }
+
+    if (conflict.entity_type === "INVENTORY_BATCH") {
+      correctedPayload.stock_form_barcode = replacementBarcode;
+      const createdBatch = await inventoryBatchService.createInventoryBatch({
+        ...correctedPayload,
+        created_by: conflict.user_id,
+        received_at:
+          correctedPayload.received_at || conflict.client_timestamp || null,
+        allowBatchNumberReassignment: true,
+        forceBatchNumberReassignment: false,
+        dbClient,
+      });
+
+      return {
+        winner: "LOCAL",
+        entityServerId: createdBatch?.id || null,
+        acceptedEntity: "INVENTORY_BATCH",
+        replacementBarcode,
+        batchNumber: createdBatch?.batch_no || null,
+      };
+    }
+  }
+
+  throw createResolutionActionNotAllowedError();
+};
+
+const resolveSyncConflict = async ({
+  auth,
+  conflictId,
+  action,
+  reason = null,
+  replacementBarcode = null,
+}) => {
   const notificationOutboxEventIds = [];
   let resolvedConflict = null;
 
@@ -2049,10 +2282,46 @@ const resolveSyncConflict = async ({ auth, conflictId, action, reason = null }) 
         throw createResolutionActionNotAllowedError();
       }
 
+      const isManualInventoryDuplicateConflict =
+        MANUAL_INVENTORY_DUPLICATE_CONFLICT_TYPES.has(conflict.conflict_type);
+      const inventoryResolution = isManualInventoryDuplicateConflict
+        ? await applyManualInventoryDuplicateResolution({
+            conflict,
+            action,
+            replacementBarcode,
+            dbClient,
+          })
+        : null;
+      const resolutionServerTimestamp = new Date().toISOString();
+
+      if (isManualInventoryDuplicateConflict) {
+        const updatedSyncTransaction =
+          await syncRepository.updateSyncTransaction(
+            conflict.sync_transaction_id,
+            {
+              entity_server_id:
+                inventoryResolution.entityServerId ||
+                conflict.entity_server_id ||
+                null,
+              server_timestamp: resolutionServerTimestamp,
+              sync_status: SYNC_STATUS.SYNCED,
+              error_message: null,
+            },
+            dbClient,
+          );
+
+        if (!updatedSyncTransaction) {
+          throw createConflictPersistenceError(
+            "The sync transaction could not be updated after conflict resolution.",
+          );
+        }
+      }
+
       const resolvedPayload = {
         ...getSafeConflictServerSummary(conflict),
         resolution_action: action,
         reviewer_role_code: auth.roleCode,
+        ...(inventoryResolution || {}),
       };
 
       const updatedConflict = await syncRepository.markSyncConflictResolved(
@@ -2117,9 +2386,12 @@ const resolveSyncConflict = async ({ auth, conflictId, action, reason = null }) 
         ...conflict,
         ...updatedConflict,
         sync_status:
+          isManualInventoryDuplicateConflict ||
           action === RESOLUTION_ACTION.APPLY_LOCAL
             ? SYNC_STATUS.SYNCED
             : conflict.sync_status,
+        entity_server_id:
+          inventoryResolution?.entityServerId || conflict.entity_server_id,
         user_id: conflict.user_id,
         client_timestamp: conflict.client_timestamp,
         server_timestamp: conflict.server_timestamp,

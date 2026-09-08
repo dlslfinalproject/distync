@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
+import BarangayOfflineModeNotice from "../../components/layout/BarangayOfflineModeNotice";
 import OfflineDataReadiness from "../../components/layout/OfflineDataReadiness";
 import SyncStatusBanner from "../../components/layout/SyncStatusBanner";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
@@ -44,6 +45,7 @@ import {
   getMayorInventoryCacheSnapshot,
   persistMayorInventoryCacheSnapshot,
 } from "../../offline/mayorInventoryCache";
+import { MAYOR_INVENTORY_PREPARATION_STATUS } from "../../offline/mayorInventoryPreparation";
 import {
   buildNextInventoryBatchNumber as buildScannedInventoryBatchNumber,
   buildReservedBatchRows,
@@ -159,6 +161,10 @@ const INVENTORY_BATCH_SOURCE_TYPES = [
 ];
 
 const DONATION_PENDING_REORDER_LABEL = "Not Yet Required";
+const MAYOR_INVENTORY_OFFLINE_MESSAGE =
+  "You can add inventory items and stock-in existing items offline. DISTYNC will save these changes on this device and synchronize them when the internet connection returns.";
+const MAYOR_INVENTORY_OFFLINE_SCOPE_MESSAGE =
+  "Other functions require an internet connection.";
 
 const getPositiveIntegerValue = (value) => {
   const parsedValue = Number(value);
@@ -412,6 +418,9 @@ const InventoryItemsPage = () => {
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine !== false,
   );
+  const isInventoryOffline = () =>
+    !isOnline ||
+    (typeof navigator !== "undefined" && navigator.onLine === false);
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
   const mayorOfflinePreparation = useMayorInventoryOfflinePreparation({
@@ -457,6 +466,34 @@ const InventoryItemsPage = () => {
     applyCachedInventoryData(cacheRow);
     return true;
   };
+
+  useEffect(() => {
+    if (!isMayorPortal) {
+      return undefined;
+    }
+
+    const handlePreparationUpdate = (event) => {
+      if (
+        event.detail?.status !== MAYOR_INVENTORY_PREPARATION_STATUS.READY
+      ) {
+        return;
+      }
+
+      void restoreMayorInventoryCache();
+    };
+
+    window.addEventListener(
+      "distync-offline-preparation-updated",
+      handlePreparationUpdate,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "distync-offline-preparation-updated",
+        handlePreparationUpdate,
+      );
+    };
+  }, [isMayorPortal]);
 
   const loadInventoryData = async (options = {}) => {
     const { showLoading = true, clearError = true } = options;
@@ -965,6 +1002,13 @@ const InventoryItemsPage = () => {
   };
 
   const handleSubmitModal = async (payload) => {
+    if (modalMode === "edit" && isInventoryOffline()) {
+      setModalErrorMessage(
+        "Editing inventory items requires an internet connection.",
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     setModalErrorMessage("");
 
@@ -979,13 +1023,6 @@ const InventoryItemsPage = () => {
             }) || null
           : null;
 
-      if (matchedExistingItem?.is_local_only) {
-        setModalErrorMessage(
-          "This item is still waiting to sync. Wait for it to be accepted by DISTYNC before adding stock to it.",
-        );
-        return;
-      }
-
       if (
         matchedExistingItem &&
         !isOnline &&
@@ -993,6 +1030,17 @@ const InventoryItemsPage = () => {
       ) {
         setModalErrorMessage(
           "Stock-in is not ready offline because the complete inventory data is not saved on this device. Connect and prepare offline data first.",
+        );
+        return;
+      }
+
+      if (
+        !matchedExistingItem &&
+        isInventoryOffline() &&
+        !mayorOfflinePreparation.isReady
+      ) {
+        setModalErrorMessage(
+          "Add Item is not ready offline yet. Connect online to prepare inventory data first.",
         );
         return;
       }
@@ -1044,6 +1092,9 @@ const InventoryItemsPage = () => {
         try {
           response = await createInventoryBatch({
             inventory_item_id: matchedExistingItem.id,
+            ...(matchedExistingItem.is_local_only
+              ? { inventory_item_local_id: matchedExistingItem.id }
+              : {}),
             inventory_item_stock_form_id: matchingStockForm?.id || null,
             stock_form_barcode: payload?.barcode || null,
             stock_form_packaging: payload?.packaging || "piece",
@@ -1091,6 +1142,13 @@ const InventoryItemsPage = () => {
 
   const handleOpenEditModal = async (itemRow) => {
     if (!itemRow?.id) {
+      return;
+    }
+
+    if (isInventoryOffline()) {
+      setInventoryActionNotice(
+        "Editing inventory items requires an internet connection.",
+      );
       return;
     }
 
@@ -1205,7 +1263,7 @@ const InventoryItemsPage = () => {
   };
 
   const handleOpenStatusLogModal = (itemRow) => {
-    if (!isOnline) {
+    if (isInventoryOffline()) {
       setInventoryActionNotice(
         "Status changes require a connection. Reconnect before recording a status log.",
       );
@@ -1252,13 +1310,6 @@ const InventoryItemsPage = () => {
     }
 
     if (matchedScannedItem?.id) {
-      if (matchedScannedItem.is_local_only) {
-        setScanErrorMessage(
-          "This item is still waiting to sync. Wait for it to be accepted by DISTYNC before adding stock to it.",
-        );
-        return;
-      }
-
       if (!isOnline && !mayorOfflinePreparation.isReady) {
         setScanErrorMessage(
           "Stock-in is not ready offline because the complete inventory data is not saved on this device. Connect and prepare offline data first.",
@@ -1310,7 +1361,26 @@ const InventoryItemsPage = () => {
       try {
         const response = await createInventoryBatch({
           inventory_item_id: matchedScannedItem.id,
+          ...(matchedScannedItem.is_local_only
+            ? { inventory_item_local_id: matchedScannedItem.id }
+            : {}),
           inventory_item_stock_form_id: matchedScannedStockForm?.id || null,
+          stock_form_barcode:
+            matchedScannedStockForm?.barcode || matchedScannedItem.barcode || null,
+          stock_form_packaging:
+            matchedScannedStockForm?.packaging ||
+            matchedScannedItem.packaging ||
+            "piece",
+          stock_form_units_per_packaging:
+            getUnitsPerPackageValue(matchedScannedStockForm || matchedScannedItem),
+          stock_form_unit_of_measure:
+            matchedScannedStockForm?.unit_of_measure ||
+            matchedScannedItem.unit_of_measure ||
+            "pc",
+          stock_form_unit_of_measure_value:
+            matchedScannedStockForm?.unit_of_measure_value ||
+            matchedScannedItem.unit_of_measure_value ||
+            null,
           batch_no: batchNo,
           source_type: getInventoryBatchSourceType(matchedScannedItem),
           quantity_received: quantityReceived,
@@ -1348,6 +1418,13 @@ const InventoryItemsPage = () => {
   };
 
   const handleExport = async (format, extraFilters = {}) => {
+    if (isInventoryOffline()) {
+      setInventoryActionNotice(
+        "Exporting inventory data requires an internet connection.",
+      );
+      return;
+    }
+
     const normalizedCategory = extraFilters.category || "All";
     const normalizedStatus = extraFilters.status || "All";
 
@@ -1384,6 +1461,13 @@ const InventoryItemsPage = () => {
   };
 
   const handleOpenExportModal = () => {
+    if (isInventoryOffline()) {
+      setInventoryActionNotice(
+        "Exporting inventory data requires an internet connection.",
+      );
+      return;
+    }
+
     setSelectedExportFormat("csv");
     setSelectedExportCategory(filters.category || "All");
     setSelectedExportStatus(
@@ -1411,6 +1495,20 @@ const InventoryItemsPage = () => {
   };
 
   const handleOpenBatchExpiryModal = (batch) => {
+    if (isInventoryOffline()) {
+      setInventoryActionNotice(
+        "Editing batch expiry requires an internet connection.",
+      );
+      return;
+    }
+
+    if (batch?.is_local_only) {
+      setInventoryActionNotice(
+        "Pending offline stock-in must sync before its expiry can be edited.",
+      );
+      return;
+    }
+
     setSelectedBatchForExpiryEdit(batch);
     setBatchExpiryErrorMessage("");
     setIsBatchExpiryModalOpen(true);
@@ -1428,6 +1526,13 @@ const InventoryItemsPage = () => {
 
   const handleSubmitBatchExpiry = async (payload) => {
     if (!selectedBatchForExpiryEdit?.id) {
+      return;
+    }
+
+    if (isInventoryOffline()) {
+      setBatchExpiryErrorMessage(
+        "Editing batch expiry requires an internet connection.",
+      );
       return;
     }
 
@@ -1510,11 +1615,20 @@ const InventoryItemsPage = () => {
       className="inventory-items-page"
       style={{ flex: 1, minWidth: 0, maxWidth: "100%" }}
     >
+      {isMayorPortal ? (
+        <>
+          <BarangayOfflineModeNotice
+            style={{ marginBottom: "24px" }}
+            message={MAYOR_INVENTORY_OFFLINE_MESSAGE}
+            secondaryMessage={MAYOR_INVENTORY_OFFLINE_SCOPE_MESSAGE}
+          />
+          <SyncStatusBanner scope="mayor-inventory" showOffline={false} />
+        </>
+      ) : null}
+
       <PageHeader
         title="INVENTORY ITEMS MANAGEMENT"
       />
-
-      {isMayorPortal ? <SyncStatusBanner scope="mayor-inventory" /> : null}
 
       <OfflineDataReadiness
         {...mayorOfflinePreparation}
@@ -1528,6 +1642,7 @@ const InventoryItemsPage = () => {
           onOpenCreateModal={handleOpenCreateModal}
           onOpenExportModal={handleOpenExportModal}
           showExport={false}
+          isOffline={isInventoryOffline()}
         />
       </div>
 
@@ -1547,6 +1662,7 @@ const InventoryItemsPage = () => {
           onOpenCreateModal={handleOpenCreateModal}
           onOpenExportModal={handleOpenExportModal}
           showScanAndAdd={false}
+          isOffline={isInventoryOffline()}
         />
       </div>
 
@@ -1562,6 +1678,7 @@ const InventoryItemsPage = () => {
           onEditItem={handleOpenEditModal}
           onViewDetails={handleOpenItemDetail}
           onLogStatus={handleOpenStatusLogModal}
+          isOffline={isInventoryOffline()}
         />
       </section>
 
@@ -1668,6 +1785,7 @@ const InventoryItemsPage = () => {
         errorMessage={detailErrorMessage}
         detail={selectedItemDetail}
         onEditBatch={handleOpenBatchExpiryModal}
+        isOffline={isInventoryOffline()}
         onClose={() => {
           setIsDetailModalOpen(false);
           setSelectedItemDetail(null);
