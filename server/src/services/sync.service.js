@@ -2175,12 +2175,31 @@ const applyManualInventoryDuplicateResolution = async ({
     conflict.conflict_type === DUPLICATE_INVENTORY_BATCH &&
     action === RESOLUTION_ACTION.ACCEPT_BOTH
   ) {
+    const localCapturedAt =
+      conflict.client_timestamp || localPayload.received_at || null;
+    const batchResequencing =
+      typeof inventoryBatchService.resequenceInventoryBatchForAcceptBoth ===
+      "function"
+        ? await inventoryBatchService.resequenceInventoryBatchForAcceptBoth({
+            existingBatchId: conflict.entity_server_id,
+            requestedBatchNo: localPayload.batch_no,
+            localCapturedAt,
+            dbClient,
+          })
+        : { reordered: false };
     const createdBatch = await inventoryBatchService.createInventoryBatch({
       ...localPayload,
+      ...(batchResequencing.inventoryItemId
+        ? { inventory_item_id: batchResequencing.inventoryItemId }
+        : {}),
       created_by: conflict.user_id,
-      received_at: localPayload.received_at || conflict.client_timestamp || null,
+      received_at: localCapturedAt,
       allowBatchNumberReassignment: true,
-      forceBatchNumberReassignment: true,
+      // If the incoming entry was recorded later, keep the saved batch at the
+      // requested number and place this entry at the next free number. If it
+      // was recorded earlier, the saved batch was moved first so this entry
+      // can keep the requested number.
+      forceBatchNumberReassignment: batchResequencing.reordered !== true,
       dbClient,
     });
 
@@ -2190,6 +2209,21 @@ const applyManualInventoryDuplicateResolution = async ({
       acceptedEntity: "INVENTORY_BATCH",
       batchNumber: createdBatch?.batch_no || null,
       requestedBatchNumber: localPayload.batch_no || null,
+      batchNumberOrdering: {
+        basis: batchResequencing.orderingBasis || "OFFLINE_CAPTURE_TIME",
+        localEntryOrder: batchResequencing.reordered
+          ? "EARLIER"
+          : "LATER_OR_TIE",
+        savedBatchNumberBefore:
+          batchResequencing.existingBatchNumberBefore ||
+          conflict.server_payload_json?.batch_no ||
+          null,
+        savedBatchNumberAfter:
+          batchResequencing.existingBatchNumberAfter ||
+          conflict.server_payload_json?.batch_no ||
+          null,
+        changes: batchResequencing.batchNumberChanges || [],
+      },
     };
   }
 
@@ -2359,6 +2393,8 @@ const resolveSyncConflict = async ({
             conflict_type: updatedConflict.conflict_type,
             reason_provided: Boolean(reason),
             sync_transaction_id: updatedConflict.sync_transaction_id,
+            batch_number_ordering:
+              inventoryResolution?.batchNumberOrdering || null,
           },
           ip_address: null,
           source_event_key: `SYNC_CONFLICT_RESOLUTION:${conflict.id}:${action}`,

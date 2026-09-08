@@ -262,6 +262,38 @@ const insertInventoryBatch = async (batchData, dbClient = pool) => {
   return result.rows[0];
 };
 
+const updateInventoryBatchNumber = async (
+  id,
+  batchNo,
+  dbClient = pool,
+) => {
+  const query = `
+    UPDATE inventory_batches
+    SET batch_no = $2,
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      inventory_item_id,
+      inventory_item_stock_form_id,
+      batch_no,
+      source_type,
+      quantity_received,
+      quantity_available,
+      stock_version,
+      expiration_date,
+      received_at,
+      storage_location,
+      status,
+      created_by,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [id, batchNo]);
+  return result.rows[0] || null;
+};
+
 const updateInventoryBatchExpiry = async (
   id,
   { expiration_date, status },
@@ -301,5 +333,6 @@ module.exports = {
   getInventoryItemById,
   getInventoryBatchByItemIdAndBatchNo,
   insertInventoryBatch,
+  updateInventoryBatchNumber,
   updateInventoryBatchExpiry,
 };

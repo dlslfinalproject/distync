@@ -561,6 +561,27 @@ test("BRG-SC-CONFLICT-P04 Conflict detail comparison is allow-listed and hides r
   );
 });
 
+test("BRG-SC-CONFLICT-P04A Accept Both explains offline batch ordering", async () => {
+  const { getConflictResolutionSummary } = await import(helperModulePath.href);
+
+  const summary = getConflictResolutionSummary({
+    status: "RESOLVED",
+    resolution_action: "ACCEPT_BOTH",
+    resolved_payload_json: {
+      winner: "BOTH",
+      batchNumberOrdering: {
+        localEntryOrder: "EARLIER",
+      },
+    },
+  });
+
+  assert.deepEqual(summary, {
+    result: "Both entries kept",
+    whatHappened:
+      "DISTYNC kept both entries in offline capture order. The earlier entry received the earlier batch number.",
+  });
+});
+
 test("BRG-SC-CONFLICT-P05 Open conflict UX stays honest and keeps authorization separate", async () => {
   const { getConflictResolutionSummary } = await import(helperModulePath.href);
   const syncStatusSource = await fs.readFile(syncStatusSourcePath, "utf8");

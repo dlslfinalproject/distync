@@ -1001,6 +1001,98 @@ test("createInventoryBatch keeps a same-packaging offline collision for Conflict
   );
 });
 
+test("resequenceInventoryBatchForAcceptBoth puts an earlier offline entry first", async () => {
+  const updates = [];
+  const occupiedBatches = {
+    "LOT-A-2": {
+      id: "batch-2",
+      inventory_item_id: "item-1",
+      batch_no: "LOT-A-2",
+    },
+    "LOT-A-3": {
+      id: "batch-3",
+      inventory_item_id: "item-1",
+      batch_no: "LOT-A-3",
+    },
+  };
+  const savedBatch = {
+    id: "batch-1",
+    inventory_item_id: "item-1",
+    batch_no: "LOT-A-1",
+    received_at: "2026-08-09T03:00:00.000Z",
+    created_at: "2026-08-09T03:00:00.000Z",
+  };
+
+  await withStubbedInventoryBatchService(
+    baseStubs({
+      getInventoryBatchById: async () => savedBatch,
+      getInventoryBatchByItemIdAndBatchNo: async (_itemId, batchNo) =>
+        occupiedBatches[batchNo] || null,
+      updateInventoryBatchNumber: async (id, batchNo) => {
+        updates.push({ id, batchNo });
+        return { id, batch_no: batchNo };
+      },
+    }),
+    async ({ resequenceInventoryBatchForAcceptBoth }) => {
+      const result = await resequenceInventoryBatchForAcceptBoth({
+        existingBatchId: "batch-1",
+        requestedBatchNo: "LOT-A-1",
+        localCapturedAt: "2026-08-09T01:00:00.000Z",
+        dbClient: {},
+      });
+
+      assert.equal(result.reordered, true);
+      assert.equal(result.existingBatchNumberBefore, "LOT-A-1");
+      assert.equal(result.existingBatchNumberAfter, "LOT-A-2");
+      assert.deepEqual(result.batchNumberChanges, [
+        { batchId: "batch-1", from: "LOT-A-1", to: "LOT-A-2" },
+        { batchId: "batch-2", from: "LOT-A-2", to: "LOT-A-3" },
+        { batchId: "batch-3", from: "LOT-A-3", to: "LOT-A-4" },
+      ]);
+    },
+  );
+
+  assert.deepEqual(updates, [
+    { id: "batch-3", batchNo: "LOT-A-4" },
+    { id: "batch-2", batchNo: "LOT-A-3" },
+    { id: "batch-1", batchNo: "LOT-A-2" },
+  ]);
+});
+
+test("resequenceInventoryBatchForAcceptBoth keeps the saved entry first for a later offline entry", async () => {
+  let updateCalls = 0;
+
+  await withStubbedInventoryBatchService(
+    baseStubs({
+      getInventoryBatchById: async () => ({
+        id: "batch-1",
+        inventory_item_id: "item-1",
+        batch_no: "LOT-A-1",
+        received_at: "2026-08-09T01:00:00.000Z",
+        created_at: "2026-08-09T01:00:00.000Z",
+      }),
+      updateInventoryBatchNumber: async () => {
+        updateCalls += 1;
+        return { id: "batch-1", batch_no: "LOT-A-2" };
+      },
+    }),
+    async ({ resequenceInventoryBatchForAcceptBoth }) => {
+      const result = await resequenceInventoryBatchForAcceptBoth({
+        existingBatchId: "batch-1",
+        requestedBatchNo: "LOT-A-1",
+        localCapturedAt: "2026-08-09T02:00:00.000Z",
+        dbClient: {},
+      });
+
+      assert.equal(result.reordered, false);
+      assert.equal(result.existingBatchNumberAfter, "LOT-A-1");
+      assert.deepEqual(result.batchNumberChanges, []);
+    },
+  );
+
+  assert.equal(updateCalls, 0);
+});
+
 test("createInventoryBatch reassigns an offline duplicate batch number when packaging differs", async () => {
   const occupiedBatchNumbers = new Set([
     "RICE-BATCH-003",
