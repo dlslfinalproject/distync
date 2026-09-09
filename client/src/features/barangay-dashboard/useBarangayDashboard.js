@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { getAccessMode, ACCESS_MODES } from "../../utils/accessMode";
 import { ROLE_CODES } from "../../utils/roleSession";
 import { fetchBarangays } from "../masterlist/masterlistService";
 import { fetchBarangayDashboard } from "./barangayDashboardService";
+import { deriveBarangayDashboardMetrics } from "./barangayDashboardOfflineMetrics.js";
+import { getCachedMasterlistRows } from "../../offline/masterlistCache.js";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue.js";
 import {
   getPreparedBarangayOfflineContexts,
 } from "../../offline/offlinePreparation.js";
@@ -134,8 +138,24 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [errorCode, setErrorCode] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [devBarangayOptions, setDevBarangayOptions] = useState([]);
   const [isContextResolved, setIsContextResolved] = useState(false);
+  const cachedMasterlistRows = useLiveQuery(
+    () => getCachedMasterlistRows({
+      disasterEventId: selectedDisasterEventId || "",
+      barangayId: payload.assigned_barangay_id || "",
+    }),
+    [selectedDisasterEventId, payload.assigned_barangay_id],
+    [],
+  ) || [];
+  const syncQueueEntries = useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const reloadWhenOnline = () => setReloadKey((current) => current + 1);
+    window.addEventListener("online", reloadWhenOnline);
+    return () => window.removeEventListener("online", reloadWhenOnline);
+  }, []);
   const requestSeqRef = useRef(0);
   const skipSelectedEventReloadRef = useRef("");
   const lastResolvedContextRef = useRef({
@@ -348,6 +368,14 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
           event_scope: eventScope,
           available_events: preparedEvents,
           selected_event: retainedEvent,
+          metrics: deriveBarangayDashboardMetrics({
+            rows: cachedMasterlistRows,
+            syncQueueEntries,
+            selectedEventId: retainedEvent?.id || retainedEventId,
+            assignedBarangayId: retainedBarangayId || "",
+            assignedBarangayName: cachedBarangay?.name || "",
+          }),
+          has_data: cachedMasterlistRows.length > 0,
           is_dev_override: previousContext.isDevOverride || Boolean(overrideBarangayId),
         });
 
@@ -477,7 +505,37 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
     fallbackBarangayId,
     selectedDisasterEventId,
     userId,
+    reloadKey,
   ]);
+
+  useEffect(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine !== false) {
+      return;
+    }
+
+    setPayload((currentPayload) => {
+      if (
+        !currentPayload.selected_event?.id ||
+        String(currentPayload.selected_event.id) !== String(selectedDisasterEventId) ||
+        String(currentPayload.assigned_barangay_id || "") !== String(payload.assigned_barangay_id || "")
+      ) {
+        return currentPayload;
+      }
+
+      const metrics = deriveBarangayDashboardMetrics({
+        rows: cachedMasterlistRows,
+        syncQueueEntries,
+        selectedEventId: selectedDisasterEventId,
+        assignedBarangayId: currentPayload.assigned_barangay_id || "",
+        assignedBarangayName: currentPayload.assigned_barangay?.name || "",
+      });
+      const hasData = cachedMasterlistRows.length > 0;
+      if (JSON.stringify(currentPayload.metrics) === JSON.stringify(metrics) && currentPayload.has_data === hasData) {
+        return currentPayload;
+      }
+      return { ...currentPayload, metrics, has_data: hasData };
+    });
+  }, [cachedMasterlistRows, payload.assigned_barangay_id, selectedDisasterEventId, syncQueueEntries]);
 
   const summaryCards = useMemo(() => {
     return [
