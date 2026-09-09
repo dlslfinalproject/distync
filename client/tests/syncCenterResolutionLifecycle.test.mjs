@@ -81,3 +81,28 @@ test("missing conflict review notes are shown inline under the field", async () 
   assert.match(modalSource, /aria-invalid=\{Boolean\(resolutionReasonError\)\}/);
   assert.match(modalSource, /role="alert"/);
 });
+
+test("conflict actions require confirmation and barcode corrections reuse the inventory form", async () => {
+  const [pageSource, modalSource, formSource, serviceSource] = await Promise.all([
+    fs.readFile(pageSourcePath, "utf8"),
+    fs.readFile(modalSourcePath, "utf8"),
+    fs.readFile(
+      new URL("../src/components/inventory-items/InventoryItemFormModal.jsx", import.meta.url),
+      "utf8",
+    ),
+    fs.readFile(
+      new URL("../src/features/sync/syncHistoryService.js", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(pageSource, /pendingResolutionAction/);
+  assert.match(pageSource, /setPendingResolutionAction\(action\)/);
+  assert.match(pageSource, /getConflictCorrectionItemData/);
+  assert.match(pageSource, /conflictResolution/);
+  assert.match(modalSource, /Confirm and Resolve/);
+  assert.match(modalSource, /onCancelPendingResolve/);
+  assert.match(formSource, /Correct Inventory Record/);
+  assert.match(formSource, /Optional\. Leave blank for a manual item\./);
+  assert.match(serviceSource, /resolution_payload: resolutionPayload \|\| null/);
+});

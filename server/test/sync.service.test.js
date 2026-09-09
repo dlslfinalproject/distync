@@ -6467,6 +6467,112 @@ test("Mayor can apply a barcode conflict with a replacement barcode", async () =
   );
 });
 
+test("Mayor can accept a barcode conflict as a corrected manual item", async () => {
+  let createdItemPayload = null;
+  const baseConflict = {
+    id: "conflict-duplicate-barcode-manual",
+    sync_transaction_id: "sync-duplicate-barcode-manual",
+    user_id: "origin-mayor",
+    entity_type: "INVENTORY_ITEM",
+    entity_server_id: "saved-item",
+    conflict_type: "DUPLICATE_INVENTORY_BARCODE",
+    local_payload_json: {
+      item_name: "Rice Offline",
+      item_code: "RICE-OFFLINE-MANUAL",
+      barcode: "0748485100081",
+      category: "Perishable",
+      is_perishable: true,
+      unit_of_measure: "pc",
+      unit_of_measure_value: 1,
+      packaging: "sack",
+      packaging_count: 1,
+      quantity: 10,
+      reorder_level: 5,
+      expiration_date: "2027-01-01",
+      skip_opening_stock: true,
+    },
+    server_payload_json: {
+      id: "saved-item",
+      item_name: "Rice",
+      barcode: "0748485100081",
+      packaging: "box",
+    },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "CREATE",
+    client_timestamp: "2026-08-09T01:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        lockSyncConflictById: async () => baseConflict,
+        updateSyncTransaction: async () => ({
+          sync_status: "SYNCED",
+          entity_server_id: "new-manual-item",
+        }),
+        markSyncConflictResolved: async (payload) => ({
+          ...baseConflict,
+          status: "RESOLVED",
+          resolution_action: payload.resolutionAction,
+          resolution_reason: payload.resolutionReason,
+          resolved_payload_json: payload.resolvedPayloadJson,
+          resolved_by: payload.resolvedBy,
+          resolved_at: "2026-08-09T05:00:00.000Z",
+        }),
+      },
+      [inventoryItemServicePath]: {
+        createInventoryItem: async (payload) => {
+          createdItemPayload = payload;
+          return { id: "new-manual-item", barcode: null };
+        },
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async () => null,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ resolveSyncConflict }) => {
+      const resolved = await resolveSyncConflict({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+        action: "APPLY_LOCAL",
+        reason: "This device record is the correct manual item.",
+        resolutionPayload: {
+          item_name: "Rice Manual",
+          category: "Non-Perishable",
+          is_perishable: false,
+          barcode: null,
+        },
+      });
+
+      assert.equal(createdItemPayload.item_name, "Rice Manual");
+      assert.equal(createdItemPayload.category, "Non-Perishable");
+      assert.equal(createdItemPayload.is_perishable, false);
+      assert.equal(createdItemPayload.barcode, null);
+      assert.equal(resolved.sync_status, "SYNCED");
+      assert.equal(
+        resolved.resolved_payload_json.savedWithoutBarcode,
+        true,
+      );
+    },
+  );
+});
+
 test("BRG-SC-04B APPLY_LOCAL remains rejected for eligible stock-drift conflict", async () => {
   const baseConflict = {
     id: "conflict-stock-drift",

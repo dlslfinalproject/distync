@@ -157,6 +157,21 @@ const getActionLabel = (action) => {
   return ACTION_LABELS[action] || action;
 };
 
+const getResolutionConfirmationMessage = (action) => {
+  const messages = {
+    MARK_REVIEWED:
+      "Close this conflict review without changing the saved inventory data.",
+    KEEP_SERVER:
+      "Keep the saved DISTYNC record and discard this device entry from Inventory.",
+    APPLY_LOCAL:
+      "Use this device record and apply the correction entered during review.",
+    ACCEPT_BOTH:
+      "Keep both entries. DISTYNC will assign their batch numbers in offline capture order.",
+  };
+
+  return messages[action] || "Record this conflict resolution decision.";
+};
+
 const isUuidLikeValue = (value) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     String(value || "").trim(),
@@ -204,6 +219,9 @@ const SyncConflictDetailModal = ({
   onReplacementBarcodeChange,
   isResolving = false,
   includeBarangay = false,
+  pendingResolutionAction = "",
+  onConfirmResolve,
+  onCancelPendingResolve,
 }) => {
   if (!isOpen || !conflict) {
     return null;
@@ -228,37 +246,62 @@ const SyncConflictDetailModal = ({
   const needsReplacementBarcode =
     !isResolved &&
     conflict.conflict_type === "DUPLICATE_INVENTORY_BARCODE" &&
+    conflict.entity_type !== "INVENTORY_ITEM" &&
     availableActions.includes("APPLY_LOCAL");
+  const isConfirmingResolution = Boolean(pendingResolutionAction);
   const footer = (
     <>
-      <button
-        type="button"
-        onClick={onClose}
-        style={pageHeaderStyles.secondaryButton}
-        disabled={isResolving}
-      >
-        Close
-      </button>
-      {availableActions.map((action) => (
-        <button
-          key={action}
-          type="button"
-          onClick={() => onResolve(action)}
-          style={
-            action === "MARK_REVIEWED"
-              ? pageHeaderStyles.secondaryButton
-              : pageHeaderStyles.primaryButton
-          }
-          disabled={
-            isResolving ||
-            (action === "APPLY_LOCAL" &&
-              needsReplacementBarcode &&
-              !replacementBarcode.trim())
-          }
-        >
-          {getActionLabel(action)}
-        </button>
-      ))}
+      {isConfirmingResolution ? (
+        <>
+          <button
+            type="button"
+            onClick={onCancelPendingResolve || onClose}
+            style={pageHeaderStyles.secondaryButton}
+            disabled={isResolving}
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={() => onConfirmResolve?.(pendingResolutionAction)}
+            style={pageHeaderStyles.primaryButton}
+            disabled={isResolving}
+          >
+            Confirm and Resolve
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            style={pageHeaderStyles.secondaryButton}
+            disabled={isResolving}
+          >
+            Close
+          </button>
+          {availableActions.map((action) => (
+            <button
+              key={action}
+              type="button"
+              onClick={() => onResolve(action)}
+              style={
+                action === "MARK_REVIEWED"
+                  ? pageHeaderStyles.secondaryButton
+                  : pageHeaderStyles.primaryButton
+              }
+              disabled={
+                isResolving ||
+                (action === "APPLY_LOCAL" &&
+                  needsReplacementBarcode &&
+                  !replacementBarcode.trim())
+              }
+            >
+              {getActionLabel(action)}
+            </button>
+          ))}
+        </>
+      )}
     </>
   );
 
@@ -341,6 +384,31 @@ const SyncConflictDetailModal = ({
                 </div>
               ) : null}
             </>
+          ) : isConfirmingResolution ? (
+            <div style={modalStyles.fieldStack}>
+              <div style={modalStyles.field}>
+                <div style={modalStyles.fieldLabel}>Confirm Action</div>
+                <div style={modalStyles.value}>
+                  {getResolutionConfirmationMessage(pendingResolutionAction)}
+                </div>
+              </div>
+              {pendingResolutionAction === "APPLY_LOCAL" && replacementBarcode ? (
+                <div style={modalStyles.field}>
+                  <div style={modalStyles.fieldLabel}>Replacement Barcode</div>
+                  <div style={modalStyles.value}>{replacementBarcode}</div>
+                </div>
+              ) : null}
+              {resolutionReason ? (
+                <div style={modalStyles.field}>
+                  <div style={modalStyles.fieldLabel}>Review Note</div>
+                  <div style={modalStyles.value}>{resolutionReason}</div>
+                </div>
+              ) : null}
+              <p style={modalStyles.warningText}>
+                Check the comparison and review note before confirming. This
+                decision will be recorded in Sync History.
+              </p>
+            </div>
           ) : (
             <div style={modalStyles.fieldStack}>
               <div style={modalStyles.field}>
@@ -365,6 +433,15 @@ const SyncConflictDetailModal = ({
                     Leave this blank to keep the saved record instead.
                   </p>
                 </label>
+              ) : null}
+              {!isResolved &&
+              conflict.conflict_type === "DUPLICATE_INVENTORY_BARCODE" &&
+              conflict.entity_type === "INVENTORY_ITEM" &&
+              availableActions.includes("APPLY_LOCAL") ? (
+                <p style={modalStyles.warningText}>
+                  Use This Device Record opens a correction form. Enter a new
+                  barcode, or leave it blank for a manual item.
+                </p>
               ) : null}
               {availableActions.length > 0 ? (
                 <label style={modalStyles.field}>

@@ -250,8 +250,12 @@ const ALLOWED_RESOLUTION_ACTIONS = new Set([
 const validateResolveSyncConflict = (req, res, next) => {
   try {
     const { conflictId } = req.params || {};
-    const { action, reason, replacement_barcode: replacementBarcode } =
-      req.body || {};
+    const {
+      action,
+      reason,
+      replacement_barcode: replacementBarcode,
+      resolution_payload: resolutionPayload,
+    } = req.body || {};
 
     if (!isValidUuid(conflictId)) {
       return res.status(400).json({
@@ -299,6 +303,16 @@ const validateResolveSyncConflict = (req, res, next) => {
       });
     }
 
+    if (
+      resolutionPayload !== undefined &&
+      resolutionPayload !== null &&
+      (typeof resolutionPayload !== "object" || Array.isArray(resolutionPayload))
+    ) {
+      return res.status(400).json({
+        message: "resolution_payload must be an object when provided",
+      });
+    }
+
     req.validatedParams = {
       conflictId,
     };
@@ -306,6 +320,7 @@ const validateResolveSyncConflict = (req, res, next) => {
       action: normalizedAction,
       reason: normalizedReason,
       replacementBarcode: normalizedReplacementBarcode,
+      resolutionPayload: resolutionPayload || null,
     };
 
     return next();

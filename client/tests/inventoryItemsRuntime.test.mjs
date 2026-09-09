@@ -359,3 +359,49 @@ test("InventoryItemsTable executes pagination effects and stays safe across data
     await server.close();
   }
 });
+
+test("InventoryItemsTable displays canonical category labels for local and server values", async () => {
+  const server = await createServer({
+    root: clientRoot,
+    configFile: false,
+    appType: "custom",
+    logLevel: "error",
+    ssr: {
+      noExternal: true,
+    },
+    plugins: [runtimePlugin],
+  });
+
+  try {
+    const { default: InventoryItemsTable } = await server.ssrLoadModule(
+      "/src/components/inventory-items/InventoryItemsTable.jsx?category-label-test",
+    );
+    const renderer = createRenderer(InventoryItemsTable);
+    const tree = renderer.render({
+      rows: [
+        {
+          ...createInventoryRows(1)[0],
+          item_name: "Diatabs",
+          category: "perishable",
+        },
+        {
+          ...createInventoryRows(1)[0],
+          id: "inventory-item-2",
+          item_name: "Rice",
+          category: "non-perishable",
+        },
+      ],
+      isLoading: false,
+      errorMessage: "",
+    });
+
+    const text = getTextContent(tree);
+    assert.match(text, /Perishable/);
+    assert.match(text, /Non-Perishable/);
+    assert.doesNotMatch(text, /perishable/);
+    assert.doesNotMatch(text, /non-perishable/);
+  } finally {
+    delete globalThis[runtimeKey];
+    await server.close();
+  }
+});

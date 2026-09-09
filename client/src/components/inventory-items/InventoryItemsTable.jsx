@@ -132,6 +132,25 @@ const centeredHeaders = new Set([
   "Actions",
 ]);
 
+const formatInventoryCategoryLabel = (category) => {
+  if (typeof category !== "string") {
+    return category || "--";
+  }
+
+  const trimmedCategory = category.trim();
+  const normalizedCategory = trimmedCategory.toLowerCase();
+
+  if (normalizedCategory === "perishable") {
+    return "Perishable";
+  }
+
+  if (normalizedCategory === "non-perishable") {
+    return "Non-Perishable";
+  }
+
+  return trimmedCategory || "--";
+};
+
 const InventoryItemsTable = ({
   rows,
   isLoading,
@@ -293,7 +312,7 @@ const InventoryItemsTable = ({
                       className="inventory-items-table-cell"
                       style={{ ...styles.td, ...styles.centerCell }}
                     >
-                      {item.category || "--"}
+                      {formatInventoryCategoryLabel(item.category)}
                     </td>
                     <td
                       className="inventory-items-table-cell"

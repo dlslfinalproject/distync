@@ -50,7 +50,7 @@ export const fetchSyncConflictDetail = async (conflictId) => {
 
 export const resolveSyncConflict = async (
   conflictId,
-  { action, reason, replacementBarcode = null },
+  { action, reason, replacementBarcode = null, resolutionPayload = null },
 ) => {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/sync/conflicts/${conflictId}/resolve`,
@@ -63,6 +63,7 @@ export const resolveSyncConflict = async (
         action,
         reason,
         replacement_barcode: replacementBarcode || null,
+        resolution_payload: resolutionPayload || null,
       }),
     },
   );

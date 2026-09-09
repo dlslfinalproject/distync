@@ -630,6 +630,14 @@ const getSyncHistoryResolutionNote = (record = {}) => {
   const action = normalizeKey(
     record.sync_conflict_resolution_action || record.resolution_action,
   );
+  const resolvedPayload =
+    record.sync_conflict_resolved_payload_json ||
+    record.resolved_payload_json ||
+    {};
+
+  if (action === "APPLY_LOCAL" && resolvedPayload.savedWithoutBarcode) {
+    return "This device record was accepted as a manual item without a barcode.";
+  }
 
   if (
     normalizeKey(record.sync_conflict_resolution_strategy || record.resolution_strategy) ===
@@ -873,7 +881,7 @@ export const getConflictExplanation = (conflict) => {
   }
 
   if (conflict?.conflict_type === "DUPLICATE_INVENTORY_BARCODE") {
-    return "The same barcode was used for different item or packaging details. Keep the saved record or enter a different barcode for this device record.";
+    return "The same barcode was used for different item or packaging details. Keep the saved record or correct the device record.";
   }
 
   if (conflict?.conflict_type === "DUPLICATE_INVENTORY_ITEM") {
@@ -986,6 +994,10 @@ export const getConflictResolutionSummary = (conflict = {}) => {
   }
 
   if (winner === "LOCAL" || action === "APPLY_LOCAL") {
+    const savedWithoutBarcode = Boolean(
+      conflict.resolved_payload_json?.savedWithoutBarcode,
+    );
+
     return {
       result:
         conflict.conflict_type === "DUPLICATE_INVENTORY_BARCODE"
@@ -993,7 +1005,9 @@ export const getConflictResolutionSummary = (conflict = {}) => {
           : "This device record applied",
       whatHappened:
         conflict.conflict_type === "DUPLICATE_INVENTORY_BARCODE"
-          ? "DISTYNC saved this device record with the replacement barcode provided during review."
+          ? savedWithoutBarcode
+            ? "DISTYNC saved this device record as a manual item without a barcode."
+            : "DISTYNC saved this device record with the corrected barcode provided during review."
           : "The synchronized record from this device was accepted after review.",
     };
   }

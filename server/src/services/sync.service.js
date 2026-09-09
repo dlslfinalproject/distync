@@ -2729,6 +2729,22 @@ const MANUAL_INVENTORY_DUPLICATE_CONFLICT_TYPES = new Set([
   DUPLICATE_INVENTORY_BATCH,
 ]);
 
+const INVENTORY_ITEM_RESOLUTION_FIELDS = [
+  "item_code",
+  "item_name",
+  "category",
+  "unit_of_measure",
+  "unit_of_measure_value",
+  "packaging",
+  "packaging_count",
+  "quantity",
+  "reorder_level",
+  "expiration_date",
+  "barcode",
+  "is_perishable",
+  "skip_opening_stock",
+];
+
 const getConflictLocalPayload = (conflict) => {
   const localPayload = conflict?.local_payload_json || {};
 
@@ -2750,6 +2766,7 @@ const applyManualInventoryDuplicateResolution = async ({
   conflict,
   action,
   replacementBarcode,
+  resolutionPayload,
   dbClient,
 }) => {
   if (action === RESOLUTION_ACTION.KEEP_SERVER) {
@@ -2891,18 +2908,34 @@ const applyManualInventoryDuplicateResolution = async ({
     conflict.conflict_type === DUPLICATE_INVENTORY_BARCODE &&
     action === RESOLUTION_ACTION.APPLY_LOCAL
   ) {
-    if (!replacementBarcode) {
-      throw createInvalidConflictResolutionInputError(
-        "A new barcode is required before accepting this device record.",
-      );
-    }
-
     const correctedPayload = {
       ...localPayload,
     };
 
     if (conflict.entity_type === "INVENTORY_ITEM") {
-      correctedPayload.barcode = replacementBarcode;
+      const hasExplicitBarcode =
+        resolutionPayload &&
+        Object.prototype.hasOwnProperty.call(resolutionPayload, "barcode");
+
+      if (resolutionPayload && typeof resolutionPayload === "object") {
+        INVENTORY_ITEM_RESOLUTION_FIELDS.forEach((fieldName) => {
+          if (Object.prototype.hasOwnProperty.call(resolutionPayload, fieldName)) {
+            correctedPayload[fieldName] = resolutionPayload[fieldName];
+          }
+        });
+      }
+
+      if (hasExplicitBarcode) {
+        // A blank barcode is an intentional choice for a manual item.
+        correctedPayload.barcode = resolutionPayload.barcode || null;
+      } else if (replacementBarcode) {
+        correctedPayload.barcode = replacementBarcode;
+      } else {
+        throw createInvalidConflictResolutionInputError(
+          "Enter a replacement barcode or explicitly leave the barcode blank before accepting this device record.",
+        );
+      }
+
       const createdItem = await inventoryItemService.createInventoryItem(
         correctedPayload,
         actor,
@@ -2911,13 +2944,23 @@ const applyManualInventoryDuplicateResolution = async ({
           dbClient,
         },
       );
+      const savedBarcode = normalizeInventoryBarcode(
+        createdItem?.barcode ?? correctedPayload.barcode,
+      );
 
       return {
         winner: "LOCAL",
         entityServerId: createdItem?.id || null,
         acceptedEntity: "INVENTORY_ITEM",
-        replacementBarcode,
+        replacementBarcode: savedBarcode || null,
+        savedWithoutBarcode: !savedBarcode,
       };
+    }
+
+    if (!replacementBarcode) {
+      throw createInvalidConflictResolutionInputError(
+        "A new barcode is required before accepting this device record.",
+      );
     }
 
     if (conflict.entity_type === "INVENTORY_BATCH") {
@@ -2951,6 +2994,7 @@ const resolveSyncConflict = async ({
   action,
   reason = null,
   replacementBarcode = null,
+  resolutionPayload = null,
 }) => {
   const notificationOutboxEventIds = [];
   let resolvedConflict = null;
@@ -2983,6 +3027,7 @@ const resolveSyncConflict = async ({
             conflict,
             action,
             replacementBarcode,
+            resolutionPayload,
             dbClient,
           })
         : null;

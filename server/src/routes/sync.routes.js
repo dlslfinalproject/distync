@@ -142,6 +142,7 @@ router.post(
         action: req.validatedBody.action,
         reason: req.validatedBody.reason,
         replacementBarcode: req.validatedBody.replacementBarcode,
+        resolutionPayload: req.validatedBody.resolutionPayload,
       });
 
       return res.status(200).json({

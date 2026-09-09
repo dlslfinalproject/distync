@@ -582,6 +582,36 @@ test("BRG-SC-CONFLICT-P04A Accept Both explains offline batch ordering", async (
   });
 });
 
+test("barcode correction summary identifies a manual item when barcode is blank", async () => {
+  const { getConflictResolutionSummary, getSyncHistoryNotes } = await import(
+    helperModulePath.href
+  );
+  const conflict = {
+    status: "RESOLVED",
+    conflict_type: "DUPLICATE_INVENTORY_BARCODE",
+    resolution_action: "APPLY_LOCAL",
+    resolved_payload_json: {
+      winner: "LOCAL",
+      savedWithoutBarcode: true,
+    },
+  };
+
+  assert.deepEqual(getConflictResolutionSummary(conflict), {
+    result: "Corrected device record applied",
+    whatHappened:
+      "DISTYNC saved this device record as a manual item without a barcode.",
+  });
+  assert.match(
+    getSyncHistoryNotes({
+      sync_conflict_status: "RESOLVED",
+      sync_conflict_resolution_action: "APPLY_LOCAL",
+      sync_conflict_resolved_payload_json: conflict.resolved_payload_json,
+      payload_json: { action_key: "INVENTORY_ITEM_CREATE", payload: {} },
+    }).join(" "),
+    /manual item without a barcode/i,
+  );
+});
+
 test("automatic packaging merges are explained as a separate batch", async () => {
   const {
     getConflictExplanation,

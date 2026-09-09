@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   validateGetSyncHistory,
   validateProcessSyncEntries,
+  validateResolveSyncConflict,
 } = require("../src/validators/sync.validator");
 
 const createResponse = () => {
@@ -212,4 +213,54 @@ test("validateProcessSyncEntries rejects a malformed persistent device UUID", ()
   assert.equal(nextCalled, false);
   assert.equal(res.statusCode, 400);
   assert.match(res.payload.message, /device_id must be a valid UUID/i);
+});
+
+test("validateResolveSyncConflict accepts an edited correction payload with a blank barcode", () => {
+  const req = {
+    params: {
+      conflictId: "11111111-1111-4111-8111-111111111111",
+    },
+    body: {
+      action: "APPLY_LOCAL",
+      reason: "This is the correct item record.",
+      resolution_payload: {
+        item_name: "Manual Rice",
+        category: "Non-Perishable",
+        barcode: null,
+      },
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateResolveSyncConflict(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(req.validatedBody.resolutionPayload.item_name, "Manual Rice");
+  assert.equal(req.validatedBody.resolutionPayload.barcode, null);
+});
+
+test("validateResolveSyncConflict rejects a non-object correction payload", () => {
+  const req = {
+    params: {
+      conflictId: "11111111-1111-4111-8111-111111111111",
+    },
+    body: {
+      action: "APPLY_LOCAL",
+      reason: "This is the correct item record.",
+      resolution_payload: [],
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateResolveSyncConflict(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.payload.message, /resolution_payload must be an object/i);
 });

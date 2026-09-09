@@ -468,6 +468,7 @@ const InventoryItemFormModal = ({
   isOpen,
   mode,
   source = "manual",
+  conflictResolution = false,
   itemData,
   inventoryItems = [],
   getCurrentStockForItem = null,
@@ -1084,7 +1085,9 @@ const InventoryItemFormModal = ({
       ? formValues.unit_of_measure || "pc"
       : formValues.unit_of_measure || "";
   const titleText =
-    isEditMode
+    conflictResolution
+      ? "Correct Inventory Record"
+      : isEditMode
       ? "Edit Inventory Item"
       : isAddingStockFormMode
         ? isAddingBarcodeStockForm
@@ -1095,7 +1098,9 @@ const InventoryItemFormModal = ({
             ? "Add Barcode Stock Form"
             : "Restock Existing Item"
           : "Add Item";
-  const stockSectionTitle = isEditMode
+  const stockSectionTitle = conflictResolution
+    ? "Corrected Stock Details"
+    : isEditMode
     ? "Item Settings"
     : isAddingStockFormMode
       ? "Stock Form Details"
@@ -1469,6 +1474,16 @@ const InventoryItemFormModal = ({
                     />
                     {fieldErrors.barcode ? (
                       <p style={fieldErrorTextStyles}>{fieldErrors.barcode}</p>
+                    ) : null}
+                    {conflictResolution ? (
+                      <p
+                        style={{
+                          ...fieldErrorTextStyles,
+                          color: "#4f677f",
+                        }}
+                      >
+                        Optional. Leave blank for a manual item.
+                      </p>
                     ) : null}
                   </div>
 
@@ -1910,6 +1925,8 @@ const InventoryItemFormModal = ({
               >
                 {isSubmitting
                   ? "Processing..."
+                  : conflictResolution
+                    ? "Confirm and Resolve"
                   : mode === "edit"
                     ? "Save Changes"
                     : isAddingStockFormMode

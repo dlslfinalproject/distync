@@ -9,6 +9,7 @@ import SyncStatusBadge from "../components/shared/SyncStatusBadge";
 import SyncHealthStatus from "../components/shared/SyncHealthStatus";
 import FeedbackToast from "../components/shared/FeedbackToast";
 import SyncConflictDetailModal from "../components/shared/SyncConflictDetailModal";
+import InventoryItemFormModal from "../components/inventory-items/InventoryItemFormModal";
 import ResponsiveFilterPopover from "../components/shared/ResponsiveFilterPopover";
 import TablePagination from "../components/shared/TablePagination";
 import db, { LOCAL_SYNC_STATUS } from "../offline/db.js";
@@ -135,6 +136,54 @@ const createSyncPaginationState = () =>
       { page: 1, pageSize: DEFAULT_TABLE_PAGE_SIZE },
     ]),
   );
+
+const getConflictLocalPayload = (conflict = {}) => {
+  const localPayload = conflict.local_payload_json || {};
+
+  if (localPayload?.payload && typeof localPayload.payload === "object") {
+    return localPayload.payload;
+  }
+
+  return localPayload && typeof localPayload === "object" ? localPayload : {};
+};
+
+const getConflictCorrectionItemData = (conflict = {}) => {
+  const payload = getConflictLocalPayload(conflict);
+  const unitOfMeasure =
+    payload.unit_of_measure || payload.stock_form_unit_of_measure || "pc";
+  const normalizedUnit = String(unitOfMeasure).trim().toLowerCase();
+  const trackingMethod =
+    payload.tracking_method ||
+    (["kg", "g", "l", "ml"].includes(normalizedUnit)
+      ? "Weight/Volume-Based"
+      : "Count-Based");
+
+  return {
+    item_name: payload.item_name || payload.inventory_item_name || "",
+    // The old barcode is intentionally cleared. The reviewer may enter a
+    // replacement or keep the corrected item as a manual item.
+    barcode: "",
+    quantity:
+      payload.quantity ??
+      payload.units_per_packaging ??
+      payload.stock_form_units_per_packaging ??
+      "",
+    unit_of_measure: unitOfMeasure,
+    unit_of_measure_value:
+      payload.unit_of_measure_value ??
+      payload.stock_form_unit_of_measure_value ??
+      (trackingMethod === "Count-Based" ? "1" : ""),
+    packaging: payload.packaging || payload.stock_form_packaging || "",
+    packaging_count:
+      payload.packaging_count ?? payload.stock_form_packaging_count ?? "",
+    category:
+      payload.category ||
+      (payload.is_perishable === false ? "non-perishable" : "perishable"),
+    expiration_date: payload.expiration_date ?? payload.expiryDate ?? "",
+    reorder_level: payload.reorder_level ?? "",
+    tracking_method: trackingMethod,
+  };
+};
 
 const fieldStyles = {
   label: {
@@ -411,6 +460,13 @@ const SyncManagementPage = () => {
   const [resolutionReason, setResolutionReason] = useState("");
   const [resolutionReasonError, setResolutionReasonError] = useState("");
   const [replacementBarcode, setReplacementBarcode] = useState("");
+  const [pendingResolutionAction, setPendingResolutionAction] = useState("");
+  const [isInventoryCorrectionFormOpen, setIsInventoryCorrectionFormOpen] =
+    useState(false);
+  const [inventoryCorrectionItemData, setInventoryCorrectionItemData] =
+    useState(null);
+  const [inventoryCorrectionErrorMessage, setInventoryCorrectionErrorMessage] =
+    useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [activeSyncTab, setActiveSyncTab] = useState("QUEUE");
   const [paginationByTab, setPaginationByTab] = useState(
@@ -1047,6 +1103,10 @@ const SyncManagementPage = () => {
       setResolutionReason("");
       setResolutionReasonError("");
       setReplacementBarcode("");
+      setPendingResolutionAction("");
+      setIsInventoryCorrectionFormOpen(false);
+      setInventoryCorrectionItemData(null);
+      setInventoryCorrectionErrorMessage("");
     } catch (error) {
       setFeedback({
         type: "error",
@@ -1066,6 +1126,16 @@ const SyncManagementPage = () => {
     setResolutionReason("");
     setResolutionReasonError("");
     setReplacementBarcode("");
+    setPendingResolutionAction("");
+    setIsInventoryCorrectionFormOpen(false);
+    setInventoryCorrectionItemData(null);
+    setInventoryCorrectionErrorMessage("");
+  }, []);
+
+  const handleCloseInventoryCorrectionForm = useCallback(() => {
+    setIsInventoryCorrectionFormOpen(false);
+    setInventoryCorrectionItemData(null);
+    setInventoryCorrectionErrorMessage("");
   }, []);
 
   const handleResolutionReasonChange = useCallback((value) => {
@@ -1075,18 +1145,8 @@ const SyncManagementPage = () => {
     }
   }, []);
 
-  const handleResolveConflict = async (action) => {
+  const submitResolveConflict = async (action, resolutionPayload = null) => {
     if (!selectedConflictDetail?.id || isResolvingConflict) {
-      return;
-    }
-
-    const trimmedReason = resolutionReason.trim();
-
-    if (
-      ["KEEP_SERVER", "APPLY_LOCAL", "ACCEPT_BOTH"].includes(action) &&
-      !trimmedReason
-    ) {
-      setResolutionReasonError("Review note is required.");
       return;
     }
 
@@ -1095,8 +1155,9 @@ const SyncManagementPage = () => {
     try {
       const response = await resolveSyncConflict(selectedConflictDetail.id, {
         action,
-        reason: trimmedReason,
+        reason: resolutionReason.trim(),
         replacementBarcode: replacementBarcode.trim(),
+        resolutionPayload,
       });
       const resolvedConflict = response?.data || null;
 
@@ -1144,6 +1205,10 @@ const SyncManagementPage = () => {
       setResolutionReason("");
       setResolutionReasonError("");
       setReplacementBarcode("");
+      setPendingResolutionAction("");
+      setIsInventoryCorrectionFormOpen(false);
+      setInventoryCorrectionItemData(null);
+      setInventoryCorrectionErrorMessage("");
       await loadSyncHistory();
       setFeedback({
         type: "success",
@@ -1151,18 +1216,91 @@ const SyncManagementPage = () => {
         message: "The conflict review decision was recorded.",
       });
     } catch (error) {
+      const safeMessage = getSafeSyncErrorMessage(
+        error,
+        "The conflict could not be resolved. Refresh and review the latest state.",
+      );
       setFeedback({
         type: "error",
         title: "Resolution Error",
-        message: getSafeSyncErrorMessage(
-          error,
-          "The conflict could not be resolved. Refresh and review the latest state.",
-        ),
+        message: safeMessage,
       });
+      if (resolutionPayload) {
+        setInventoryCorrectionErrorMessage(safeMessage);
+      }
       await loadSyncHistory();
     } finally {
       setIsResolvingConflict(false);
     }
+  };
+
+  const handleResolveConflict = (action) => {
+    if (!selectedConflictDetail?.id || isResolvingConflict) {
+      return;
+    }
+
+    const trimmedReason = resolutionReason.trim();
+
+    if (
+      ["KEEP_SERVER", "APPLY_LOCAL", "ACCEPT_BOTH"].includes(action) &&
+      !trimmedReason
+    ) {
+      setResolutionReasonError("Review note is required.");
+      return;
+    }
+
+    setResolutionReasonError("");
+
+    const opensInventoryCorrectionForm =
+      action === "APPLY_LOCAL" &&
+      selectedConflictDetail.conflict_type === "DUPLICATE_INVENTORY_BARCODE" &&
+      selectedConflictDetail.entity_type === "INVENTORY_ITEM";
+
+    if (opensInventoryCorrectionForm) {
+      setInventoryCorrectionErrorMessage("");
+      setInventoryCorrectionItemData(
+        getConflictCorrectionItemData(selectedConflictDetail),
+      );
+      setIsInventoryCorrectionFormOpen(true);
+      return;
+    }
+
+    setPendingResolutionAction(action);
+  };
+
+  const handleConfirmResolve = (action) => {
+    if (!action || action !== pendingResolutionAction) {
+      return;
+    }
+
+    void submitResolveConflict(action);
+  };
+
+  const handleCancelPendingResolve = useCallback(() => {
+    setPendingResolutionAction("");
+  }, []);
+
+  const handleInventoryCorrectionSubmit = (formValues) => {
+    if (!selectedConflictDetail?.id || isResolvingConflict) {
+      return;
+    }
+
+    const localPayload = getConflictLocalPayload(selectedConflictDetail);
+    const normalizedCategory = String(formValues.category || "")
+      .trim()
+      .toLowerCase();
+    const resolutionPayload = {
+      ...localPayload,
+      ...formValues,
+      // Keep the saved category and perishability flag in sync when the
+      // reviewer changes the category in the correction form.
+      is_perishable: normalizedCategory === "perishable",
+      // A blank barcode is an explicit choice to save this as a manual item.
+      barcode: formValues.barcode || null,
+    };
+
+    setInventoryCorrectionErrorMessage("");
+    void submitResolveConflict("APPLY_LOCAL", resolutionPayload);
   };
 
   const renderRecordCells = (
@@ -1717,7 +1855,7 @@ const SyncManagementPage = () => {
       </section>
 
       <SyncConflictDetailModal
-        isOpen={Boolean(selectedConflictDetail)}
+        isOpen={Boolean(selectedConflictDetail) && !isInventoryCorrectionFormOpen}
         conflict={selectedConflictDetail}
         onClose={handleCloseConflictDetail}
         onResolve={handleResolveConflict}
@@ -1728,6 +1866,23 @@ const SyncManagementPage = () => {
         onReplacementBarcodeChange={setReplacementBarcode}
         isResolving={isResolvingConflict}
         includeBarangay={isMswdoPortal}
+        pendingResolutionAction={pendingResolutionAction}
+        onConfirmResolve={handleConfirmResolve}
+        onCancelPendingResolve={handleCancelPendingResolve}
+      />
+
+      <InventoryItemFormModal
+        isOpen={isInventoryCorrectionFormOpen}
+        mode="create"
+        source="manual"
+        conflictResolution
+        itemData={inventoryCorrectionItemData}
+        inventoryItems={[]}
+        getCurrentStockForItem={null}
+        isSubmitting={isResolvingConflict}
+        errorMessage={inventoryCorrectionErrorMessage}
+        onClose={handleCloseInventoryCorrectionForm}
+        onSubmit={handleInventoryCorrectionSubmit}
       />
 
       <FeedbackToast
