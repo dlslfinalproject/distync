@@ -3,6 +3,9 @@ const assert = require("node:assert/strict");
 
 const servicePath = require.resolve("../src/services/stub.service");
 const masterlistRepositoryPath = require.resolve("../src/repositories/masterlist.repository");
+const disasterEventRepositoryPath = require.resolve(
+  "../src/repositories/disasterEvent.repository",
+);
 const dbPath = require.resolve("../src/config/db");
 const distributionTransactionRepositoryPath = require.resolve(
   "../src/repositories/distributionTransaction.repository",
@@ -94,6 +97,9 @@ const createBaseStubs = ({
   claimHandler = null,
   verificationStub = scopedStub,
   masterlistOverrides = {},
+  disasterEventOverrides = {},
+  reliefPackTemplateOverrides = {},
+  automaticReliefPackClaimOverrides = {},
   stubRepositoryOverrides = {},
 }) => ({
   [masterlistRepositoryPath]: {
@@ -112,12 +118,24 @@ const createBaseStubs = ({
     }),
     ...masterlistOverrides,
   },
+  [disasterEventRepositoryPath]: {
+    getDisasterEventById: async () => ({
+      id: baseStub.disaster_event_id,
+      event_code: "EVENT-001",
+      title: "Active Event",
+      disaster_type: "TYPHOON",
+      status: "ACTIVE",
+    }),
+    getAffectedBarangayScopeByDisasterEventId: async () => [],
+    ...disasterEventOverrides,
+  },
   [dbPath]: createFakePool(events),
   [distributionTransactionRepositoryPath]: {
     getStubByIdForUpdate: async () => lockedStub,
   },
   [reliefPackTemplateRepositoryPath]: {
     getReliefPackTemplates: async () => [],
+    ...reliefPackTemplateOverrides,
   },
   [stubRepositoryPath]: {
     getScopedStubById: async () => scopedStub,
@@ -145,11 +163,14 @@ const createBaseStubs = ({
   },
   [mswdoReportExportPath]: {},
   [automaticReliefPackClaimServicePath]: {
+    getAvailableDonatedReliefPacksForClaimPreview: async () => [],
+    getAvailableDonatedLooseItemsForClaimPreview: async () => [],
     recordAutomaticReliefPackClaim:
       claimHandler ||
       (async () => {
         throw new Error("claim handler should not run");
       }),
+    ...automaticReliefPackClaimOverrides,
   },
   [reliefPackAssignmentServicePath]: {
     getAssignedReliefPackTemplatesForSectorIds: () => [],
@@ -960,4 +981,555 @@ test("DEPLOY-MSWDO-RGD-01 cross-barangay claim remains rejected", async () => {
       );
     },
   );
+});
+
+const buildMunicipalDashboardRow = ({
+  id,
+  householdId,
+  barangayId,
+  barangayName,
+  status = "CLAIMED",
+}) => ({
+  id,
+  disaster_event_id: baseStub.disaster_event_id,
+  household_id: householdId,
+  stub_no: `STUB-${id}`,
+  serial_no: `SER-${id}`,
+  status,
+  issued_at: "2026-08-08T00:00:00.000Z",
+  claimed_at: status === "CLAIMED" ? "2026-08-08T01:00:00.000Z" : null,
+  qr_code_value: `DISTYNC-STUB|${id}`,
+  qr_generated_at: "2026-08-08T00:00:00.000Z",
+  qr_generated_by: "seed-user",
+  qr_status: "ACTIVE",
+  qr_notes: null,
+  assigned_relief_pack_snapshots: [],
+  is_active: true,
+  barangay_id: barangayId,
+  barangay_name: barangayName,
+  family_head_first_name: "Family",
+  family_head_last_name: id,
+  household_size: 2,
+  family_head_photo_url: null,
+  photo_captured_at: null,
+  photo_verification_notes: null,
+  queue_time_in: "2026-08-08T00:00:00.000Z",
+  latest_attendance_status: "PRESENT",
+  latest_attendance_time_out: null,
+  distribution_date: status === "CLAIMED" ? "2026-08-08T01:00:00.000Z" : null,
+  received_at: status === "CLAIMED" ? "2026-08-08T01:00:00.000Z" : null,
+  receipt_no: status === "CLAIMED" ? `RCPT-${id}` : null,
+  verified_by_name: status === "CLAIMED" ? "Verifier" : null,
+  unclaimed_queue_position: null,
+  members_count: 2,
+  stub_sequence_no: 1,
+});
+
+test("Stage 5 municipal service uses one set-wise context and returns the complete municipal contract", async () => {
+  const eventId = baseStub.disaster_event_id;
+  const affectedBarangays = [
+    {
+      mapped_barangay_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      code: "BRGY-B",
+      name: "Zulu",
+      is_active: true,
+    },
+    {
+      mapped_barangay_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      code: "BRGY-A",
+      name: "Alpha",
+      is_active: true,
+    },
+    {
+      mapped_barangay_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      code: "BRGY-C",
+      name: "Zulu",
+      is_active: true,
+    },
+  ];
+  const rows = [
+    buildMunicipalDashboardRow({
+      id: "stub-a",
+      householdId: "household-a",
+      barangayId: affectedBarangays[1].id,
+      barangayName: affectedBarangays[1].name,
+    }),
+    buildMunicipalDashboardRow({
+      id: "stub-b",
+      householdId: "household-b",
+      barangayId: affectedBarangays[0].id,
+      barangayName: affectedBarangays[0].name,
+    }),
+    buildMunicipalDashboardRow({
+      id: "stub-c",
+      householdId: "household-a",
+      barangayId: affectedBarangays[2].id,
+      barangayName: affectedBarangays[2].name,
+    }),
+  ];
+  const calls = {
+    event: 0,
+    scope: 0,
+    rows: 0,
+    householdSectors: 0,
+    memberSectors: 0,
+    templates: 0,
+  };
+
+  await withStubbedStubService(
+    createBaseStubs({
+      disasterEventOverrides: {
+        getDisasterEventById: async (requestedEventId) => {
+          calls.event += 1;
+          assert.equal(requestedEventId, eventId);
+          return {
+            id: eventId,
+            event_code: "EVENT-001",
+            title: "Active Event",
+            disaster_type: "TYPHOON",
+            status: "ACTIVE",
+          };
+        },
+        getAffectedBarangayScopeByDisasterEventId: async (requestedEventId) => {
+          calls.scope += 1;
+          assert.equal(requestedEventId, eventId);
+          return affectedBarangays;
+        },
+      },
+      stubRepositoryOverrides: {
+        getMunicipalStubDashboardRows: async (requestedEventId, barangayIds) => {
+          calls.rows += 1;
+          assert.equal(requestedEventId, eventId);
+          assert.deepEqual(barangayIds, [affectedBarangays[1].id, affectedBarangays[0].id, affectedBarangays[2].id]);
+          return rows;
+        },
+        getHouseholdSectorsByHouseholdIds: async (householdIds) => {
+          calls.householdSectors += 1;
+          assert.deepEqual(householdIds.sort(), ["household-a", "household-b"]);
+          return [];
+        },
+        getMemberSectorsByHouseholdIds: async (householdIds) => {
+          calls.memberSectors += 1;
+          assert.deepEqual(householdIds.sort(), ["household-a", "household-b"]);
+          return [];
+        },
+      },
+      reliefPackTemplateOverrides: {
+        getReliefPackTemplates: async () => {
+          calls.templates += 1;
+          return [];
+        },
+      },
+    }),
+    async ({ getMunicipalStubDashboard }) => {
+      const result = await getMunicipalStubDashboard({
+        disaster_event_id: eventId,
+        requester: { roleCode: "MAYOR", userId: "mayor-user" },
+        qr_generated_by: "mayor-user",
+      });
+
+      assert.equal(result.scope, "municipal");
+      assert.deepEqual(result.barangay_ids, [
+        affectedBarangays[1].id,
+        affectedBarangays[0].id,
+        affectedBarangays[2].id,
+      ]);
+      assert.equal(result.barangay_count, 3);
+      assert.equal(result.count, rows.length);
+      assert.equal(result.data.length, rows.length);
+      assert.deepEqual(
+        result.data.map((row) => row.id),
+        rows.map((row) => row.id),
+      );
+      assert.deepEqual(
+        result.data.map((row) => [row.barangay_id, row.barangay_name]),
+        rows.map((row) => [row.barangay_id, row.barangay_name]),
+      );
+      assert.equal("metrics" in result, false);
+      assert.equal("assigned_barangay" in result, false);
+      assert.equal("pagination" in result, false);
+    },
+  );
+
+  assert.deepEqual(calls, {
+    event: 1,
+    scope: 1,
+    rows: 1,
+    householdSectors: 1,
+    memberSectors: 1,
+    templates: 1,
+  });
+});
+
+test("Stage 5 municipal service returns an authoritative empty success without the dataset query", async () => {
+  let datasetQueryCalled = false;
+
+  await withStubbedStubService(
+    createBaseStubs({
+      disasterEventOverrides: {
+        getAffectedBarangayScopeByDisasterEventId: async () => [],
+      },
+      stubRepositoryOverrides: {
+        getMunicipalStubDashboardRows: async () => {
+          datasetQueryCalled = true;
+          return [];
+        },
+      },
+    }),
+    async ({ getMunicipalStubDashboard }) => {
+      const result = await getMunicipalStubDashboard({
+        disaster_event_id: baseStub.disaster_event_id,
+        requester: { roleCode: "MAYOR" },
+      });
+
+      assert.deepEqual(result.barangay_ids, []);
+      assert.equal(result.barangay_count, 0);
+      assert.equal(result.count, 0);
+      assert.deepEqual(result.data, []);
+    },
+  );
+
+  assert.equal(datasetQueryCalled, false);
+});
+
+test("Stage 5 municipal service fails closed for non-Mayors, inactive events, and invalid affected mappings", async () => {
+  await withStubbedStubService(
+    createBaseStubs({
+      disasterEventOverrides: {
+        getAffectedBarangayScopeByDisasterEventId: async () => [
+          {
+            mapped_barangay_id: baseBarangayId,
+            id: baseBarangayId,
+            name: "Inactive",
+            is_active: false,
+          },
+        ],
+      },
+    }),
+    async ({ getMunicipalStubDashboard }) => {
+      await assert.rejects(
+        () =>
+          getMunicipalStubDashboard({
+            disaster_event_id: baseStub.disaster_event_id,
+            requester: { roleCode: "MSWDO" },
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 403);
+          assert.equal(error.code, "MUNICIPAL_STUB_FORBIDDEN");
+          return true;
+        },
+      );
+      await assert.rejects(
+        () =>
+          getMunicipalStubDashboard({
+            disaster_event_id: baseStub.disaster_event_id,
+            requester: { roleCode: "MAYOR" },
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 409);
+          assert.equal(error.code, "INVALID_EVENT_BARANGAY_SCOPE");
+          return true;
+        },
+      );
+    },
+  );
+
+  await withStubbedStubService(
+    createBaseStubs({
+      disasterEventOverrides: {
+        getDisasterEventById: async () => ({
+          id: baseStub.disaster_event_id,
+          status: "CLOSED",
+        }),
+      },
+    }),
+    async ({ getMunicipalStubDashboard }) => {
+      await assert.rejects(
+        () =>
+          getMunicipalStubDashboard({
+            disaster_event_id: baseStub.disaster_event_id,
+            requester: { roleCode: "MAYOR" },
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.equal(error.code, "DISASTER_EVENT_NOT_ACTIVE");
+          return true;
+        },
+      );
+    },
+  );
+});
+
+test("Stage 5 municipal service query categories stay bounded for K=1, K=3, and K=5", async () => {
+  for (const barangayCount of [1, 3, 5]) {
+    const calls = {
+      event: 0,
+      scope: 0,
+      rows: 0,
+      householdSectors: 0,
+      memberSectors: 0,
+      templates: 0,
+    };
+    const affectedBarangays = Array.from(
+      { length: barangayCount },
+      (_value, index) => ({
+        mapped_barangay_id: `barangay-${index + 1}`,
+        id: `barangay-${index + 1}`,
+        name: `Barangay ${index + 1}`,
+        is_active: true,
+      }),
+    );
+
+    await withStubbedStubService(
+      createBaseStubs({
+        disasterEventOverrides: {
+          getDisasterEventById: async () => {
+            calls.event += 1;
+            return {
+              id: baseStub.disaster_event_id,
+              disaster_type: "TYPHOON",
+              status: "ACTIVE",
+            };
+          },
+          getAffectedBarangayScopeByDisasterEventId: async () => {
+            calls.scope += 1;
+            return affectedBarangays;
+          },
+        },
+        reliefPackTemplateOverrides: {
+          getReliefPackTemplates: async () => {
+            calls.templates += 1;
+            return [];
+          },
+        },
+        stubRepositoryOverrides: {
+          getMunicipalStubDashboardRows: async () => {
+            calls.rows += 1;
+            return [];
+          },
+          getHouseholdSectorsByHouseholdIds: async () => {
+            calls.householdSectors += 1;
+            return [];
+          },
+          getMemberSectorsByHouseholdIds: async () => {
+            calls.memberSectors += 1;
+            return [];
+          },
+        },
+      }),
+      async ({ getMunicipalStubDashboard }) => {
+        const result = await getMunicipalStubDashboard({
+          disaster_event_id: baseStub.disaster_event_id,
+          requester: { roleCode: "MAYOR" },
+        });
+
+        assert.equal(result.barangay_count, barangayCount);
+        assert.equal(result.count, 0);
+        assert.deepEqual(result.data, []);
+      },
+    );
+
+    assert.deepEqual(calls, {
+      event: 1,
+      scope: 1,
+      rows: 1,
+      householdSectors: 1,
+      memberSectors: 1,
+      templates: 1,
+    });
+  }
+});
+
+test("Stage 5 municipal service coalesces identical donor preview contexts", async () => {
+  const previewRows = [
+    {
+      ...buildMunicipalDashboardRow({
+        id: "stub-preview-a",
+        householdId: "household-preview-a",
+        barangayId: baseBarangayId,
+        barangayName: "Barangay Preview",
+        status: "ISSUED",
+      }),
+      unclaimed_queue_position: 1,
+    },
+    {
+      ...buildMunicipalDashboardRow({
+        id: "stub-preview-b",
+        householdId: "household-preview-b",
+        barangayId: baseBarangayId,
+        barangayName: "Barangay Preview",
+        status: "ISSUED",
+      }),
+      unclaimed_queue_position: 1,
+    },
+  ];
+  let donatedReliefPackPreviewCalls = 0;
+  let donatedLooseItemPreviewCalls = 0;
+
+  await withStubbedStubService(
+    createBaseStubs({
+      disasterEventOverrides: {
+        getAffectedBarangayScopeByDisasterEventId: async () => [
+          {
+            mapped_barangay_id: baseBarangayId,
+            id: baseBarangayId,
+            name: "Barangay Preview",
+            is_active: true,
+          },
+        ],
+      },
+      stubRepositoryOverrides: {
+        getMunicipalStubDashboardRows: async () => previewRows,
+      },
+      automaticReliefPackClaimOverrides: {
+        getAvailableDonatedReliefPacksForClaimPreview: async (
+          eventId,
+          queuePosition,
+        ) => {
+          donatedReliefPackPreviewCalls += 1;
+          assert.equal(eventId, baseStub.disaster_event_id);
+          assert.equal(queuePosition, 1);
+          return [{ donation_id: "donation-1", name: "Donated Pack" }];
+        },
+        getAvailableDonatedLooseItemsForClaimPreview: async (
+          eventId,
+          queuePosition,
+          eligibleHouseholdsCount,
+          options,
+        ) => {
+          donatedLooseItemPreviewCalls += 1;
+          assert.equal(eventId, baseStub.disaster_event_id);
+          assert.equal(queuePosition, 1);
+          assert.equal(eligibleHouseholdsCount, 2);
+          assert.deepEqual(options, { excludedInventoryItemIds: [] });
+          return [{ inventory_item_id: "item-1", item_name: "Loose Item" }];
+        },
+      },
+    }),
+    async ({ getMunicipalStubDashboard }) => {
+      const result = await getMunicipalStubDashboard({
+        disaster_event_id: baseStub.disaster_event_id,
+        requester: { roleCode: "MAYOR" },
+      });
+
+      assert.equal(result.data.length, 2);
+      assert.equal(result.data[0].available_donated_relief_packs.length, 1);
+      assert.equal(result.data[1].available_donated_loose_items.length, 1);
+    },
+  );
+
+  assert.equal(donatedReliefPackPreviewCalls, 1);
+  assert.equal(donatedLooseItemPreviewCalls, 1);
+});
+
+test("Stage 5 municipal service preserves existing QR metadata and backfills each missing row once", async () => {
+  const existingRow = buildMunicipalDashboardRow({
+    id: "stub-existing-qr",
+    householdId: "household-existing-qr",
+    barangayId: baseBarangayId,
+    barangayName: "Barangay QR",
+  });
+  const missingRow = {
+    ...buildMunicipalDashboardRow({
+      id: "stub-missing-qr",
+      householdId: "household-missing-qr",
+      barangayId: baseBarangayId,
+      barangayName: "Barangay QR",
+    }),
+    qr_code_value: null,
+    qr_generated_at: null,
+    qr_generated_by: null,
+    qr_status: null,
+  };
+  const updates = [];
+
+  await withStubbedStubService(
+    createBaseStubs({
+      disasterEventOverrides: {
+        getAffectedBarangayScopeByDisasterEventId: async () => [
+          {
+            mapped_barangay_id: baseBarangayId,
+            id: baseBarangayId,
+            name: "Barangay QR",
+            is_active: true,
+          },
+        ],
+      },
+      stubRepositoryOverrides: {
+        getMunicipalStubDashboardRows: async () => [existingRow, missingRow],
+        updateStubQrMetadata: async (stubId, metadata) => {
+          updates.push({ stubId, metadata });
+          return {
+            qr_code_value: metadata.qr_code_value,
+            qr_generated_at: metadata.qr_generated_at,
+            qr_generated_by: metadata.qr_generated_by,
+            qr_status: metadata.qr_status,
+            qr_notes: metadata.qr_notes,
+          };
+        },
+      },
+    }),
+    async ({ getMunicipalStubDashboard }) => {
+      const result = await getMunicipalStubDashboard({
+        disaster_event_id: baseStub.disaster_event_id,
+        requester: { roleCode: "MAYOR", userId: "mayor-user" },
+        qr_generated_by: "mayor-user",
+      });
+
+      assert.equal(result.data[0].qr_code_value, existingRow.qr_code_value);
+      assert.equal(result.data[1].qr_status, "ACTIVE");
+      assert.equal(updates.length, 1);
+      assert.equal(updates[0].stubId, missingRow.id);
+    },
+  );
+});
+
+test("Stage 5 municipal service is all-or-nothing when an enrichment stage fails", async () => {
+  let rowsReturned = 0;
+
+  await withStubbedStubService(
+    createBaseStubs({
+      disasterEventOverrides: {
+        getAffectedBarangayScopeByDisasterEventId: async () => [
+          {
+            mapped_barangay_id: baseBarangayId,
+            id: baseBarangayId,
+            name: "Barangay Failure",
+            is_active: true,
+          },
+        ],
+      },
+      stubRepositoryOverrides: {
+        getMunicipalStubDashboardRows: async () => {
+          rowsReturned += 1;
+          return [
+            buildMunicipalDashboardRow({
+              id: "stub-failure",
+              householdId: "household-failure",
+              barangayId: baseBarangayId,
+              barangayName: "Barangay Failure",
+            }),
+          ];
+        },
+        getHouseholdSectorsByHouseholdIds: async () => {
+          throw new Error("sector enrichment failed");
+        },
+      },
+    }),
+    async ({ getMunicipalStubDashboard }) => {
+      await assert.rejects(
+        () =>
+          getMunicipalStubDashboard({
+            disaster_event_id: baseStub.disaster_event_id,
+            requester: { roleCode: "MAYOR" },
+          }),
+        /sector enrichment failed/,
+      );
+    },
+  );
+
+  assert.equal(rowsReturned, 1);
 });

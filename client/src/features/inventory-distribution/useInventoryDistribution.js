@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchBarangays,
   fetchConsolidatedMasterlist,
@@ -6,7 +6,10 @@ import {
 } from "../mswdo-masterlist/mswdoMasterlistService";
 import { buildSectorsText } from "../masterlist/masterlistService";
 import { fetchAllDisasterEvents } from "../disaster-events/disasterEventService";
-import { fetchBarangayStubDashboard } from "../stubs/stubService";
+import {
+  fetchBarangayStubDashboard,
+  fetchMunicipalStubDashboard,
+} from "../stubs/stubService";
 import { fetchReliefPackTemplates } from "../relief-pack-templates/reliefPackTemplateService";
 import {
   getAssignedReliefPackTemplatesForHousehold,
@@ -19,6 +22,7 @@ import {
 } from "./inventoryDistributionFilters";
 import {
   getInventoryDistributionStubDashboardBarangayIds,
+  shouldLoadInventoryDistributionStubDashboard,
 } from "./inventoryDistributionDataSource.js";
 
 const emptyMasterlistPayload = {
@@ -39,32 +43,6 @@ const emptyStubDashboardPayload = {
     beneficiary_families: 0,
   },
   data: [],
-};
-
-const combineStubDashboardPayloads = (payloads) => {
-  return (payloads || []).reduce(
-    (combinedPayload, payload) => ({
-      metrics: {
-        total_issued_stubs:
-          combinedPayload.metrics.total_issued_stubs +
-          Number(payload?.metrics?.total_issued_stubs || 0),
-        claimed_stubs:
-          combinedPayload.metrics.claimed_stubs +
-          Number(payload?.metrics?.claimed_stubs || 0),
-        unclaimed_stubs:
-          combinedPayload.metrics.unclaimed_stubs +
-          Number(payload?.metrics?.unclaimed_stubs || 0),
-        beneficiary_families:
-          combinedPayload.metrics.beneficiary_families +
-          Number(payload?.metrics?.beneficiary_families || 0),
-      },
-      data: [
-        ...combinedPayload.data,
-        ...(Array.isArray(payload?.data) ? payload.data : []),
-      ],
-    }),
-    emptyStubDashboardPayload,
-  );
 };
 
 const getStandardTemplates = (templates) => {
@@ -447,6 +425,7 @@ export const useInventoryDistribution = () => {
   const [isLoadingTemplateList, setIsLoadingTemplateList] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [templateNotice, setTemplateNotice] = useState("");
+  const stubRequestGenerationRef = useRef(0);
 
   const selectedDisasterEventId =
     selectedDisasterEventIdsByTab[activeTab] || "";
@@ -655,6 +634,9 @@ export const useInventoryDistribution = () => {
 
   useEffect(() => {
     let isMounted = true;
+    const requestGeneration = ++stubRequestGenerationRef.current;
+    const isCurrentRequest = () =>
+      isMounted && stubRequestGenerationRef.current === requestGeneration;
 
     const loadStubDashboard = async () => {
       const requestedBarangayIds =
@@ -664,12 +646,25 @@ export const useInventoryDistribution = () => {
           selectedBarangayId,
           selectableBarangays,
         });
+      const shouldLoadStubDashboard =
+        shouldLoadInventoryDistributionStubDashboard({
+          activeTab,
+          disasterEventStatus: selectedDisasterEvent?.status,
+        });
+      setErrorMessage("");
 
-      if (!selectedDisasterEventId || requestedBarangayIds.length === 0) {
+      if (
+        !selectedDisasterEventId ||
+        !shouldLoadStubDashboard ||
+        (selectedBarangayId && requestedBarangayIds.length === 0)
+      ) {
         setStubDashboardPayload(emptyStubDashboardPayload);
         setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
         return;
       }
+
+      setStubDashboardPayload(emptyStubDashboardPayload);
+      setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
 
       if (selectedBarangayId) {
         try {
@@ -679,7 +674,7 @@ export const useInventoryDistribution = () => {
             barangayId: selectedBarangayId,
           });
 
-          if (isMounted) {
+          if (isCurrentRequest()) {
             setStubDashboardPayload({
               metrics: payload?.metrics || emptyStubDashboardPayload.metrics,
               data: Array.isArray(payload?.data) ? payload.data : [],
@@ -687,7 +682,7 @@ export const useInventoryDistribution = () => {
             setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
           }
         } catch (_error) {
-          if (isMounted) {
+          if (isCurrentRequest()) {
             setStubDashboardPayload(emptyStubDashboardPayload);
           }
         }
@@ -696,24 +691,23 @@ export const useInventoryDistribution = () => {
       }
 
       try {
-        const payloads = await Promise.all(
-          selectableBarangays.map((barangay) =>
-            fetchBarangayStubDashboard({
-              userId: null,
-              disasterEventId: selectedDisasterEventId,
-              barangayId: barangay.id,
-            }).catch(() => emptyStubDashboardPayload),
-          ),
-        );
+        const payload = await fetchMunicipalStubDashboard({
+          disasterEventId: selectedDisasterEventId,
+        });
 
-        if (isMounted) {
+        if (isCurrentRequest()) {
           setStubDashboardPayload(emptyStubDashboardPayload);
-          setAllBarangaysStubDashboardPayload(
-            combineStubDashboardPayloads(payloads),
-          );
+          setAllBarangaysStubDashboardPayload({
+            metrics: emptyStubDashboardPayload.metrics,
+            data: Array.isArray(payload?.data) ? payload.data : [],
+          });
         }
-      } catch (_error) {
-        if (isMounted) {
+      } catch (error) {
+        if (isCurrentRequest()) {
+          setErrorMessage(
+            error.message || "Failed to fetch municipal stub dashboard.",
+          );
+          setStubDashboardPayload(emptyStubDashboardPayload);
           setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
         }
       }

@@ -342,6 +342,158 @@ const getBarangayStubDashboardRows = async (
   return result.rows;
 };
 
+const getMunicipalStubDashboardRows = async (
+  disasterEventId,
+  barangayIds,
+) => {
+  const normalizedBarangayIds = [
+    ...new Set((Array.isArray(barangayIds) ? barangayIds : []).filter(Boolean)),
+  ];
+
+  if (normalizedBarangayIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    SELECT
+      s.id,
+      s.disaster_event_id,
+      s.household_id,
+      s.stub_no,
+      s.serial_no,
+      s.status,
+      s.issued_at,
+      s.claimed_at,
+      s.updated_at,
+      s.qr_code_value,
+      s.qr_generated_at,
+      s.qr_generated_by,
+      s.qr_status,
+      s.qr_notes,
+      s.assigned_relief_pack_snapshots,
+      h.is_active,
+      h.barangay_id,
+      b.name AS barangay_name,
+      h.family_head_first_name,
+      h.family_head_middle_name,
+      h.family_head_last_name,
+      h.family_head_suffix,
+      h.household_size,
+      h.family_head_photo_url,
+      h.photo_captured_at,
+      h.photo_verification_notes,
+      latest_attendance.time_in AS queue_time_in,
+      latest_attendance.status AS latest_attendance_status,
+      latest_attendance.time_out AS latest_attendance_time_out,
+      latest_distribution.distribution_date,
+      latest_distribution.received_at,
+      latest_distribution.receipt_no,
+      latest_distribution.verified_by_name,
+      CASE
+        WHEN
+          s.status = 'ISSUED'
+          AND h.is_active = TRUE
+          AND latest_attendance.status = 'PRESENT'
+          AND latest_attendance.time_out IS NULL
+        THEN (
+          SELECT COUNT(*)::int
+          FROM stubs queued_stubs
+          INNER JOIN households queued_households
+            ON queued_households.id = queued_stubs.household_id
+          INNER JOIN LATERAL (
+            SELECT el.status, el.time_in, el.time_out
+            FROM evacuation_logs el
+            WHERE el.household_id = queued_households.id
+              AND el.disaster_event_id = queued_stubs.disaster_event_id
+            ORDER BY
+              COALESCE(el.time_out, el.time_in) DESC,
+              el.updated_at DESC,
+              el.created_at DESC
+            LIMIT 1
+          ) queued_attendance ON TRUE
+          WHERE queued_stubs.disaster_event_id = s.disaster_event_id
+            AND queued_households.barangay_id IS NOT DISTINCT FROM h.barangay_id
+            AND queued_households.current_stay_type = 'EVAC_CENTER'
+            AND queued_households.is_active = TRUE
+            AND queued_stubs.status = 'ISSUED'
+            AND queued_attendance.status = 'PRESENT'
+            AND queued_attendance.time_out IS NULL
+            AND (
+              queued_attendance.time_in < latest_attendance.time_in
+              OR (
+                queued_attendance.time_in = latest_attendance.time_in
+                AND queued_stubs.issued_at < s.issued_at
+              )
+              OR (
+                queued_attendance.time_in = latest_attendance.time_in
+                AND queued_stubs.issued_at = s.issued_at
+                AND queued_stubs.id <= s.id
+              )
+            )
+        )
+        ELSE NULL
+      END AS unclaimed_queue_position,
+      (
+        SELECT COUNT(*)::int
+        FROM evacuees e
+        WHERE e.household_id = h.id
+      ) AS members_count,
+      ${stubSequenceSelect}
+    FROM stubs s
+    INNER JOIN households h ON h.id = s.household_id
+    INNER JOIN barangays b ON b.id = h.barangay_id
+    LEFT JOIN LATERAL (
+      SELECT el.status, el.time_in, el.time_out
+      FROM evacuation_logs el
+      WHERE el.household_id = h.id
+        AND el.disaster_event_id = s.disaster_event_id
+      ORDER BY
+        COALESCE(el.time_out, el.time_in) DESC,
+        el.updated_at DESC,
+        el.created_at DESC
+      LIMIT 1
+    ) latest_attendance ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
+        dt.distribution_date,
+        dt.received_at,
+        dt.receipt_no,
+        CONCAT_WS(' ', u.first_name, u.middle_name, u.last_name) AS verified_by_name
+      FROM distribution_transactions dt
+      LEFT JOIN users u ON u.id = dt.verified_by
+      WHERE dt.stub_id = s.id
+        AND dt.distribution_status = 'CLAIMED'
+      ORDER BY dt.distribution_date DESC, dt.created_at DESC
+      LIMIT 1
+    ) latest_distribution ON TRUE
+    WHERE s.disaster_event_id = $1
+      AND h.barangay_id = ANY($2::uuid[])
+      AND h.current_stay_type = 'EVAC_CENTER'
+      AND s.status IN ('ISSUED', 'CLAIMED')
+      AND (
+        (
+          h.is_active = TRUE
+          AND latest_attendance.status = 'PRESENT'
+          AND latest_attendance.time_out IS NULL
+        )
+        OR h.is_active = FALSE
+      )
+    ORDER BY
+      b.name ASC,
+      b.id ASC,
+      CASE WHEN h.is_active = FALSE THEN 1 ELSE 0 END ASC,
+      latest_attendance.time_in ASC NULLS LAST,
+      s.issued_at ASC,
+      s.id ASC
+  `;
+
+  const result = await pool.query(query, [
+    disasterEventId,
+    normalizedBarangayIds,
+  ]);
+  return result.rows;
+};
+
 const countBarangayStubDashboardRows = async (
   disasterEventId,
   barangayId,
@@ -1019,6 +1171,7 @@ const getStubClaimHistory = async ({
 module.exports = {
   getStubDashboardMetrics,
   getBarangayStubDashboardRows,
+  getMunicipalStubDashboardRows,
   countBarangayStubDashboardRows,
   getStubSearchResults,
   getStubById,
