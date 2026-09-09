@@ -2745,6 +2745,21 @@ const INVENTORY_ITEM_RESOLUTION_FIELDS = [
   "skip_opening_stock",
 ];
 
+const INVENTORY_BATCH_RESOLUTION_FIELDS = [
+  "batch_no",
+  "quantity_received",
+  "stock_form_barcode",
+  "stock_form_packaging",
+  "stock_form_units_per_packaging",
+  "stock_form_unit_of_measure",
+  "stock_form_unit_of_measure_value",
+  "inventory_item_stock_form_id",
+  "inventory_item_reorder_level",
+  "expiration_date",
+  "storage_location",
+  "source_type",
+];
+
 const getConflictLocalPayload = (conflict) => {
   const localPayload = conflict?.local_payload_json || {};
 
@@ -2957,19 +2972,50 @@ const applyManualInventoryDuplicateResolution = async ({
       };
     }
 
-    if (!replacementBarcode) {
+    const correctedBatchPayload = {
+      ...localPayload,
+    };
+
+    if (resolutionPayload && typeof resolutionPayload === "object") {
+      INVENTORY_BATCH_RESOLUTION_FIELDS.forEach((fieldName) => {
+        if (Object.prototype.hasOwnProperty.call(resolutionPayload, fieldName)) {
+          correctedBatchPayload[fieldName] = resolutionPayload[fieldName];
+        }
+      });
+
+      if (
+        !Object.prototype.hasOwnProperty.call(
+          resolutionPayload,
+          "stock_form_barcode",
+        ) &&
+        Object.prototype.hasOwnProperty.call(resolutionPayload, "barcode")
+      ) {
+        correctedBatchPayload.stock_form_barcode = resolutionPayload.barcode;
+      }
+    }
+
+    const correctedBatchBarcode =
+      normalizeInventoryBarcode(
+        correctedBatchPayload.stock_form_barcode,
+      ) || normalizeInventoryBarcode(replacementBarcode);
+
+    if (!correctedBatchBarcode) {
       throw createInvalidConflictResolutionInputError(
-        "A new barcode is required before accepting this device record.",
+        "A new barcode is required for this packaging.",
       );
     }
 
     if (conflict.entity_type === "INVENTORY_BATCH") {
-      correctedPayload.stock_form_barcode = replacementBarcode;
+      correctedBatchPayload.inventory_item_id =
+        conflict.entity_server_id || correctedBatchPayload.inventory_item_id;
+      correctedBatchPayload.stock_form_barcode = correctedBatchBarcode;
       const createdBatch = await inventoryBatchService.createInventoryBatch({
-        ...correctedPayload,
+        ...correctedBatchPayload,
         created_by: conflict.user_id,
         received_at:
-          correctedPayload.received_at || conflict.client_timestamp || null,
+          correctedBatchPayload.received_at ||
+          conflict.client_timestamp ||
+          null,
         allowBatchNumberReassignment: true,
         forceBatchNumberReassignment: false,
         dbClient,
