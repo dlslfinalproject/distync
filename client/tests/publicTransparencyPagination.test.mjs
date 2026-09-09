@@ -62,6 +62,60 @@ test("standalone public donor page opts into server transparency pagination", as
   assert.match(internalTabSource, /safeRows\.slice\(/);
 });
 
+test("standalone paginated responses render canonical suggestions without the legacy alias", async () => {
+  const pageSource = await readSource(
+    "pages",
+    "donor",
+    "DonationInformationPage.jsx",
+  );
+  const paginatedResponse = {
+    needed_items: {
+      source_type: "FORECAST",
+      title: "Forecasted Donation Needs",
+      suggestions: [
+        {
+          public_key: "forecast-rice",
+          item_name: "Rice",
+          category: "Food",
+          unit_of_measure: "packs",
+          suggested_quantity: 25,
+          priority_level: "HIGH",
+          note: "Prioritized shortfall",
+          forecasted_at: "2026-08-16T08:00:00.000Z",
+        },
+      ],
+    },
+    transparency_summary: {
+      received_vs_distributed: [],
+      pagination: {
+        page: 1,
+        pageSize: 25,
+        totalItems: 0,
+        totalPages: 0,
+      },
+    },
+  };
+
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      paginatedResponse,
+      "forecast_suggestions",
+    ),
+    false,
+  );
+  assert.match(
+    pageSource,
+    /const neededItems = publicPortalData\?\.needed_items\s+\?\s+normalizeNeededItemsPayload\(publicPortalData\.needed_items\)/,
+  );
+  assert.match(pageSource, /<NeededItemsSection neededItems=\{neededItems\} \/>/);
+  assert.match(pageSource, /\.\.\.neededItems\.suggestions\.map\(/);
+  assert.match(pageSource, /suggestions: Array\.isArray\(payload\.suggestions\)/);
+  assert.equal(
+    paginatedResponse.needed_items.suggestions[0].item_name,
+    "Rice",
+  );
+});
+
 test("pagination scope changes share the coordinator and latest page wins", async () => {
   const firstRequest = createDeferred();
   const secondRequest = createDeferred();

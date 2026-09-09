@@ -586,6 +586,77 @@ test("public portal reveals donor names only when explicitly published", async (
   );
 });
 
+test("public portal omits the duplicate forecast alias only for paginated responses", async () => {
+  const expectedSuggestions = [
+    {
+      public_key: "forecast-rice",
+      item_name: "Rice",
+      category: "Food",
+      unit_of_measure: "packs",
+      suggested_quantity: 25,
+      priority_level: "HIGH",
+      note: "Prioritized shortfall",
+      forecasted_at: "2026-08-16T08:00:00.000Z",
+    },
+  ];
+
+  await withStubbedDonationService(
+    {
+      forecastServiceOverrides: {
+        getLatestInventoryForecast: async () => ({ id: "event-forecast" }),
+        buildPublicForecastSuggestions: () => expectedSuggestions,
+      },
+    },
+    async ({ getPublicDonationPortal }) => {
+      const paginatedPayload = await getPublicDonationPortal({
+        transparency_page: 1,
+        transparency_page_size: 25,
+      });
+
+      assert.deepEqual(
+        paginatedPayload.needed_items.suggestions,
+        expectedSuggestions,
+      );
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(
+          paginatedPayload,
+          "forecast_suggestions",
+        ),
+        false,
+      );
+      assert.doesNotMatch(
+        JSON.stringify(paginatedPayload),
+        /"forecast_suggestions"/,
+      );
+
+      const legacyPayload = await getPublicDonationPortal();
+
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(
+          legacyPayload,
+          "forecast_suggestions",
+        ),
+        true,
+      );
+      assert.strictEqual(
+        legacyPayload.forecast_suggestions,
+        legacyPayload.needed_items.suggestions,
+      );
+      assert.deepEqual(
+        legacyPayload.forecast_suggestions,
+        expectedSuggestions,
+      );
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(
+          legacyPayload.transparency_summary,
+          "pagination",
+        ),
+        false,
+      );
+    },
+  );
+});
+
 test("public portal returns paginated transparency rows with full-scope totals", async () => {
   const eventId = "00000000-0000-0000-0000-000000000001";
   const requestedPagination = [];

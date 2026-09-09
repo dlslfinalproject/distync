@@ -2803,7 +2803,9 @@ const getPublicDonationPortal = async (options = null) => {
       ? createPublicKey("event", selectedDisasterEventId)
       : null,
     needed_items: neededItems,
-    forecast_suggestions: neededItems.suggestions,
+    ...(hasTransparencyPagination
+      ? {}
+      : { forecast_suggestions: neededItems.suggestions }),
     recent_donations: recentDonationRows.map(mapPublicDonationSummary),
     transparency_summary: {
       ...summaryTotals,
