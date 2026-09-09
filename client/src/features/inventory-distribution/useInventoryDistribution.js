@@ -7,10 +7,7 @@ import {
 import { buildSectorsText } from "../masterlist/masterlistService";
 import { fetchAllDisasterEvents } from "../disaster-events/disasterEventService";
 import { fetchBarangayStubDashboard } from "../stubs/stubService";
-import {
-  fetchReliefPackTemplateById,
-  fetchReliefPackTemplates,
-} from "../relief-pack-templates/reliefPackTemplateService";
+import { fetchReliefPackTemplates } from "../relief-pack-templates/reliefPackTemplateService";
 import {
   getAssignedReliefPackTemplatesForHousehold,
   getHouseholdSectorIds,
@@ -96,6 +93,32 @@ const getStandardTemplates = (templates) => {
 const getStandardTemplate = (templates) => {
   const standardTemplates = getStandardTemplates(templates);
   return standardTemplates[0] || null;
+};
+
+const getTemplateNotice = (templates) => {
+  const standardTemplates = getStandardTemplates(templates);
+  const preferredTemplate = standardTemplates[0] || null;
+  const additionalTemplateCount = templates.filter(
+    (template) => template.is_active && template.is_additional_pack,
+  ).length;
+
+  if (standardTemplates.length > 1 && additionalTemplateCount > 0) {
+    return `Relief distribution automatically assigns ${standardTemplates.length} active standard packs to each family and adds sector-based packs for matching households.`;
+  }
+
+  if (standardTemplates.length > 1) {
+    return `Relief distribution automatically assigns ${standardTemplates.length} active standard packs to each family.`;
+  }
+
+  if (preferredTemplate && additionalTemplateCount > 0) {
+    return `Relief distribution uses the active base template "${preferredTemplate.name}" and automatically adds sector-based packs for matching households.`;
+  }
+
+  if (preferredTemplate) {
+    return `Relief pack items are showing the active template: ${preferredTemplate.name}.`;
+  }
+
+  return "No standard relief pack template is currently active. Additional sector packs will appear once a matching base template is available.";
 };
 
 const eventIncludesBarangay = (event, barangayId) => {
@@ -399,7 +422,6 @@ export const useInventoryDistribution = () => {
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
   const [sectors, setSectors] = useState([]);
-  const [reliefPackTemplates, setReliefPackTemplates] = useState([]);
   const [selectedDisasterEventIdsByTab, setSelectedDisasterEventIdsByTab] =
     useState({
       active: "",
@@ -420,7 +442,6 @@ export const useInventoryDistribution = () => {
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingMasterlist, setIsLoadingMasterlist] = useState(false);
   const [isLoadingTemplateList, setIsLoadingTemplateList] = useState(false);
-  const [isLoadingTemplateDetails, setIsLoadingTemplateDetails] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [templateNotice, setTemplateNotice] = useState("");
 
@@ -443,8 +464,7 @@ export const useInventoryDistribution = () => {
     setSelectedSortOrder("oldest");
   };
 
-  const isLoadingTemplate =
-    isLoadingTemplateList || isLoadingTemplateDetails;
+  const isLoadingTemplate = isLoadingTemplateList;
 
   useEffect(() => {
     let isMounted = true;
@@ -498,14 +518,12 @@ export const useInventoryDistribution = () => {
 
     const loadEventTemplates = async () => {
       if (!selectedDisasterEventId) {
-        setReliefPackTemplates([]);
         setTemplateDetails([]);
         setIsLoadingTemplateList(false);
         return;
       }
 
       setIsLoadingTemplateList(true);
-      setReliefPackTemplates([]);
       setTemplateDetails([]);
       setTemplateNotice("");
 
@@ -513,16 +531,24 @@ export const useInventoryDistribution = () => {
         const templatePayload = await fetchReliefPackTemplates({
           is_active: "true",
           disaster_event_id: selectedDisasterEventId,
+          include_items: true,
         });
 
         if (isMounted) {
-          setReliefPackTemplates(
-            Array.isArray(templatePayload) ? templatePayload : [],
+          const loadedTemplateDetails = Array.isArray(templatePayload)
+            ? templatePayload
+            : [];
+
+          setTemplateDetails(loadedTemplateDetails);
+          setTemplateNotice(
+            loadedTemplateDetails.length > 0
+              ? getTemplateNotice(loadedTemplateDetails)
+              : "",
           );
         }
       } catch (error) {
         if (isMounted) {
-          setReliefPackTemplates([]);
+          setTemplateDetails([]);
           setTemplateNotice(
             error.message ||
               "Failed to load relief pack templates for the selected disaster event.",
@@ -585,80 +611,6 @@ export const useInventoryDistribution = () => {
       isMounted = false;
     };
   }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadTemplateDetail = async () => {
-      if (!reliefPackTemplates.length) {
-        setTemplateDetails([]);
-        setIsLoadingTemplateDetails(false);
-        return;
-      }
-
-      setIsLoadingTemplateDetails(true);
-
-      try {
-        const loadedTemplateDetails = await Promise.all(
-          reliefPackTemplates.map((template) =>
-            fetchReliefPackTemplateById(template.id),
-          ),
-        );
-
-        if (!isMounted) {
-          return;
-        }
-
-        setTemplateDetails(loadedTemplateDetails);
-
-        const standardTemplates = getStandardTemplates(loadedTemplateDetails);
-        const preferredTemplate = standardTemplates[0] || null;
-        const additionalTemplateCount = loadedTemplateDetails.filter(
-          (template) => template.is_active && template.is_additional_pack,
-        ).length;
-
-        if (standardTemplates.length > 1 && additionalTemplateCount > 0) {
-          setTemplateNotice(
-            `Relief distribution automatically assigns ${standardTemplates.length} active standard packs to each family and adds sector-based packs for matching households.`,
-          );
-        } else if (standardTemplates.length > 1) {
-          setTemplateNotice(
-            `Relief distribution automatically assigns ${standardTemplates.length} active standard packs to each family.`,
-          );
-        } else if (preferredTemplate && additionalTemplateCount > 0) {
-          setTemplateNotice(
-            `Relief distribution uses the active base template "${preferredTemplate.name}" and automatically adds sector-based packs for matching households.`,
-          );
-        } else if (preferredTemplate) {
-          setTemplateNotice(
-            `Relief pack items are showing the active template: ${preferredTemplate.name}.`,
-          );
-        } else {
-          setTemplateNotice(
-            "No standard relief pack template is currently active. Additional sector packs will appear once a matching base template is available.",
-          );
-        }
-      } catch (error) {
-        if (isMounted) {
-          setTemplateDetails([]);
-          setTemplateNotice(
-            error.message ||
-              "Relief pack template details are unavailable right now. The page is ready for integration.",
-          );
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoadingTemplateDetails(false);
-        }
-      }
-    };
-
-    loadTemplateDetail();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [reliefPackTemplates]);
 
   const selectedDisasterEvent = useMemo(() => {
     return (
