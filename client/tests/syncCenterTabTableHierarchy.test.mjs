@@ -77,18 +77,14 @@ test("Sync Center preserves distinct audited columns for Queue, History, and Con
     "Barangay",
     "Operation",
     "Affected Record",
-    "Disaster Event",
     "Status",
     "Queued At",
-    "Notes",
-    "Action",
   ]);
   assert.deepEqual(getHeaders(historySection), [
     "Record Type",
     "Barangay",
     "Action",
     "Affected Record",
-    "Disaster Event",
     "Status",
     "Queued At",
     "Processed At",
@@ -105,7 +101,10 @@ test("Sync Center preserves distinct audited columns for Queue, History, and Con
   ]);
   assert.notDeepEqual(getHeaders(queueSection), getHeaders(historySection));
   assert.match(queueSection, /includeOperation: true/);
-  assert.match(historySection, /renderRecordCells\(transaction, \{ includeBarangay: false \}\)/);
+  assert.match(
+    historySection,
+    /renderRecordCells\(transaction, \{[\s\S]*includeBarangay: false[\s\S]*includeDisasterEvent: false/,
+  );
   assert.match(conflictSection, /getConflictReasonLabel\(conflict\)/);
   assert.match(conflictSection, /formatSyncHistoryDateTime\(conflict\.resolved_at\)/);
 });
@@ -127,7 +126,10 @@ test("Sync Center keeps Barangay conditional across every table without duplicat
 
   assert.match(source, /const shouldIncludeBarangay = includeBarangay \|\| isMswdoPortal/);
   assert.match(source, /renderRecordCells\(entry, \{[\s\S]*includeBarangay: false/);
-  assert.match(source, /renderRecordCells\(transaction, \{ includeBarangay: false \}\)/);
+  assert.match(
+    source,
+    /renderRecordCells\(transaction, \{[\s\S]*includeBarangay: false[\s\S]*includeDisasterEvent: false/,
+  );
   assert.match(source, /includeBarangay=\{isMswdoPortal\}/);
 });
 
@@ -162,7 +164,9 @@ test("Sync Center empty states and actions stay inside the shared tab panels", a
   assert.doesNotMatch(source, /<h3[^>]*>Offline Queue<\/h3>/);
   assert.doesNotMatch(source, /<h3[^>]*>Sync History<\/h3>/);
   assert.doesNotMatch(source, /<h3[^>]*>Conflict Review<\/h3>/);
-  assert.match(source, /aria-label=\{`Retry synchronization for \$\{details\.subject\}`\}/);
+  assert.doesNotMatch(source, /aria-label=\{`Retry synchronization for \$\{details\.subject\}`\}/);
+  assert.match(source, /onClick=\{\(\) => handleRetrySync\(\)\}/);
+  assert.match(source, /Retry Failed Syncs/);
   assert.match(source, /aria-label="View synchronization details"/);
   assert.match(source, /<SyncStatusBadge status=\{entry\.status\} \/>/);
   assert.match(source, /<SyncStatusBadge status=\{getSyncHistoryStatus\(transaction\)\} \/>/);

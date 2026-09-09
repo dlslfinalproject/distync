@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { FiEye, FiFilter, FiRefreshCw, FiSearch } from "react-icons/fi";
+import { FiAlertCircle, FiFilter, FiRefreshCw, FiSearch } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext";
 import { ROLE_CODES } from "../utils/roleSession";
 import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
@@ -39,7 +39,6 @@ import {
   getResolutionStatusLabel,
   getSyncHistoryNotes,
   getSyncHistoryStatus,
-  getSyncQueueNotes,
   getSyncRecordDetails,
   getSyncRecordBarangayId,
   isMayorOwnedSyncRecord,
@@ -480,7 +479,7 @@ const conflictReviewTableStyles = {
 
 const offlineQueueTableStyles = {
   ...tableStyles.table,
-  minWidth: "980px",
+  minWidth: "760px",
 };
 
 const getRecordDateValue = (record = {}) =>
@@ -1507,7 +1506,11 @@ const SyncManagementPage = () => {
 
   const renderRecordCells = (
     record,
-    { includeBarangay = true, includeOperation = false } = {},
+    {
+      includeBarangay = true,
+      includeOperation = false,
+      includeDisasterEvent = true,
+    } = {},
   ) => {
     const details = getSyncRecordDetails(record);
     const shouldIncludeBarangay = includeBarangay || isMswdoPortal;
@@ -1527,7 +1530,9 @@ const SyncManagementPage = () => {
             <div style={detailTextStyles}>{details.secondaryLabel}</div>
           ) : null}
         </td>
-        <td style={tableStyles.td}>{details.disasterEvent}</td>
+        {includeDisasterEvent ? (
+          <td style={tableStyles.td}>{details.disasterEvent}</td>
+        ) : null}
       </>
     );
   };
@@ -1792,67 +1797,24 @@ const SyncManagementPage = () => {
                   ) : null}
                   <th style={tableStyles.th}>Operation</th>
                   <th style={tableStyles.th}>Affected Record</th>
-                  <th style={tableStyles.th}>Disaster Event</th>
                   <th style={tableStyles.th}>Status</th>
                   <th style={tableStyles.th}>Queued At</th>
-                  <th style={tableStyles.th}>Notes</th>
-                  <th style={tableStyles.th}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {paginatedQueueEntries.map((entry) => {
-                  const details = getSyncRecordDetails(entry);
-                  const canRetry = isSafeRetryableQueueEntry(entry);
-
                   return (
                     <tr key={entry.id}>
                       {renderRecordCells(entry, {
                         includeBarangay: false,
                         includeOperation: true,
+                        includeDisasterEvent: false,
                       })}
                       <td style={tableStyles.td}>
                         <SyncStatusBadge status={entry.status} />
                       </td>
                       <td style={tableStyles.td}>
                         {formatSyncDateTime(entry.clientTimestamp || entry.createdAt)}
-                      </td>
-                      <td
-                        style={{
-                          ...tableStyles.td,
-                          minWidth: "260px",
-                          maxWidth: "420px",
-                          overflowWrap: "break-word",
-                        }}
-                      >
-                        {getSyncQueueNotes(entry)}
-                      </td>
-                      <td style={tableStyles.td}>
-                        {canRetry ? (
-                          <button
-                            type="button"
-                            onClick={() => handleRetrySync([entry.id])}
-                            disabled={!isOnline || isRetrying}
-                            aria-label={`Retry synchronization for ${details.subject}`}
-                            aria-busy={isRetrying}
-                            title="Retry synchronization"
-                            style={{
-                              ...pageHeaderStyles.secondaryButton,
-                              minWidth: "44px",
-                              minHeight: "44px",
-                              justifyContent: "center",
-                              padding: "10px 12px",
-                              opacity: !isOnline || isRetrying ? 0.7 : 1,
-                            }}
-                          >
-                            <FiRefreshCw
-                              size={18}
-                              aria-hidden="true"
-                              focusable="false"
-                            />
-                          </button>
-                        ) : (
-                          <span aria-label="No action available">—</span>
-                        )}
                       </td>
                     </tr>
                   );
@@ -1911,7 +1873,6 @@ const SyncManagementPage = () => {
                   ) : null}
                   <th style={tableStyles.th}>Action</th>
                   <th style={tableStyles.th}>Affected Record</th>
-                  <th style={tableStyles.th}>Disaster Event</th>
                   <th style={tableStyles.th}>Status</th>
                   <th style={tableStyles.th}>Queued At</th>
                   <th style={tableStyles.th}>Processed At</th>
@@ -1924,7 +1885,10 @@ const SyncManagementPage = () => {
 
                   return (
                     <tr key={transaction.id}>
-                      {renderRecordCells(transaction, { includeBarangay: false })}
+                      {renderRecordCells(transaction, {
+                        includeBarangay: false,
+                        includeDisasterEvent: false,
+                      })}
                       <td style={tableStyles.td}>
                         <SyncStatusBadge status={getSyncHistoryStatus(transaction)} />
                       </td>
@@ -2041,7 +2005,11 @@ const SyncManagementPage = () => {
                             padding: "10px 12px",
                           }}
                         >
-                          <FiEye size={18} aria-hidden="true" focusable="false" />
+                          <FiAlertCircle
+                            size={18}
+                            aria-hidden="true"
+                            focusable="false"
+                          />
                         </button>
                       </td>
                     </tr>
