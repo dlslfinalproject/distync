@@ -35,7 +35,7 @@ router.get(
   async (req, res) => {
     try {
       const payload = await donationService.getPublicDonationPortal(
-        req.validatedQuery.disaster_event_id,
+        req.validatedQuery,
       );
 
       return res.status(200).json(payload);

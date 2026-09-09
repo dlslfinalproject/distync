@@ -139,7 +139,10 @@ test("public donor page uses the unchanged endpoint and the local refresh coordi
 
   assert.match(pageSource, /createDonationPortalRefreshCoordinator/);
   assert.match(pageSource, /refreshIntervalMs: PUBLIC_PORTAL_REFRESH_INTERVAL_MS/);
-  assert.match(pageSource, /fetchDonationPortalData\(\{ signal \}\)/);
+  assert.match(
+    pageSource,
+    /fetchDonationPortalData\(\{[\s\S]*transparency_page: requestScope\.page,[\s\S]*transparency_page_size: requestScope\.pageSize,[\s\S]*signal: requestMeta\.signal,[\s\S]*\}\)/,
+  );
   assert.doesNotMatch(pageSource, /addEventListener\("focus"/);
   assert.match(serviceSource, /\/api\/v1\/donations\/public-portal/);
   assert.match(serviceSource, /const \{ signal, \.\.\.queryFilters \} = filters \|\| \{\}/);

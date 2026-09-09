@@ -585,3 +585,96 @@ test("public portal reveals donor names only when explicitly published", async (
     },
   );
 });
+
+test("public portal returns paginated transparency rows with full-scope totals", async () => {
+  const eventId = "00000000-0000-0000-0000-000000000001";
+  const requestedPagination = [];
+
+  await withStubbedDonationService(
+    {
+      donationRepositoryOverrides: {
+        getDonationSummaryTotals: async () => ({
+          total_donations_received: 60,
+          total_quantity_received: 600,
+          total_donated_items_distributed: 200,
+          total_donated_items_written_off: 10,
+          remaining_donated_inventory: 390,
+        }),
+        getDonationItemTransparencySummary: async (eventIds, options) => {
+          requestedPagination.push({ eventIds, options });
+          return {
+            rows: [
+              {
+                source_key: "donation-page-2",
+                source_type: "LOOSE_ITEM",
+                donor_name: "Private Donor",
+                donor_name_public: false,
+                donor_type: "INDIVIDUAL",
+                disaster_event_id: eventId,
+                disaster_event_title: "Active Flood Response",
+                item_name: "Rice",
+                unit_of_measure: "pc",
+                quantity_received: 10,
+                quantity_distributed: 4,
+                quantity_written_off: 1,
+                quantity_remaining: 5,
+                write_off_reasons: [
+                  { reason: "DAMAGED", quantity: 1 },
+                ],
+                donor_label_number: 7,
+              },
+            ],
+            totalItems: 60,
+            page: 2,
+            pageSize: 25,
+            totals: {
+              loose_items_received: 500,
+              loose_items_distributed: 150,
+              loose_items_remaining: 340,
+              relief_packs_received: 100,
+              relief_packs_distributed: 50,
+              relief_packs_remaining: 50,
+            },
+          };
+        },
+      },
+    },
+    async ({ getPublicDonationPortal }) => {
+      const payload = await getPublicDonationPortal({
+        disaster_event_id: eventId,
+        transparency_page: 2,
+        transparency_page_size: 25,
+      });
+
+      assert.deepEqual(requestedPagination, [
+        {
+          eventIds: [eventId],
+          options: { page: 2, pageSize: 25 },
+        },
+      ]);
+      assert.equal(
+        payload.transparency_summary.received_vs_distributed.length,
+        1,
+      );
+      assert.equal(
+        payload.transparency_summary.received_vs_distributed[0].donor_name,
+        "Donor #7",
+      );
+      assert.deepEqual(
+        payload.transparency_summary.received_vs_distributed[0].write_off_reasons,
+        [{ reason: "DAMAGED", quantity: 1 }],
+      );
+      assert.deepEqual(payload.transparency_summary.pagination, {
+        page: 2,
+        pageSize: 25,
+        totalItems: 60,
+        totalPages: 3,
+        hasPreviousPage: true,
+        hasNextPage: true,
+      });
+      assert.equal(payload.transparency_summary.total_loose_items_received, 500);
+      assert.equal(payload.transparency_summary.total_relief_packs_received, 100);
+      assert.equal(payload.transparency_summary.total_quantity_received, 600);
+    },
+  );
+});

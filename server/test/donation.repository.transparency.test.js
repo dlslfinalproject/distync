@@ -209,6 +209,87 @@ test("donation transparency reads remain anonymous when the visibility migration
   });
 });
 
+test("public transparency pagination groups before applying SQL LIMIT/OFFSET", async () => {
+  await withStubbedRepository(async (repository) => {
+    const calls = [];
+    const pageRows = Array.from({ length: 25 }, (_, index) => ({
+      source_key: `donation-${index}`,
+      source_type: "LOOSE_ITEM",
+      donor_name: null,
+      donor_name_public: false,
+      donor_type: "INDIVIDUAL",
+      item_name: `Item ${index}`,
+      quantity_received: 1,
+      quantity_distributed: 0,
+      quantity_written_off: 0,
+      quantity_remaining: 1,
+      write_off_reasons: [],
+      donor_label_number: index + 1,
+    }));
+    const dbClient = {
+      query: async (sql, values) => {
+        const normalizedSql = String(sql).trim();
+        calls.push({ sql: normalizedSql, values });
+
+        if (normalizedSql.includes("information_schema.columns")) {
+          return { rows: [{ has_column: true }] };
+        }
+
+        if (normalizedSql.includes("COUNT(*)::int AS total_items")) {
+          return {
+            rows: [
+              {
+                total_items: 60,
+                total_loose_items_received: 60,
+                total_loose_items_distributed: 20,
+                total_loose_items_remaining: 40,
+                total_relief_packs_received: 0,
+                total_relief_packs_distributed: 0,
+                total_relief_packs_remaining: 0,
+              },
+            ],
+          };
+        }
+
+        return { rows: pageRows };
+      },
+    };
+
+    const result = await repository.getDonationItemTransparencySummary(
+      ["event-1"],
+      { page: 2, pageSize: 25 },
+      dbClient,
+    );
+
+    assert.equal(result.rows.length, 25);
+    assert.equal(result.totalItems, 60);
+    assert.equal(result.page, 2);
+    assert.equal(result.pageSize, 25);
+    assert.deepEqual(result.totals, {
+      loose_items_received: 60,
+      loose_items_distributed: 20,
+      loose_items_remaining: 40,
+      relief_packs_received: 0,
+      relief_packs_distributed: 0,
+      relief_packs_remaining: 0,
+    });
+
+    const countQuery = calls.find((call) =>
+      call.sql.includes("COUNT(*)::int AS total_items"),
+    );
+    const dataQuery = calls.find((call) => call.sql.includes("LIMIT $2"));
+
+    assert.ok(countQuery);
+    assert.ok(dataQuery);
+    assert.match(countQuery.sql, /GROUP BY eligible_rows\.source_key/);
+    assert.match(countQuery.sql, /RELIEF_PACK/);
+    assert.match(dataQuery.sql, /ORDER BY[\s\S]*sort_donation_item_id/);
+    assert.match(dataQuery.sql, /LIMIT \$2/);
+    assert.match(dataQuery.sql, /OFFSET \$3/);
+    assert.deepEqual(dataQuery.values, [["event-1"], 25, 25]);
+  });
+});
+
 test("donation insert values stay aligned with the target columns", async () => {
   await withStubbedRepository(async (repository) => {
     const dbClient = createCapturingDbClient();

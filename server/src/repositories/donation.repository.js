@@ -1467,7 +1467,7 @@ const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
   };
 };
 
-const getDonationItemTransparencySummary = async (
+const getDonationItemTransparencySummaryLegacy = async (
   disasterEventId,
   dbClient = pool,
 ) => {
@@ -1597,6 +1597,449 @@ const getDonationItemTransparencySummary = async (
   );
 
   return result.rows;
+};
+
+const isDatabaseClient = (value) =>
+  Boolean(value && typeof value.query === "function");
+
+const buildPublicTransparencyGroupedCte = ({
+  hasDonorNamePublicColumn,
+  disasterEventIds,
+}) => {
+  const eventParamIndex = disasterEventIds.length > 0 ? 1 : null;
+  const eventCondition = eventParamIndex
+    ? `AND d.disaster_event_id = ANY($${eventParamIndex}::uuid[])`
+    : "";
+  const distributionEventFilter = eventParamIndex
+    ? `AND it.disaster_event_id = ANY($${eventParamIndex}::uuid[])`
+    : "";
+
+  return `
+    WITH raw_rows AS (
+      SELECT
+        d.id AS donation_id,
+        d.donor_name,
+        COALESCE(d.donor_type, 'OTHER') AS donor_type,
+        ${hasDonorNamePublicColumn ? "d.donor_name_public" : "FALSE"} AS donor_name_public,
+        d.disaster_event_id,
+        de.title AS disaster_event_title,
+        d.received_at,
+        di.id AS donation_item_id,
+        di.inventory_batch_id,
+        ii.id AS inventory_item_id,
+        ii.item_name,
+        di.quantity_received,
+        di.remarks AS donation_item_remarks,
+        COALESCE(ib.quantity_available, 0)::int AS quantity_remaining,
+        COALESCE((
+          SELECT GREATEST(
+            COALESCE(SUM(
+              CASE
+                WHEN it.transaction_type = 'OUTFLOW' THEN it.quantity
+                WHEN it.transaction_type = 'RETURN' THEN -it.quantity
+                ELSE 0
+              END
+            ), 0),
+            0
+          )::int
+          FROM inventory_transactions it
+          INNER JOIN inventory_batches ib2 ON ib2.id = it.inventory_batch_id
+          WHERE ib2.id = di.inventory_batch_id
+            AND ib2.source_type = 'DONATED'
+            AND it.transaction_type IN ('OUTFLOW', 'RETURN')
+            AND it.reference_type = 'DISTRIBUTION'
+            AND EXISTS (
+              SELECT 1
+              FROM donation_items di2
+              INNER JOIN donations d2 ON d2.id = di2.donation_id
+              WHERE di2.inventory_batch_id = ib2.id
+                AND di2.donation_id = d.id
+                AND di2.inventory_item_id = ii.id
+                AND d2.status <> 'CANCELLED'
+            )
+            ${distributionEventFilter}
+        ), 0) AS quantity_distributed,
+        COALESCE((
+          SELECT SUM(it.quantity)::int
+          FROM inventory_transactions it
+          INNER JOIN inventory_batches ib2 ON ib2.id = it.inventory_batch_id
+          WHERE ib2.id = di.inventory_batch_id
+            AND ib2.source_type = 'DONATED'
+            AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN', 'OTHER')
+            AND EXISTS (
+              SELECT 1
+              FROM donation_items di2
+              INNER JOIN donations d2 ON d2.id = di2.donation_id
+              WHERE di2.inventory_batch_id = ib2.id
+                AND di2.donation_id = d.id
+                AND di2.inventory_item_id = ii.id
+                AND d2.status <> 'CANCELLED'
+            )
+            ${distributionEventFilter}
+        ), 0) AS quantity_written_off,
+        COALESCE((
+          SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'reason', reason_rows.reason,
+              'quantity', reason_rows.quantity
+            )
+            ORDER BY reason_rows.reason ASC
+          )
+          FROM (
+            SELECT
+              it.transaction_type AS reason,
+              SUM(it.quantity)::int AS quantity
+            FROM inventory_transactions it
+            INNER JOIN inventory_batches ib2 ON ib2.id = it.inventory_batch_id
+            WHERE ib2.id = di.inventory_batch_id
+              AND ib2.source_type = 'DONATED'
+              AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN', 'OTHER')
+              AND EXISTS (
+                SELECT 1
+                FROM donation_items di2
+                INNER JOIN donations d2 ON d2.id = di2.donation_id
+                WHERE di2.inventory_batch_id = ib2.id
+                  AND di2.donation_id = d.id
+                  AND di2.inventory_item_id = ii.id
+                  AND d2.status <> 'CANCELLED'
+              )
+              ${distributionEventFilter}
+            GROUP BY it.transaction_type
+          ) reason_rows
+        ), '[]'::json) AS write_off_reasons
+      FROM donation_items di
+      INNER JOIN donations d ON d.id = di.donation_id
+      INNER JOIN disaster_events de ON de.id = d.disaster_event_id
+      INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
+      LEFT JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
+      WHERE ib.source_type = 'DONATED'
+        AND d.status <> 'CANCELLED'
+        ${eventCondition}
+    ),
+    parsed_rows AS (
+      SELECT
+        raw_rows.*,
+        CASE
+          WHEN pack_match.matches IS NOT NULL THEN 'RELIEF_PACK'
+          ELSE 'LOOSE_ITEM'
+        END AS source_type,
+        NULLIF(BTRIM(pack_match.matches[1]), '') AS pack_name,
+        NULLIF(pack_match.matches[2], '')::int AS pack_quantity
+      FROM raw_rows
+      LEFT JOIN LATERAL regexp_match(
+        BTRIM(COALESCE(raw_rows.donation_item_remarks, '')),
+        '^Relief Pack:\\s*(.*?)\\s+x\\s+([0-9]+)$',
+        'i'
+      ) AS pack_match(matches) ON TRUE
+      WHERE NOT (
+        BTRIM(COALESCE(raw_rows.donation_item_remarks, '')) ILIKE 'Relief Pack:%'
+        AND pack_match.matches IS NULL
+      )
+    ),
+    normalized_rows AS (
+      SELECT
+        parsed_rows.*,
+        CASE
+          WHEN parsed_rows.source_type = 'RELIEF_PACK' THEN FLOOR(
+            COALESCE(parsed_rows.quantity_received, 0)::numeric /
+              NULLIF(parsed_rows.pack_quantity, 0)
+          )::int
+          ELSE NULL
+        END AS quantity_per_pack,
+        CASE
+          WHEN parsed_rows.source_type = 'RELIEF_PACK' THEN CONCAT(
+            parsed_rows.donation_id::text,
+            ':RELIEF_PACK:',
+            LOWER(parsed_rows.pack_name),
+            ':',
+            parsed_rows.pack_quantity
+          )
+          ELSE CONCAT(
+            parsed_rows.donation_id::text,
+            ':LOOSE_ITEM:',
+            parsed_rows.inventory_item_id::text
+          )
+        END AS source_key,
+        CONCAT(
+          LOWER(BTRIM(COALESCE(parsed_rows.donor_name, ''))),
+          '|',
+          LOWER(BTRIM(COALESCE(parsed_rows.donor_type, ''))),
+          '|',
+          COALESCE(parsed_rows.disaster_event_id::text, '')
+        ) AS donor_key
+      FROM parsed_rows
+    ),
+    eligible_rows AS (
+      SELECT *
+      FROM normalized_rows
+      WHERE source_type = 'LOOSE_ITEM'
+        OR (
+          pack_name IS NOT NULL
+          AND quantity_per_pack > 0
+        )
+    ),
+    reason_totals AS (
+      SELECT
+        eligible_rows.source_key,
+        reason_row->>'reason' AS reason,
+        SUM(COALESCE(NULLIF(reason_row->>'quantity', '')::int, 0))::int AS quantity
+      FROM eligible_rows
+      CROSS JOIN LATERAL jsonb_array_elements(
+        COALESCE(eligible_rows.write_off_reasons::jsonb, '[]'::jsonb)
+      ) AS reason_row
+      GROUP BY eligible_rows.source_key, reason_row->>'reason'
+    ),
+    reason_arrays AS (
+      SELECT
+        source_key,
+        JSON_AGG(
+          JSON_BUILD_OBJECT('reason', reason, 'quantity', quantity)
+          ORDER BY reason ASC
+        ) AS write_off_reasons
+      FROM reason_totals
+      GROUP BY source_key
+    ),
+    base_grouped_rows AS (
+      SELECT
+        eligible_rows.source_key,
+        'LOOSE_ITEM' AS source_type,
+        eligible_rows.donation_id,
+        (ARRAY_AGG(eligible_rows.donor_name ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS donor_name,
+        (ARRAY_AGG(eligible_rows.donor_name_public ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS donor_name_public,
+        (ARRAY_AGG(eligible_rows.donor_type ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS donor_type,
+        (ARRAY_AGG(eligible_rows.disaster_event_id ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS disaster_event_id,
+        (ARRAY_AGG(eligible_rows.disaster_event_title ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS disaster_event_title,
+        (ARRAY_AGG(eligible_rows.item_name ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS item_name,
+        NULL::text AS relief_pack_name,
+        'pc'::text AS unit_of_measure,
+        NULL::int AS pack_quantity,
+        SUM(eligible_rows.quantity_received)::int AS quantity_received,
+        SUM(eligible_rows.quantity_distributed)::int AS quantity_distributed,
+        SUM(eligible_rows.quantity_written_off)::int AS quantity_written_off,
+        SUM(eligible_rows.quantity_remaining)::int AS quantity_remaining,
+        (ARRAY_AGG(eligible_rows.received_at ORDER BY eligible_rows.received_at DESC, eligible_rows.donor_name ASC, eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS sort_received_at,
+        (ARRAY_AGG(eligible_rows.donor_name ORDER BY eligible_rows.received_at DESC, eligible_rows.donor_name ASC, eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS sort_donor_name,
+        (ARRAY_AGG(eligible_rows.item_name ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS sort_item_name,
+        (ARRAY_AGG(eligible_rows.donation_item_id ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS sort_donation_item_id,
+        (ARRAY_AGG(eligible_rows.donor_key ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS donor_key
+      FROM eligible_rows
+      WHERE eligible_rows.source_type = 'LOOSE_ITEM'
+      GROUP BY eligible_rows.source_key, eligible_rows.donation_id
+
+      UNION ALL
+
+      SELECT
+        eligible_rows.source_key,
+        'RELIEF_PACK' AS source_type,
+        eligible_rows.donation_id,
+        (ARRAY_AGG(eligible_rows.donor_name ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS donor_name,
+        (ARRAY_AGG(eligible_rows.donor_name_public ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS donor_name_public,
+        (ARRAY_AGG(eligible_rows.donor_type ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS donor_type,
+        (ARRAY_AGG(eligible_rows.disaster_event_id ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS disaster_event_id,
+        (ARRAY_AGG(eligible_rows.disaster_event_title ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS disaster_event_title,
+        (ARRAY_AGG(eligible_rows.pack_name ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS item_name,
+        (ARRAY_AGG(eligible_rows.pack_name ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS relief_pack_name,
+        'pack'::text AS unit_of_measure,
+        (ARRAY_AGG(eligible_rows.pack_quantity ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS pack_quantity,
+        (ARRAY_AGG(eligible_rows.pack_quantity ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS quantity_received,
+        MIN(FLOOR(
+          eligible_rows.quantity_distributed::numeric /
+            NULLIF(eligible_rows.quantity_per_pack, 0)
+        ))::int AS quantity_distributed,
+        MIN(FLOOR(
+          eligible_rows.quantity_written_off::numeric /
+            NULLIF(eligible_rows.quantity_per_pack, 0)
+        ))::int AS quantity_written_off,
+        MIN(FLOOR(
+          eligible_rows.quantity_remaining::numeric /
+            NULLIF(eligible_rows.quantity_per_pack, 0)
+        ))::int AS quantity_remaining,
+        (ARRAY_AGG(eligible_rows.received_at ORDER BY eligible_rows.received_at DESC, eligible_rows.donor_name ASC, eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS sort_received_at,
+        (ARRAY_AGG(eligible_rows.donor_name ORDER BY eligible_rows.received_at DESC, eligible_rows.donor_name ASC, eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS sort_donor_name,
+        (ARRAY_AGG(eligible_rows.item_name ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS sort_item_name,
+        (ARRAY_AGG(eligible_rows.donation_item_id ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS sort_donation_item_id,
+        (ARRAY_AGG(eligible_rows.donor_key ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS donor_key
+      FROM eligible_rows
+      WHERE eligible_rows.source_type = 'RELIEF_PACK'
+      GROUP BY eligible_rows.source_key, eligible_rows.donation_id
+    ),
+    grouped_rows AS (
+      SELECT
+        base_grouped_rows.*,
+        COALESCE(reason_arrays.write_off_reasons, '[]'::json) AS write_off_reasons
+      FROM base_grouped_rows
+      LEFT JOIN reason_arrays
+        ON reason_arrays.source_key = base_grouped_rows.source_key
+    ),
+    donor_first_rows AS (
+      SELECT DISTINCT ON (grouped_rows.donor_key)
+        grouped_rows.donor_key,
+        grouped_rows.sort_received_at,
+        grouped_rows.sort_donor_name,
+        grouped_rows.sort_item_name,
+        grouped_rows.sort_donation_item_id,
+        grouped_rows.source_key
+      FROM grouped_rows
+      WHERE grouped_rows.donor_name_public IS NOT TRUE
+        OR NULLIF(BTRIM(COALESCE(grouped_rows.donor_name, '')), '') IS NULL
+      ORDER BY
+        grouped_rows.donor_key,
+        grouped_rows.sort_received_at DESC,
+        grouped_rows.sort_donor_name ASC,
+        grouped_rows.sort_item_name ASC NULLS LAST,
+        grouped_rows.sort_donation_item_id ASC,
+        grouped_rows.source_key ASC
+    ),
+    donor_labels AS (
+      SELECT
+        donor_first_rows.donor_key,
+        ROW_NUMBER() OVER (
+          ORDER BY
+            donor_first_rows.sort_received_at DESC,
+            donor_first_rows.sort_donor_name ASC,
+            donor_first_rows.sort_item_name ASC NULLS LAST,
+            donor_first_rows.sort_donation_item_id ASC,
+            donor_first_rows.source_key ASC
+        )::int AS donor_label_number
+      FROM donor_first_rows
+    ),
+    ordered_rows AS (
+      SELECT
+        grouped_rows.*,
+        donor_labels.donor_label_number
+      FROM grouped_rows
+      LEFT JOIN donor_labels
+        ON donor_labels.donor_key = grouped_rows.donor_key
+    )
+  `;
+};
+
+const getPaginatedDonationItemTransparencySummary = async (
+  disasterEventId,
+  pagination,
+  dbClient = pool,
+) => {
+  const disasterEventIds = normalizeDisasterEventFilter(disasterEventId);
+  const page = Number(pagination?.page);
+  const pageSize = Number(pagination?.pageSize);
+
+  if (
+    !Number.isSafeInteger(page) ||
+    page < 1 ||
+    !Number.isSafeInteger(pageSize) ||
+    pageSize < 1 ||
+    pageSize > 100
+  ) {
+    throw new Error("Invalid public transparency pagination options");
+  }
+
+  const hasDonorNamePublicColumn = await hasDonationDonorNamePublicColumn(
+    dbClient,
+  );
+  const groupedCte = buildPublicTransparencyGroupedCte({
+    hasDonorNamePublicColumn,
+    disasterEventIds,
+  });
+  const eventValues = disasterEventIds.length > 0 ? [disasterEventIds] : [];
+  const countResult = await dbClient.query(
+    `${groupedCte}
+      SELECT
+        COUNT(*)::int AS total_items,
+        COALESCE(SUM(CASE WHEN source_type = 'LOOSE_ITEM' THEN quantity_received ELSE 0 END), 0)::int AS total_loose_items_received,
+        COALESCE(SUM(CASE WHEN source_type = 'LOOSE_ITEM' THEN quantity_distributed ELSE 0 END), 0)::int AS total_loose_items_distributed,
+        COALESCE(SUM(CASE WHEN source_type = 'LOOSE_ITEM' THEN quantity_remaining ELSE 0 END), 0)::int AS total_loose_items_remaining,
+        COALESCE(SUM(CASE WHEN source_type = 'RELIEF_PACK' THEN quantity_received ELSE 0 END), 0)::int AS total_relief_packs_received,
+        COALESCE(SUM(CASE WHEN source_type = 'RELIEF_PACK' THEN quantity_distributed ELSE 0 END), 0)::int AS total_relief_packs_distributed,
+        COALESCE(SUM(CASE WHEN source_type = 'RELIEF_PACK' THEN quantity_remaining ELSE 0 END), 0)::int AS total_relief_packs_remaining
+      FROM grouped_rows
+    `,
+    eventValues,
+  );
+
+  const countRow = countResult.rows[0] || {};
+  const totalItems = Number(countRow.total_items || 0);
+  const totalPages = totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
+  const effectivePage = totalPages > 0 ? Math.min(page, totalPages) : 1;
+  const limitParamIndex = eventValues.length + 1;
+  const offsetParamIndex = eventValues.length + 2;
+  const rowsResult = await dbClient.query(
+    `${groupedCte}
+      SELECT
+        source_key,
+        source_type,
+        donation_id,
+        donor_name,
+        donor_name_public,
+        donor_type,
+        disaster_event_id,
+        disaster_event_title,
+        item_name,
+        relief_pack_name,
+        unit_of_measure,
+        pack_quantity,
+        quantity_received,
+        quantity_distributed,
+        quantity_written_off,
+        quantity_remaining,
+        write_off_reasons,
+        donor_label_number
+      FROM ordered_rows
+      ORDER BY
+        sort_received_at DESC,
+        sort_donor_name ASC,
+        sort_item_name ASC NULLS LAST,
+        sort_donation_item_id ASC,
+        source_key ASC
+      LIMIT $${limitParamIndex}
+      OFFSET $${offsetParamIndex}
+    `,
+    [...eventValues, pageSize, (effectivePage - 1) * pageSize],
+  );
+
+  return {
+    rows: rowsResult.rows,
+    totalItems,
+    page: effectivePage,
+    pageSize,
+    totals: {
+      loose_items_received: Number(countRow.total_loose_items_received || 0),
+      loose_items_distributed: Number(
+        countRow.total_loose_items_distributed || 0,
+      ),
+      loose_items_remaining: Number(countRow.total_loose_items_remaining || 0),
+      relief_packs_received: Number(countRow.total_relief_packs_received || 0),
+      relief_packs_distributed: Number(
+        countRow.total_relief_packs_distributed || 0,
+      ),
+      relief_packs_remaining: Number(countRow.total_relief_packs_remaining || 0),
+    },
+  };
+};
+
+const getDonationItemTransparencySummary = async (
+  disasterEventId,
+  optionsOrDbClient = null,
+  maybeDbClient = pool,
+) => {
+  if (isDatabaseClient(optionsOrDbClient)) {
+    return getDonationItemTransparencySummaryLegacy(
+      disasterEventId,
+      optionsOrDbClient,
+    );
+  }
+
+  if (optionsOrDbClient && typeof optionsOrDbClient === "object") {
+    return getPaginatedDonationItemTransparencySummary(
+      disasterEventId,
+      optionsOrDbClient,
+      maybeDbClient,
+    );
+  }
+
+  return getDonationItemTransparencySummaryLegacy(
+    disasterEventId,
+    maybeDbClient,
+  );
 };
 
 const getDonationTransparencyExportRows = async (

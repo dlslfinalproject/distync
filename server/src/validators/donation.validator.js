@@ -89,6 +89,21 @@ const parsePositiveInteger = (value) => {
   return Number.isInteger(parsedValue) && parsedValue > 0 ? parsedValue : null;
 };
 
+const parseStrictPositiveInteger = (value) => {
+  if (
+    (typeof value !== "string" && typeof value !== "number") ||
+    !/^\d+$/.test(String(value))
+  ) {
+    return null;
+  }
+
+  const parsedValue = Number(value);
+
+  return Number.isSafeInteger(parsedValue) && parsedValue > 0
+    ? parsedValue
+    : null;
+};
+
 const parsePositiveNumber = (value) => {
   const parsedValue = Number(value);
 
@@ -776,7 +791,11 @@ const validateReassignLeftoverStockPayload = (req, res, next) => {
 };
 
 const validatePublicDonationPortal = (req, res, next) => {
-  const { disaster_event_id } = req.query;
+  const {
+    disaster_event_id,
+    transparency_page,
+    transparency_page_size,
+  } = req.query;
 
   if (disaster_event_id !== undefined && !isValidUuid(disaster_event_id)) {
     return res.status(400).json({
@@ -784,8 +803,43 @@ const validatePublicDonationPortal = (req, res, next) => {
     });
   }
 
+  const hasTransparencyPage = transparency_page !== undefined;
+  const hasTransparencyPageSize = transparency_page_size !== undefined;
+
+  if (hasTransparencyPage !== hasTransparencyPageSize) {
+    return res.status(400).json({
+      message:
+        "transparency_page and transparency_page_size must be provided together",
+    });
+  }
+
+  const parsedTransparencyPage = hasTransparencyPage
+    ? parseStrictPositiveInteger(transparency_page)
+    : null;
+  const parsedTransparencyPageSize = hasTransparencyPageSize
+    ? parseStrictPositiveInteger(transparency_page_size)
+    : null;
+
+  if (hasTransparencyPage && !parsedTransparencyPage) {
+    return res.status(400).json({
+      message: "transparency_page must be a positive integer when provided",
+    });
+  }
+
+  if (
+    hasTransparencyPageSize &&
+    (!parsedTransparencyPageSize || parsedTransparencyPageSize > 100)
+  ) {
+    return res.status(400).json({
+      message:
+        "transparency_page_size must be a positive integer no greater than 100 when provided",
+    });
+  }
+
   req.validatedQuery = {
     disaster_event_id: disaster_event_id || null,
+    transparency_page: parsedTransparencyPage,
+    transparency_page_size: parsedTransparencyPageSize,
   };
 
   return next();

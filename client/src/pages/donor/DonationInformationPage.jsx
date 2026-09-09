@@ -37,6 +37,7 @@ import {
   GiWaterBottle,
 } from "react-icons/gi";
 import LoadingState from "../../components/shared/LoadingState";
+import TablePagination from "../../components/shared/TablePagination";
 import distyncLogo from "../../assets/distync-logo.png";
 import distyncLogoCropped from "../../assets/distync-logo-cropped.png";
 import { fetchDonationPortalData } from "../../features/donations/donationService";
@@ -45,6 +46,11 @@ import {
   formatDonationDateOnly,
 } from "../../features/donations/donationFormatters";
 import { getAccessMode, getEntryRouteForMode } from "../../utils/accessMode";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 
 const COLORS = {
   cardBg: "#ffffff",
@@ -2971,10 +2977,24 @@ const TransparencySection = ({ recentDonations, transparencySummary }) => {
   );
 };
 
-const DonationUtilizationSection = ({ transparencySummary }) => {
+const DonationUtilizationSection = ({
+  transparencySummary,
+  onPageChange,
+  onPageSizeChange,
+  isLoading = false,
+  requestedPage = 1,
+  requestedPageSize = DEFAULT_TABLE_PAGE_SIZE,
+}) => {
   const donatedItemRows = HIDE_UTILIZATION_DATA_FOR_DESIGN_PREVIEW
     ? []
     : transparencySummary?.received_vs_distributed || [];
+  const serverPagination = transparencySummary?.pagination || {};
+  const pagination = getTablePaginationState({
+    totalItems: serverPagination.totalItems || donatedItemRows.length,
+    currentPage: serverPagination.page || requestedPage,
+    pageSize: serverPagination.pageSize || requestedPageSize,
+    pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+  });
 
   return (
     <section style={styles.section} aria-labelledby="utilization-title">
@@ -2997,8 +3017,8 @@ const DonationUtilizationSection = ({ transparencySummary }) => {
                 color: COLORS.primaryDark,
               }}
             >
-              {formatNumber(donatedItemRows.length)} source
-              {donatedItemRows.length === 1 ? "" : "s"}
+              {formatNumber(pagination.totalItems)} source
+              {pagination.totalItems === 1 ? "" : "s"}
             </span>
             <span
               className="donor-portal-disclosure-indicator"
@@ -3011,6 +3031,20 @@ const DonationUtilizationSection = ({ transparencySummary }) => {
         </summary>
 
         <div style={styles.collapsibleSectionBody}>
+          <TablePagination
+            totalItems={pagination.totalItems}
+            currentPage={pagination.currentPage}
+            pageSize={pagination.pageSize}
+            pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+            onPageChange={onPageChange}
+            onPageSizeChange={onPageSizeChange}
+            isVisible={!HIDE_UTILIZATION_DATA_FOR_DESIGN_PREVIEW}
+            disabled={isLoading}
+            disablePageSize={isLoading}
+            ariaLabel="Public donation transparency pagination"
+            previousAriaLabel="Go to previous public transparency page"
+            nextAriaLabel="Go to next public transparency page"
+          />
           {donatedItemRows.length === 0 ? (
             <div style={styles.emptyState}>
               <FiBarChart2 size={20} color={COLORS.primary} aria-hidden="true" />
@@ -3318,6 +3352,51 @@ const DonationInformationPage = () => {
     publicContactConfig: DEFAULT_PUBLIC_CONTACT_CONFIG,
     lastUpdatedAt: null,
   });
+  const [transparencyPage, setTransparencyPage] = useState(1);
+  const [transparencyPageSize, setTransparencyPageSize] = useState(
+    DEFAULT_TABLE_PAGE_SIZE,
+  );
+  const [isTransparencyLoading, setIsTransparencyLoading] = useState(false);
+  const transparencyRequestScopeRef = useRef({
+    page: 1,
+    pageSize: DEFAULT_TABLE_PAGE_SIZE,
+  });
+  const refreshCoordinatorRef = useRef(null);
+
+  const requestTransparencyScope = ({ page, pageSize }, reason) => {
+    const nextScope = {
+      page: Math.max(Number(page) || 1, 1),
+      pageSize: TABLE_PAGE_SIZE_OPTIONS.includes(Number(pageSize))
+        ? Number(pageSize)
+        : DEFAULT_TABLE_PAGE_SIZE,
+    };
+
+    transparencyRequestScopeRef.current = nextScope;
+    setTransparencyPage(nextScope.page);
+    setTransparencyPageSize(nextScope.pageSize);
+    setIsTransparencyLoading(true);
+    void refreshCoordinatorRef.current?.requestRefresh(reason);
+  };
+
+  const handleTransparencyPageChange = (nextPage) => {
+    requestTransparencyScope(
+      {
+        page: nextPage,
+        pageSize: transparencyRequestScopeRef.current.pageSize,
+      },
+      "pagination",
+    );
+  };
+
+  const handleTransparencyPageSizeChange = (nextPageSize) => {
+    requestTransparencyScope(
+      {
+        page: 1,
+        pageSize: nextPageSize,
+      },
+      "pagination-page-size",
+    );
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -3334,11 +3413,34 @@ const DonationInformationPage = () => {
       });
     };
 
+    const matchesCurrentTransparencyScope = (requestMeta) =>
+      Number(requestMeta?.transparencyPage) ===
+        transparencyRequestScopeRef.current.page &&
+      Number(requestMeta?.transparencyPageSize) ===
+        transparencyRequestScopeRef.current.pageSize;
+
     const refreshCoordinator = createDonationPortalRefreshCoordinator({
       refreshIntervalMs: PUBLIC_PORTAL_REFRESH_INTERVAL_MS,
-      load: ({ signal }) => fetchDonationPortalData({ signal }),
+      load: (requestMeta) => {
+        const requestScope = transparencyRequestScopeRef.current;
+
+        requestMeta.transparencyPage = requestScope.page;
+        requestMeta.transparencyPageSize = requestScope.pageSize;
+
+        return fetchDonationPortalData({
+          transparency_page: requestScope.page,
+          transparency_page_size: requestScope.pageSize,
+          signal: requestMeta.signal,
+        });
+      },
       onRequestStart: ({ isInitialRequest }) => {
-        if (!isMounted || !isInitialRequest) {
+        if (!isMounted) {
+          return;
+        }
+
+        setIsTransparencyLoading(true);
+
+        if (!isInitialRequest) {
           return;
         }
 
@@ -3350,11 +3452,13 @@ const DonationInformationPage = () => {
       },
       onRequestSuccess: async (
         publicPortalData,
-        { isInitialRequest, startedAt },
+        requestMeta,
       ) => {
-        if (!isMounted) {
+        if (!isMounted || !matchesCurrentTransparencyScope(requestMeta)) {
           return;
         }
+
+        const { isInitialRequest, startedAt } = requestMeta;
 
         const disasterEvents = Array.isArray(publicPortalData?.disaster_events)
           ? publicPortalData.disaster_events
@@ -3396,9 +3500,28 @@ const DonationInformationPage = () => {
           await waitForInitialLoadingCue(startedAt);
         }
 
-        if (!isMounted) {
+        if (!isMounted || !matchesCurrentTransparencyScope(requestMeta)) {
           return;
         }
+
+        const responsePage = Number(transparencySummary?.pagination?.page);
+        const responsePageSize = Number(
+          transparencySummary?.pagination?.pageSize,
+        );
+
+        if (Number.isSafeInteger(responsePage) && responsePage > 0) {
+          transparencyRequestScopeRef.current = {
+            page: responsePage,
+            pageSize:
+              TABLE_PAGE_SIZE_OPTIONS.includes(responsePageSize) &&
+              responsePageSize ===
+                transparencyRequestScopeRef.current.pageSize
+                ? responsePageSize
+                : transparencyRequestScopeRef.current.pageSize,
+          };
+          setTransparencyPage(responsePage);
+        }
+        setIsTransparencyLoading(false);
 
         setPageState({
           isLoading: false,
@@ -3423,16 +3546,19 @@ const DonationInformationPage = () => {
       },
       onRequestError: async (
         error,
-        { isInitialRequest, startedAt },
+        requestMeta,
       ) => {
-        if (!isMounted) {
+        if (!isMounted || !matchesCurrentTransparencyScope(requestMeta)) {
           return;
         }
+
+        const { isInitialRequest, startedAt } = requestMeta;
+        setIsTransparencyLoading(false);
 
         if (isInitialRequest) {
           await waitForInitialLoadingCue(startedAt);
 
-          if (!isMounted) {
+          if (!isMounted || !matchesCurrentTransparencyScope(requestMeta)) {
             return;
           }
 
@@ -3457,11 +3583,13 @@ const DonationInformationPage = () => {
       },
     });
 
+    refreshCoordinatorRef.current = refreshCoordinator;
     refreshCoordinator.start();
 
     return () => {
       isMounted = false;
       refreshCoordinator.stop();
+      refreshCoordinatorRef.current = null;
     };
   }, []);
 
@@ -3517,6 +3645,11 @@ const DonationInformationPage = () => {
             />
             <DonationUtilizationSection
               transparencySummary={transparencySummary}
+              onPageChange={handleTransparencyPageChange}
+              onPageSizeChange={handleTransparencyPageSizeChange}
+              isLoading={isTransparencyLoading}
+              requestedPage={transparencyPage}
+              requestedPageSize={transparencyPageSize}
             />
           </div>
         ) : null}

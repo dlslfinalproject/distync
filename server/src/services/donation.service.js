@@ -458,6 +458,31 @@ const parsePublicReliefPackDonationRemark = (remarks) => {
   };
 };
 
+const mergePublicDonationWriteOffReasons = (existingReasons, nextReasons) => {
+  const reasonTotals = new Map();
+
+  [...(Array.isArray(existingReasons) ? existingReasons : []), ...(Array.isArray(nextReasons) ? nextReasons : [])].forEach(
+    (reasonRow) => {
+      const reason = String(reasonRow?.reason || "").trim();
+
+      if (!reason) {
+        return;
+      }
+
+      reasonTotals.set(
+        reason,
+        Number(reasonTotals.get(reason) || 0) + Number(reasonRow?.quantity || 0),
+      );
+    },
+  );
+
+  return [...reasonTotals.entries()]
+    .sort(([leftReason], [rightReason]) =>
+      leftReason.localeCompare(rightReason),
+    )
+    .map(([reason, quantity]) => ({ reason, quantity }));
+};
+
 const buildPublicDonationUtilizationRows = (rows) => {
   const groups = new Map();
 
@@ -499,6 +524,7 @@ const buildPublicDonationUtilizationRows = (rows) => {
       quantity_distributed: 0,
       quantity_written_off: 0,
       quantity_remaining: 0,
+      write_off_reasons: [],
       components: [],
     };
 
@@ -527,6 +553,11 @@ const buildPublicDonationUtilizationRows = (rows) => {
       );
       existingGroup.quantity_remaining += Number(row.quantity_remaining || 0);
     }
+
+    existingGroup.write_off_reasons = mergePublicDonationWriteOffReasons(
+      existingGroup.write_off_reasons,
+      row.write_off_reasons,
+    );
 
     groups.set(sourceKey, existingGroup);
   });
@@ -561,6 +592,54 @@ const buildPublicDonationUtilizationRows = (rows) => {
     };
   });
 };
+
+const calculatePublicDonationUtilizationTotals = (rows) =>
+  (Array.isArray(rows) ? rows : []).reduce(
+    (totals, row) => {
+      const isReliefPack = row.source_type === "RELIEF_PACK";
+      const quantityKey = isReliefPack ? "relief_packs" : "loose_items";
+
+      totals[`${quantityKey}_received`] += Number(row.quantity_received || 0);
+      totals[`${quantityKey}_distributed`] += Number(
+        row.quantity_distributed || 0,
+      );
+      totals[`${quantityKey}_remaining`] += Number(
+        row.quantity_remaining || 0,
+      );
+      return totals;
+    },
+    {
+      loose_items_received: 0,
+      loose_items_distributed: 0,
+      loose_items_remaining: 0,
+      relief_packs_received: 0,
+      relief_packs_distributed: 0,
+      relief_packs_remaining: 0,
+    },
+  );
+
+const mapPublicDonationUtilizationRow = (row, getPublicDonorLabel) => ({
+  public_key: createPublicKey("utilization-source", row.source_key),
+  donor_name:
+    row.donor_name_public === true && row.donor_name
+      ? row.donor_name
+      : getPublicDonorLabel(row),
+  donor_type: row.donor_type,
+  donor_type_label: donorTypeLabels[row.donor_type] || "Other",
+  disaster_event_id: row.disaster_event_id,
+  disaster_event_title: row.disaster_event_title,
+  source_type: row.source_type,
+  relief_pack_name: row.relief_pack_name,
+  item_name: row.item_name,
+  unit_of_measure: row.unit_of_measure,
+  quantity_received: row.quantity_received,
+  quantity_distributed: row.quantity_distributed,
+  quantity_written_off: row.quantity_written_off,
+  write_off_reasons: Array.isArray(row.write_off_reasons)
+    ? row.write_off_reasons
+    : [],
+  quantity_remaining: row.quantity_remaining,
+});
 
 const getDateOnlyTime = (value) => {
   if (!value) {
@@ -2547,7 +2626,33 @@ const deleteDonationRecord = async (id, performedBy) => {
   }
 };
 
-const getPublicDonationPortal = async (disasterEventId = null) => {
+const getPublicDonationPortal = async (options = null) => {
+  const normalizedOptions =
+    typeof options === "string"
+      ? { disasterEventId: options }
+      : options && typeof options === "object"
+        ? options
+        : {};
+  const disasterEventId =
+    normalizedOptions.disaster_event_id ??
+    normalizedOptions.disasterEventId ??
+    null;
+  const transparencyPage =
+    normalizedOptions.transparency_page ??
+    normalizedOptions.transparencyPage ??
+    null;
+  const transparencyPageSize =
+    normalizedOptions.transparency_page_size ??
+    normalizedOptions.transparencyPageSize ??
+    null;
+  const hasTransparencyPagination =
+    transparencyPage !== null && transparencyPageSize !== null;
+  const transparencyPaginationOptions = hasTransparencyPagination
+    ? {
+        page: Number(transparencyPage),
+        pageSize: Number(transparencyPageSize),
+      }
+    : null;
   const publicDisasterSummaries =
     await donationRepository.getPublicDonationDisasterSummaries(disasterEventId);
   const visibleDisasterSummaries = getVisiblePublicDisasterSummaries(
@@ -2558,7 +2663,7 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
 
   const [
     summaryTotals,
-    perItemSummary,
+    transparencyQueryResult,
     recentDonationRows,
     latestForecasts,
     defaultEmergencyNeedRows,
@@ -2567,6 +2672,7 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
         donationRepository.getDonationSummaryTotals(visibleDisasterEventIds),
         donationRepository.getDonationItemTransparencySummary(
           visibleDisasterEventIds,
+          transparencyPaginationOptions || undefined,
         ),
         donationRepository.getPublicRecentDonationSummaries(
           visibleDisasterEventIds,
@@ -2589,7 +2695,15 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
           total_donated_items_written_off: 0,
           remaining_donated_inventory: 0,
         },
-        [],
+        hasTransparencyPagination
+          ? {
+              rows: [],
+              totalItems: 0,
+              page: 1,
+              pageSize: transparencyPaginationOptions.pageSize,
+              totals: null,
+            }
+          : [],
         [],
         [],
         [],
@@ -2599,34 +2713,44 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
     latestForecasts,
     defaultEmergencyNeeds: defaultEmergencyNeedRows,
   });
-  const publicUtilizationRows = buildPublicDonationUtilizationRows(
-    perItemSummary,
-  );
-  const publicUtilizationTotals = publicUtilizationRows.reduce(
-    (totals, row) => {
-      const isReliefPack = row.source_type === "RELIEF_PACK";
-      const quantityKey = isReliefPack ? "relief_packs" : "loose_items";
-
-      totals[`${quantityKey}_received`] += Number(row.quantity_received || 0);
-      totals[`${quantityKey}_distributed`] += Number(
-        row.quantity_distributed || 0,
-      );
-      totals[`${quantityKey}_remaining`] += Number(
-        row.quantity_remaining || 0,
-      );
-      return totals;
-    },
-    {
-      loose_items_received: 0,
-      loose_items_distributed: 0,
-      loose_items_remaining: 0,
-      relief_packs_received: 0,
-      relief_packs_distributed: 0,
-      relief_packs_remaining: 0,
-    },
-  );
+  const publicUtilizationRows = hasTransparencyPagination
+    ? Array.isArray(transparencyQueryResult)
+      ? buildPublicDonationUtilizationRows(transparencyQueryResult)
+      : Array.isArray(transparencyQueryResult?.rows)
+        ? transparencyQueryResult.rows
+        : []
+    : buildPublicDonationUtilizationRows(transparencyQueryResult);
+  const publicUtilizationTotals =
+    hasTransparencyPagination && transparencyQueryResult?.totals
+      ? {
+          loose_items_received: Number(
+            transparencyQueryResult.totals.loose_items_received || 0,
+          ),
+          loose_items_distributed: Number(
+            transparencyQueryResult.totals.loose_items_distributed || 0,
+          ),
+          loose_items_remaining: Number(
+            transparencyQueryResult.totals.loose_items_remaining || 0,
+          ),
+          relief_packs_received: Number(
+            transparencyQueryResult.totals.relief_packs_received || 0,
+          ),
+          relief_packs_distributed: Number(
+            transparencyQueryResult.totals.relief_packs_distributed || 0,
+          ),
+          relief_packs_remaining: Number(
+            transparencyQueryResult.totals.relief_packs_remaining || 0,
+          ),
+        }
+      : calculatePublicDonationUtilizationTotals(publicUtilizationRows);
   const publicDonorLabels = new Map();
   const getPublicUtilizationDonorLabel = (row) => {
+    const donorLabelNumber = Number(row.donor_label_number);
+
+    if (Number.isSafeInteger(donorLabelNumber) && donorLabelNumber > 0) {
+      return `Donor #${donorLabelNumber}`;
+    }
+
     const donorKey = [
       row.donor_name,
       row.donor_type,
@@ -2641,6 +2765,36 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
 
     return publicDonorLabels.get(donorKey);
   };
+  const transparencyPaginationMetadata = hasTransparencyPagination
+    ? (() => {
+        const totalItems = Number(transparencyQueryResult?.totalItems || 0);
+        const pageSize = Number(
+          transparencyQueryResult?.pageSize ||
+            transparencyPaginationOptions.pageSize,
+        );
+        const totalPages =
+          totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
+        const page = Math.min(
+          Math.max(
+            Number(
+              transparencyQueryResult?.page ||
+                transparencyPaginationOptions.page,
+            ),
+            1,
+          ),
+          totalPages || 1,
+        );
+
+        return {
+          page,
+          pageSize,
+          totalItems,
+          totalPages,
+          hasPreviousPage: page > 1,
+          hasNextPage: totalPages > 0 && page < totalPages,
+        };
+      })()
+    : null;
 
   return {
     public_contact_config: getPublicContactConfig(),
@@ -2662,31 +2816,12 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
       total_relief_packs_distributed:
         publicUtilizationTotals.relief_packs_distributed,
       total_relief_packs_remaining: publicUtilizationTotals.relief_packs_remaining,
-      received_vs_distributed: publicUtilizationRows.map((row) => ({
-        public_key: createPublicKey(
-          "utilization-source",
-          row.source_key,
-        ),
-        donor_name:
-          row.donor_name_public === true && row.donor_name
-            ? row.donor_name
-            : getPublicUtilizationDonorLabel(row),
-        donor_type: row.donor_type,
-        donor_type_label: donorTypeLabels[row.donor_type] || "Other",
-        disaster_event_id: row.disaster_event_id,
-        disaster_event_title: row.disaster_event_title,
-        source_type: row.source_type,
-        relief_pack_name: row.relief_pack_name,
-        item_name: row.item_name,
-        unit_of_measure: row.unit_of_measure,
-        quantity_received: row.quantity_received,
-        quantity_distributed: row.quantity_distributed,
-        quantity_written_off: row.quantity_written_off,
-        write_off_reasons: Array.isArray(row.write_off_reasons)
-          ? row.write_off_reasons
-          : [],
-        quantity_remaining: row.quantity_remaining,
-      })),
+      received_vs_distributed: publicUtilizationRows.map((row) =>
+        mapPublicDonationUtilizationRow(row, getPublicUtilizationDonorLabel),
+      ),
+      ...(transparencyPaginationMetadata
+        ? { pagination: transparencyPaginationMetadata }
+        : {}),
     },
   };
 };
