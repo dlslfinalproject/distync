@@ -752,6 +752,7 @@ test("stub routes forward req.auth without adding MAYOR to detail/search/verify"
   const roleHeaders = [];
   const validators = {
     validateGetBarangayStubDashboard: (_req, _res, next) => next(),
+    validateGetMunicipalStubDashboard: (_req, _res, next) => next(),
     validateStubSearch: (req, _res, next) => {
       req.validatedQuery = {
         q: "STUB-001",

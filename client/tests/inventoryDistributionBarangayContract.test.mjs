@@ -16,9 +16,9 @@ test("Inventory Distribution uses supported barangay scope for a selected barang
   assert.doesNotMatch(source, /overrideBarangayId:\s*selectedBarangayId/);
 });
 
-test("Inventory Distribution municipality aggregation uses supported barangay scope", () => {
-  assert.match(source, /barangayId:\s*barangay\.id/);
-
+test("Inventory Distribution municipality aggregation delegates scope to the server", () => {
+  assert.match(source, /fetchMunicipalStubDashboard\(/);
+  assert.doesNotMatch(source, /barangayId:\s*barangay\.id/);
   assert.doesNotMatch(source, /overrideBarangayId:\s*barangay\.id/);
 });
 

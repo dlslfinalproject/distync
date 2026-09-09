@@ -1,4 +1,5 @@
 const masterlistRepository = require("../repositories/masterlist.repository");
+const disasterEventRepository = require("../repositories/disasterEvent.repository");
 const pool = require("../config/db");
 const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
 const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate.repository");
@@ -24,6 +25,7 @@ const { resolveRequesterBarangayId } = require("../utils/requesterScope");
 const isOverrideAllowed = process.env.NODE_ENV !== "production";
 const ACTIVE_QR_STATUS = "ACTIVE";
 const BARANGAY_ROLE_CODE = "BARANGAY";
+const MAYOR_ROLE_CODE = "MAYOR";
 const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
 const ARCHIVED_HOUSEHOLD_CODE = "HOUSEHOLD_ARCHIVED";
 const HOUSEHOLD_NOT_PRESENT_CODE = "HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER";
@@ -122,23 +124,31 @@ const getReliefPackComponentItemIds = async (
       }
 
       if (Array.isArray(template?.items)) {
-        return template.items;
+        if (!templateItemsByTemplateId.has(templateId)) {
+          templateItemsByTemplateId.set(
+            templateId,
+            Promise.resolve(template.items),
+          );
+        }
+
+        return templateItemsByTemplateId.get(templateId);
       }
 
       if (templateItemsByTemplateId.has(templateId)) {
         return templateItemsByTemplateId.get(templateId);
       }
 
-      const itemRows =
+      const itemRowsPromise = Promise.resolve(
         typeof reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId ===
-        "function"
-          ? await reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId(
+          "function"
+          ? reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId(
               templateId,
             )
-          : [];
-      const normalizedItemRows = Array.isArray(itemRows) ? itemRows : [];
-      templateItemsByTemplateId.set(templateId, normalizedItemRows);
-      return normalizedItemRows;
+          : [],
+      ).then((itemRows) => (Array.isArray(itemRows) ? itemRows : []));
+
+      templateItemsByTemplateId.set(templateId, itemRowsPromise);
+      return itemRowsPromise;
     }),
   );
 
@@ -595,14 +605,16 @@ const getBarangayStubDashboard = async (filters) => {
     if (!donatedReliefPackPreviewByQueuePosition.has(normalizedQueuePosition)) {
       donatedReliefPackPreviewByQueuePosition.set(
         normalizedQueuePosition,
-        await getAvailableDonatedReliefPacksForClaimPreview(
+        getAvailableDonatedReliefPacksForClaimPreview(
           filters.disaster_event_id,
           normalizedQueuePosition,
         ),
       );
     }
 
-    return donatedReliefPackPreviewByQueuePosition.get(normalizedQueuePosition);
+    return await donatedReliefPackPreviewByQueuePosition.get(
+      normalizedQueuePosition,
+    );
   };
   const templateItemsByTemplateId = new Map();
   const donatedLooseItemPreviewByQueuePosition = new Map();
@@ -630,7 +642,7 @@ const getBarangayStubDashboard = async (filters) => {
     if (!donatedLooseItemPreviewByQueuePosition.has(cacheKey)) {
       donatedLooseItemPreviewByQueuePosition.set(
         cacheKey,
-        await getAvailableDonatedLooseItemsForClaimPreview(
+        getAvailableDonatedLooseItemsForClaimPreview(
           filters.disaster_event_id,
           normalizedQueuePosition,
           metrics.unclaimed_stubs,
@@ -641,7 +653,7 @@ const getBarangayStubDashboard = async (filters) => {
       );
     }
 
-    return donatedLooseItemPreviewByQueuePosition.get(cacheKey);
+    return await donatedLooseItemPreviewByQueuePosition.get(cacheKey);
   };
 
   const response = {
@@ -780,6 +792,306 @@ const getBarangayStubDashboard = async (filters) => {
   }
 
   return response;
+};
+
+const getMunicipalStubDashboard = async ({
+  disaster_event_id: disasterEventId,
+  requester,
+  qr_generated_by: qrGeneratedBy,
+} = {}) => {
+  if (requester?.roleCode !== MAYOR_ROLE_CODE) {
+    const error = new Error(
+      "Only Mayor users can access the municipal stub dashboard",
+    );
+    error.statusCode = 403;
+    error.code = "MUNICIPAL_STUB_FORBIDDEN";
+    throw error;
+  }
+
+  const scopedDisasterEvent =
+    await disasterEventRepository.getDisasterEventById(disasterEventId);
+
+  if (!scopedDisasterEvent) {
+    const error = new Error("Disaster event not found");
+    error.statusCode = 404;
+    error.code = "DISASTER_EVENT_NOT_FOUND";
+    throw error;
+  }
+
+  if (scopedDisasterEvent.status !== "ACTIVE") {
+    const error = new Error("Disaster event is not active");
+    error.statusCode = 400;
+    error.code = "DISASTER_EVENT_NOT_ACTIVE";
+    throw error;
+  }
+
+  const mappedBarangays =
+    await disasterEventRepository.getAffectedBarangayScopeByDisasterEventId(
+      disasterEventId,
+    );
+  const hasInvalidBarangayScope = mappedBarangays.some(
+    (barangay) =>
+      !barangay?.mapped_barangay_id ||
+      !barangay?.id ||
+      String(barangay.mapped_barangay_id) !== String(barangay.id) ||
+      barangay.is_active !== true,
+  );
+
+  if (hasInvalidBarangayScope) {
+    const error = new Error(
+      "The disaster event has an invalid affected barangay scope",
+    );
+    error.statusCode = 409;
+    error.code = "INVALID_EVENT_BARANGAY_SCOPE";
+    throw error;
+  }
+
+  const affectedBarangaysById = new Map();
+  mappedBarangays.forEach((barangay) => {
+    if (!affectedBarangaysById.has(barangay.id)) {
+      affectedBarangaysById.set(barangay.id, {
+        id: barangay.id,
+        code: barangay.code,
+        name: barangay.name,
+      });
+    }
+  });
+  const affectedBarangays = [...affectedBarangaysById.values()].sort(
+    (left, right) =>
+      String(left.name || "").localeCompare(String(right.name || "")) ||
+      String(left.id || "").localeCompare(String(right.id || "")),
+  );
+  const barangayIds = affectedBarangays.map((barangay) => barangay.id);
+  const responseContext = {
+    scope: "municipal",
+    disaster_event: scopedDisasterEvent,
+    barangay_ids: barangayIds,
+    barangay_count: barangayIds.length,
+  };
+
+  if (barangayIds.length === 0) {
+    return {
+      ...responseContext,
+      count: 0,
+      data: [],
+    };
+  }
+
+  const rows = await stubRepository.getMunicipalStubDashboardRows(
+    disasterEventId,
+    barangayIds,
+  );
+  const rowsWithQr = await Promise.all(
+    rows.map((row) => ensureStubQrMetadata(row, qrGeneratedBy)),
+  );
+  const householdIds = [
+    ...new Set(rowsWithQr.map((row) => row.household_id).filter(Boolean)),
+  ];
+  const [householdSectors, memberSectors, reliefPackTemplates] =
+    await Promise.all([
+      stubRepository.getHouseholdSectorsByHouseholdIds(householdIds),
+      stubRepository.getMemberSectorsByHouseholdIds(householdIds),
+      reliefPackTemplateRepository.getReliefPackTemplates({
+        is_active: true,
+        based_on_family_size: null,
+        based_on_sector: null,
+        search: "",
+        disaster_type: scopedDisasterEvent.disaster_type || null,
+      }),
+    ]);
+  const householdSectorsByHouseholdId = groupByKey(
+    householdSectors,
+    "household_id",
+  );
+  const memberSectorsByHouseholdId = groupByKey(
+    memberSectors,
+    "household_id",
+  );
+  const municipalUnclaimedStubCount = rowsWithQr.filter(
+    (row) =>
+      row.status === "ISSUED" &&
+      row.is_active === true &&
+      row.latest_attendance_status === "PRESENT" &&
+      row.latest_attendance_time_out === null,
+  ).length;
+  const donatedReliefPackPreviewByQueuePosition = new Map();
+  const getDonatedReliefPackPreviewForQueuePosition = async (queuePosition) => {
+    const normalizedQueuePosition = Number(queuePosition || 0);
+
+    if (normalizedQueuePosition <= 0) {
+      return [];
+    }
+
+    if (!donatedReliefPackPreviewByQueuePosition.has(normalizedQueuePosition)) {
+      donatedReliefPackPreviewByQueuePosition.set(
+        normalizedQueuePosition,
+        getAvailableDonatedReliefPacksForClaimPreview(
+          disasterEventId,
+          normalizedQueuePosition,
+        ),
+      );
+    }
+
+    return await donatedReliefPackPreviewByQueuePosition.get(
+      normalizedQueuePosition,
+    );
+  };
+  const templateItemsByTemplateId = new Map();
+  const donatedLooseItemPreviewByQueuePosition = new Map();
+  const getDonatedLooseItemPreviewForQueuePosition = async (
+    queuePosition,
+    excludedInventoryItemIds = [],
+  ) => {
+    const normalizedQueuePosition = Number(queuePosition || 0);
+    const normalizedExcludedInventoryItemIds = [
+      ...new Set(
+        (excludedInventoryItemIds || [])
+          .map((inventoryItemId) => String(inventoryItemId || "").trim())
+          .filter(Boolean),
+      ),
+    ].sort();
+    const cacheKey = [
+      normalizedQueuePosition,
+      normalizedExcludedInventoryItemIds.join(","),
+    ].join("|");
+
+    if (normalizedQueuePosition <= 0) {
+      return [];
+    }
+
+    if (!donatedLooseItemPreviewByQueuePosition.has(cacheKey)) {
+      donatedLooseItemPreviewByQueuePosition.set(
+        cacheKey,
+        getAvailableDonatedLooseItemsForClaimPreview(
+          disasterEventId,
+          normalizedQueuePosition,
+          municipalUnclaimedStubCount,
+          {
+            excludedInventoryItemIds: normalizedExcludedInventoryItemIds,
+          },
+        ),
+      );
+    }
+
+    return await donatedLooseItemPreviewByQueuePosition.get(cacheKey);
+  };
+
+  const data = await Promise.all(
+    rowsWithQr.map(async (row) => {
+      const sectorIds = buildSectorIds(
+        row.household_id,
+        householdSectorsByHouseholdId,
+        memberSectorsByHouseholdId,
+      );
+      const storedAssignedReliefPacks =
+        normalizeReliefPackAssignmentSnapshots(
+          row.assigned_relief_pack_snapshots,
+        );
+      const liveAssignedReliefPacks =
+        getAssignedReliefPackTemplatesForSectorIds(
+          sectorIds,
+          reliefPackTemplates,
+          scopedDisasterEvent.disaster_type,
+        ).map((template) => ({
+          id: template.id,
+          name: template.name,
+          description: template.description || null,
+          based_on_family_size: Boolean(template.based_on_family_size),
+          is_additional_pack: Boolean(template.is_additional_pack),
+          sector_id: template.sector_id || null,
+        }));
+      const assignedReliefPacks = isLiveUnclaimedReliefPackAssignment({
+        status: row.status,
+        disasterEventStatus: scopedDisasterEvent.status,
+      })
+        ? liveAssignedReliefPacks
+        : storedAssignedReliefPacks ?? liveAssignedReliefPacks;
+      const showLiveClaimPreview = isLiveUnclaimedReliefPackAssignment({
+        status: row.status,
+        disasterEventStatus: scopedDisasterEvent.status,
+      });
+      const reliefPackName = assignedReliefPacks
+        .map((template) => template.name)
+        .filter(Boolean)
+        .join(", ");
+      const assignedReliefPackComponentItemIds =
+        await getReliefPackComponentItemIds(
+          assignedReliefPacks,
+          templateItemsByTemplateId,
+        );
+
+      return {
+        id: row.id,
+        stub_no: row.stub_no,
+        display_stub_no: formatStubDisplayNo(row.stub_sequence_no),
+        serial_no: row.serial_no,
+        stub_sequence_no: row.stub_sequence_no,
+        status: row.status,
+        issued_at: row.issued_at,
+        claimed_at: row.claimed_at || null,
+        distribution_date: row.distribution_date || null,
+        received_at: row.received_at || null,
+        receipt_no: row.receipt_no || null,
+        verified_by_name: row.verified_by_name || null,
+        qr_code_value: row.qr_code_value || null,
+        qr_generated_at: row.qr_generated_at || null,
+        qr_generated_by: row.qr_generated_by || null,
+        qr_status: row.qr_status || null,
+        qr_notes: row.qr_notes || null,
+        queue_time_in: row.queue_time_in || null,
+        latest_attendance_status: row.latest_attendance_status || null,
+        latest_attendance_time_out: row.latest_attendance_time_out || null,
+        barangay_id: row.barangay_id || null,
+        barangay_name: row.barangay_name || null,
+        unclaimed_queue_position: row.unclaimed_queue_position || null,
+        household: {
+          id: row.household_id,
+          family_head_name: buildFullName(
+            row.family_head_first_name,
+            row.family_head_middle_name,
+            row.family_head_last_name,
+            row.family_head_suffix,
+          ),
+          household_size: row.household_size || row.members_count,
+          members_count: row.members_count,
+          is_active: row.is_active !== false,
+          family_head_photo_url: row.family_head_photo_url || null,
+          photo_captured_at: row.photo_captured_at || null,
+          photo_verification_notes: row.photo_verification_notes || null,
+        },
+        sectors_text: buildSectorsText(
+          row.household_id,
+          householdSectorsByHouseholdId,
+          memberSectorsByHouseholdId,
+        ),
+        sectors: buildSectors(
+          row.household_id,
+          householdSectorsByHouseholdId,
+          memberSectorsByHouseholdId,
+        ),
+        sector_ids: sectorIds,
+        assigned_relief_packs: assignedReliefPacks,
+        available_donated_relief_packs: showLiveClaimPreview
+          ? await getDonatedReliefPackPreviewForQueuePosition(
+              row.unclaimed_queue_position,
+            )
+          : [],
+        available_donated_loose_items: showLiveClaimPreview
+          ? await getDonatedLooseItemPreviewForQueuePosition(
+              row.unclaimed_queue_position,
+              assignedReliefPackComponentItemIds,
+            )
+          : [],
+        relief_pack_name: reliefPackName || "--",
+      };
+    }),
+  );
+
+  return {
+    ...responseContext,
+    count: data.length,
+    data,
+  };
 };
 
 const claimBarangayStub = async (params) => {
@@ -1443,6 +1755,7 @@ const exportStubClaimHistory = async (filters) => {
 
 module.exports = {
   getBarangayStubDashboard,
+  getMunicipalStubDashboard,
   getSearchResults,
   getStubDetails,
   verifyStub,

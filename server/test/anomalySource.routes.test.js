@@ -280,6 +280,7 @@ test("ANOMSRC-07 direct stub verification failure writes one structured source",
       },
       [stubValidatorPath]: {
         validateGetBarangayStubDashboard: (_req, _res, next) => next(),
+        validateGetMunicipalStubDashboard: (_req, _res, next) => next(),
         validateStubSearch: (_req, _res, next) => next(),
         validateStubId: (_req, _res, next) => next(),
         validateStubVerify: (req, _res, next) => {
@@ -357,6 +358,7 @@ test("ANOMSRC-09 direct barangay stub claim duplicate writes one structured sour
       },
       [stubValidatorPath]: {
         validateGetBarangayStubDashboard: (_req, _res, next) => next(),
+        validateGetMunicipalStubDashboard: (_req, _res, next) => next(),
         validateStubSearch: (_req, _res, next) => next(),
         validateStubId: (_req, _res, next) => next(),
         validateStubVerify: (_req, _res, next) => next(),
@@ -424,6 +426,7 @@ test("ANOMSRC-10 stub verification of an already claimed stub is not logged as a
       },
       [stubValidatorPath]: {
         validateGetBarangayStubDashboard: (_req, _res, next) => next(),
+        validateGetMunicipalStubDashboard: (_req, _res, next) => next(),
         validateStubSearch: (_req, _res, next) => next(),
         validateStubId: (_req, _res, next) => next(),
         validateStubVerify: (req, _res, next) => {

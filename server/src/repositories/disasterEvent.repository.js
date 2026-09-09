@@ -184,6 +184,27 @@ const getAffectedBarangaysByDisasterEventId = async (disasterEventId) => {
   return result.rows;
 };
 
+const getAffectedBarangayScopeByDisasterEventId = async (disasterEventId) => {
+  const query = `
+    SELECT
+      deb.barangay_id AS mapped_barangay_id,
+      b.id,
+      b.code,
+      b.name,
+      b.is_active
+    FROM disaster_event_barangays deb
+    LEFT JOIN barangays b ON b.id = deb.barangay_id
+    WHERE deb.disaster_event_id = $1
+    ORDER BY
+      b.name ASC NULLS LAST,
+      b.id ASC NULLS LAST,
+      deb.barangay_id ASC
+  `;
+
+  const result = await pool.query(query, [disasterEventId]);
+  return result.rows;
+};
+
 const getHouseholdCountsByDisasterEventBarangayIds = async (
   disasterEventId,
   barangayIds,
@@ -1053,6 +1074,7 @@ module.exports = {
   findConflictingOpenDisasterEventByTitle,
   getLatestHouseholdActivityByDisasterEventId,
   getAffectedBarangaysByDisasterEventId,
+  getAffectedBarangayScopeByDisasterEventId,
   getHouseholdCountsByDisasterEventBarangayIds,
   getAffectedBarangaysByDisasterEventIds,
   listActiveDisasterEventsForEvacuationSummary,

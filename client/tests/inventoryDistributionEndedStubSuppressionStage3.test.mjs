@@ -94,7 +94,7 @@ test("only the explicit ACTIVE view and ACTIVE event status enable Stub-dashboar
   );
 });
 
-test("the hook gates Stub loading before selected/all-Barangay fan-out and preserves source semantics", async () => {
+test("the hook gates Stub loading before selected/municipal loading and preserves ended suppression", async () => {
   const source = await readSource(
     "../src/features/inventory-distribution/useInventoryDistribution.js",
   );
@@ -106,9 +106,11 @@ test("the hook gates Stub loading before selected/all-Barangay fan-out and prese
   );
   assert.match(
     source,
-    /if \(!selectedDisasterEventId \|\| requestedBarangayIds\.length === 0\) \{[\s\S]*?setStubDashboardPayload\(emptyStubDashboardPayload\);[\s\S]*?return;[\s\S]*?\}/,
+    /shouldLoadInventoryDistributionStubDashboard\(\{/,
   );
-  assert.match(source, /selectableBarangays\.map\(\(barangay\) =>/);
+  assert.match(source, /fetchMunicipalStubDashboard\(\{[\s\S]*?disasterEventId: selectedDisasterEventId/);
+  assert.doesNotMatch(source, /Promise\.all\([\s\S]*selectableBarangays\.map\([\s\S]*fetchBarangayStubDashboard/);
+  assert.doesNotMatch(source, /combineStubDashboardPayloads/);
   assert.match(
     source,
     /activeTab === "ended"\s*\?\s*masterlistDistributionRows\s*:/,
@@ -117,6 +119,8 @@ test("the hook gates Stub loading before selected/all-Barangay fan-out and prese
   assert.match(source, /const status = stub\?\.status \|\| "";/);
   assert.match(source, /let isMounted = true;/);
   assert.match(source, /isMounted = false;/);
+  assert.match(source, /stubRequestGenerationRef/);
+  assert.match(source, /isCurrentRequest\(\)/);
   assert.match(source, /selectedDisasterEvent\?\.status,\s*selectedDisasterEventId/);
   assert.doesNotMatch(source, /fetchBarangayStubDashboard\(\{[\s\S]*?page:/);
   assert.doesNotMatch(source, /fetchBarangayStubDashboard\(\{[\s\S]*?pageSize:/);

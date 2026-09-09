@@ -154,6 +154,44 @@ export const fetchBarangayStubDashboard = async ({
   return responseData;
 };
 
+export const fetchMunicipalStubDashboard = async ({
+  disasterEventId,
+  skipOfflineCache = false,
+}) => {
+  const searchParams = new URLSearchParams({
+    disaster_event_id: disasterEventId,
+  });
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/stubs/municipal-dashboard?${searchParams.toString()}`,
+  );
+  const responseData = await handleJsonResponse(
+    response,
+    "Failed to fetch municipal stub dashboard",
+  );
+
+  responseData.data = (
+    Array.isArray(responseData.data) ? responseData.data : []
+  ).map((row) => ({
+    ...row,
+    disaster_event_id:
+      row.disaster_event_id || responseData.disaster_event?.id || disasterEventId,
+    disaster_event:
+      row.disaster_event || responseData.disaster_event || { id: disasterEventId },
+    barangay_id: row.barangay_id || "",
+    barangay:
+      row.barangay ||
+      (row.barangay_id || row.barangay_name
+        ? { id: row.barangay_id || "", name: row.barangay_name || "" }
+        : null),
+  }));
+
+  if (!skipOfflineCache) {
+    await upsertOfflineStubSnapshots(responseData.data);
+  }
+
+  return responseData;
+};
+
 export const searchStubs = async ({ query, disasterEventId, barangayId }) => {
   const response = await fetch(
     buildSearchUrl({ query, disasterEventId, barangayId }),

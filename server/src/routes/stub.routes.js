@@ -5,6 +5,7 @@ const stubService = require("../services/stub.service");
 const { logErrorSafely } = require("../utils/systemLog");
 const {
   validateGetBarangayStubDashboard,
+  validateGetMunicipalStubDashboard,
   validateStubSearch,
   validateStubId,
   validateStubVerify,
@@ -98,6 +99,30 @@ router.get(
       return res.status(statusCode).json({
         error: error.code || null,
         message: error.message || "Failed to fetch stub dashboard",
+      });
+    }
+  },
+);
+
+router.get(
+  "/municipal-dashboard",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateGetMunicipalStubDashboard,
+  async (req, res) => {
+    try {
+      const dashboard = await stubService.getMunicipalStubDashboard({
+        disaster_event_id: req.validatedQuery.disaster_event_id,
+        requester: req.auth,
+        qr_generated_by: req.auth.userId,
+      });
+
+      return res.status(200).json(dashboard);
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        error: error.code || null,
+        message: error.message || "Failed to fetch municipal stub dashboard",
       });
     }
   },

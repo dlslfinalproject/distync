@@ -175,6 +175,39 @@ const validateGetBarangayStubDashboard = (req, res, next) => {
   }
 };
 
+const validateGetMunicipalStubDashboard = (req, res, next) => {
+  try {
+    const query = req.query || {};
+    const supportedParameters = new Set(["disaster_event_id"]);
+    const unsupportedParameter = Object.keys(query).find(
+      (parameter) => !supportedParameters.has(parameter),
+    );
+
+    if (unsupportedParameter) {
+      return res.status(400).json({
+        message: `${unsupportedParameter} is not supported for the municipal stub dashboard`,
+      });
+    }
+
+    if (!isValidUuid(query.disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id is required and must be a valid UUID",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_id: query.disaster_event_id,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate municipal stub dashboard request",
+      error: error.message,
+    });
+  }
+};
+
 const validateStubId = (req, res, next) => {
   try {
     const { id } = req.params;
@@ -443,6 +476,7 @@ const validateStubHistoryExport = (req, res, next) => {
 
 module.exports = {
   validateGetBarangayStubDashboard,
+  validateGetMunicipalStubDashboard,
   validateStubSearch,
   validateStubId,
   validateStubVerify,
