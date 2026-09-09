@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../context/AuthContext.jsx";
 import {
   fetchActiveDisasterEvents,
   fetchBarangays,
@@ -12,6 +13,8 @@ import {
   formatMasterlistFilterSectorLabel,
   getCanonicalMemberSectorCode,
 } from "../../utils/registrationOptions";
+import { readOperationalDisasterEventContext, readOperationalDisasterEventId, persistOperationalDisasterEventSelection } from "../disaster-events/operationalDisasterEventSelection.js";
+import { readMswdoOfflineSnapshot } from "../offline/mswdoOfflinePreparation.js";
 
 const emptyOperationalPayload = {
   disaster_event: null,
@@ -198,14 +201,17 @@ const getAffectedBarangayIds = (event) => {
 };
 
 export const useMswdoAnalytics = () => {
+  const { authenticatedUser } = useAuth();
+  const userId = authenticatedUser?.id || "";
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
-  const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
+  const [selectedDisasterEventId, setSelectedDisasterEventId] = useState(() => readOperationalDisasterEventId({ roleCode: "MSWDO", userId }));
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
   const [operationalPayload, setOperationalPayload] = useState(emptyOperationalPayload);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -225,7 +231,8 @@ export const useMswdoAnalytics = () => {
           return;
         }
 
-        const allEvents = Array.isArray(eventsPayload) ? eventsPayload : [];
+        const restoredEvent = readOperationalDisasterEventContext({ roleCode: "MSWDO", userId });
+        const allEvents = Array.isArray(eventsPayload) ? eventsPayload : restoredEvent ? [restoredEvent] : [];
         const activeEvents = Array.isArray(activePayload) ? activePayload : [];
         const barangayRows = Array.isArray(barangaysPayload) ? barangaysPayload : [];
 
@@ -233,13 +240,20 @@ export const useMswdoAnalytics = () => {
         setBarangays(barangayRows);
 
         if (activeEvents.length > 0) {
-          setSelectedDisasterEventId(activeEvents[0].id);
+          setSelectedDisasterEventId(readOperationalDisasterEventId({ roleCode: "MSWDO", userId }) || activeEvents[0].id);
         } else if (allEvents.length > 0) {
-          setSelectedDisasterEventId(allEvents[0].id);
+          setSelectedDisasterEventId(readOperationalDisasterEventId({ roleCode: "MSWDO", userId }) || allEvents[0].id);
         }
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error.message || "Failed to load analytics filters");
+          const restoredEvent = readOperationalDisasterEventContext({ roleCode: "MSWDO", userId });
+          const cached = restoredEvent ? await readMswdoOfflineSnapshot({ userId, eventId: restoredEvent.id }) : null;
+          if (cached) {
+            setDisasterEvents(cached.datasets.filters.events || [restoredEvent]);
+            setBarangays(cached.datasets.filters.barangays || []);
+            setSelectedDisasterEventId(restoredEvent.id);
+            setErrorMessage("");
+          } else setErrorMessage(error.message || "Failed to load analytics filters");
         }
       } finally {
         if (isMounted) {
@@ -278,8 +292,14 @@ export const useMswdoAnalytics = () => {
         }
       } catch (error) {
         if (isMounted) {
-          setOperationalPayload(emptyOperationalPayload);
-          setErrorMessage(error.message || "Failed to load analytics dashboard");
+          const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
+          if (cached) {
+            setOperationalPayload(cached.datasets.dashboard.payload || emptyOperationalPayload);
+            setErrorMessage("");
+          } else {
+            setOperationalPayload(emptyOperationalPayload);
+            setErrorMessage(error.message || "Failed to load analytics dashboard");
+          }
         }
       } finally {
         if (isMounted) {
@@ -293,7 +313,19 @@ export const useMswdoAnalytics = () => {
     return () => {
       isMounted = false;
     };
-  }, [selectedBarangayId, selectedDisasterEventId]);
+  }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
+
+  useEffect(() => {
+    const refresh = () => setReloadKey((value) => value + 1);
+    window?.addEventListener?.("online", refresh);
+    return () => window?.removeEventListener?.("online", refresh);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedDisasterEventId || !userId) return;
+    const event = disasterEvents.find((row) => row.id === selectedDisasterEventId) || null;
+    persistOperationalDisasterEventSelection({ roleCode: "MSWDO", userId, eventId: selectedDisasterEventId, eventScope: event?.status === "ACTIVE" ? "active" : "ended", event });
+  }, [disasterEvents, selectedDisasterEventId, userId]);
 
   const selectedDisasterEvent = useMemo(() => {
     return disasterEvents.find((event) => event.id === selectedDisasterEventId) || null;

@@ -32,7 +32,7 @@ const getDurableStorage = () => {
 };
 
 const usesDurableOperationalSelection = (roleCode) =>
-  roleCode === ROLE_CODES.BARANGAY;
+  roleCode === ROLE_CODES.BARANGAY || roleCode === ROLE_CODES.MSWDO;
 
 const normalizeRoleCode = (roleCode) =>
   Object.values(ROLE_CODES).includes(roleCode) ? roleCode : "UNKNOWN";
@@ -271,6 +271,12 @@ export const persistOperationalDisasterEventSelection = ({
   if (VALID_SCOPES.has(eventScope)) {
     writeStorageValue(eventScopeKey, eventScope, storage);
     writeStorageValue(eventScopeKey, eventScope, durableStorage);
+  }
+
+  if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+    window.dispatchEvent(new CustomEvent("distync-operational-event-selection-updated", {
+      detail: { roleCode, userId, eventId, eventScope, mode },
+    }));
   }
 };
 

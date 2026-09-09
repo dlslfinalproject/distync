@@ -10,6 +10,10 @@ import {
 import {
   isBarangayOfflineBlockedRoute,
 } from "../../features/offline/barangayOfflineAccess";
+import {
+  isMswdoOfflineBlockedRoute,
+  MSWDO_OFFLINE_ACCESS_MESSAGE,
+} from "../../features/offline/mswdoOfflineAccess";
 import distyncLogo from "../../assets/distync-logo.png";
 import SidebarAccountMenu from "./SidebarAccountMenu";
 
@@ -356,11 +360,17 @@ const Sidebar = ({
               currentRole === ROLE_CODES.MAYOR &&
               isOffline &&
               isMayorOfflineBlockedRoute(item.to);
+            const isMswdoOfflineLocked =
+              currentRole === ROLE_CODES.MSWDO &&
+              isOffline &&
+              isMswdoOfflineBlockedRoute(item.to);
             const isMayorOfflineLocked =
-              isMayorOfflineRouteLocked || isBarangayOfflineLocked;
+              isMayorOfflineRouteLocked || isBarangayOfflineLocked || isMswdoOfflineLocked;
             const offlineAccessMessage = isBarangayOfflineLocked
               ? BARANGAY_SIDEBAR_OFFLINE_ACCESS_MESSAGE
-              : MAYOR_OFFLINE_ACCESS_MESSAGE;
+              : isMswdoOfflineLocked
+                ? MSWDO_OFFLINE_ACCESS_MESSAGE
+                : MAYOR_OFFLINE_ACCESS_MESSAGE;
             const handleNavigationClick = (event) => {
               if (isMayorOfflineLocked) {
                 event.preventDefault();
@@ -387,7 +397,7 @@ const Sidebar = ({
                   textDecoration: "none",
                   display: "block",
                   marginLeft: item.isSectionChild && !isCollapsed ? "8px" : 0,
-                  cursor: isMayorOfflineLocked ? "not-allowed" : "pointer",
+                    cursor: isMayorOfflineLocked ? "not-allowed" : "pointer",
                 }}
               >
                 {({ isActive }) => (
@@ -395,7 +405,7 @@ const Sidebar = ({
                     className="distync-sidebar__nav-item"
                     style={{
                       backgroundColor: isActive
-                        ? isMayorOfflineLocked
+                          ? isMayorOfflineLocked
                           ? "#edf2f6"
                           : "#e1eef9"
                         : isMayorOfflineLocked
@@ -425,7 +435,7 @@ const Sidebar = ({
                             : "none",
                       opacity: isBarangayOfflineLocked
                         ? 0.55
-                        : isMayorOfflineLocked
+                      : isMayorOfflineLocked
                           ? 0.62
                           : 1,
                       transition:

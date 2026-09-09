@@ -22,8 +22,10 @@ import {
 import {
   persistOperationalDisasterEventSelection,
   readOperationalDisasterEventId,
+  readOperationalDisasterEventContext,
   resolveOperationalDisasterEventId,
 } from "../disaster-events/operationalDisasterEventSelection";
+import { readMswdoOfflineSnapshot } from "../offline/mswdoOfflinePreparation.js";
 
 const emptyMasterlistPayload = {
   disaster_event: null,
@@ -168,6 +170,7 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
         userId,
         eventId: nextEventId,
         eventScope: nextEvent?.status === "ACTIVE" ? "active" : "ended",
+        event: nextEvent,
       });
     },
     [disasterEvents, resetPage, userId],
@@ -237,7 +240,8 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
           return;
         }
 
-        const allEvents = Array.isArray(eventsPayload) ? eventsPayload : [];
+        const restoredEvent = readOperationalDisasterEventContext({ roleCode: ROLE_CODES.MSWDO, userId });
+        const allEvents = Array.isArray(eventsPayload) ? eventsPayload : restoredEvent ? [restoredEvent] : [];
         const activeEvents = Array.isArray(activePayload) ? activePayload : [];
         const barangayRows = Array.isArray(barangaysPayload) ? barangaysPayload : [];
         const sectorSource = Array.isArray(sectorsPayload?.data)
@@ -272,10 +276,21 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
             "ACTIVE"
               ? "active"
               : "ended",
+          event: allEvents.find((event) => event.id === nextSelectedEventId) || null,
         });
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error.message || "Failed to load monitoring filters");
+          const restoredEvent = readOperationalDisasterEventContext({ roleCode: ROLE_CODES.MSWDO, userId });
+          const cached = restoredEvent ? await readMswdoOfflineSnapshot({ userId, eventId: restoredEvent.id }) : null;
+          if (cached) {
+            setDisasterEvents(cached.datasets.filters.events || [restoredEvent]);
+            setBarangays(cached.datasets.filters.barangays || []);
+            setSectors(buildMasterlistFilterSectorOptions(cached.datasets.filters.sectors || []));
+            setSelectedDisasterEventIdState(restoredEvent.id);
+            setErrorMessage("");
+          } else {
+            setErrorMessage(error.message || "Failed to load monitoring filters");
+          }
         }
       } finally {
         if (isMounted) {
@@ -333,8 +348,14 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
           isMounted &&
           masterlistRequestSequenceRef.current === requestSequence
         ) {
-          setMasterlistPayload(emptyMasterlistPayload);
-          setErrorMessage(error.message || "Failed to load consolidated masterlist");
+          const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
+          if (cached) {
+            setMasterlistPayload(cached.datasets.masterlist.payload || { ...emptyMasterlistPayload, data: cached.datasets.masterlist.rows });
+            setErrorMessage("");
+          } else {
+            setMasterlistPayload(emptyMasterlistPayload);
+            setErrorMessage(error.message || "Failed to load consolidated masterlist");
+          }
         }
       } finally {
         if (
@@ -386,8 +407,14 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
         }
       } catch (error) {
         if (isMounted) {
-          setDashboardPayload(emptyDashboardPayload);
-          setDashboardErrorMessage("Unable to load descriptive analytics.");
+          const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
+          if (cached) {
+            setDashboardPayload(cached.datasets.dashboard.payload || emptyDashboardPayload);
+            setDashboardErrorMessage("");
+          } else {
+            setDashboardPayload(emptyDashboardPayload);
+            setDashboardErrorMessage("Unable to load descriptive analytics.");
+          }
         }
       } finally {
         if (isMounted) {
@@ -402,6 +429,12 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
       isMounted = false;
     };
   }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
+
+  useEffect(() => {
+    const refresh = () => setReloadKey((value) => value + 1);
+    window?.addEventListener?.("online", refresh);
+    return () => window?.removeEventListener?.("online", refresh);
+  }, []);
 
   const mappedRows = useMemo(() => {
     const pageHouseholds = masterlistPayload.data || [];

@@ -9,6 +9,9 @@ import { initializeSyncService } from "../../offline/syncService";
 import { SettingsUnsavedChangesProvider } from "../../pages/settings/SettingsUnsavedChangesContext";
 import { useBarangayDashboard } from "../../features/barangay-dashboard/useBarangayDashboard";
 import { useBarangayOfflinePreparation } from "../../features/offline/useBarangayOfflinePreparation";
+import { useMswdoOfflinePreparation } from "../../features/offline/useMswdoOfflinePreparation";
+import { isMswdoOfflineBlockedRoute, MSWDO_OFFLINE_ACCESS_MESSAGE } from "../../features/offline/mswdoOfflineAccess";
+import { readOperationalDisasterEventId } from "../../features/disaster-events/operationalDisasterEventSelection";
 import OfflineDataReadiness, {
   MayorOfflineReadyDismissalContext,
 } from "./OfflineDataReadiness";
@@ -147,6 +150,10 @@ const BarangayLayout = () => {
   );
   const isDonorPortal = currentRole === ROLE_CODES.DONOR;
   const isBarangayPortal = currentRole === ROLE_CODES.BARANGAY;
+  const isMswdoPortal = currentRole === ROLE_CODES.MSWDO;
+  const [mswdoEventId, setMswdoEventId] = useState(() =>
+    readOperationalDisasterEventId({ roleCode: ROLE_CODES.MSWDO, userId: authenticatedUser?.id || "" }),
+  );
   const { selectedEvent, assignedBarangay } = useBarangayDashboard({
     userId: isBarangayPortal ? authenticatedUser?.id || "" : "",
   });
@@ -162,6 +169,11 @@ const BarangayLayout = () => {
     barangayId: assignedBarangay?.id || authenticatedUser?.default_barangay_id || "",
     context: offlineContext,
   });
+  const mswdoOfflinePreparation = useMswdoOfflinePreparation({
+    enabled: isMswdoPortal,
+    userId: authenticatedUser?.id || "",
+    eventId: mswdoEventId,
+  });
   const isSettingsRoute = location.pathname.endsWith("/settings");
   const isSyncRoute = location.pathname.endsWith("/sync");
   const isMayorPortal = currentRole === ROLE_CODES.MAYOR;
@@ -169,6 +181,8 @@ const BarangayLayout = () => {
   const shouldBlockMayorOfflineRoute =
     isMayorOffline && isMayorOfflineBlockedRoute(location.pathname);
   const isBarangayOffline = isBarangayPortal && !isOnline;
+  const isMswdoOffline = isMswdoPortal && !isOnline;
+  const shouldBlockMswdoOfflineRoute = isMswdoOffline && isMswdoOfflineBlockedRoute(location.pathname);
   const shouldBlockBarangayOfflineRoute =
     isBarangayOffline && isBarangayOfflineBlockedRoute(location.pathname);
   const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
@@ -197,6 +211,14 @@ const BarangayLayout = () => {
   useEffect(() => {
     initializeSyncService();
   }, []);
+
+  useEffect(() => {
+    if (!isMswdoPortal || typeof window === "undefined") return undefined;
+    const update = () => setMswdoEventId(readOperationalDisasterEventId({ roleCode: ROLE_CODES.MSWDO, userId: authenticatedUser?.id || "" }));
+    update();
+    window.addEventListener("distync-operational-event-selection-updated", update);
+    return () => window.removeEventListener("distync-operational-event-selection-updated", update);
+  }, [authenticatedUser?.id, isMswdoPortal]);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -361,10 +383,13 @@ const BarangayLayout = () => {
               }}
             >
               {isBarangayPortal ? <OfflineDataReadiness {...offlinePreparation} /> : null}
+              {isMswdoPortal ? <OfflineDataReadiness {...mswdoOfflinePreparation} variant="mswdo" /> : null}
               {shouldBlockMayorOfflineRoute ? (
                 <MayorOfflineAccessNotice />
               ) : shouldBlockBarangayOfflineRoute ? (
                 <MayorOfflineAccessNotice message={BARANGAY_OFFLINE_ACCESS_MESSAGE} />
+              ) : shouldBlockMswdoOfflineRoute ? (
+                <MayorOfflineAccessNotice message={MSWDO_OFFLINE_ACCESS_MESSAGE} />
               ) : (
                 <Outlet />
               )}

@@ -19,6 +19,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useMswdoMasterlistPage } from "../../features/mswdo-masterlist/useMswdoMasterlistPage";
 
 const ConsolidatedEvacueeMasterlist = () => {
+  const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
   const { authenticatedUser } = useAuth();
   const {
     disasterEvents,
@@ -256,6 +257,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         selectedDisasterEventId={selectedDisasterEventId}
         exportingFormat={exportingFormat}
         hideRecordStatus={isEndedView}
+        isOffline={isOffline}
         onOpenExportModal={() => {
           setSelectedExportDisasterEventId(selectedDisasterEventId || "");
           setSelectedExportBarangayIds(
@@ -292,6 +294,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}
         showAddressColumn={!selectedBarangayId}
+        isOffline={isOffline}
         pagination={{
           page: currentPage,
           pageSize,

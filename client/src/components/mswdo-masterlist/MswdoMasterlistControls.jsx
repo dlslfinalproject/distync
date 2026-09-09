@@ -103,6 +103,7 @@ const MswdoMasterlistControls = ({
   exportingFormat,
   onOpenExportModal,
   hideRecordStatus = false,
+  isOffline = false,
 }) => {
   return (
     <div
@@ -247,6 +248,7 @@ const MswdoMasterlistControls = ({
           <button
             type="button"
             onClick={onOpenRegisterModal}
+            disabled={isOffline}
             style={{
               ...pageHeaderStyles.primaryButton,
               display: "flex",
@@ -263,7 +265,7 @@ const MswdoMasterlistControls = ({
           <button
             type="button"
             onClick={onOpenExportModal}
-            disabled={!selectedDisasterEventId || Boolean(exportingFormat)}
+            disabled={isOffline || !selectedDisasterEventId || Boolean(exportingFormat)}
             style={{
               border: "1px solid #c6d8ea",
               borderRadius: "14px",
