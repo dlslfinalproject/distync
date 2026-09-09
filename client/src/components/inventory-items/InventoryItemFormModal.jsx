@@ -1943,7 +1943,7 @@ const InventoryItemFormModal = ({
                 {isSubmitting
                   ? "Processing..."
                   : conflictResolution
-                    ? "Confirm and Resolve"
+                    ? "Review"
                   : mode === "edit"
                     ? "Save Changes"
                     : isAddingStockFormMode

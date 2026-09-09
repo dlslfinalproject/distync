@@ -66,7 +66,7 @@ test("completed local queue rows are removed while server history is retained", 
 test("keep saved conflict resolution explains that the losing entry stays in history", async () => {
   const modalSource = await fs.readFile(modalSourcePath, "utf8");
 
-  assert.match(modalSource, /Keep Saved \/ Discard This Entry/);
+  assert.match(modalSource, /KEEP_SERVER: "Discard"/);
   assert.match(modalSource, /This device entry is not added to/);
   assert.match(modalSource, /decision remains in Sync History/);
 });
@@ -104,6 +104,8 @@ test("conflict actions require confirmation and barcode corrections reuse the in
 
   assert.match(pageSource, /pendingResolutionAction/);
   assert.match(pageSource, /setPendingResolutionAction\(action\)/);
+  assert.match(pageSource, /setPendingResolutionPayload\(resolutionPayload\)/);
+  assert.match(pageSource, /submitResolveConflict\(action, pendingResolutionPayload\)/);
   assert.match(pageSource, /getConflictCorrectionItemData/);
   assert.match(pageSource, /getConflictCorrectionBatchData/);
   assert.match(pageSource, /inventoryCorrectionTarget/);
@@ -111,10 +113,16 @@ test("conflict actions require confirmation and barcode corrections reuse the in
   assert.match(pageSource, /stock_form_barcode: formValues\.barcode/);
   assert.match(pageSource, /conflictResolution/);
   assert.match(pageSource, /conflictResolutionTarget=\{inventoryCorrectionTarget\}/);
-  assert.match(modalSource, /Confirm and Resolve/);
+  assert.match(modalSource, /import ConfirmationModal from "\.\/ConfirmationModal"/);
+  assert.match(modalSource, /title="Resolve Conflict\?"/);
+  assert.match(modalSource, /confirmLabel="Resolve"/);
+  assert.match(modalSource, /cancelLabel="Cancel"/);
+  assert.match(modalSource, /message=\{getResolutionConfirmationMessage\(pendingResolutionAction\)\}/);
+  assert.doesNotMatch(modalSource, /Confirm and Resolve/);
   assert.match(modalSource, /onCancelPendingResolve/);
   assert.match(modalSource, /isBarcodeCorrection/);
   assert.match(formSource, /Correct Inventory Record/);
+  assert.match(formSource, /conflictResolution[\s\S]*\? "Review"/);
   assert.match(formSource, /Optional\. Leave blank for a manual item\./);
   assert.match(formSource, /Enter a new barcode for this packaging\./);
   assert.match(formSource, /conflictResolutionTarget/);

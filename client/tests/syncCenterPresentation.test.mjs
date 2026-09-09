@@ -542,6 +542,7 @@ test("BRG-SC-CONFLICT-P04 Conflict detail comparison is allow-listed and hides r
     status: "RESOLVED",
     conflict_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
     resolution_strategy: "FIRST_ACCEPTED",
+    client_timestamp: "2026-08-18T05:24:28.421Z",
     resolved_payload_json: { winner: "SERVER" },
     local_payload_json: {
       payload: {
@@ -565,11 +566,38 @@ test("BRG-SC-CONFLICT-P04 Conflict detail comparison is allow-listed and hides r
   assert.equal(getConflictResolutionSummary(conflict).result, "Saved DISTYNC record kept");
   assert.match(rendered, /Janna Paray/);
   assert.match(rendered, /Typhoon Response Maymay/);
-  assert.doesNotMatch(rendered, /11111111|22222222|disaster_event_id|2026-08-18T05:24:28\.421Z/);
+  assert.doesNotMatch(rendered, /11111111|22222222|disaster_event_id/);
+  assert.match(rendered, /Recorded on This Device/);
+  assert.match(rendered, /Aug 18, 2026, 1:24 PM/);
+  assert.match(rendered, /Last Updated/);
   assert.equal(
     rows.find((row) => row.label === "Barangay")?.localValue || SYNC_MISSING_VALUE,
     SYNC_MISSING_VALUE,
   );
+});
+
+test("conflict comparison shows the device capture time for every local record", async () => {
+  const { getConflictComparisonRows } = await import(helperModulePath.href);
+
+  const rows = getConflictComparisonRows({
+    client_timestamp: "2026-09-08T14:34:00.000Z",
+    local_payload_json: {
+      payload: {
+        item_name: "Jacket Malvar",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+    },
+    server_payload_json: {
+      item_name: "Jacket Malvar",
+      updated_at: "2026-09-08T14:35:00.000Z",
+    },
+  });
+  const updatedRow = rows.find((row) => row.label === "Last Updated");
+
+  assert.equal(updatedRow.localLabel, "Recorded on This Device");
+  assert.equal(updatedRow.serverLabel, "Last Updated");
+  assert.equal(updatedRow.localValue, "Sep 8, 2026, 10:34 PM");
+  assert.equal(updatedRow.serverValue, "Sep 8, 2026, 10:35 PM");
 });
 
 test("BRG-SC-CONFLICT-P04A Accept Both explains offline batch ordering", async () => {
@@ -706,6 +734,10 @@ test("BRG-SC-CONFLICT-P07 Sync Conflict Detail mirrors Anomaly Details section-c
   assert.match(modalSource, /fieldGrid:[\s\S]*minmax\(min\(210px, 100%\), 1fr\)/);
   assert.match(modalSource, /Conflict Summary[\s\S]*Why It Happened[\s\S]*\{isResolved \? "Resolution" : "Current Action"\}/);
   assert.match(modalSource, /This Device Record[\s\S]*Saved DISTYNC Record/);
+  assert.match(modalSource, /<ConfirmationModal[\s\S]*title="Resolve Conflict\?"[\s\S]*confirmLabel="Resolve"/);
+  assert.match(modalSource, /KEEP_SERVER: "Discard"/);
+  assert.match(modalSource, /APPLY_LOCAL: "Apply"/);
+  assert.match(modalSource, /ACCEPT_BOTH: "Keep Both"/);
   assert.match(modalSource, /comparisonGrid:[\s\S]*minmax\(min\(260px, 100%\), 1fr\)/);
   assert.doesNotMatch(modalSource, /Reason required for Keep Server or Apply Local|status="CONFLICT"/);
 });

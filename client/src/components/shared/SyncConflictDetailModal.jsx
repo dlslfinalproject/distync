@@ -1,6 +1,7 @@
 import React from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import SyncStatusBadge from "./SyncStatusBadge";
+import ConfirmationModal from "./ConfirmationModal";
 import FormModalShell from "./FormModalShell";
 import {
   formatSyncHistoryDateTime,
@@ -148,9 +149,9 @@ const modalStyles = {
 
 const ACTION_LABELS = {
   MARK_REVIEWED: "Mark Reviewed",
-  KEEP_SERVER: "Keep Saved / Discard This Entry",
-  APPLY_LOCAL: "Use This Device Record",
-  ACCEPT_BOTH: "Accept Both Entries",
+  KEEP_SERVER: "Discard",
+  APPLY_LOCAL: "Apply",
+  ACCEPT_BOTH: "Keep Both",
 };
 
 const getActionLabel = (action) => {
@@ -160,16 +161,16 @@ const getActionLabel = (action) => {
 const getResolutionConfirmationMessage = (action) => {
   const messages = {
     MARK_REVIEWED:
-      "Close this conflict review without changing the saved inventory data.",
+      "Are you sure you want to mark this conflict as reviewed without changing the saved data?",
     KEEP_SERVER:
-      "Keep the saved DISTYNC record and discard this device entry from Inventory.",
+      "Are you sure you want to discard the offline entry and keep the saved DISTYNC record?",
     APPLY_LOCAL:
-      "Use this device record and apply the correction entered during review.",
+      "Are you sure you want to apply the offline entry to DISTYNC?",
     ACCEPT_BOTH:
-      "Keep both entries. DISTYNC will assign their batch numbers in offline capture order.",
+      "Are you sure you want to keep both entries as separate batches?",
   };
 
-  return messages[action] || "Record this conflict resolution decision.";
+  return messages[action] || "Are you sure you want to resolve this conflict?";
 };
 
 const isUuidLikeValue = (value) =>
@@ -200,7 +201,11 @@ const renderComparisonPanel = (title, rows, valueKey) => (
     <h5 style={modalStyles.comparisonTitle}>{title}</h5>
     {rows.map((row) => (
       <div key={`${title}-${row.label}`} style={modalStyles.comparisonRow}>
-        <div style={modalStyles.fieldLabel}>{row.label}</div>
+        <div style={modalStyles.fieldLabel}>
+          {valueKey === "localValue"
+            ? row.localLabel || row.label
+            : row.serverLabel || row.label}
+        </div>
         <div style={modalStyles.value}>{row[valueKey]}</div>
       </div>
     ))}
@@ -257,257 +262,248 @@ const SyncConflictDetailModal = ({
   const isConfirmingResolution = Boolean(pendingResolutionAction);
   const footer = (
     <>
-      {isConfirmingResolution ? (
-        <>
-          <button
-            type="button"
-            onClick={onCancelPendingResolve || onClose}
-            style={pageHeaderStyles.secondaryButton}
-            disabled={isResolving}
-          >
-            Back
-          </button>
-          <button
-            type="button"
-            onClick={() => onConfirmResolve?.(pendingResolutionAction)}
-            style={pageHeaderStyles.primaryButton}
-            disabled={isResolving}
-          >
-            Confirm and Resolve
-          </button>
-        </>
-      ) : (
-        <>
-          <button
-            type="button"
-            onClick={onClose}
-            style={pageHeaderStyles.secondaryButton}
-            disabled={isResolving}
-          >
-            Close
-          </button>
-          {availableActions.map((action) => (
-            <button
-              key={action}
-              type="button"
-              onClick={() => onResolve(action)}
-              style={
-                action === "MARK_REVIEWED"
-                  ? pageHeaderStyles.secondaryButton
-                  : pageHeaderStyles.primaryButton
-              }
-              disabled={isResolving}
-            >
-              {getActionLabel(action)}
-            </button>
-          ))}
-        </>
-      )}
+      <button
+        type="button"
+        onClick={onClose}
+        style={pageHeaderStyles.secondaryButton}
+        disabled={isResolving}
+      >
+        Close
+      </button>
+      {availableActions.map((action) => (
+        <button
+          key={action}
+          type="button"
+          onClick={() => onResolve(action)}
+          style={
+            action === "MARK_REVIEWED"
+              ? pageHeaderStyles.secondaryButton
+              : pageHeaderStyles.primaryButton
+          }
+          disabled={isResolving}
+        >
+          {getActionLabel(action)}
+        </button>
+      ))}
     </>
   );
 
   return (
-    <FormModalShell
-      isOpen={isOpen}
-      title="Sync Conflict Detail"
-      onClose={onClose}
-      closeButtonLabel="Close sync conflict detail"
-      closeOnBackdrop={false}
-      isCloseDisabled={isResolving}
-      maxWidth="min(820px, 100vw)"
-      overlayStyle={{ padding: "16px" }}
-      contentStyle={modalStyles.panel}
-      bodyStyle={modalStyles.body}
-      footerStyle={modalStyles.footer}
-      footer={footer}
-    >
-      <div style={{ ...modalStyles.card, marginBottom: "16px" }}>
-        <div style={modalStyles.sectionTitle}>Conflict</div>
-        <div style={modalStyles.conflictHeader}>
-          <strong style={modalStyles.reasonTitle}>{conflictReason}</strong>
-          <SyncStatusBadge
-            status={isResolved ? "RESOLVED" : "OPEN"}
-            label={getResolutionStatusLabel(conflict)}
-          />
-        </div>
-      </div>
-
-      <div style={modalStyles.grid}>
-        <section
-          style={{ ...modalStyles.card, gridColumn: "1 / -1" }}
-          aria-labelledby="conflict-summary-heading"
-        >
-          <h4 id="conflict-summary-heading" style={modalStyles.sectionTitle}>
-            Conflict Summary
-          </h4>
-          <div style={modalStyles.fieldGrid}>
-            {renderMetadataItem("Record Type", details.recordType)}
-            {includeBarangay
-              ? renderMetadataItem("Barangay", details.barangay)
-              : null}
-            {renderMetadataItem("Affected Record", details.subject)}
-            {renderMetadataItem("Disaster Event", details.disasterEvent)}
+    <>
+      <FormModalShell
+        isOpen={isOpen && !isConfirmingResolution}
+        title="Sync Conflict Detail"
+        onClose={onClose}
+        closeButtonLabel="Close sync conflict detail"
+        closeOnBackdrop={false}
+        isCloseDisabled={isResolving}
+        maxWidth="min(820px, 100vw)"
+        overlayStyle={{ padding: "16px" }}
+        contentStyle={modalStyles.panel}
+        bodyStyle={modalStyles.body}
+        footerStyle={modalStyles.footer}
+        footer={footer}
+      >
+        <div style={{ ...modalStyles.card, marginBottom: "16px" }}>
+          <div style={modalStyles.sectionTitle}>Conflict</div>
+          <div style={modalStyles.conflictHeader}>
+            <strong style={modalStyles.reasonTitle}>{conflictReason}</strong>
+            <SyncStatusBadge
+              status={isResolved ? "RESOLVED" : "OPEN"}
+              label={getResolutionStatusLabel(conflict)}
+            />
           </div>
-        </section>
+        </div>
 
-        <section
-          style={{ ...modalStyles.card, gridColumn: "1 / -1" }}
-          aria-labelledby="conflict-reason-heading"
-        >
-          <h4 id="conflict-reason-heading" style={modalStyles.sectionTitle}>
-            Why It Happened
-          </h4>
-          <div style={modalStyles.value}>{getConflictExplanation(conflict)}</div>
-        </section>
-
-        <section
-          style={{ ...modalStyles.card, gridColumn: "1 / -1" }}
-          aria-labelledby="conflict-resolution-heading"
-        >
-          <h4 id="conflict-resolution-heading" style={modalStyles.sectionTitle}>
-            {isResolved ? "Resolution" : "Current Action"}
-          </h4>
-          {isResolved ? (
-            <>
-              <div style={modalStyles.fieldGrid}>
-                {renderMetadataItem("Result", resolutionSummary.result)}
-                {renderMetadataItem("Resolved At", formattedResolvedAt)}
-                {renderMetadataItem("Resolved By", resolvedBy)}
-              </div>
-              <div style={{ ...modalStyles.field, marginTop: "14px" }}>
-                <div style={modalStyles.fieldLabel}>What Happened</div>
-                <div style={modalStyles.value}>{resolutionSummary.whatHappened}</div>
-              </div>
-              {conflict.resolution_reason ? (
-                <div style={{ ...modalStyles.field, marginTop: "14px" }}>
-                  <div style={modalStyles.fieldLabel}>Review Note</div>
-                  <div style={modalStyles.value}>{conflict.resolution_reason}</div>
-                </div>
-              ) : null}
-            </>
-          ) : isConfirmingResolution ? (
-            <div style={modalStyles.fieldStack}>
-              <div style={modalStyles.field}>
-                <div style={modalStyles.fieldLabel}>Confirm Action</div>
-                <div style={modalStyles.value}>
-                  {getResolutionConfirmationMessage(pendingResolutionAction)}
-                </div>
-              </div>
-              {pendingResolutionAction === "APPLY_LOCAL" && replacementBarcode ? (
-                <div style={modalStyles.field}>
-                  <div style={modalStyles.fieldLabel}>Replacement Barcode</div>
-                  <div style={modalStyles.value}>{replacementBarcode}</div>
-                </div>
-              ) : null}
-              {resolutionReason ? (
-                <div style={modalStyles.field}>
-                  <div style={modalStyles.fieldLabel}>Review Note</div>
-                  <div style={modalStyles.value}>{resolutionReason}</div>
-                </div>
-              ) : null}
-              <p style={modalStyles.warningText}>
-                Check the comparison and review note before confirming. This
-                decision will be recorded in Sync History.
-              </p>
-            </div>
-          ) : (
-            <div style={modalStyles.fieldStack}>
-              <div style={modalStyles.field}>
-                <div style={modalStyles.fieldLabel}>What You Need To Do</div>
-                <div style={modalStyles.value}>{resolutionSummary.whatHappened}</div>
-              </div>
-              {isBarcodeCorrection ? (
-                <p style={modalStyles.warningText}>
-                  Use This Device Record opens a correction form.{" "}
-                  {isPackagingBarcodeCorrection
-                    ? "Enter a new unused barcode for this packaging."
-                    : "Enter a new barcode, or leave it blank for a manual item."}
-                </p>
-              ) : null}
-              {availableActions.length > 0 ? (
-                <label style={modalStyles.field}>
-                  <span style={modalStyles.fieldLabel}>
-                    Review Note{requiresReason ? " *" : ""}
-                  </span>
-                  <textarea
-                    value={resolutionReason}
-                    onChange={(event) => onResolutionReasonChange(event.target.value)}
-                    style={{
-                      ...modalStyles.textarea,
-                      ...(resolutionReasonError
-                        ? { borderColor: "#b2434f" }
-                        : {}),
-                    }}
-                    placeholder={
-                      requiresReason
-                        ? "Reason required for this review action"
-                        : "Optional review note"
-                    }
-                    aria-required={requiresReason}
-                    aria-invalid={Boolean(resolutionReasonError)}
-                    aria-describedby={
-                      resolutionReasonError
-                        ? "sync-conflict-review-note-error"
-                        : undefined
-                    }
-                    disabled={isResolving}
-                  />
-                  {resolutionReasonError ? (
-                    <p
-                      id="sync-conflict-review-note-error"
-                      role="alert"
-                      style={modalStyles.errorText}
-                    >
-                      {resolutionReasonError}
-                    </p>
-                  ) : null}
-                </label>
-              ) : null}
-              {availableActions.includes("KEEP_SERVER") ? (
-                <p style={modalStyles.warningText}>
-                  Keeping the saved DISTYNC record closes the conflict without
-                  changing operational data. This device entry is not added to
-                  Inventory, but the decision remains in Sync History.
-                </p>
-              ) : null}
-              {availableActions.includes("ACCEPT_BOTH") ? (
-                <p style={modalStyles.warningText}>
-                  This keeps both entries. The earlier offline entry gets the
-                  earlier batch number.
-                </p>
-              ) : null}
-            </div>
-          )}
-        </section>
-
-        {comparisonRows.length > 0 ? (
+        <div style={modalStyles.grid}>
           <section
             style={{ ...modalStyles.card, gridColumn: "1 / -1" }}
-            aria-labelledby="conflict-comparison-heading"
+            aria-labelledby="conflict-summary-heading"
           >
-            <h4 id="conflict-comparison-heading" style={modalStyles.sectionTitle}>
-              Record Comparison
+            <h4 id="conflict-summary-heading" style={modalStyles.sectionTitle}>
+              Conflict Summary
             </h4>
-            <div style={modalStyles.comparisonGrid}>
-              {renderComparisonPanel(
-                isAutomaticCrossBarangayDuplicate
-                  ? "Earlier Registration"
-                  : "This Device Record",
-                comparisonRows,
-                "localValue",
-              )}
-              {renderComparisonPanel(
-                isAutomaticCrossBarangayDuplicate
-                  ? "Later Registration"
-                  : "Saved DISTYNC Record",
-                comparisonRows,
-                "serverValue",
-              )}
+            <div style={modalStyles.fieldGrid}>
+              {renderMetadataItem("Record Type", details.recordType)}
+              {includeBarangay
+                ? renderMetadataItem("Barangay", details.barangay)
+                : null}
+              {renderMetadataItem("Affected Record", details.subject)}
+              {renderMetadataItem("Disaster Event", details.disasterEvent)}
             </div>
           </section>
-        ) : null}
-      </div>
-    </FormModalShell>
+
+          <section
+            style={{ ...modalStyles.card, gridColumn: "1 / -1" }}
+            aria-labelledby="conflict-reason-heading"
+          >
+            <h4 id="conflict-reason-heading" style={modalStyles.sectionTitle}>
+              Why It Happened
+            </h4>
+            <div style={modalStyles.value}>{getConflictExplanation(conflict)}</div>
+          </section>
+
+          <section
+            style={{ ...modalStyles.card, gridColumn: "1 / -1" }}
+            aria-labelledby="conflict-resolution-heading"
+          >
+            <h4 id="conflict-resolution-heading" style={modalStyles.sectionTitle}>
+              {isResolved ? "Resolution" : "Current Action"}
+            </h4>
+            {isResolved ? (
+              <>
+                <div style={modalStyles.fieldGrid}>
+                  {renderMetadataItem("Result", resolutionSummary.result)}
+                  {renderMetadataItem("Resolved At", formattedResolvedAt)}
+                  {renderMetadataItem("Resolved By", resolvedBy)}
+                </div>
+                <div style={{ ...modalStyles.field, marginTop: "14px" }}>
+                  <div style={modalStyles.fieldLabel}>What Happened</div>
+                  <div style={modalStyles.value}>{resolutionSummary.whatHappened}</div>
+                </div>
+                {conflict.resolution_reason ? (
+                  <div style={{ ...modalStyles.field, marginTop: "14px" }}>
+                    <div style={modalStyles.fieldLabel}>Review Note</div>
+                    <div style={modalStyles.value}>{conflict.resolution_reason}</div>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div style={modalStyles.fieldStack}>
+                <div style={modalStyles.field}>
+                  <div style={modalStyles.fieldLabel}>What You Need To Do</div>
+                  <div style={modalStyles.value}>{resolutionSummary.whatHappened}</div>
+                </div>
+                {isBarcodeCorrection ? (
+                  <p style={modalStyles.warningText}>
+                    Apply opens a correction form.{" "}
+                    {isPackagingBarcodeCorrection
+                      ? "Enter a new unused barcode for this packaging."
+                      : "Enter a new barcode, or leave it blank for a manual item."}
+                  </p>
+                ) : null}
+                {availableActions.length > 0 ? (
+                  <label style={modalStyles.field}>
+                    <span style={modalStyles.fieldLabel}>
+                      Review Note{requiresReason ? " *" : ""}
+                    </span>
+                    <textarea
+                      value={resolutionReason}
+                      onChange={(event) => onResolutionReasonChange(event.target.value)}
+                      style={{
+                        ...modalStyles.textarea,
+                        ...(resolutionReasonError
+                          ? { borderColor: "#b2434f" }
+                          : {}),
+                      }}
+                      placeholder={
+                        requiresReason
+                          ? "Reason required for this review action"
+                          : "Optional review note"
+                      }
+                      aria-required={requiresReason}
+                      aria-invalid={Boolean(resolutionReasonError)}
+                      aria-describedby={
+                        resolutionReasonError
+                          ? "sync-conflict-review-note-error"
+                          : undefined
+                      }
+                      disabled={isResolving}
+                    />
+                    {resolutionReasonError ? (
+                      <p
+                        id="sync-conflict-review-note-error"
+                        role="alert"
+                        style={modalStyles.errorText}
+                      >
+                        {resolutionReasonError}
+                      </p>
+                    ) : null}
+                  </label>
+                ) : null}
+                {availableActions.includes("KEEP_SERVER") ? (
+                  <p style={modalStyles.warningText}>
+                    Discarding the offline entry closes the conflict without
+                    changing operational data. This device entry is not added to Inventory.
+                    The decision remains in Sync History.
+                  </p>
+                ) : null}
+                {availableActions.includes("ACCEPT_BOTH") ? (
+                  <p style={modalStyles.warningText}>
+                    This keeps both entries. The earlier offline entry gets the
+                    earlier batch number.
+                  </p>
+                ) : null}
+              </div>
+            )}
+          </section>
+
+          {comparisonRows.length > 0 ? (
+            <section
+              style={{ ...modalStyles.card, gridColumn: "1 / -1" }}
+              aria-labelledby="conflict-comparison-heading"
+            >
+              <h4 id="conflict-comparison-heading" style={modalStyles.sectionTitle}>
+                Record Comparison
+              </h4>
+              <div style={modalStyles.comparisonGrid}>
+                {renderComparisonPanel(
+                  isAutomaticCrossBarangayDuplicate
+                    ? "Earlier Registration"
+                    : "This Device Record",
+                  comparisonRows,
+                  "localValue",
+                )}
+                {renderComparisonPanel(
+                  isAutomaticCrossBarangayDuplicate
+                    ? "Later Registration"
+                    : "Saved DISTYNC Record",
+                  comparisonRows,
+                  "serverValue",
+                )}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      </FormModalShell>
+
+      <ConfirmationModal
+        isOpen={isOpen && isConfirmingResolution}
+        title="Resolve Conflict?"
+        message={getResolutionConfirmationMessage(pendingResolutionAction)}
+        onCancel={onCancelPendingResolve || onClose}
+        onClose={onCancelPendingResolve || onClose}
+        onConfirm={() => onConfirmResolve?.(pendingResolutionAction)}
+        cancelLabel="Cancel"
+        confirmLabel="Resolve"
+        isSubmitting={isResolving}
+        isCloseDisabled={isResolving}
+        closeOnBackdrop={false}
+        maxWidth="min(560px, 100vw)"
+      >
+        <div style={modalStyles.fieldStack}>
+          <div style={modalStyles.field}>
+            <div style={modalStyles.fieldLabel}>Selected Action</div>
+            <div style={modalStyles.value}>{getActionLabel(pendingResolutionAction)}</div>
+          </div>
+          {pendingResolutionAction === "APPLY_LOCAL" && replacementBarcode ? (
+            <div style={modalStyles.field}>
+              <div style={modalStyles.fieldLabel}>Replacement Barcode</div>
+              <div style={modalStyles.value}>{replacementBarcode}</div>
+            </div>
+          ) : null}
+          {resolutionReason ? (
+            <div style={modalStyles.field}>
+              <div style={modalStyles.fieldLabel}>Review Note</div>
+              <div style={modalStyles.value}>{resolutionReason}</div>
+            </div>
+          ) : null}
+          <p style={modalStyles.warningText}>
+            This decision will be recorded in Sync History.
+          </p>
+        </div>
+      </ConfirmationModal>
+    </>
   );
 };
 

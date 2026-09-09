@@ -73,6 +73,7 @@ const ConfirmationModal = ({
   maxWidth,
   onClose,
   closeOnBackdrop = false,
+  isCloseDisabled = false,
   initialFocusRef,
   finalFocusRef,
   cancelButtonRef,
@@ -108,6 +109,7 @@ const ConfirmationModal = ({
       description={message}
       maxWidth={maxWidth}
       onClose={onClose || onCancel}
+      isCloseDisabled={isCloseDisabled}
       closeOnBackdrop={closeOnBackdrop}
       initialFocusRef={initialFocusRef}
       finalFocusRef={finalFocusRef}

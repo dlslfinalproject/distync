@@ -1058,7 +1058,7 @@ const pickComparisonValue = (payload = {}, keys = []) => {
   return "";
 };
 
-const getPayloadComparisonDetails = (payload = {}) => {
+const getPayloadComparisonDetails = (payload = {}, { updatedAt } = {}) => {
   const normalizedPayload = getComparisonPayload(payload);
   const details = getSyncRecordDetails({ payload: normalizedPayload });
 
@@ -1108,7 +1108,7 @@ const getPayloadComparisonDetails = (payload = {}) => {
       ]),
     ),
     donorName: asDisplayValue(normalizedPayload.donor_name),
-    updatedAt: formatSyncHistoryDateTime(normalizedPayload.updated_at),
+    updatedAt: formatSyncHistoryDateTime(updatedAt || normalizedPayload.updated_at),
     registeredAt: formatSyncHistoryDateTime(normalizedPayload.registered_at),
     householdSize: asDisplayValue(normalizedPayload.household_size),
     address: asDisplayValue(normalizedPayload.current_address_details),
@@ -1122,6 +1122,17 @@ const getPayloadComparisonDetails = (payload = {}) => {
       ]),
     ),
   };
+};
+
+const getConflictDeviceTimestamp = (conflict = {}) => {
+  const localPayload = getComparisonPayload(conflict.local_payload_json);
+
+  return getFirstValue(
+    conflict.client_timestamp,
+    conflict.clientTimestamp,
+    localPayload.client_timestamp,
+    localPayload.clientTimestamp,
+  );
 };
 
 export const getConflictComparisonRows = (conflict = {}) => {
@@ -1156,7 +1167,9 @@ export const getConflictComparisonRows = (conflict = {}) => {
     }));
   }
 
-  const localDetails = getPayloadComparisonDetails(conflict.local_payload_json);
+  const localDetails = getPayloadComparisonDetails(conflict.local_payload_json, {
+    updatedAt: getConflictDeviceTimestamp(conflict),
+  });
   const serverDetails = getPayloadComparisonDetails(conflict.server_payload_json);
   const fields = [
     ["Family Head", "familyHead"],
@@ -1173,12 +1186,14 @@ export const getConflictComparisonRows = (conflict = {}) => {
     ["Quantity", "quantity"],
     ["Batch No.", "batchNo"],
     ["Donor", "donorName"],
-    ["Last Updated", "updatedAt"],
+    ["Last Updated", "updatedAt", "Recorded on This Device", "Last Updated"],
   ];
 
   return fields
-    .map(([label, key]) => ({
+    .map(([label, key, localLabel = label, serverLabel = label]) => ({
       label,
+      localLabel,
+      serverLabel,
       localValue: localDetails[key],
       serverValue: serverDetails[key],
     }))

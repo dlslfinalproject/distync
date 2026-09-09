@@ -597,6 +597,8 @@ const SyncManagementPage = () => {
   const [resolutionReasonError, setResolutionReasonError] = useState("");
   const [replacementBarcode, setReplacementBarcode] = useState("");
   const [pendingResolutionAction, setPendingResolutionAction] = useState("");
+  const [pendingResolutionPayload, setPendingResolutionPayload] =
+    useState(null);
   const [isInventoryCorrectionFormOpen, setIsInventoryCorrectionFormOpen] =
     useState(false);
   const [inventoryCorrectionTarget, setInventoryCorrectionTarget] =
@@ -1243,6 +1245,7 @@ const SyncManagementPage = () => {
       setResolutionReasonError("");
       setReplacementBarcode("");
       setPendingResolutionAction("");
+      setPendingResolutionPayload(null);
       setIsInventoryCorrectionFormOpen(false);
       setInventoryCorrectionTarget("ITEM");
       setInventoryCorrectionItemData(null);
@@ -1268,6 +1271,7 @@ const SyncManagementPage = () => {
     setResolutionReasonError("");
     setReplacementBarcode("");
     setPendingResolutionAction("");
+    setPendingResolutionPayload(null);
     setIsInventoryCorrectionFormOpen(false);
     setInventoryCorrectionTarget("ITEM");
     setInventoryCorrectionItemData(null);
@@ -1277,6 +1281,8 @@ const SyncManagementPage = () => {
 
   const handleCloseInventoryCorrectionForm = useCallback(() => {
     setIsInventoryCorrectionFormOpen(false);
+    setPendingResolutionAction("");
+    setPendingResolutionPayload(null);
     setInventoryCorrectionTarget("ITEM");
     setInventoryCorrectionItemData(null);
     setInventoryCorrectionItems([]);
@@ -1351,6 +1357,7 @@ const SyncManagementPage = () => {
       setResolutionReasonError("");
       setReplacementBarcode("");
       setPendingResolutionAction("");
+      setPendingResolutionPayload(null);
       setIsInventoryCorrectionFormOpen(false);
       setInventoryCorrectionTarget("ITEM");
       setInventoryCorrectionItemData(null);
@@ -1374,6 +1381,8 @@ const SyncManagementPage = () => {
       });
       if (resolutionPayload) {
         setInventoryCorrectionErrorMessage(safeMessage);
+        setPendingResolutionAction("");
+        setPendingResolutionPayload(null);
       }
       await loadSyncHistory();
     } finally {
@@ -1438,11 +1447,12 @@ const SyncManagementPage = () => {
       return;
     }
 
-    void submitResolveConflict(action);
+    void submitResolveConflict(action, pendingResolutionPayload);
   };
 
   const handleCancelPendingResolve = useCallback(() => {
     setPendingResolutionAction("");
+    setPendingResolutionPayload(null);
   }, []);
 
   const handleInventoryCorrectionSubmit = (formValues) => {
@@ -1483,7 +1493,8 @@ const SyncManagementPage = () => {
       };
 
       setInventoryCorrectionErrorMessage("");
-      void submitResolveConflict("APPLY_LOCAL", resolutionPayload);
+      setPendingResolutionPayload(resolutionPayload);
+      setPendingResolutionAction("APPLY_LOCAL");
       return;
     }
 
@@ -1501,7 +1512,8 @@ const SyncManagementPage = () => {
     };
 
     setInventoryCorrectionErrorMessage("");
-    void submitResolveConflict("APPLY_LOCAL", resolutionPayload);
+    setPendingResolutionPayload(resolutionPayload);
+    setPendingResolutionAction("APPLY_LOCAL");
   };
 
   const renderRecordCells = (
@@ -2025,7 +2037,10 @@ const SyncManagementPage = () => {
       </section>
 
       <SyncConflictDetailModal
-        isOpen={Boolean(selectedConflictDetail) && !isInventoryCorrectionFormOpen}
+        isOpen={
+          Boolean(selectedConflictDetail) &&
+          (!isInventoryCorrectionFormOpen || Boolean(pendingResolutionAction))
+        }
         conflict={selectedConflictDetail}
         onClose={handleCloseConflictDetail}
         onResolve={handleResolveConflict}
