@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 
 export const MSWDO_OFFLINE_MODE_TITLE = "Offline Mode Active";
 export const MSWDO_OFFLINE_MODE_MESSAGE =
-  "You can view saved evacuee masterlist and analytics data while offline.";
+  "You can view saved evacuee masterlist and analytics data while offline. You can also continue prepared relief distribution.";
 export const MSWDO_OFFLINE_MODE_LIMITATION =
   "Other functions require an internet connection.";
 

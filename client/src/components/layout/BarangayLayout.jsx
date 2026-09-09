@@ -183,7 +183,7 @@ const BarangayLayout = () => {
     isMayorOffline && isMayorOfflineBlockedRoute(location.pathname);
   const isBarangayOffline = isBarangayPortal && !isOnline;
   const isMswdoOffline = isMswdoPortal && !isOnline;
-  const shouldBlockMswdoOfflineRoute = isMswdoOffline && isMswdoOfflineBlockedRoute(location.pathname);
+  const shouldBlockMswdoOfflineRoute = isMswdoOffline && isMswdoOfflineBlockedRoute(location.pathname, { isPrepared: mswdoOfflinePreparation.isReady });
   const shouldBlockBarangayOfflineRoute =
     isBarangayOffline && isBarangayOfflineBlockedRoute(location.pathname);
   const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
@@ -345,6 +345,7 @@ const BarangayLayout = () => {
               isMobileNavigation={isMobileNavigation}
               navigationId={SIDEBAR_NAVIGATION_ID}
               isOffline={!isOnline}
+              mswdoOfflineReady={mswdoOfflinePreparation.isReady}
               onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
               onClose={() => {
                 setIsSidebarCollapsed(true);

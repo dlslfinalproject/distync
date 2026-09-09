@@ -766,7 +766,7 @@ const StubDistributionPage = () => {
     setScannerHelperMessage("");
 
     try {
-      const verification = await verifyStub({ qrCodeValue });
+      const verification = await verifyStub({ qrCodeValue, currentBarangayId: selectedBarangayId });
       const resolvedStubId = verification?.data?.stub?.id;
 
       if (!resolvedStubId) {
@@ -776,7 +776,7 @@ const StubDistributionPage = () => {
         });
       }
 
-      const stubDetails = await fetchStubDetails(resolvedStubId);
+      const stubDetails = await fetchStubDetails(resolvedStubId, { currentBarangayId: selectedBarangayId });
       const stubEventId = stubDetails?.disaster_event?.id || "";
       const stubBarangayId = stubDetails?.barangay?.id || "";
 

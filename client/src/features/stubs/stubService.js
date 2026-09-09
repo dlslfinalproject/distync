@@ -6,6 +6,7 @@ import {
   canUseOfflineStubCacheFallback,
   getCachedStubClaimSyncEntry,
   getCachedStubDetailsById,
+  getCachedStubDetailsByQrValue,
   markCachedStubClaimTerminal,
   upsertOfflineStubSnapshots,
 } from "./stubCache.js";
@@ -200,20 +201,37 @@ export const searchStubs = async ({ query, disasterEventId, barangayId }) => {
   return handleJsonResponse(response, "Failed to search stubs");
 };
 
-export const verifyStub = async ({ stubNo, serialNo, qrCodeValue }) => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/stubs/verify`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      stub_no: stubNo || null,
-      serial_no: serialNo || null,
-      qr_code_value: qrCodeValue || null,
-    }),
-  });
-
-  return handleJsonResponse(response, "Failed to verify stub");
+export const verifyStub = async ({ stubNo, serialNo, qrCodeValue, currentBarangayId = "" }) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/stubs/verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        stub_no: stubNo || null,
+        serial_no: serialNo || null,
+        qr_code_value: qrCodeValue || null,
+      }),
+    });
+    return handleJsonResponse(response, "Failed to verify stub");
+  } catch (error) {
+    if (!canUseOfflineStubCacheFallback(error)) throw error;
+    const details = await getCachedStubDetailsByQrValue(qrCodeValue, { currentBarangayId });
+    if (!details) throw error;
+    const claimable = details.status === "ISSUED" && details.household?.is_active !== false;
+    return {
+      message: claimable ? "Offline QR stub verified." : "This QR stub is not claimable.",
+      data: {
+        stub: details,
+        details: { stubNumber: details.display_stub_no || details.stub_no || details.stub_number },
+        is_claimable: claimable,
+        code: claimable ? null : "STUB_ALREADY_CLAIMED",
+        reason: claimable ? null : "This QR stub has already been claimed or is not claimable.",
+        offline: true,
+      },
+    };
+  }
 };
 
 export const fetchStubDetails = async (stubId, { currentBarangayId = "" } = {}) => {
