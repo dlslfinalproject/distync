@@ -17,6 +17,9 @@ import {
   matchesInventoryDistributionFilters,
   matchesInventoryDistributionSearch,
 } from "./inventoryDistributionFilters";
+import {
+  getInventoryDistributionStubDashboardBarangayIds,
+} from "./inventoryDistributionDataSource.js";
 
 const emptyMasterlistPayload = {
   disaster_event: null,
@@ -654,7 +657,15 @@ export const useInventoryDistribution = () => {
     let isMounted = true;
 
     const loadStubDashboard = async () => {
-      if (!selectedDisasterEventId) {
+      const requestedBarangayIds =
+        getInventoryDistributionStubDashboardBarangayIds({
+          activeTab,
+          disasterEventStatus: selectedDisasterEvent?.status,
+          selectedBarangayId,
+          selectableBarangays,
+        });
+
+      if (!selectedDisasterEventId || requestedBarangayIds.length === 0) {
         setStubDashboardPayload(emptyStubDashboardPayload);
         setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
         return;
@@ -681,12 +692,6 @@ export const useInventoryDistribution = () => {
           }
         }
 
-        return;
-      }
-
-      if (selectableBarangays.length === 0) {
-        setStubDashboardPayload(emptyStubDashboardPayload);
-        setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
         return;
       }
 
@@ -719,7 +724,13 @@ export const useInventoryDistribution = () => {
     return () => {
       isMounted = false;
     };
-  }, [selectableBarangays, selectedBarangayId, selectedDisasterEventId]);
+  }, [
+    activeTab,
+    selectableBarangays,
+    selectedBarangayId,
+    selectedDisasterEvent?.status,
+    selectedDisasterEventId,
+  ]);
 
   useEffect(() => {
     if (isLoadingFilters) {
