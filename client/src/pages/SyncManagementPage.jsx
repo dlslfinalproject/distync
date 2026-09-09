@@ -1401,14 +1401,19 @@ const SyncManagementPage = () => {
 
     const opensInventoryCorrectionForm =
       action === "APPLY_LOCAL" &&
-      selectedConflictDetail.conflict_type === "DUPLICATE_INVENTORY_BARCODE" &&
+      ["DUPLICATE_INVENTORY_BARCODE", "DUPLICATE_INVENTORY_ITEM"].includes(
+        selectedConflictDetail.conflict_type,
+      ) &&
       ["INVENTORY_ITEM", "INVENTORY_BATCH"].includes(
         selectedConflictDetail.entity_type,
       );
 
     if (opensInventoryCorrectionForm) {
       setInventoryCorrectionErrorMessage("");
-      if (selectedConflictDetail.entity_type === "INVENTORY_BATCH") {
+      if (
+        selectedConflictDetail.entity_type === "INVENTORY_BATCH" ||
+        selectedConflictDetail.conflict_type === "DUPLICATE_INVENTORY_ITEM"
+      ) {
         const correctionData = getConflictCorrectionBatchData(
           selectedConflictDetail,
         );

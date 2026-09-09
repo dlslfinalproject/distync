@@ -808,22 +808,30 @@ const getResolutionCapability = (conflict, auth) => {
     const mayResolve =
       auth?.roleCode === ROLE_CODES.MAYOR &&
       ["INVENTORY_ITEM", "INVENTORY_BATCH"].includes(conflict.entity_type);
+    const duplicateItemPlan =
+      conflict.conflict_type === DUPLICATE_INVENTORY_ITEM
+        ? getInventoryDuplicateItemPlan({
+            existingItem: conflict.server_payload_json || {},
+            stockForms:
+              conflict.server_payload_json?.inventory_item_stock_forms ||
+              (conflict.server_payload_json?.inventory_item_stock_form
+                ? [conflict.server_payload_json.inventory_item_stock_form]
+                : []),
+            localPayload:
+              conflict.local_payload_json?.payload ||
+              conflict.local_payload_json ||
+              {},
+          })
+        : null;
     const availableResolutionActions = mayResolve
       ? conflict.conflict_type === DUPLICATE_INVENTORY_BATCH
         ? [RESOLUTION_ACTION.KEEP_SERVER, RESOLUTION_ACTION.ACCEPT_BOTH]
         : conflict.conflict_type === DUPLICATE_INVENTORY_BARCODE
           ? [RESOLUTION_ACTION.KEEP_SERVER, RESOLUTION_ACTION.APPLY_LOCAL]
-          : getInventoryDuplicateItemPlan({
-                existingItem: conflict.server_payload_json || {},
-                stockForms:
-                  conflict.server_payload_json?.inventory_item_stock_forms ||
-                  [],
-                localPayload:
-                  conflict.local_payload_json?.payload ||
-                  conflict.local_payload_json ||
-                  {},
-              }).kind === "SAME_PACKAGING"
+          : duplicateItemPlan?.kind === "SAME_PACKAGING"
             ? [RESOLUTION_ACTION.KEEP_SERVER, RESOLUTION_ACTION.ACCEPT_BOTH]
+            : duplicateItemPlan?.kind === "BARCODE_CONFLICT"
+              ? [RESOLUTION_ACTION.KEEP_SERVER, RESOLUTION_ACTION.APPLY_LOCAL]
             : [RESOLUTION_ACTION.KEEP_SERVER]
       : [];
 
@@ -2760,6 +2768,99 @@ const INVENTORY_BATCH_RESOLUTION_FIELDS = [
   "source_type",
 ];
 
+const buildCorrectedInventoryBatchPayload = ({
+  localPayload,
+  resolutionPayload,
+  replacementBarcode,
+}) => {
+  const correctedBatchPayload = {
+    ...(localPayload || {}),
+  };
+
+  if (resolutionPayload && typeof resolutionPayload === "object") {
+    INVENTORY_BATCH_RESOLUTION_FIELDS.forEach((fieldName) => {
+      if (Object.prototype.hasOwnProperty.call(resolutionPayload, fieldName)) {
+        correctedBatchPayload[fieldName] = resolutionPayload[fieldName];
+      }
+    });
+
+    if (
+      !Object.prototype.hasOwnProperty.call(
+        resolutionPayload,
+        "stock_form_barcode",
+      ) &&
+      Object.prototype.hasOwnProperty.call(resolutionPayload, "barcode")
+    ) {
+      correctedBatchPayload.stock_form_barcode = resolutionPayload.barcode;
+    }
+  }
+
+  if (
+    correctedBatchPayload.stock_form_packaging == null &&
+    correctedBatchPayload.packaging != null
+  ) {
+    correctedBatchPayload.stock_form_packaging =
+      correctedBatchPayload.packaging;
+  }
+
+  if (
+    correctedBatchPayload.stock_form_units_per_packaging == null &&
+    correctedBatchPayload.quantity != null
+  ) {
+    correctedBatchPayload.stock_form_units_per_packaging =
+      correctedBatchPayload.quantity;
+  }
+
+  if (
+    correctedBatchPayload.stock_form_unit_of_measure == null &&
+    correctedBatchPayload.unit_of_measure != null
+  ) {
+    correctedBatchPayload.stock_form_unit_of_measure =
+      correctedBatchPayload.unit_of_measure;
+  }
+
+  if (
+    correctedBatchPayload.stock_form_unit_of_measure_value == null &&
+    correctedBatchPayload.unit_of_measure_value != null
+  ) {
+    correctedBatchPayload.stock_form_unit_of_measure_value =
+      correctedBatchPayload.unit_of_measure_value;
+  }
+
+  if (
+    correctedBatchPayload.quantity_received == null &&
+    correctedBatchPayload.packaging_count != null
+  ) {
+    correctedBatchPayload.quantity_received =
+      getInventoryOpeningQuantity(correctedBatchPayload);
+  }
+
+  if (
+    correctedBatchPayload.inventory_item_reorder_level == null &&
+    correctedBatchPayload.reorder_level != null
+  ) {
+    correctedBatchPayload.inventory_item_reorder_level =
+      correctedBatchPayload.reorder_level;
+  }
+
+  const correctedBatchBarcode =
+    normalizeInventoryBarcode(correctedBatchPayload.stock_form_barcode) ||
+    normalizeInventoryBarcode(replacementBarcode);
+
+  if (!correctedBatchBarcode) {
+    throw createInvalidConflictResolutionInputError(
+      "A new barcode is required for this packaging.",
+    );
+  }
+
+  correctedBatchPayload.stock_form_barcode = correctedBatchBarcode;
+
+  return {
+    correctedBatchPayload,
+    correctedBatchBarcode,
+  };
+};
+
 const getConflictLocalPayload = (conflict) => {
   const localPayload = conflict?.local_payload_json || {};
 
@@ -2916,6 +3017,74 @@ const applyManualInventoryDuplicateResolution = async ({
           null,
         changes: batchResequencing.batchNumberChanges || [],
       },
+    };
+  }
+
+  if (
+    conflict.conflict_type === DUPLICATE_INVENTORY_ITEM &&
+    action === RESOLUTION_ACTION.APPLY_LOCAL
+  ) {
+    const existingItem = await getInventoryItemForSyncConflict(
+      conflict.entity_server_id,
+      dbClient,
+    );
+    const stockForms = await getInventoryStockFormsForSyncConflict(
+      conflict.entity_server_id,
+      dbClient,
+    );
+    const plan = getInventoryDuplicateItemPlan({
+      existingItem,
+      stockForms,
+      localPayload,
+    });
+
+    if (plan.kind !== "BARCODE_CONFLICT") {
+      throw createResolutionActionNotAllowedError();
+    }
+
+    const { correctedBatchPayload, correctedBatchBarcode } =
+      buildCorrectedInventoryBatchPayload({
+        localPayload,
+        resolutionPayload,
+        replacementBarcode,
+      });
+    const existingBatches = await getInventoryBatchesForDuplicateMerge(
+      existingItem?.id || conflict.entity_server_id,
+      dbClient,
+    );
+
+    correctedBatchPayload.inventory_item_id =
+      existingItem?.id || conflict.entity_server_id || localPayload.inventory_item_id;
+    correctedBatchPayload.inventory_item_stock_form_id = null;
+    correctedBatchPayload.batch_no =
+      correctedBatchPayload.batch_no ||
+      buildNextMergedInventoryBatchNumber(
+        existingItem || { id: conflict.entity_server_id },
+        existingBatches || [],
+      );
+    correctedBatchPayload.source_type =
+      correctedBatchPayload.source_type || "LGU";
+    correctedBatchPayload.storage_location =
+      correctedBatchPayload.storage_location || "Mayor's Office Inventory";
+
+    const createdBatch = await inventoryBatchService.createInventoryBatch({
+      ...correctedBatchPayload,
+      created_by: conflict.user_id,
+      received_at:
+        correctedBatchPayload.received_at ||
+        conflict.client_timestamp ||
+        null,
+      allowBatchNumberReassignment: true,
+      forceBatchNumberReassignment: false,
+      dbClient,
+    });
+
+    return {
+      winner: "LOCAL",
+      entityServerId: createdBatch?.id || null,
+      acceptedEntity: "INVENTORY_BATCH",
+      replacementBarcode: correctedBatchBarcode,
+      batchNumber: createdBatch?.batch_no || correctedBatchPayload.batch_no,
     };
   }
 

@@ -107,6 +107,7 @@ test("conflict actions require confirmation and barcode corrections reuse the in
   assert.match(pageSource, /getConflictCorrectionItemData/);
   assert.match(pageSource, /getConflictCorrectionBatchData/);
   assert.match(pageSource, /inventoryCorrectionTarget/);
+  assert.match(pageSource, /DUPLICATE_INVENTORY_ITEM/);
   assert.match(pageSource, /stock_form_barcode: formValues\.barcode/);
   assert.match(pageSource, /conflictResolution/);
   assert.match(pageSource, /conflictResolutionTarget=\{inventoryCorrectionTarget\}/);
