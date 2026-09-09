@@ -20,6 +20,7 @@ const claimBlockingStatuses = new Set([
 
 const trimValue = (value) => String(value || "").trim();
 const getIsoNow = () => new Date().toISOString();
+const isImageDataUrl = (value) => typeof value === "string" && /^data:image\//i.test(value);
 
 const getFirstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
@@ -121,6 +122,9 @@ export const toOfflineStubSnapshot = (
         ),
       ) || 0,
     household_is_active: household.is_active !== false,
+    ...(ownerContext.roleCode === ROLE_CODES.MSWDO && isImageDataUrl(getFirstValue(serverRow.family_head_photo_data_url, household.family_head_photo_data_url, ""))
+      ? { family_head_photo_data_url: getFirstValue(serverRow.family_head_photo_data_url, household.family_head_photo_data_url, "") }
+      : {}),
     display_stub_no: trimValue(serverRow.display_stub_no),
     stub_sequence_no: getFirstValue(serverRow.stub_sequence_no, null),
     stub_number: trimValue(getFirstValue(serverRow.stub_number, serverRow.stub_no)),
@@ -172,6 +176,8 @@ export const toStubRowFromOfflineSnapshot = (snapshot, syncEntry = null) => {
       family_head_name: snapshot.family_head_name,
       members_count: snapshot.members_count,
       is_active: snapshot.household_is_active,
+      family_head_photo_url: snapshot.family_head_photo_url || "",
+      family_head_photo_data_url: snapshot.family_head_photo_data_url || "",
     },
     members_count: snapshot.members_count,
     display_stub_no: snapshot.display_stub_no,
@@ -215,7 +221,8 @@ export const toStubDetailsFromOfflineSnapshot = (snapshot, syncEntry = null) => 
       ...row.household,
       household_size: snapshot.members_count,
       members: [],
-      family_head_photo_url: "",
+      family_head_photo_url: snapshot.family_head_photo_url || "",
+      family_head_photo_data_url: snapshot.family_head_photo_data_url || "",
       photo_captured_at: "",
     },
     disaster_event: row.disaster_event,

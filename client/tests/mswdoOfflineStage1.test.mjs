@@ -33,7 +33,8 @@ test("MSWDO pages preserve valid cache on failed online reads and refresh on rec
   const masterlist = await read("features/mswdo-masterlist/useMswdoMasterlist.js");
   const analytics = await read("features/mswdo-analytics/useMswdoAnalytics.js");
   assert.match(masterlist, /readMswdoOfflineSnapshot/);
-  assert.match(masterlist, /setMasterlistPayload\(cached\.datasets\.masterlist/);
+  assert.match(masterlist, /buildMswdoOfflineMasterlistPayload/);
+  assert.match(masterlist, /setMasterlistPayload\(offlinePayload\)/);
   assert.match(masterlist, /addEventListener\?\.\("online"/);
   assert.match(analytics, /readMswdoOfflineSnapshot/);
   assert.match(analytics, /setOperationalPayload\(cached\.datasets\.dashboard/);

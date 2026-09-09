@@ -26,6 +26,7 @@ import {
 import { MASTERLIST_SORT_OPTIONS } from "../masterlist/masterlistService";
 import { getCanonicalMemberSectorCode } from "../../utils/registrationOptions";
 import { readOperationalDisasterEventScope } from "../disaster-events/operationalDisasterEventSelection";
+import { resolveFamilyHeadPhoto } from "../masterlist/familyHeadPhoto.js";
 
 export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const {
@@ -210,8 +211,10 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
         .filter(Boolean)
         .join(" ")
     : pendingDepartureRow?.family_head_name || "";
-  const pendingDepartureFamilyHeadPhotoUrl =
-    pendingDepartureHouseholdDetails?.household?.family_head_photo_url || "";
+  const pendingDepartureFamilyHeadPhotoUrl = resolveFamilyHeadPhoto(
+    pendingDepartureHouseholdDetails,
+    { isOffline: typeof navigator !== "undefined" && navigator.onLine === false },
+  );
 
   const registrationForm = useHouseholdRegistrationForm({
     isOpen: isRegisterModalOpen,
@@ -488,7 +491,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
         return {
           household_id: householdId,
           family_head_name: familyHeadName,
-          family_head_photo_url: detailHousehold?.family_head_photo_url || "",
+          family_head_photo_url: resolveFamilyHeadPhoto(detailValue, { isOffline: typeof navigator !== "undefined" && navigator.onLine === false }),
         };
       });
 

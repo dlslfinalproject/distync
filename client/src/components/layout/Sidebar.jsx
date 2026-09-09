@@ -243,6 +243,7 @@ const Sidebar = ({
   onNavigate,
   onClose,
   isOffline = false,
+  mswdoOfflineReady = true,
 }) => {
   const { currentRole } = useAuth();
   const sidebarRef = useRef(null);
@@ -363,7 +364,7 @@ const Sidebar = ({
             const isMswdoOfflineLocked =
               currentRole === ROLE_CODES.MSWDO &&
               isOffline &&
-              isMswdoOfflineBlockedRoute(item.to);
+              isMswdoOfflineBlockedRoute(item.to, { isPrepared: mswdoOfflineReady });
             const isMayorOfflineLocked =
               isMayorOfflineRouteLocked || isBarangayOfflineLocked || isMswdoOfflineLocked;
             const offlineAccessMessage = isBarangayOfflineLocked

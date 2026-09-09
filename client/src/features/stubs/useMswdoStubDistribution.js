@@ -8,6 +8,8 @@ import {
 } from "../mswdo-masterlist/mswdoMasterlistService";
 import { fetchBarangayStubDashboard } from "./stubService";
 import { getPendingLocalStubRows } from "./stubOfflineRows";
+import { getCachedStubRowsForScope } from "./stubCache.js";
+import { readMswdoOfflineSnapshot } from "../offline/mswdoOfflinePreparation.js";
 import { getCanonicalSectorCodeFromText } from "../../utils/sectorDisplay";
 import {
   matchesStubStatusFilter,
@@ -188,6 +190,24 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
       setErrorMessage("");
 
       try {
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+          const storedEventId = readOperationalDisasterEventId({ roleCode: ROLE_CODES.MSWDO, userId });
+          const snapshot = await readMswdoOfflineSnapshot({ userId, eventId: storedEventId });
+          if (!snapshot) throw new Error("Offline data needs refresh before Relief Goods Distribution can be used.");
+          const filterData = snapshot.datasets.filters;
+          const allEvents = Array.isArray(filterData.events) ? filterData.events : [];
+          const activeEvents = allEvents.filter((event) => event?.status === "ACTIVE");
+          const barangayRows = Array.isArray(filterData.barangays) ? filterData.barangays : [];
+          const sectorRows = Array.isArray(filterData.sectors) ? filterData.sectors : [];
+          setDisasterEvents(allEvents);
+          setBarangays(barangayRows);
+          setSectors(sectorRows);
+          const nextSelectedEventId = resolveOperationalDisasterEventId({ availableEvents: allEvents, preferredEventId: storedEventId, fallbackEventId: activeEvents[0]?.id || allEvents[0]?.id || "" });
+          const setOfflineEventId = setSelectedDisasterEventIdState;
+          setOfflineEventId(nextSelectedEventId);
+          setIsEventSelectionResolved(true);
+          return;
+        }
         const [
           eventsPayload,
           activePayload,
@@ -281,6 +301,14 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
       setErrorMessage("");
 
       try {
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+          const cachedRows = await getCachedStubRowsForScope({ disasterEventId: selectedDisasterEventId, currentBarangayId: selectedBarangayId });
+          if (!cachedRows.length) throw new Error("This disaster event has no prepared offline relief stubs for the selected Barangay.");
+          const rows = cachedRows.filter((row) => String(row.barangay?.id || row.barangay_id || selectedBarangayId) === String(selectedBarangayId));
+          setDashboard({ metrics: { ...emptyMetrics, total_issued_stubs: rows.length, claimed_stubs: rows.filter((row) => row.status === "CLAIMED").length, unclaimed_stubs: rows.filter((row) => row.status === "ISSUED").length, beneficiary_families: new Set(rows.map((row) => row.household_id)).size }, data: rows });
+          setPendingLocalRows([]);
+          return;
+        }
         const dashboardPayload = await fetchBarangayStubDashboard({
           disasterEventId: selectedDisasterEventId,
           barangayId: selectedBarangayId,

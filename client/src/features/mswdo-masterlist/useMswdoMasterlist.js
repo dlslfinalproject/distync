@@ -26,6 +26,7 @@ import {
   resolveOperationalDisasterEventId,
 } from "../disaster-events/operationalDisasterEventSelection";
 import { readMswdoOfflineSnapshot } from "../offline/mswdoOfflinePreparation.js";
+import { buildMswdoOfflineMasterlistPayload } from "./mswdoMasterlistOffline.js";
 
 const emptyMasterlistPayload = {
   disaster_event: null,
@@ -326,6 +327,39 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
       setErrorMessage("");
 
       try {
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+          const cached = await readMswdoOfflineSnapshot({
+            userId,
+            eventId: selectedDisasterEventId,
+          });
+
+          if (!cached) {
+            throw new Error("Offline masterlist snapshot is not ready");
+          }
+
+          const completeHouseholds = cached.datasets.masterlist.rows || [];
+          const offlinePayload = buildMswdoOfflineMasterlistPayload({
+            households: completeHouseholds,
+            mapRow: (household, allHouseholds) =>
+              getMappedRows(allHouseholds, allHouseholds, selectedDisasterEventId).find(
+                (row) => row.household_id === household.household_id,
+              ),
+            selectedBarangayId,
+            recordStatus,
+            searchTerm,
+            selectedSectorIds,
+            selectedSortOrder,
+            currentPage,
+            pageSize,
+            basePayload: cached.datasets.masterlist.payload || {
+              ...emptyMasterlistPayload,
+              data: completeHouseholds,
+            },
+          });
+          setMasterlistPayload(offlinePayload);
+          return;
+        }
+
         const payload = await fetchConsolidatedMasterlist({
           disasterEventId: selectedDisasterEventId,
           barangayId: selectedBarangayId || null,
@@ -350,7 +384,22 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
         ) {
           const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
           if (cached) {
-            setMasterlistPayload(cached.datasets.masterlist.payload || { ...emptyMasterlistPayload, data: cached.datasets.masterlist.rows });
+            const completeHouseholds = cached.datasets.masterlist.rows || [];
+            setMasterlistPayload(buildMswdoOfflineMasterlistPayload({
+              households: completeHouseholds,
+              mapRow: (household, allHouseholds) =>
+                getMappedRows(allHouseholds, allHouseholds, selectedDisasterEventId).find(
+                  (row) => row.household_id === household.household_id,
+                ),
+              selectedBarangayId,
+              recordStatus,
+              searchTerm,
+              selectedSectorIds,
+              selectedSortOrder,
+              currentPage,
+              pageSize,
+              basePayload: cached.datasets.masterlist.payload || emptyMasterlistPayload,
+            }));
             setErrorMessage("");
           } else {
             setMasterlistPayload(emptyMasterlistPayload);
