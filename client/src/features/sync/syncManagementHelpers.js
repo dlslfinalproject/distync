@@ -1108,7 +1108,9 @@ const getPayloadComparisonDetails = (payload = {}, { updatedAt } = {}) => {
       ]),
     ),
     donorName: asDisplayValue(normalizedPayload.donor_name),
-    updatedAt: formatSyncHistoryDateTime(updatedAt || normalizedPayload.updated_at),
+    updatedAt: formatSyncHistoryDateTime(
+      updatedAt || normalizedPayload.updated_at || normalizedPayload.updatedAt,
+    ),
     registeredAt: formatSyncHistoryDateTime(normalizedPayload.registered_at),
     householdSize: asDisplayValue(normalizedPayload.household_size),
     address: asDisplayValue(normalizedPayload.current_address_details),
@@ -1125,13 +1127,18 @@ const getPayloadComparisonDetails = (payload = {}, { updatedAt } = {}) => {
 };
 
 const getConflictDeviceTimestamp = (conflict = {}) => {
+  const rawLocalPayload = conflict.local_payload_json || {};
   const localPayload = getComparisonPayload(conflict.local_payload_json);
 
   return getFirstValue(
     conflict.client_timestamp,
     conflict.clientTimestamp,
+    rawLocalPayload.client_timestamp,
+    rawLocalPayload.clientTimestamp,
     localPayload.client_timestamp,
     localPayload.clientTimestamp,
+    conflict.sync_transaction_created_at,
+    conflict.syncTransactionCreatedAt,
   );
 };
 

@@ -600,6 +600,27 @@ test("conflict comparison shows the device capture time for every local record",
   assert.equal(updatedRow.serverValue, "Sep 8, 2026, 10:35 PM");
 });
 
+test("conflict comparison falls back to the sync transaction time when device time is unavailable", async () => {
+  const { getConflictComparisonRows } = await import(helperModulePath.href);
+
+  const rows = getConflictComparisonRows({
+    local_payload_json: {
+      payload: {
+        item_name: "Jacket Malvar",
+      },
+    },
+    sync_transaction_created_at: "2026-09-08T14:34:00.000Z",
+    server_payload_json: {
+      item_name: "Jacket Malvar",
+      updated_at: "2026-09-08T14:35:00.000Z",
+    },
+  });
+  const updatedRow = rows.find((row) => row.label === "Last Updated");
+
+  assert.equal(updatedRow.localValue, "Sep 8, 2026, 10:34 PM");
+  assert.equal(updatedRow.serverValue, "Sep 8, 2026, 10:35 PM");
+});
+
 test("BRG-SC-CONFLICT-P04A Accept Both explains offline batch ordering", async () => {
   const { getConflictResolutionSummary } = await import(helperModulePath.href);
 
