@@ -66,12 +66,15 @@ test("BRG-SC-P02 Sync Center renders last successful sync from status-summary", 
   assert.match(serviceSource, /return payload\?\.data \|\| \{\}/);
 });
 
-test("BRG-SC-P03 conflict details use an accessible eye icon action", async () => {
+test("BRG-SC-P03 conflict details use the Inventory Log Status icon action", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
 
-  assert.match(source, /import \{ FiEye,/);
+  assert.match(source, /import \{ FiAlertCircle,/);
   assert.match(source, /aria-label="View synchronization details"/);
-  assert.match(source, /<FiEye size=\{18\} aria-hidden="true" focusable="false" \/>/);
+  assert.match(
+    source,
+    /<FiAlertCircle\s+size=\{18\}\s+aria-hidden="true"\s+focusable="false"\s+\/>/,
+  );
   assert.doesNotMatch(source, />\s*View Details\s*</);
 });
 
@@ -132,12 +135,12 @@ test("BRG-SC-P05 transaction and conflict status filters are not mixed", async (
   assert.match(source, /activeSyncTab === "CONFLICTS" \? "Conflict Status" : "Sync Status"/);
 });
 
-test("BRG-SC-P06 non-retryable queue entries do not offer a retry action", async () => {
+test("BRG-SC-P06 Offline Queue does not render per-row retry actions", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
 
-  assert.match(source, /const canRetry = isSafeRetryableQueueEntry\(entry\)/);
-  assert.match(source, /<span aria-label="No action available">—<\/span>/);
-  assert.match(source, /disabled=\{!isOnline \|\| isRetrying\}/);
+  assert.doesNotMatch(source, /const canRetry = isSafeRetryableQueueEntry\(entry\)/);
+  assert.doesNotMatch(source, /<span aria-label="No action available">[\s\S]*?<\/span>/);
+  assert.doesNotMatch(source, /onClick=\{\(\) => handleRetrySync\(\[entry\.id\]\)\}/);
 });
 
 test("BRG-SC-P07 raw UUIDs are not primary record labels", async () => {
@@ -157,7 +160,7 @@ test("BRG-SC-P08 server history table uses affected record and processed timesta
   assert.doesNotMatch(source, /<th style=\{tableStyles\.th\}>Synced At<\/th>/);
 });
 
-test("BRG-SC-P08B Barangay Sync History has the final eight columns in order", async () => {
+test("BRG-SC-P08B Barangay Sync History has the final columns in order", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
   const historySection = source.match(
     /activeSyncTab === "AUDIT" \? \([\s\S]*?\{activeSyncTab === "CONFLICTS"/,
@@ -165,10 +168,14 @@ test("BRG-SC-P08B Barangay Sync History has the final eight columns in order", a
 
   assert.match(
     historySection,
-    /Record Type[\s\S]*Action[\s\S]*Affected Record[\s\S]*Disaster Event[\s\S]*Status[\s\S]*Queued At[\s\S]*Processed At[\s\S]*Notes/,
+    /Record Type[\s\S]*Action[\s\S]*Affected Record[\s\S]*Status[\s\S]*Queued At[\s\S]*Processed At[\s\S]*Notes/,
+  );
+  assert.doesNotMatch(
+    historySection,
+    /<th style=\{tableStyles\.th\}>Disaster Event<\/th>/,
   );
   assert.doesNotMatch(historySection, /<th style=\{tableStyles\.th\}>Barangay<\/th>/);
-  assert.match(historySection, /renderRecordCells\(transaction, \{ includeBarangay: false \}\)/);
+  assert.match(historySection, /includeDisasterEvent: false/);
   assert.match(historySection, /<table style=\{syncHistoryTableStyles\}>/);
   assert.match(source, /minWidth: "1080px"/);
 });
@@ -384,7 +391,7 @@ test("BRG-SC-P14 Barangay search no longer advertises or indexes Barangay", asyn
   );
 });
 
-test("BRG-OQ-P01 Offline Queue uses the final eight operational columns", async () => {
+test("BRG-OQ-P01 Offline Queue uses the streamlined operational columns", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
   const queueSection = source.match(
     /activeSyncTab === "QUEUE" \? \([\s\S]*?\{activeSyncTab === "AUDIT"/,
@@ -392,7 +399,11 @@ test("BRG-OQ-P01 Offline Queue uses the final eight operational columns", async 
 
   assert.match(
     queueSection,
-    /Record Type[\s\S]*Operation[\s\S]*Affected Record[\s\S]*Disaster Event[\s\S]*Status[\s\S]*Queued At[\s\S]*Notes[\s\S]*Action/,
+    /Record Type[\s\S]*Operation[\s\S]*Affected Record[\s\S]*Status[\s\S]*Queued At/,
+  );
+  assert.doesNotMatch(
+    queueSection,
+    /<th[^>]*>Disaster Event<\/th>|<th[^>]*>Notes<\/th>|<th[^>]*>Action<\/th>/,
   );
   assert.doesNotMatch(queueSection, /<th[^>]*>Barangay<\/th>|Family \/ Stub/);
   assert.match(queueSection, /offlineQueueTableStyles/);
@@ -440,19 +451,19 @@ test("BRG-OQ-P03 Offline Queue Notes map technical failures to actionable langua
   );
 });
 
-test("BRG-OQ-P04 Offline Queue row action is an accessible icon with actual-outcome feedback", async () => {
+test("BRG-OQ-P04 Offline Queue keeps retry available globally without row action columns", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
   const serviceSource = await fs.readFile(
     new URL("../src/offline/syncService.js", import.meta.url),
     "utf8",
   );
 
-  assert.match(source, /aria-label=\{`Retry synchronization for \$\{details\.subject\}`\}/);
-  assert.match(source, /title="Retry synchronization"/);
+  assert.doesNotMatch(source, /aria-label=\{`Retry synchronization for \$\{details\.subject\}`\}/);
+  assert.doesNotMatch(source, /title="Retry synchronization"/);
+  assert.match(source, /onClick=\{\(\) => handleRetrySync\(\)\}/);
+  assert.match(source, /Retry Failed Syncs/);
   assert.match(source, /window\.addEventListener\("online", updateConnectivity\)/);
   assert.match(source, /window\.addEventListener\("offline", updateConnectivity\)/);
-  assert.match(source, /minWidth: "44px"/);
-  assert.match(source, /aria-busy=\{isRetrying\}/);
   assert.doesNotMatch(source, /Retry is unavailable for this entry/);
   assert.doesNotMatch(source, /Failed sync entries were retried safely/);
   assert.match(serviceSource, /:\s*"SUCCESS";/);
