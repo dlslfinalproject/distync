@@ -11,7 +11,6 @@ import {
   fetchReliefPackTemplateById,
   fetchReliefPackTemplates,
 } from "../relief-pack-templates/reliefPackTemplateService";
-import { fetchInventoryBatches } from "../inventory-batches/inventoryBatchService";
 import {
   getAssignedReliefPackTemplatesForHousehold,
   getHouseholdSectorIds,
@@ -401,7 +400,6 @@ export const useInventoryDistribution = () => {
   const [barangays, setBarangays] = useState([]);
   const [sectors, setSectors] = useState([]);
   const [reliefPackTemplates, setReliefPackTemplates] = useState([]);
-  const [inventoryBatches, setInventoryBatches] = useState([]);
   const [selectedDisasterEventIdsByTab, setSelectedDisasterEventIdsByTab] =
     useState({
       active: "",
@@ -457,12 +455,11 @@ export const useInventoryDistribution = () => {
       setTemplateNotice("");
 
       try {
-        const [eventsPayload, barangaysPayload, sectorsPayload, inventoryBatchPayload] =
+        const [eventsPayload, barangaysPayload, sectorsPayload] =
           await Promise.all([
             fetchAllDisasterEvents(),
             fetchBarangays(),
             fetchMswdoSectors(),
-            fetchInventoryBatches(),
           ]);
 
         if (!isMounted) {
@@ -476,9 +473,6 @@ export const useInventoryDistribution = () => {
         setDisasterEvents(eventRows);
         setBarangays(barangayRows);
         setSectors(sectorRows);
-        setInventoryBatches(
-          Array.isArray(inventoryBatchPayload) ? inventoryBatchPayload : [],
-        );
       } catch (error) {
         if (isMounted) {
           setErrorMessage(
@@ -496,42 +490,6 @@ export const useInventoryDistribution = () => {
 
     return () => {
       isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const refreshInventoryBatches = async () => {
-      try {
-        const inventoryBatchPayload = await fetchInventoryBatches();
-
-        if (isMounted) {
-          setInventoryBatches(
-            Array.isArray(inventoryBatchPayload) ? inventoryBatchPayload : [],
-          );
-        }
-      } catch (_error) {
-        // Keep the last known inventory snapshot if a background refresh fails.
-      }
-    };
-
-    const handleVisibilityRefresh = () => {
-      if (document.visibilityState === "visible") {
-        void refreshInventoryBatches();
-      }
-    };
-
-    const refreshInterval = window.setInterval(refreshInventoryBatches, 30000);
-
-    window.addEventListener("focus", refreshInventoryBatches);
-    document.addEventListener("visibilitychange", handleVisibilityRefresh);
-
-    return () => {
-      isMounted = false;
-      window.clearInterval(refreshInterval);
-      window.removeEventListener("focus", refreshInventoryBatches);
-      document.removeEventListener("visibilitychange", handleVisibilityRefresh);
     };
   }, []);
 
@@ -990,7 +948,6 @@ export const useInventoryDistribution = () => {
     scopedDisasterEvents,
     selectableBarangays,
     sectorOptions,
-    inventoryBatches,
     selectedDisasterEvent,
     selectedBarangay,
     selectedDisasterEventId,

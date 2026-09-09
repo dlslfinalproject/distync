@@ -943,6 +943,8 @@ const InventoryDistributionDetailModal = ({
   stubDetails,
   templateDetails = [],
   inventoryBatches = [],
+  isReadinessLoading = false,
+  readinessErrorMessage = "",
   disasterEvents = [],
   disasterEventId = "",
   showReadinessStatus = false,
@@ -1026,7 +1028,8 @@ const InventoryDistributionDetailModal = ({
     row?.masterlist_disaster_event?.id ||
     row?.disaster_event_id ||
     "";
-  const assignedPackReadiness = showReadinessStatus
+  const assignedPackReadiness =
+    showReadinessStatus && !isReadinessLoading && !readinessErrorMessage
     ? getReliefPackReadinessForTemplates({
         templates: reliefPackTemplates,
         inventoryBatches,
@@ -1262,7 +1265,14 @@ const InventoryDistributionDetailModal = ({
                 : "Relief Packs / Items Assigned"}
             </h3>
 
-            {isClaimed ? (
+            {showReadinessStatus && !isClaimed && isReadinessLoading ? (
+              <LoadingState message="Loading inventory readiness..." />
+            ) : showReadinessStatus && !isClaimed && readinessErrorMessage ? (
+              <ErrorState
+                compact
+                message={`Readiness is unavailable: ${readinessErrorMessage}`}
+              />
+            ) : isClaimed ? (
               receivedPackSections.length === 0 ? (
                 <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
                   No received items are recorded for this claim.

@@ -14,6 +14,7 @@ import StatusPill from "../../components/shared/StatusPill";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import ResponsiveFilterPopover from "../../components/shared/ResponsiveFilterPopover";
 import { useInventoryDistribution } from "../../features/inventory-distribution/useInventoryDistribution";
+import { useInventoryDistributionReadiness } from "../../features/inventory-distribution/useInventoryDistributionReadiness.js";
 import { MASTERLIST_SORT_OPTIONS } from "../../features/masterlist/masterlistService";
 import {
   exportInventoryDistribution,
@@ -245,7 +246,6 @@ const InventoryDistributionPage = () => {
     selectedDisasterEvent,
     selectedDisasterEventId,
     selectedBarangayId,
-    inventoryBatches,
     selectedStatus,
     selectedSectorIds,
     selectedSortOrder,
@@ -270,10 +270,13 @@ const InventoryDistributionPage = () => {
   const [selectedDistributionRow, setSelectedDistributionRow] = useState(null);
   const [selectedStubDetails, setSelectedStubDetails] = useState(null);
   const [isDistributionDetailOpen, setIsDistributionDetailOpen] = useState(false);
+  const [distributionDetailRequestSequence, setDistributionDetailRequestSequence] =
+    useState(0);
   const [isDistributionDetailLoading, setIsDistributionDetailLoading] =
     useState(false);
   const [distributionDetailErrorMessage, setDistributionDetailErrorMessage] =
     useState("");
+  const distributionDetailRequestIdRef = React.useRef(0);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
@@ -293,6 +296,19 @@ const InventoryDistributionPage = () => {
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
     message: "",
+  });
+
+  const showReadinessStatus = selectedDisasterEvent?.status === "ACTIVE";
+  const {
+    inventoryBatches: readinessInventoryBatches,
+    isLoading: isReadinessLoading,
+    errorMessage: readinessErrorMessage,
+  } = useInventoryDistributionReadiness({
+    isOpen: isDistributionDetailOpen,
+    row: selectedDistributionRow,
+    disasterEventId: selectedDisasterEventId,
+    showReadinessStatus,
+    requestSequence: distributionDetailRequestSequence,
   });
 
   React.useEffect(() => {
@@ -540,10 +556,14 @@ const InventoryDistributionPage = () => {
   };
 
   const handleOpenDistributionDetails = async (row) => {
+    const requestId = distributionDetailRequestIdRef.current + 1;
+    distributionDetailRequestIdRef.current = requestId;
+
     setSelectedDistributionRow(row);
     setSelectedStubDetails(null);
     setDistributionDetailErrorMessage("");
     setIsDistributionDetailOpen(true);
+    setDistributionDetailRequestSequence((sequence) => sequence + 1);
     setIsDistributionDetailLoading(true);
 
     if (!row?.stub_id) {
@@ -554,6 +574,10 @@ const InventoryDistributionPage = () => {
     try {
       const payload = await fetchInventoryDistributionDetail(row.stub_id);
       const detail = payload?.data || null;
+
+      if (requestId !== distributionDetailRequestIdRef.current) {
+        return;
+      }
 
       if (detail) {
         setSelectedStubDetails({
@@ -573,20 +597,32 @@ const InventoryDistributionPage = () => {
         });
       }
     } catch (error) {
-      setDistributionDetailErrorMessage(
-        error.message || "Failed to load distribution details.",
-      );
+      if (requestId === distributionDetailRequestIdRef.current) {
+        setDistributionDetailErrorMessage(
+          error.message || "Failed to load distribution details.",
+        );
+      }
     } finally {
-      setIsDistributionDetailLoading(false);
+      if (requestId === distributionDetailRequestIdRef.current) {
+        setIsDistributionDetailLoading(false);
+      }
     }
   };
 
   const handleCloseDistributionDetails = () => {
+    distributionDetailRequestIdRef.current += 1;
+    setDistributionDetailRequestSequence((sequence) => sequence + 1);
     setIsDistributionDetailOpen(false);
     setSelectedDistributionRow(null);
     setSelectedStubDetails(null);
     setDistributionDetailErrorMessage("");
   };
+
+  React.useEffect(() => {
+    if (isDistributionDetailOpen) {
+      handleCloseDistributionDetails();
+    }
+  }, [selectedDisasterEventId]);
 
   if (!hasActiveEvents && !isLoadingFilters) {
     return (
@@ -925,10 +961,12 @@ const InventoryDistributionPage = () => {
           row={selectedDistributionRow}
           stubDetails={selectedStubDetails}
           templateDetails={templateDetails}
-          inventoryBatches={inventoryBatches}
+          inventoryBatches={readinessInventoryBatches}
+          isReadinessLoading={isReadinessLoading}
+          readinessErrorMessage={readinessErrorMessage}
           disasterEvents={disasterEvents}
           disasterEventId={selectedDisasterEventId}
-          showReadinessStatus={selectedDisasterEvent?.status === "ACTIVE"}
+          showReadinessStatus={showReadinessStatus}
           onClose={handleCloseDistributionDetails}
         />
 
