@@ -165,11 +165,11 @@ test("active unclaimed paths use live assignments while historical paths use sna
     distributionService,
     /getEffectiveAssignedTemplatesForExport/,
   );
-  assert.match(
+  assert.doesNotMatch(
     distributionService,
-    /getReliefPackComponentItemIdsForExport/,
+    /getAvailableDonatedLooseItemsForClaimPreview/,
   );
-  assert.match(
+  assert.doesNotMatch(
     distributionService,
     /excludedInventoryItemIds: assignedReliefPackComponentItemIds/,
   );

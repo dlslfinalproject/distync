@@ -53,7 +53,7 @@ const buildBatchPayload = (storageLocation) => ({
 const buildDonationItemPayload = (storageLocation) => ({
   inventory_item_id: VALID_INVENTORY_ITEM_ID,
   quantity_received: 1,
-  remarks: "Per Family Allocation: 1",
+  remarks: null,
   storage_location: storageLocation,
 });
 
@@ -135,6 +135,22 @@ test("donation batch storage location validates the existing trimmed value", () 
     tooLong.jsonPayload.message,
     "storage_location must not exceed 200 characters",
   );
+});
+
+test("loose donation items do not require per-family allocation remarks", () => {
+  const omitted = runMiddleware(validateDonationItemPayload, {
+    ...buildDonationItemPayload(null),
+    remarks: null,
+  });
+  const plainRemark = runMiddleware(validateDonationItemPayload, {
+    ...buildDonationItemPayload(null),
+    remarks: "Community food donation",
+  });
+
+  assert.equal(omitted.nextCalled, true);
+  assert.equal(omitted.req.validatedBody.remarks, null);
+  assert.equal(plainRemark.nextCalled, true);
+  assert.equal(plainRemark.req.validatedBody.remarks, "Community food donation");
 });
 
 test("sync-capable inventory batch service rejects oversized locations before database access", async () => {

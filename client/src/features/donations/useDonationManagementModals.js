@@ -133,11 +133,6 @@ const parsePositiveNumber = (value) => {
   return parsedValue;
 };
 
-const isPositiveIntegerValue = (value) => {
-  const parsedValue = Number(value);
-  return Number.isInteger(parsedValue) && parsedValue > 0;
-};
-
 const computeDonationQuantityReceived = (draft) => {
   const packageCount = parsePositiveNumber(draft.packaging_count);
   const unitsPerPackaging = isPiecePackaging(draft.new_item_packaging)
@@ -249,21 +244,6 @@ const resolveDonationInventoryItem = ({ draft, inventoryItems }) => {
 const buildReliefPackRemark = (templateName, packQuantity) =>
   `Relief Pack: ${templateName} x ${packQuantity}`;
 
-const buildPerFamilyAllocationRemark = (quantity) =>
-  `Per Family Allocation: ${Number(quantity || 0)}`;
-
-const parsePerFamilyAllocationRemark = (remark) => {
-  const matchedRemark = String(remark || "")
-    .trim()
-    .match(/^Per Family Allocation:\s*(\d+)$/i);
-
-  if (!matchedRemark) {
-    return 0;
-  }
-
-  return Number(matchedRemark[1]) || 0;
-};
-
 const parseReliefPackRemark = (remark) => {
   const normalizedRemark = String(remark || "").trim();
   const matchedRemark = normalizedRemark.match(/^Relief Pack:\s*(.+?)\s+x\s+(\d+)$/i);
@@ -337,10 +317,7 @@ const normalizeDonationFormItems = (items = []) => {
     const parsedReliefPack = parseReliefPackRemark(item?.remarks);
 
     if (!parsedReliefPack || parsedReliefPack.relief_pack_quantity <= 0) {
-      groupedItems.push({
-        ...item,
-        per_family_allocation: parsePerFamilyAllocationRemark(item?.remarks),
-      });
+      groupedItems.push({ ...item });
       return;
     }
 
@@ -449,8 +426,7 @@ const buildLooseDonationDraft = (draft) => ({
     ),
   barcode: draft.barcode || null,
   expiration_date: draft.expiration_date || null,
-  per_family_allocation: Number(draft.per_family_allocation || 0),
-  remarks: buildPerFamilyAllocationRemark(draft.per_family_allocation),
+  remarks: null,
 });
 
 const buildReliefPackDraft = (draft) => ({
@@ -472,9 +448,7 @@ const buildExistingLooseDonationItemPayload = (item) => ({
     item.inventory_item_stock_form?.id ||
     null,
   quantity_received: Number(item.quantity_received || 0),
-  remarks:
-    item.remarks ||
-    buildPerFamilyAllocationRemark(item.per_family_allocation),
+  remarks: null,
   expiration_date:
     item.inventory_batch?.expiration_date?.slice?.(0, 10) ||
     item.expiration_date ||
@@ -591,6 +565,7 @@ const resolveReliefPackDonationItemPayloads = async ({
 
 export const useDonationManagementModals = ({
   selectedEventId,
+  selectedDonationEventId = selectedEventId,
   inventoryItems,
   donorSuggestions = [],
   loadPageData,
@@ -993,10 +968,6 @@ export const useDonationManagementModals = ({
       clearDonationItemFieldError("packaging_count");
     }
 
-    if (fieldName === "per_family_allocation") {
-      clearDonationItemFieldError("per_family_allocation");
-    }
-
     if (fieldName === "entry_type") {
       setDonationItemFieldErrors({});
       setDonationItemErrorMessage("");
@@ -1269,16 +1240,6 @@ export const useDonationManagementModals = ({
     }
 
     if (isExistingDonationItem) {
-      const quantityReceived = computeDonationQuantityReceived(donationItemDraft);
-      const perFamilyAllocation = parsePositiveNumber(
-        donationItemDraft.per_family_allocation,
-      );
-
-      if (!donationForm.disaster_event_id) {
-        nextErrors.per_family_allocation =
-          "Select a disaster event before setting per family allocation.";
-      }
-
       if (parsePositiveNumber(donationItemDraft.packaging_count) <= 0) {
         nextErrors.packaging_count = "Quantity on hand is required.";
       }
@@ -1295,26 +1256,11 @@ export const useDonationManagementModals = ({
           "Expiration date cannot be earlier than today.";
       }
 
-      if (perFamilyAllocation <= 0) {
-        nextErrors.per_family_allocation = "Per family allocation is required.";
-      } else if (!isPositiveIntegerValue(donationItemDraft.per_family_allocation)) {
-        nextErrors.per_family_allocation =
-          "Per family allocation must be a whole number.";
-      } else if (quantityReceived > 0 && perFamilyAllocation > quantityReceived) {
-        nextErrors.per_family_allocation =
-          "Per family allocation cannot exceed quantity on hand.";
-      }
-
       return nextErrors;
     }
 
     if (!donationItemDraft.new_item_name.trim()) {
       nextErrors.new_item_name = "Enter the item name.";
-    }
-
-    if (!donationForm.disaster_event_id) {
-      nextErrors.per_family_allocation =
-        "Select a disaster event before setting per family allocation.";
     }
 
     if (!donationItemDraft.new_item_tracking_method) {
@@ -1352,9 +1298,6 @@ export const useDonationManagementModals = ({
     }
 
     const quantityReceived = computeDonationQuantityReceived(donationItemDraft);
-    const perFamilyAllocation = parsePositiveNumber(
-      donationItemDraft.per_family_allocation,
-    );
 
     if (quantityReceived <= 0) {
       nextErrors.packaging_count = nextErrors.packaging_count || "Quantity on hand is required.";
@@ -1372,16 +1315,6 @@ export const useDonationManagementModals = ({
         "Expiration date cannot be earlier than today.";
     }
 
-    if (perFamilyAllocation <= 0) {
-      nextErrors.per_family_allocation = "Per family allocation is required.";
-    } else if (!isPositiveIntegerValue(donationItemDraft.per_family_allocation)) {
-      nextErrors.per_family_allocation =
-        "Per family allocation must be a whole number.";
-    } else if (quantityReceived > 0 && perFamilyAllocation > quantityReceived) {
-      nextErrors.per_family_allocation =
-        "Per family allocation cannot exceed quantity on hand.";
-    }
-
     return nextErrors;
   };
 
@@ -1397,7 +1330,7 @@ export const useDonationManagementModals = ({
     if (!donationId) {
       setDonationForm({
         ...createDonationForm(),
-        disaster_event_id: selectedEventId || "",
+        disaster_event_id: selectedDonationEventId || "",
       });
       setIsDonationModalOpen(true);
       return;
@@ -1824,11 +1757,6 @@ export const useDonationManagementModals = ({
             : "",
         units_per_packaging: String(savedItemStockDetails.unitsPerPackaging || ""),
         remarks: "",
-        per_family_allocation: String(
-          item.per_family_allocation ||
-            parsePerFamilyAllocationRemark(item.remarks) ||
-            "",
-        ),
         expiration_date: savedItemStockDetails.expirationDate,
         storage_location: "",
     });
@@ -1885,15 +1813,11 @@ export const useDonationManagementModals = ({
           : Number(donationItemDraft.units_per_packaging || 0) || null;
         const nextExpirationDate = donationItemDraft.expiration_date || null;
         const nextQuantityReceived = computeDonationQuantityReceived(donationItemDraft);
-        const nextPerFamilyAllocation = Number(
-          donationItemDraft.per_family_allocation || 0,
-        );
 
         return {
           ...item,
           quantity_received: nextQuantityReceived,
-          remarks: buildPerFamilyAllocationRemark(nextPerFamilyAllocation),
-          per_family_allocation: nextPerFamilyAllocation,
+          remarks: null,
           expiration_date: nextExpirationDate,
           inventory_item: {
             ...item.inventory_item,
@@ -2016,9 +1940,7 @@ export const useDonationManagementModals = ({
             inventory_item_stock_form_id:
               donationItemDraft.inventory_item_stock_form_id || null,
             quantity_received: computeDonationQuantityReceived(donationItemDraft),
-            remarks: buildPerFamilyAllocationRemark(
-              donationItemDraft.per_family_allocation,
-            ),
+            remarks: null,
             expiration_date: donationItemDraft.expiration_date || null,
             packaging: donationItemDraft.new_item_packaging,
             units_per_packaging: donationItemDraft.units_per_packaging,

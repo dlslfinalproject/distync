@@ -77,17 +77,6 @@ const normalizeDonationOtherDonorType = (value) => {
 
 const normalizeDonationDonorName = (value) => String(value || "").trim().toLowerCase();
 
-const buildPerFamilyAllocationRemark = (quantity) =>
-  `Per Family Allocation: ${Number(quantity || 0)}`;
-
-const parsePerFamilyAllocationRemark = (remarks) => {
-  const matchedRemark = String(remarks || "")
-    .trim()
-    .match(/^Per Family Allocation:\s*(\d+)$/i);
-
-  return Number(matchedRemark?.[1] || 0);
-};
-
 const neededItemSourceMeta = {
   FORECAST: {
     title: "Forecasted Donation Needs",
@@ -2367,25 +2356,9 @@ const reassignLeftoverDonationStock = async (
     }
 
     const quantityToReassign = Number(payload.quantity || 0);
-    const perFamilyAllocation = Number(payload.per_family_allocation || 0);
 
-    if (
-      !Number.isInteger(quantityToReassign) ||
-      quantityToReassign <= 0 ||
-      !Number.isInteger(perFamilyAllocation) ||
-      perFamilyAllocation <= 0
-    ) {
-      const error = new Error(
-        "Quantity and Per Family Allocation must be positive whole numbers.",
-      );
-      error.statusCode = 400;
-      throw error;
-    }
-
-    if (perFamilyAllocation > quantityToReassign) {
-      const error = new Error(
-        "Per Family Allocation cannot exceed the reassigned quantity.",
-      );
+    if (!Number.isInteger(quantityToReassign) || quantityToReassign <= 0) {
+      const error = new Error("Quantity must be a positive whole number.");
       error.statusCode = 400;
       throw error;
     }
@@ -2393,18 +2366,6 @@ const reassignLeftoverDonationStock = async (
     if (isReliefPackDonationItemRemark(sourceDonationItem.remarks)) {
       const error = new Error(
         "Relief pack stock cannot be reassigned as loose leftover stock.",
-      );
-      error.statusCode = 409;
-      throw error;
-    }
-
-    const sourcePerFamilyAllocation = parsePerFamilyAllocationRemark(
-      sourceDonationItem.remarks,
-    );
-
-    if (sourcePerFamilyAllocation <= 0) {
-      const error = new Error(
-        "Only loose donated stock with a Per Family Allocation can be reassigned.",
       );
       error.statusCode = 409;
       throw error;
@@ -2534,7 +2495,7 @@ const reassignLeftoverDonationStock = async (
         inventory_item_id: sourceDonationItem.inventory_item_id,
         inventory_batch_id: createdBatch.id,
         quantity_received: quantityToReassign,
-        remarks: buildPerFamilyAllocationRemark(perFamilyAllocation),
+        remarks: null,
       },
       client,
     );

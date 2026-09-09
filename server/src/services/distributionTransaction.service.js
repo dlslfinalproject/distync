@@ -8,7 +8,6 @@ const inventoryItemRepository = require("../repositories/inventoryItem.repositor
 const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
 const masterlistService = require("./masterlist.service");
 const {
-  getAvailableDonatedLooseItemsForClaimPreview,
   getAvailableDonatedReliefPacksForClaimPreview,
   recordAutomaticReliefPackClaim,
 } = require("./automaticReliefPackClaim.service");
@@ -409,7 +408,6 @@ const formatInventoryExportReliefPack = ({
   templates = [],
   sourceRows = [],
   donatedReliefPacks = [],
-  donatedLooseItems = [],
 }) => {
   const lineMap = new Map();
 
@@ -431,14 +429,6 @@ const formatInventoryExportReliefPack = ({
 
   donatedReliefPacks.forEach((pack) => {
     addUniqueInventoryExportLine(lineMap, pack.name);
-  });
-
-  donatedLooseItems.forEach((item) => {
-    const donorName = String(item.donor_name || "").trim();
-    addUniqueInventoryExportLine(
-      lineMap,
-      donorName ? `${donorName} Donation` : "Donor Donation",
-    );
   });
 
   templates.forEach((template) => {
@@ -521,15 +511,6 @@ const loadInventoryExportTemplates = async (disasterEvent) => {
     }),
   );
 };
-
-const getReliefPackComponentItemIdsForExport = (templates = []) => [
-  ...new Set(
-    (templates || [])
-      .flatMap((template) => (Array.isArray(template?.items) ? template.items : []))
-      .map((item) => item?.inventory_item_id)
-      .filter(Boolean),
-  ),
-];
 
 const filterInventoryExportByBarangays = (rows, barangayIds = []) => {
   if (!Array.isArray(barangayIds) || barangayIds.length === 0) {
@@ -725,8 +706,6 @@ const exportInventoryDistribution = async ({ requester, filters }) => {
       status: stubStatus,
       disasterEventStatus: disasterEvent?.status,
     });
-    const assignedReliefPackComponentItemIds =
-      getReliefPackComponentItemIdsForExport(assignedTemplates);
     const stubQueueContext =
       showLiveClaimPreview && household?.stub?.id
         ? await distributionTransactionRepository.getPresentUnclaimedStubQueueContext(
@@ -740,16 +719,6 @@ const exportInventoryDistribution = async ({ requester, filters }) => {
             stubQueueContext.queue_position,
           )
         : [];
-    const donatedLooseItems =
-      showLiveClaimPreview
-        ? await getAvailableDonatedLooseItemsForClaimPreview(
-            filters.disaster_event_id,
-            stubQueueContext.queue_position,
-            stubQueueContext.eligible_households_count,
-            { excludedInventoryItemIds: assignedReliefPackComponentItemIds },
-          )
-        : [];
-
     return {
       family_head_name: household.family_head_name || "--",
       barangay_name: household.barangay?.name || "--",
@@ -763,7 +732,6 @@ const exportInventoryDistribution = async ({ requester, filters }) => {
         templates: assignedTemplates,
         sourceRows,
         donatedReliefPacks,
-        donatedLooseItems,
       }),
       claimed_date_time:
         stubStatus === "CLAIMED"

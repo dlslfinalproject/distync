@@ -495,10 +495,8 @@ const getPresentUnclaimedStubQueuePosition = async (stubId, dbClient = pool) => 
     WITH target_stub AS (
       SELECT
         s.id,
-        s.disaster_event_id,
-        h.barangay_id
+        s.disaster_event_id
       FROM stubs s
-      INNER JOIN households h ON h.id = s.household_id
       WHERE s.id = $1
     ),
     eligible_queue AS (
@@ -514,7 +512,6 @@ const getPresentUnclaimedStubQueuePosition = async (stubId, dbClient = pool) => 
       INNER JOIN households h ON h.id = s.household_id
       INNER JOIN target_stub target
         ON target.disaster_event_id = s.disaster_event_id
-        AND h.barangay_id IS NOT DISTINCT FROM target.barangay_id
       INNER JOIN LATERAL (
         SELECT el.status, el.time_in, el.time_out
         FROM evacuation_logs el
@@ -546,10 +543,8 @@ const getPresentUnclaimedStubQueueContext = async (stubId, dbClient = pool) => {
     WITH target_stub AS (
       SELECT
         s.id,
-        s.disaster_event_id,
-        h.barangay_id
+        s.disaster_event_id
       FROM stubs s
-      INNER JOIN households h ON h.id = s.household_id
       WHERE s.id = $1
     ),
     eligible_queue AS (
@@ -566,7 +561,6 @@ const getPresentUnclaimedStubQueueContext = async (stubId, dbClient = pool) => {
       INNER JOIN households h ON h.id = s.household_id
       INNER JOIN target_stub target
         ON target.disaster_event_id = s.disaster_event_id
-        AND h.barangay_id IS NOT DISTINCT FROM target.barangay_id
       INNER JOIN LATERAL (
         SELECT el.status, el.time_in, el.time_out
         FROM evacuation_logs el

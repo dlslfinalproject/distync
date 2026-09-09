@@ -158,44 +158,6 @@ const modalStyles = {
     lineHeight: 1.7,
     textAlign: "left",
   },
-  donatedLooseList: {
-    width: "100%",
-    display: "grid",
-    gap: "10px",
-    marginTop: "8px",
-  },
-  donatedLooseItem: {
-    display: "grid",
-    gridTemplateColumns: "1fr 92px",
-    gap: "10px",
-    alignItems: "center",
-    padding: "10px 12px",
-    borderRadius: "14px",
-    border: "1px solid #d7e2ef",
-    backgroundColor: "#ffffff",
-    boxSizing: "border-box",
-    textAlign: "left",
-  },
-  donatedLooseName: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "14px",
-    fontWeight: 800,
-    lineHeight: 1.35,
-  },
-  donatedLooseMeta: {
-    margin: "3px 0 0",
-    color: "#60738a",
-    fontSize: "12px",
-    lineHeight: 1.4,
-  },
-  donatedLooseQuantity: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "15px",
-    fontWeight: 800,
-    textAlign: "center",
-  },
   capturedText: {
     margin: "6px 0 0",
     color: "#60738a",
@@ -353,29 +315,6 @@ const getDonatedReliefPackNames = (stub) => {
     .filter(Boolean);
 };
 
-const getAvailableDonatedLooseItems = (stub) => {
-  return Array.isArray(stub?.available_donated_loose_items)
-    ? stub.available_donated_loose_items
-    : [];
-};
-
-const getDonatedLooseItemNames = (stub) => {
-  return getAvailableDonatedLooseItems(stub)
-    .map((item) => {
-      const allocation = Number(
-        item?.quantity_released || item?.per_family_allocation || 0,
-      );
-      const itemName = item?.item_name || "";
-
-      if (!itemName || allocation <= 0) {
-        return "";
-      }
-
-      return `${itemName} x${allocation}`;
-    })
-    .filter(Boolean);
-};
-
 const getDisplayStubNumber = (stub) => {
   if (stub?.display_stub_no) {
     return stub.display_stub_no;
@@ -389,7 +328,6 @@ const getDisplayStubNumber = (stub) => {
 const getSelectedStubSummary = (stub) => {
   const reliefPackParts = buildReliefPackDisplayParts(stub);
   const donatedReliefPackNames = getDonatedReliefPackNames(stub);
-  const donatedLooseItemNames = getDonatedLooseItemNames(stub);
 
   return {
     id: stub?.id || stub?.stub_id || stub?.stub_no,
@@ -407,8 +345,6 @@ const getSelectedStubSummary = (stub) => {
       donatedReliefPackNames.length > 0
         ? donatedReliefPackNames.join(", ").toUpperCase()
         : "",
-    donatedLooseItemDisplay:
-      donatedLooseItemNames.length > 0 ? donatedLooseItemNames.join(", ") : "",
   };
 };
 
@@ -436,15 +372,11 @@ const StubClaimConfirmModal = ({
   const reliefPackParts = buildReliefPackDisplayParts(stubDetails);
   const reliefPackDisplay = reliefPackParts.reliefPackDisplay;
   const donatedReliefPackNames = getDonatedReliefPackNames(stubDetails);
-  const availableDonatedLooseItems = getAvailableDonatedLooseItems(stubDetails);
   const familyHeadPhotoUrl = resolveFamilyHeadPhoto(stubDetails?.household, {
     isOffline: stubDetails?.is_cached_offline === true,
   });
   const selectedStubSummaries = selectedStubs.map(getSelectedStubSummary);
-  const canPickDonatedLooseItems =
-    selectedCount === 1 && availableDonatedLooseItems.length > 0;
-  const hasDonatedRelief =
-    donatedReliefPackNames.length > 0 || canPickDonatedLooseItems;
+  const hasDonatedRelief = donatedReliefPackNames.length > 0;
 
   return (
     <div className="stub-claim-confirm-modal-backdrop" style={modalStyles.overlay}>
@@ -494,30 +426,6 @@ const StubClaimConfirmModal = ({
                     <p style={modalStyles.centeredValue}>
                       {donatedReliefPackNames.join(", ").toUpperCase()}
                     </p>
-                  ) : null}
-                  {canPickDonatedLooseItems ? (
-                    <div style={modalStyles.donatedLooseList}>
-                      {availableDonatedLooseItems.map((item) => (
-                        <div
-                          key={item.donation_item_id}
-                          style={modalStyles.donatedLooseItem}
-                        >
-                          <div>
-                            <p style={modalStyles.donatedLooseName}>
-                              {item.item_name || "--"}
-                            </p>
-                            <p style={modalStyles.donatedLooseMeta}>
-                              {item.donor_name || "Donors"} | Available:{" "}
-                              {item.quantity_available ?? 0}{" "}
-                              {item.unit_of_measure || "unit(s)"}
-                            </p>
-                          </div>
-                          <p style={modalStyles.donatedLooseQuantity}>
-                            x{item.quantity_released || item.per_family_allocation || 0}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
                   ) : null}
                 </>
               ) : null}
@@ -594,11 +502,6 @@ const StubClaimConfirmModal = ({
                     {stub.donatedReliefPackDisplay ? (
                       <p style={modalStyles.bulkMeta}>
                         Donated Relief: {stub.donatedReliefPackDisplay}
-                      </p>
-                    ) : null}
-                    {stub.donatedLooseItemDisplay ? (
-                      <p style={modalStyles.bulkMeta}>
-                        Donated Relief: {stub.donatedLooseItemDisplay}
                       </p>
                     ) : null}
                   </div>

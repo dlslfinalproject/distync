@@ -33,10 +33,11 @@ import {
   filterDonations,
   filterDonationsByDonorTypes,
   filterDonationsByType,
+  getDonationSummaryCards,
   getAvailableDonationTabs,
-  getDonationTypeLabel,
   getDonationPageMeta,
-  getSelectedDonationEventLabel,
+  getSelectedActiveDonationEventId,
+  normalizeDonationEventRows,
   sortDonations,
 } from "../features/donations/donationPageUi";
 import { useDonationManagementModals } from "../features/donations/useDonationManagementModals";
@@ -93,14 +94,6 @@ const donationEventSummaryStyles = {
   },
 };
 
-const parsePerFamilyAllocationRemark = (remarks) => {
-  const matchedRemark = String(remarks || "")
-    .trim()
-    .match(/^Per Family Allocation:\s*(\d+)$/i);
-
-  return Number(matchedRemark?.[1] || 0);
-};
-
 const isReliefPackDonationRemark = (remarks) =>
   String(remarks || "").trim().toLowerCase().startsWith("relief pack:");
 
@@ -128,11 +121,9 @@ const getDonationLeftoverItems = (donation) => {
       const inventoryBatch = item?.inventory_batch || {};
       const quantityAvailable = Number(inventoryBatch.quantity_available || 0);
       const batchStatus = String(inventoryBatch.status || "").toUpperCase();
-      const perFamilyAllocation = parsePerFamilyAllocationRemark(item?.remarks);
 
       return (
         quantityAvailable > 0 &&
-        perFamilyAllocation > 0 &&
         !isReliefPackDonationRemark(item?.remarks) &&
         ["AVAILABLE", "LOW_STOCK"].includes(batchStatus) &&
         !isExpiredDate(inventoryBatch.expiration_date)
@@ -141,7 +132,6 @@ const getDonationLeftoverItems = (donation) => {
     .map((item) => ({
       ...item,
       quantity_available: Number(item?.inventory_batch?.quantity_available || 0),
-      per_family_allocation: parsePerFamilyAllocationRemark(item?.remarks),
     }));
 };
 
@@ -334,7 +324,6 @@ const DonationManagementPage = () => {
     donationItemId: "",
     targetDisasterEventId: "",
     quantity: "",
-    perFamilyAllocation: "",
     errorMessage: "",
     fieldErrors: {},
     isSubmitting: false,
@@ -368,7 +357,6 @@ const DonationManagementPage = () => {
         canManageDonations
           ? fetchDonations({
               disaster_event_id: resolvedEventId || undefined,
-              search: donationSearch || undefined,
             })
           : Promise.resolve([]),
         fetchDonationPortalData({
@@ -376,7 +364,7 @@ const DonationManagementPage = () => {
         }),
       ]);
 
-      setDisasterEvents(Array.isArray(eventRows) ? eventRows : []);
+      setDisasterEvents(normalizeDonationEventRows(eventRows));
       setInventoryItems(Array.isArray(inventoryItemRows) ? inventoryItemRows : []);
       setDonations(Array.isArray(donationRows) ? donationRows : []);
       setPortalData(donationPortal || defaultPortalData);
@@ -393,7 +381,7 @@ const DonationManagementPage = () => {
     }
 
     loadPageData(selectedEventId);
-  }, [canManageDonations]);
+  }, [canManageDonations, selectedEventId]);
 
   useEffect(() => {
     const unsubscribe = subscribeToSyncUpdates(() => {
@@ -461,37 +449,7 @@ const DonationManagementPage = () => {
   }, [donationsWithSyncStatus]);
 
   const donationSummaryCards = useMemo(() => {
-    const totalDonations = donationsWithSyncStatus.length;
-    const uniqueDonors = new Set(
-      donationsWithSyncStatus
-        .map((donation) => String(donation?.donor_name || "").trim().toLowerCase())
-        .filter(Boolean),
-    ).size;
-    const looseItemDonations = donationsWithSyncStatus.filter(
-      (donation) => getDonationTypeLabel(donation) === "Loose Item",
-    ).length;
-    const reliefPackDonations = donationsWithSyncStatus.filter(
-      (donation) => getDonationTypeLabel(donation) === "Relief Pack",
-    ).length;
-
-    return [
-      {
-        label: "Total Donations",
-        value: String(totalDonations),
-      },
-      {
-        label: "Total Donors",
-        value: String(uniqueDonors),
-      },
-      {
-        label: "Loose Item Donations",
-        value: String(looseItemDonations),
-      },
-      {
-        label: "Relief Pack Donations",
-        value: String(reliefPackDonations),
-      },
-    ];
+    return getDonationSummaryCards(donationsWithSyncStatus);
   }, [donationsWithSyncStatus]);
 
   const transparencySummaryCards = useMemo(() => {
@@ -662,9 +620,6 @@ const DonationManagementPage = () => {
       quantity: firstItem?.quantity_available
         ? String(firstItem.quantity_available)
         : "",
-      perFamilyAllocation: firstItem?.per_family_allocation
-        ? String(firstItem.per_family_allocation)
-        : "",
       errorMessage: "",
       fieldErrors: {},
       isSubmitting: false,
@@ -683,7 +638,6 @@ const DonationManagementPage = () => {
       donationItemId: "",
       targetDisasterEventId: "",
       quantity: "",
-      perFamilyAllocation: "",
       errorMessage: "",
       fieldErrors: {},
       isSubmitting: false,
@@ -711,9 +665,6 @@ const DonationManagementPage = () => {
         nextValues.quantity = selectedItem?.quantity_available
           ? String(selectedItem.quantity_available)
           : "";
-        nextValues.perFamilyAllocation = selectedItem?.per_family_allocation
-          ? String(selectedItem.per_family_allocation)
-          : "";
       }
 
       return nextValues;
@@ -724,7 +675,6 @@ const DonationManagementPage = () => {
     const nextErrors = {};
     const selectedItem = getSelectedReassignItem();
     const quantity = Number(reassignModal.quantity || 0);
-    const perFamilyAllocation = Number(reassignModal.perFamilyAllocation || 0);
     const targetEvents = getReassignTargetEvents(reassignModal.donation);
 
     if (!selectedItem) {
@@ -747,14 +697,6 @@ const DonationManagementPage = () => {
       nextErrors.quantity = "Quantity must be a positive whole number.";
     } else if (selectedItem && quantity > selectedItem.quantity_available) {
       nextErrors.quantity = "Quantity cannot exceed remaining stock.";
-    }
-
-    if (!Number.isInteger(perFamilyAllocation) || perFamilyAllocation <= 0) {
-      nextErrors.perFamilyAllocation =
-        "Per family allocation must be a positive whole number.";
-    } else if (quantity > 0 && perFamilyAllocation > quantity) {
-      nextErrors.perFamilyAllocation =
-        "Per family allocation cannot exceed reassigned quantity.";
     }
 
     return nextErrors;
@@ -783,7 +725,6 @@ const DonationManagementPage = () => {
       await reassignLeftoverDonationStock(reassignModal.donationItemId, {
         target_disaster_event_id: reassignModal.targetDisasterEventId,
         quantity: Number(reassignModal.quantity),
-        per_family_allocation: Number(reassignModal.perFamilyAllocation),
       });
       await loadPageData(selectedEventId);
       setSuccessMessage("Leftover donated stock reassigned successfully.");
@@ -794,7 +735,6 @@ const DonationManagementPage = () => {
         donationItemId: "",
         targetDisasterEventId: "",
         quantity: "",
-        perFamilyAllocation: "",
         errorMessage: "",
         fieldErrors: {},
         isSubmitting: false,
@@ -874,9 +814,10 @@ const DonationManagementPage = () => {
     }
   };
 
-  const selectedEventLabel = useMemo(() => {
-    return getSelectedDonationEventLabel(disasterEvents, selectedEventId);
-  }, [disasterEvents, selectedEventId]);
+  const selectedDonationEventId = useMemo(
+    () => getSelectedActiveDonationEventId(disasterEvents, selectedEventId),
+    [disasterEvents, selectedEventId],
+  );
 
   const {
     deleteConfirmation,
@@ -917,6 +858,7 @@ const DonationManagementPage = () => {
     handleConfirmDelete,
   } = useDonationManagementModals({
     selectedEventId,
+    selectedDonationEventId,
     inventoryItems,
     donorSuggestions,
     loadPageData,
@@ -1081,7 +1023,6 @@ const DonationManagementPage = () => {
               onChange={(event) => {
                 const nextEventId = event.target.value;
                 setSelectedEventId(nextEventId);
-                loadPageData(nextEventId);
               }}
               style={donationEventSummaryStyles.selectorInput}
             >
@@ -1138,7 +1079,6 @@ const DonationManagementPage = () => {
         transparencyToolbarFilters={transparencyToolbarFilters}
         onSelectedEventChange={(nextEventId) => {
           setSelectedEventId(nextEventId);
-          loadPageData(nextEventId);
         }}
         onDonationSearchChange={setDonationSearch}
         onDonationTypeFilterChange={setDonationTypeFilter}
@@ -1217,7 +1157,6 @@ const DonationManagementPage = () => {
           inventoryItems={inventoryItems}
           donorSuggestions={donorSuggestions}
           disasterEvents={disasterEvents}
-          portalData={portalData}
           isSubmitting={isDonationSubmitting}
           errorMessage={donationErrorMessage}
           fieldErrors={donationFieldErrors}
@@ -1422,35 +1361,6 @@ const DonationManagementPage = () => {
                   ) : null}
                 </div>
 
-                <div style={exportFilterStyles.field}>
-                  <label
-                    htmlFor="reassign-per-family-allocation"
-                    style={exportFilterStyles.label}
-                  >
-                    Per Family Allocation
-                  </label>
-                  <input
-                    id="reassign-per-family-allocation"
-                    type="number"
-                    min="1"
-                    step="1"
-                    max={reassignModal.quantity || undefined}
-                    value={reassignModal.perFamilyAllocation}
-                    onChange={(event) =>
-                      handleReassignFieldChange(
-                        "perFamilyAllocation",
-                        event.target.value,
-                      )
-                    }
-                    style={exportFilterStyles.select}
-                    disabled={reassignModal.isSubmitting}
-                  />
-                  {reassignModal.fieldErrors.perFamilyAllocation ? (
-                    <p style={shellStyles.errorText}>
-                      {reassignModal.fieldErrors.perFamilyAllocation}
-                    </p>
-                  ) : null}
-                </div>
               </div>
             </section>
 

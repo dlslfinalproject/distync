@@ -279,7 +279,6 @@ const getBarangayStubDashboardRows = async (
             LIMIT 1
           ) queued_attendance ON TRUE
           WHERE queued_stubs.disaster_event_id = s.disaster_event_id
-            AND queued_households.barangay_id IS NOT DISTINCT FROM h.barangay_id
             AND queued_households.current_stay_type = 'EVAC_CENTER'
             AND queued_households.is_active = TRUE
             AND queued_stubs.status = 'ISSUED'
@@ -412,7 +411,6 @@ const getMunicipalStubDashboardRows = async (
             LIMIT 1
           ) queued_attendance ON TRUE
           WHERE queued_stubs.disaster_event_id = s.disaster_event_id
-            AND queued_households.barangay_id IS NOT DISTINCT FROM h.barangay_id
             AND queued_households.current_stay_type = 'EVAC_CENTER'
             AND queued_households.is_active = TRUE
             AND queued_stubs.status = 'ISSUED'

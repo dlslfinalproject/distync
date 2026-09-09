@@ -163,14 +163,6 @@ const getReliefPackMeta = (remarks) => {
   };
 };
 
-const getPerFamilyAllocation = (remarks) => {
-  const matchedRemark = String(remarks || "")
-    .trim()
-    .match(/^Per Family Allocation:\s*(\d+)$/i);
-
-  return matchedRemark?.[1] || "";
-};
-
 const buildDonationPresentation = (items) => {
   const normalizedItems = Array.isArray(items) ? items : [];
 
@@ -268,11 +260,10 @@ const DonationDetailModal = ({
   const items = donation?.items || [];
   const eventTitle = donation?.disaster_event?.title || "--";
   const donationPresentation = buildDonationPresentation(items);
-  const shouldShowPerFamilyAllocationColumn =
-    donationPresentation.looseItems.length > 0;
-  const itemsReceivedRows = shouldShowPerFamilyAllocationColumn
-    ? donationPresentation.looseItems
-    : items;
+  const itemsReceivedRows =
+    donationPresentation.looseItems.length > 0
+      ? donationPresentation.looseItems
+      : items;
 
   return (
     <DetailsModalShell
@@ -449,9 +440,6 @@ const DonationDetailModal = ({
                       <th style={modalStyles.th}>Packaging</th>
                       <th style={modalStyles.th}>Batch Number</th>
                       <th style={modalStyles.th}>Expiration Date</th>
-                      {shouldShowPerFamilyAllocationColumn ? (
-                        <th style={modalStyles.th}>Per Family Allocation</th>
-                      ) : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -484,11 +472,6 @@ const DonationDetailModal = ({
                                 item.expiration_date,
                             )}
                           </td>
-                          {shouldShowPerFamilyAllocationColumn ? (
-                            <td style={modalStyles.td}>
-                              {getPerFamilyAllocation(item.remarks) || "--"}
-                            </td>
-                          ) : null}
                         </tr>
                       );
                     })}

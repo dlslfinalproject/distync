@@ -122,7 +122,6 @@ export const createDonationItemForm = () => ({
   relief_pack_items: [],
   relief_pack_quantity: "1",
   quantity_received: "1",
-  per_family_allocation: "",
   remarks: "",
   expiration_date: "",
   storage_location: "",

@@ -13,6 +13,84 @@ export const defaultPortalData = {
   },
 };
 
+const normalizeDonationEventRow = (eventRow) => {
+  if (!eventRow || typeof eventRow !== "object") {
+    return null;
+  }
+
+  const id = String(eventRow.id || "").trim();
+  const title = String(eventRow.title || eventRow.event_name || "").trim();
+
+  if (!id || !title) {
+    return null;
+  }
+
+  return {
+    ...eventRow,
+    id,
+    title,
+  };
+};
+
+export const normalizeDonationEventRows = (eventRows) => {
+  const rows = Array.isArray(eventRows)
+    ? eventRows
+    : Array.isArray(eventRows?.data)
+      ? eventRows.data
+      : [];
+
+  return rows.map(normalizeDonationEventRow).filter(Boolean);
+};
+
+export const getDonationSummaryCards = (donations) => {
+  const receivedDonations = (Array.isArray(donations) ? donations : []).filter(
+    (donation) => String(donation?.status || "").trim().toUpperCase() !== "CANCELLED",
+  );
+  const uniqueDonors = new Set(
+    receivedDonations
+      .map((donation) => String(donation?.donor_name || "").trim().toLowerCase())
+      .filter(Boolean),
+  ).size;
+  const looseItemDonations = receivedDonations.filter(
+    (donation) => getDonationTypeKey(donation?.items) === "LOOSE_ITEM",
+  ).length;
+  const reliefPackDonations = receivedDonations.filter(
+    (donation) => getDonationTypeKey(donation?.items) === "RELIEF_PACK",
+  ).length;
+
+  return [
+    {
+      label: "Total Donations",
+      value: String(receivedDonations.length),
+    },
+    {
+      label: "Total Donors",
+      value: String(uniqueDonors),
+    },
+    {
+      label: "Loose Item Donations",
+      value: String(looseItemDonations),
+    },
+    {
+      label: "Relief Pack Donations",
+      value: String(reliefPackDonations),
+    },
+  ];
+};
+
+export const getSelectedActiveDonationEventId = (eventRows, selectedEventId) => {
+  const selectedEvent = (Array.isArray(eventRows) ? eventRows : []).find(
+    (eventRow) => String(eventRow?.id || "") === String(selectedEventId || ""),
+  );
+  const normalizedStatus = String(selectedEvent?.status || "")
+    .trim()
+    .toUpperCase();
+
+  return ["ACTIVE", "ONGOING"].includes(normalizedStatus)
+    ? String(selectedEvent.id)
+    : "";
+};
+
 export const getAvailableDonationTabs = (canManageDonations) => {
   return canManageDonations
     ? [
@@ -123,7 +201,9 @@ export const sortDonations = (donationsWithSyncStatus, sortOrder = "newest") => 
 };
 
 export const getSelectedDonationEventLabel = (disasterEvents, selectedEventId) => {
-  const matchedEvent = disasterEvents.find((event) => event.id === selectedEventId);
+  const matchedEvent = disasterEvents.find(
+    (event) => String(event.id) === String(selectedEventId),
+  );
   return matchedEvent ? matchedEvent.title : "All disaster events";
 };
 

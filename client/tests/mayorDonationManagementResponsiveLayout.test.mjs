@@ -107,7 +107,7 @@ test("Mayor donation record and export modals are phone safe without changing pa
   assert.match(modalSource, /className="mayor-donation-management-form-grid"/);
   assert.match(modalSource, /className="mayor-donation-management-form-actions"/);
   assert.match(modalSource, /expiration_date/);
-  assert.match(modalSource, /per_family_allocation/);
+  assert.doesNotMatch(modalSource, /per_family_allocation|Per Family Allocation/);
   assert.match(pageSource, /className="mayor-donation-management-export-modal-backdrop"/);
   assert.match(pageSource, /className="mayor-donation-management-export-grid"/);
   assert.match(pageSource, /className="mayor-donation-management-export-actions"/);

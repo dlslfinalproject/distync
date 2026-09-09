@@ -69,20 +69,6 @@ const normalizeNullableString = (value) => {
   return trimmedValue || null;
 };
 
-const isReliefPackRemark = (remarks) =>
-  String(remarks || "").trim().toLowerCase().startsWith("relief pack:");
-
-const isPerFamilyAllocationRemark = (remarks) =>
-  /^Per Family Allocation:\s*[1-9]\d*$/i.test(String(remarks || "").trim());
-
-const parsePerFamilyAllocationRemark = (remarks) => {
-  const matchedRemark = String(remarks || "")
-    .trim()
-    .match(/^Per Family Allocation:\s*(\d+)$/i);
-
-  return Number(matchedRemark?.[1] || 0);
-};
-
 const parsePositiveInteger = (value) => {
   const parsedValue = Number(value);
 
@@ -493,26 +479,6 @@ const normalizeDonationItem = (item, index) => {
   }
 
   if (
-    !isReliefPackRemark(item.remarks) &&
-    !isPerFamilyAllocationRemark(item.remarks)
-  ) {
-    throw new Error(
-      `items[${index}].remarks must include a valid Per Family Allocation for loose donated items`,
-    );
-  }
-
-  const perFamilyAllocation = parsePerFamilyAllocationRemark(item.remarks);
-
-  if (
-    perFamilyAllocation > 0 &&
-    perFamilyAllocation > item.quantity_received
-  ) {
-    throw new Error(
-      `items[${index}].remarks Per Family Allocation cannot exceed quantity_received`,
-    );
-  }
-
-  if (
     item.expiration_date !== undefined &&
     item.expiration_date !== null &&
     !isValidDateTimeString(item.expiration_date)
@@ -751,11 +717,7 @@ const validateDonationItemPayload = (req, res, next) => {
 };
 
 const validateReassignLeftoverStockPayload = (req, res, next) => {
-  const {
-    target_disaster_event_id,
-    quantity,
-    per_family_allocation,
-  } = req.body;
+  const { target_disaster_event_id, quantity } = req.body;
 
   if (!isValidUuid(target_disaster_event_id)) {
     return res.status(400).json({
@@ -769,22 +731,9 @@ const validateReassignLeftoverStockPayload = (req, res, next) => {
     });
   }
 
-  if (!Number.isInteger(per_family_allocation) || per_family_allocation <= 0) {
-    return res.status(400).json({
-      message: "per_family_allocation must be a positive whole number",
-    });
-  }
-
-  if (per_family_allocation > quantity) {
-    return res.status(400).json({
-      message: "per_family_allocation cannot exceed quantity",
-    });
-  }
-
   req.validatedBody = {
     target_disaster_event_id,
     quantity,
-    per_family_allocation,
   };
 
   return next();

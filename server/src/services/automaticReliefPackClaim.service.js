@@ -90,18 +90,6 @@ const parseDonatedReliefPackRemarks = (remarks) => {
   };
 };
 
-const parseDonatedLooseItemPerFamilyAllocation = (remarks) => {
-  const matchedRemarks = String(remarks || "")
-    .trim()
-    .match(/^Per Family Allocation:\s*(\d+)$/i);
-
-  if (!matchedRemarks) {
-    return 0;
-  }
-
-  return Number(matchedRemarks[1]) || 0;
-};
-
 const buildDonatedReliefPackGroups = (donatedRows) => {
   const groupsByKey = new Map();
 
@@ -345,220 +333,6 @@ const getAvailableDonatedReliefPacksForClaimPreview = async (
       unit_of_measure: item.unit_of_measure,
     })),
   }));
-};
-
-const calculateDonatedLooseItemQuantityForQueuePosition = ({
-  quantityAvailable,
-  perFamilyAllocation,
-  queuePosition,
-}) => {
-  const availableQuantity = Number(quantityAvailable || 0);
-  const baseAllocation = Number(perFamilyAllocation || 0);
-  const normalizedQueuePosition = Number(queuePosition || 0);
-
-  if (
-    availableQuantity <= 0 ||
-    baseAllocation <= 0 ||
-    normalizedQueuePosition <= 0
-  ) {
-    return 0;
-  }
-
-  const reachableHouseholds = Math.floor(availableQuantity / baseAllocation);
-
-  return normalizedQueuePosition <= reachableHouseholds ? baseAllocation : 0;
-};
-
-const getDonatedLooseItemReachableHouseholds = ({
-  quantityAvailable,
-  perFamilyAllocation,
-  eligibleHouseholdsCount,
-}) => {
-  const availableQuantity = Number(quantityAvailable || 0);
-  const baseAllocation = Number(perFamilyAllocation || 0);
-  const eligibleCount = Number(eligibleHouseholdsCount || 0);
-
-  if (availableQuantity <= 0 || baseAllocation <= 0 || eligibleCount <= 0) {
-    return 0;
-  }
-
-  return Math.min(eligibleCount, Math.floor(availableQuantity / baseAllocation));
-};
-
-const mapDonatedLooseItemPreview = (
-  row,
-  { queuePosition = 1, eligibleHouseholdsCount = 0 } = {},
-) => {
-  const perFamilyAllocation = parseDonatedLooseItemPerFamilyAllocation(row.remarks);
-  const quantityAvailable = Number(row.quantity_available || 0);
-  const quantityReleased = calculateDonatedLooseItemQuantityForQueuePosition({
-    quantityAvailable,
-    perFamilyAllocation,
-    queuePosition,
-  });
-
-  return {
-    donation_item_id: row.donation_item_id,
-    donation_id: row.donation_id,
-    donor_name: row.donor_name,
-    inventory_batch_id: row.inventory_batch_id,
-    inventory_item_id: row.inventory_item_id,
-    item_code: row.item_code,
-    item_name: row.item_name,
-    category: row.category,
-    unit_of_measure: row.unit_of_measure,
-    batch_no: row.batch_no,
-    quantity_available: quantityAvailable,
-    quantity_released: quantityReleased,
-    per_family_allocation: perFamilyAllocation,
-    eligible_households_count: Number(eligibleHouseholdsCount || 0),
-    reachable_households: getDonatedLooseItemReachableHouseholds({
-      quantityAvailable,
-      perFamilyAllocation,
-      eligibleHouseholdsCount,
-    }),
-  };
-};
-
-const getAvailableDonatedLooseItemsForClaimPreview = async (
-  disasterEventId,
-  queuePosition = 1,
-  eligibleHouseholdsCount = 0,
-  { excludedInventoryItemIds = [] } = {},
-) => {
-  if (!disasterEventId) {
-    return [];
-  }
-
-  const excludedInventoryItemIdSet = new Set(
-    (Array.isArray(excludedInventoryItemIds) ? excludedInventoryItemIds : [])
-      .map((inventoryItemId) => String(inventoryItemId || "").trim())
-      .filter(Boolean),
-  );
-
-  const rows =
-    await distributionTransactionRepository.getAvailableDonatedLooseItemsByDisasterEventId(
-      disasterEventId,
-    );
-
-  return rows
-    .filter(
-      (row) =>
-        !excludedInventoryItemIdSet.has(String(row.inventory_item_id || "")),
-    )
-    .map((row) =>
-      mapDonatedLooseItemPreview(row, {
-        queuePosition,
-        eligibleHouseholdsCount,
-      }),
-    )
-    .filter(
-      (item) =>
-        item.per_family_allocation > 0 &&
-        item.quantity_released > 0,
-    );
-};
-
-const buildDonatedLooseItemClaimPlan = async (
-  disasterEventId,
-  queuePosition,
-  eligibleHouseholdsCount,
-  client,
-  { excludedInventoryItemIds = [] } = {},
-) => {
-  const normalizedQueuePosition = Number(queuePosition || 0);
-  const normalizedEligibleHouseholdsCount = Number(eligibleHouseholdsCount || 0);
-  const excludedInventoryItemIdSet = new Set(
-    (Array.isArray(excludedInventoryItemIds) ? excludedInventoryItemIds : [])
-      .map((inventoryItemId) => String(inventoryItemId || "").trim())
-      .filter(Boolean),
-  );
-
-  const candidateRows =
-    await distributionTransactionRepository.getAvailableDonatedLooseItemsByDisasterEventId(
-      disasterEventId,
-      client,
-    );
-  await lockInventoryItemsForUpdate(
-    candidateRows.map((row) => row.inventory_item_id),
-    client,
-  );
-
-  const availableRows =
-    await distributionTransactionRepository.getAvailableDonatedLooseItemsByDisasterEventId(
-      disasterEventId,
-      client,
-      { forUpdate: true },
-    );
-  const allocations = [];
-  const donatedLooseItems = [];
-
-  for (const row of availableRows) {
-    if (
-      excludedInventoryItemIdSet.has(String(row.inventory_item_id || ""))
-    ) {
-      continue;
-    }
-
-    const perFamilyAllocation = parseDonatedLooseItemPerFamilyAllocation(row.remarks);
-    const availableQuantity = Number(row.quantity_available || 0);
-    const quantityReleased = calculateDonatedLooseItemQuantityForQueuePosition({
-      quantityAvailable: availableQuantity,
-      perFamilyAllocation,
-      queuePosition: normalizedQueuePosition,
-    });
-
-    if (
-      normalizedQueuePosition <= 0 ||
-      perFamilyAllocation <= 0 ||
-      normalizedEligibleHouseholdsCount <= 0 ||
-      quantityReleased <= 0
-    ) {
-      continue;
-    }
-
-    allocations.push({
-      inventory_batch_id: row.inventory_batch_id,
-      inventory_item_id: row.inventory_item_id,
-      quantity_released: quantityReleased,
-      batch_no: row.batch_no,
-      item_code: row.item_code,
-      item_name: row.item_name,
-      category: row.category,
-      unit_of_measure: row.unit_of_measure,
-      reorder_level: row.reorder_level,
-      previous_quantity_available: availableQuantity,
-      previous_status: row.status,
-      expiration_date: row.expiration_date || null,
-      source_type: "DONATED",
-      source_relief_type: "DONATED_LOOSE_ITEM",
-      relief_pack_type_snapshot: "DONATED_LOOSE_ITEM",
-      donation_id: row.donation_id,
-      donor_name: row.donor_name,
-      donation_item_id: row.donation_item_id,
-      per_family_allocation: perFamilyAllocation,
-      eligible_households_count: normalizedEligibleHouseholdsCount,
-    });
-
-    donatedLooseItems.push({
-      donation_item_id: row.donation_item_id,
-      donation_id: row.donation_id,
-      donor_name: row.donor_name,
-      inventory_batch_id: row.inventory_batch_id,
-      inventory_item_id: row.inventory_item_id,
-      item_name: row.item_name,
-      category: row.category,
-      unit_of_measure: row.unit_of_measure,
-      quantity_released: quantityReleased,
-      per_family_allocation: perFamilyAllocation,
-      eligible_households_count: normalizedEligibleHouseholdsCount,
-    });
-  }
-
-  return {
-    donatedLooseItems,
-    allocations,
-  };
 };
 
 const buildAutomaticClaimAllocations = async (
@@ -881,26 +655,9 @@ const recordAutomaticReliefPackClaim = async ({
     client,
     donatedQueuePosition,
   );
-  const assignedTemplateComponentItemIds = [
-    ...new Set(
-      assignedTemplateItems.flatMap(({ templateItems }) =>
-        (templateItems || [])
-          .map((templateItem) => templateItem?.inventory_item_id)
-          .filter(Boolean),
-      ),
-    ),
-  ];
-  const donatedLooseItemClaimPlan = await buildDonatedLooseItemClaimPlan(
-    stub.disaster_event_id,
-    donatedQueuePosition,
-    donatedQueueContext.eligible_households_count,
-    client,
-    { excludedInventoryItemIds: assignedTemplateComponentItemIds },
-  );
   const combinedAllocations = [
     ...allocations,
     ...donatedClaimPlan.allocations,
-    ...donatedLooseItemClaimPlan.allocations,
   ];
   const receiptNo =
     await distributionTransactionRepository.getDistributionReceiptSequence(client);
@@ -912,18 +669,11 @@ const recordAutomaticReliefPackClaim = async ({
     .map((pack) => pack.name)
     .filter(Boolean)
     .join(", ");
-  const donatedLooseItemNames = donatedLooseItemClaimPlan.donatedLooseItems
-    .map((item) => `${item.item_name} x${item.quantity_released}`)
-    .filter(Boolean)
-    .join(", ");
   const reliefPackRemarks = [
     remarks,
     `Assigned relief pack(s): ${assignedReliefPackNames || "Relief pack"}`,
     donatedReliefPackNames
       ? `Donated relief pack(s): ${donatedReliefPackNames}`
-      : null,
-    donatedLooseItemNames
-      ? `Donated loose item(s): ${donatedLooseItemNames}`
       : null,
   ]
     .filter(Boolean)
@@ -1134,7 +884,7 @@ const recordAutomaticReliefPackClaim = async ({
     assignedReliefPackTemplate: primaryAssignedReliefPackTemplate,
     assignedReliefPackTemplates,
     donatedReliefPacks: donatedClaimPlan.donatedReliefPacks,
-    donatedLooseItems: donatedLooseItemClaimPlan.donatedLooseItems,
+    donatedLooseItems: [],
     packQuantity: getTemplatePackMultiplier(
       primaryAssignedReliefPackTemplate,
       stub.household_size,
@@ -1147,7 +897,6 @@ const recordAutomaticReliefPackClaim = async ({
 };
 
 module.exports = {
-  getAvailableDonatedLooseItemsForClaimPreview,
   getAvailableDonatedReliefPacksForClaimPreview,
   recordAutomaticReliefPackClaim,
 };

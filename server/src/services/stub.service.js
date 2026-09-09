@@ -6,7 +6,6 @@ const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate
 const stubRepository = require("../repositories/stub.repository");
 const mswdoReportExport = require("../utils/mswdoReportExport");
 const {
-  getAvailableDonatedLooseItemsForClaimPreview,
   getAvailableDonatedReliefPacksForClaimPreview,
   recordAutomaticReliefPackClaim,
 } = require("./automaticReliefPackClaim.service");
@@ -109,57 +108,6 @@ const buildSectorIds = (householdId, householdSectorsByHouseholdId, memberSector
   );
 
   return [...new Set([...householdSectorIds, ...memberSectorIds])];
-};
-
-const getReliefPackComponentItemIds = async (
-  templates,
-  templateItemsByTemplateId = new Map(),
-) => {
-  const templateItemRows = await Promise.all(
-    (templates || []).map(async (template) => {
-      const templateId = template?.id;
-
-      if (!templateId) {
-        return [];
-      }
-
-      if (Array.isArray(template?.items)) {
-        if (!templateItemsByTemplateId.has(templateId)) {
-          templateItemsByTemplateId.set(
-            templateId,
-            Promise.resolve(template.items),
-          );
-        }
-
-        return templateItemsByTemplateId.get(templateId);
-      }
-
-      if (templateItemsByTemplateId.has(templateId)) {
-        return templateItemsByTemplateId.get(templateId);
-      }
-
-      const itemRowsPromise = Promise.resolve(
-        typeof reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId ===
-          "function"
-          ? reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId(
-              templateId,
-            )
-          : [],
-      ).then((itemRows) => (Array.isArray(itemRows) ? itemRows : []));
-
-      templateItemsByTemplateId.set(templateId, itemRowsPromise);
-      return itemRowsPromise;
-    }),
-  );
-
-  return [
-    ...new Set(
-      templateItemRows
-        .flatMap((itemRows) => itemRows)
-        .map((item) => item?.inventory_item_id)
-        .filter(Boolean),
-    ),
-  ];
 };
 
 const buildSectors = (householdId, householdSectorsByHouseholdId, memberSectorsByHouseholdId) => {
@@ -616,46 +564,6 @@ const getBarangayStubDashboard = async (filters) => {
       normalizedQueuePosition,
     );
   };
-  const templateItemsByTemplateId = new Map();
-  const donatedLooseItemPreviewByQueuePosition = new Map();
-  const getDonatedLooseItemPreviewForQueuePosition = async (
-    queuePosition,
-    excludedInventoryItemIds = [],
-  ) => {
-    const normalizedQueuePosition = Number(queuePosition || 0);
-    const normalizedExcludedInventoryItemIds = [
-      ...new Set(
-        (excludedInventoryItemIds || [])
-          .map((inventoryItemId) => String(inventoryItemId || "").trim())
-          .filter(Boolean),
-      ),
-    ].sort();
-    const cacheKey = [
-      normalizedQueuePosition,
-      normalizedExcludedInventoryItemIds.join(","),
-    ].join("|");
-
-    if (normalizedQueuePosition <= 0) {
-      return [];
-    }
-
-    if (!donatedLooseItemPreviewByQueuePosition.has(cacheKey)) {
-      donatedLooseItemPreviewByQueuePosition.set(
-        cacheKey,
-        getAvailableDonatedLooseItemsForClaimPreview(
-          filters.disaster_event_id,
-          normalizedQueuePosition,
-          metrics.unclaimed_stubs,
-          {
-            excludedInventoryItemIds: normalizedExcludedInventoryItemIds,
-          },
-        ),
-      );
-    }
-
-    return await donatedLooseItemPreviewByQueuePosition.get(cacheKey);
-  };
-
   const response = {
     assigned_barangay: {
       id: effectiveBarangay.id,
@@ -708,12 +616,6 @@ const getBarangayStubDashboard = async (filters) => {
         .map((template) => template.name)
         .filter(Boolean)
         .join(", ");
-      const assignedReliefPackComponentItemIds =
-        await getReliefPackComponentItemIds(
-          assignedReliefPacks,
-          templateItemsByTemplateId,
-        );
-
       return {
         id: row.id,
         stub_no: row.stub_no,
@@ -771,13 +673,7 @@ const getBarangayStubDashboard = async (filters) => {
                 row.unclaimed_queue_position,
               )
             : [],
-        available_donated_loose_items:
-          showLiveClaimPreview
-            ? await getDonatedLooseItemPreviewForQueuePosition(
-                row.unclaimed_queue_position,
-                assignedReliefPackComponentItemIds,
-              )
-            : [],
+        available_donated_loose_items: [],
         relief_pack_name: reliefPackName || "--",
       };
     })),
@@ -936,46 +832,6 @@ const getMunicipalStubDashboard = async ({
       normalizedQueuePosition,
     );
   };
-  const templateItemsByTemplateId = new Map();
-  const donatedLooseItemPreviewByQueuePosition = new Map();
-  const getDonatedLooseItemPreviewForQueuePosition = async (
-    queuePosition,
-    excludedInventoryItemIds = [],
-  ) => {
-    const normalizedQueuePosition = Number(queuePosition || 0);
-    const normalizedExcludedInventoryItemIds = [
-      ...new Set(
-        (excludedInventoryItemIds || [])
-          .map((inventoryItemId) => String(inventoryItemId || "").trim())
-          .filter(Boolean),
-      ),
-    ].sort();
-    const cacheKey = [
-      normalizedQueuePosition,
-      normalizedExcludedInventoryItemIds.join(","),
-    ].join("|");
-
-    if (normalizedQueuePosition <= 0) {
-      return [];
-    }
-
-    if (!donatedLooseItemPreviewByQueuePosition.has(cacheKey)) {
-      donatedLooseItemPreviewByQueuePosition.set(
-        cacheKey,
-        getAvailableDonatedLooseItemsForClaimPreview(
-          disasterEventId,
-          normalizedQueuePosition,
-          municipalUnclaimedStubCount,
-          {
-            excludedInventoryItemIds: normalizedExcludedInventoryItemIds,
-          },
-        ),
-      );
-    }
-
-    return await donatedLooseItemPreviewByQueuePosition.get(cacheKey);
-  };
-
   const data = await Promise.all(
     rowsWithQr.map(async (row) => {
       const sectorIds = buildSectorIds(
@@ -1014,12 +870,6 @@ const getMunicipalStubDashboard = async ({
         .map((template) => template.name)
         .filter(Boolean)
         .join(", ");
-      const assignedReliefPackComponentItemIds =
-        await getReliefPackComponentItemIds(
-          assignedReliefPacks,
-          templateItemsByTemplateId,
-        );
-
       return {
         id: row.id,
         stub_no: row.stub_no,
@@ -1076,12 +926,7 @@ const getMunicipalStubDashboard = async ({
               row.unclaimed_queue_position,
             )
           : [],
-        available_donated_loose_items: showLiveClaimPreview
-          ? await getDonatedLooseItemPreviewForQueuePosition(
-              row.unclaimed_queue_position,
-              assignedReliefPackComponentItemIds,
-            )
-          : [],
+        available_donated_loose_items: [],
         relief_pack_name: reliefPackName || "--",
       };
     }),
@@ -1357,8 +1202,6 @@ const getStubDetails = async (id, requester = null) => {
       is_additional_pack: Boolean(template.is_additional_pack),
       sector_id: template.sector_id || null,
     }));
-  const assignedReliefPackComponentItemIds =
-    await getReliefPackComponentItemIds(assignedReliefPacks);
   const assignedReliefPackNames = assignedReliefPacks
     .map((template) => template.name)
     .filter(Boolean)
@@ -1376,16 +1219,6 @@ const getStubDetails = async (id, requester = null) => {
           stubQueueContext.queue_position,
         )
       : [];
-  const availableDonatedLooseItems =
-    useLiveAssignment
-      ? await getAvailableDonatedLooseItemsForClaimPreview(
-          ensuredStub.disaster_event_id,
-          stubQueueContext.queue_position,
-          stubQueueContext.eligible_households_count,
-          { excludedInventoryItemIds: assignedReliefPackComponentItemIds },
-        )
-      : [];
-
   return {
     id: ensuredStub.id,
     stub_no: ensuredStub.stub_no,
@@ -1433,7 +1266,7 @@ const getStubDetails = async (id, requester = null) => {
     distribution_transaction: latestDistributionTransaction,
     assigned_relief_packs: assignedReliefPacks,
     available_donated_relief_packs: availableDonatedReliefPacks,
-    available_donated_loose_items: availableDonatedLooseItems,
+    available_donated_loose_items: [],
     relief_pack_name:
       latestDistributionTransaction?.relief_pack_template_name ||
       assignedReliefPackNames ||

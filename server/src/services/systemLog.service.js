@@ -64,7 +64,7 @@ const DONATION_FIELD_LABELS = {
 
 const DONATION_ITEM_FIELD_LABELS = {
   quantity_received: "Quantity",
-  remarks: "Per Family Allocation",
+  remarks: "Item Remarks",
 };
 
 const DONATION_EDIT_AUDIT_FIELDS = Object.keys(DONATION_FIELD_LABELS);

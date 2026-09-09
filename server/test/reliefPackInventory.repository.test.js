@@ -188,3 +188,33 @@ test("donated relief-pack queries keep every component so incomplete packs canno
     },
   );
 });
+
+test("donated relief-pack claim queue is scoped to the disaster event, not a barangay", async () => {
+  await withStubbedRepositories(
+    async ({ distributionTransactionRepository }) => {
+      let capturedQuery = "";
+      const dbClient = {
+        query: async (query) => {
+          capturedQuery = query;
+          return { rows: [{ queue_position: 2, eligible_households_count: 4 }] };
+        },
+      };
+
+      const queueContext =
+        await distributionTransactionRepository.getPresentUnclaimedStubQueueContext(
+          "stub-1",
+          dbClient,
+        );
+
+      assert.deepEqual(queueContext, {
+        queue_position: 2,
+        eligible_households_count: 4,
+      });
+      assert.match(capturedQuery, /target\.disaster_event_id\s*=\s*s\.disaster_event_id/i);
+      assert.doesNotMatch(
+        capturedQuery,
+        /h\.barangay_id\s+IS\s+NOT\s+DISTINCT\s+FROM\s+target\.barangay_id/i,
+      );
+    },
+  );
+});

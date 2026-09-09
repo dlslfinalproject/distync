@@ -1367,7 +1367,6 @@ test("Stage 5 municipal service coalesces identical donor preview contexts", asy
     },
   ];
   let donatedReliefPackPreviewCalls = 0;
-  let donatedLooseItemPreviewCalls = 0;
 
   await withStubbedStubService(
     createBaseStubs({
@@ -1394,19 +1393,6 @@ test("Stage 5 municipal service coalesces identical donor preview contexts", asy
           assert.equal(queuePosition, 1);
           return [{ donation_id: "donation-1", name: "Donated Pack" }];
         },
-        getAvailableDonatedLooseItemsForClaimPreview: async (
-          eventId,
-          queuePosition,
-          eligibleHouseholdsCount,
-          options,
-        ) => {
-          donatedLooseItemPreviewCalls += 1;
-          assert.equal(eventId, baseStub.disaster_event_id);
-          assert.equal(queuePosition, 1);
-          assert.equal(eligibleHouseholdsCount, 2);
-          assert.deepEqual(options, { excludedInventoryItemIds: [] });
-          return [{ inventory_item_id: "item-1", item_name: "Loose Item" }];
-        },
       },
     }),
     async ({ getMunicipalStubDashboard }) => {
@@ -1417,12 +1403,11 @@ test("Stage 5 municipal service coalesces identical donor preview contexts", asy
 
       assert.equal(result.data.length, 2);
       assert.equal(result.data[0].available_donated_relief_packs.length, 1);
-      assert.equal(result.data[1].available_donated_loose_items.length, 1);
+      assert.deepEqual(result.data[1].available_donated_loose_items, []);
     },
   );
 
   assert.equal(donatedReliefPackPreviewCalls, 1);
-  assert.equal(donatedLooseItemPreviewCalls, 1);
 });
 
 test("Stage 5 municipal service preserves existing QR metadata and backfills each missing row once", async () => {
