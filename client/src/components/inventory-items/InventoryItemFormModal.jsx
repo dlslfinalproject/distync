@@ -469,6 +469,7 @@ const InventoryItemFormModal = ({
   mode,
   source = "manual",
   conflictResolution = false,
+  conflictResolutionTarget = "ITEM",
   itemData,
   inventoryItems = [],
   getCurrentStockForItem = null,
@@ -487,6 +488,8 @@ const InventoryItemFormModal = ({
   const barcodeInputRef = useRef(null);
   const autocompleteRef = useRef(null);
   const previousMatchedItemKeyRef = useRef("");
+  const isBatchConflictResolution =
+    conflictResolution && conflictResolutionTarget === "BATCH";
 
   useEffect(() => {
     if (!isOpen) {
@@ -514,11 +517,15 @@ const InventoryItemFormModal = ({
     }
 
     setSelectedExistingItemId(itemData?.id || null);
-    setSelectedExistingStockFormId(itemData?.inventory_item_stock_form_id || null);
-    setIsAddingNewStockForm(false);
+    setSelectedExistingStockFormId(
+      isBatchConflictResolution
+        ? null
+        : itemData?.inventory_item_stock_form_id || null,
+    );
+    setIsAddingNewStockForm(isBatchConflictResolution);
     setIsAutocompleteOpen(false);
     setFieldErrors({});
-  }, [isOpen, itemData]);
+  }, [isBatchConflictResolution, isOpen, itemData]);
 
   const trimmedItemName = formValues.item_name.trim();
   const eligibleExistingItems = mode === "create" ? inventoryItems : [];
@@ -855,6 +862,7 @@ const InventoryItemFormModal = ({
       inferTrackingMethod(resolvedUnitOfMeasure);
 
     const selectedStockForm = matchedExistingStockForm;
+    const preserveConflictStockDetails = isBatchConflictResolution;
 
     setFormValues((prev) => ({
       ...prev,
@@ -882,12 +890,16 @@ const InventoryItemFormModal = ({
         matchedExistingItem.unit_of_measure_value ||
         prev.unit_of_measure_value,
       packaging: isAddingStockFormMode
-        ? ""
+        ? preserveConflictStockDetails
+          ? prev.packaging
+          : ""
         : selectedStockForm?.packaging ||
           matchedExistingItem.packaging ||
           prev.packaging,
       quantity: isAddingStockFormMode
-        ? ""
+        ? preserveConflictStockDetails
+          ? prev.quantity
+          : ""
         : String(
             selectedStockForm?.units_per_packaging ||
               matchedExistingItem.quantity ||
@@ -900,7 +912,9 @@ const InventoryItemFormModal = ({
         matchedExistingItem.reorder_level != null
           ? String(matchedExistingItem.reorder_level)
           : prev.reorder_level,
-      expiration_date: "",
+      expiration_date: preserveConflictStockDetails
+        ? prev.expiration_date
+        : "",
     }));
     setFieldErrors({});
   }, [
@@ -914,6 +928,7 @@ const InventoryItemFormModal = ({
     isAddingStockFormMode,
     isBarcodeManagedItem,
     isBarcodeResolvedExistingItem,
+    isBatchConflictResolution,
     rawTrimmedBarcode,
   ]);
 
@@ -1482,7 +1497,9 @@ const InventoryItemFormModal = ({
                           color: "#4f677f",
                         }}
                       >
-                        Optional. Leave blank for a manual item.
+                        {isBatchConflictResolution
+                          ? "Enter a new barcode for this packaging."
+                          : "Optional. Leave blank for a manual item."}
                       </p>
                     ) : null}
                   </div>

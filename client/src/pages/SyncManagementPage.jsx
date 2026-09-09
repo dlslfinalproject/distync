@@ -185,6 +185,143 @@ const getConflictCorrectionItemData = (conflict = {}) => {
   };
 };
 
+const getFirstNumericConflictValue = (...values) => {
+  const candidate = values.find(
+    (value) => value !== undefined && value !== null && value !== "",
+  );
+
+  if (candidate === undefined) {
+    return null;
+  }
+
+  const numericValue = Number(candidate);
+  return Number.isFinite(numericValue) ? numericValue : null;
+};
+
+const getConflictCorrectionBatchData = (conflict = {}) => {
+  const localPayload = getConflictLocalPayload(conflict);
+  const serverPayload =
+    conflict.server_payload_json &&
+    typeof conflict.server_payload_json === "object"
+      ? conflict.server_payload_json
+      : {};
+  const savedStockForm =
+    serverPayload.inventory_item_stock_form ||
+    (Array.isArray(serverPayload.inventory_item_stock_forms)
+      ? serverPayload.inventory_item_stock_forms[0]
+      : null) ||
+    {};
+  const stockForms =
+    Array.isArray(serverPayload.inventory_item_stock_forms) &&
+    serverPayload.inventory_item_stock_forms.length > 0
+      ? serverPayload.inventory_item_stock_forms
+      : serverPayload.inventory_item_stock_form
+        ? [serverPayload.inventory_item_stock_form]
+        : [];
+  const inventoryItemId =
+    serverPayload.id ||
+    conflict.entity_server_id ||
+    localPayload.inventory_item_id ||
+    "";
+  const category =
+    serverPayload.category ||
+    localPayload.category ||
+    (serverPayload.is_perishable === false ||
+    localPayload.is_perishable === false
+      ? "non-perishable"
+      : "perishable");
+  const trackingMethod =
+    serverPayload.tracking_method ||
+    localPayload.tracking_method ||
+    "Count-Based";
+  const unitOfMeasure =
+    localPayload.stock_form_unit_of_measure ||
+    localPayload.unit_of_measure ||
+    serverPayload.unit_of_measure ||
+    "pc";
+  const unitOfMeasureValue =
+    localPayload.stock_form_unit_of_measure_value ??
+    localPayload.unit_of_measure_value ??
+    serverPayload.unit_of_measure_value ??
+    (trackingMethod === "Count-Based" ? "1" : "");
+  const packaging =
+    localPayload.stock_form_packaging ||
+    localPayload.packaging ||
+    "piece";
+  const unitsPerPackaging = getFirstNumericConflictValue(
+    localPayload.stock_form_units_per_packaging,
+    localPayload.units_per_packaging,
+    localPayload.quantity,
+    packaging === "piece" ? 1 : null,
+  );
+  const quantityReceived = getFirstNumericConflictValue(
+    localPayload.quantity_received,
+    localPayload.quantity_on_hand,
+  );
+  const explicitPackagingCount = getFirstNumericConflictValue(
+    localPayload.stock_form_packaging_count,
+    localPayload.packaging_count,
+  );
+  const packagingCount =
+    explicitPackagingCount ??
+    (quantityReceived !== null &&
+    unitsPerPackaging !== null &&
+    unitsPerPackaging > 0 &&
+    quantityReceived % unitsPerPackaging === 0
+      ? quantityReceived / unitsPerPackaging
+      : quantityReceived);
+  const existingItem = {
+    ...serverPayload,
+    id: inventoryItemId,
+    item_name:
+      serverPayload.item_name ||
+      localPayload.item_name ||
+      localPayload.inventory_item_name ||
+      "",
+    item_code: serverPayload.item_code || localPayload.item_code || "",
+    category,
+    is_perishable:
+      serverPayload.is_perishable ??
+      localPayload.is_perishable ??
+      category === "perishable",
+    tracking_method: trackingMethod,
+    unit_of_measure:
+      serverPayload.unit_of_measure || unitOfMeasure || "pc",
+    unit_of_measure_value:
+      serverPayload.unit_of_measure_value ?? unitOfMeasureValue,
+    reorder_level:
+      serverPayload.reorder_level ??
+      localPayload.inventory_item_reorder_level ??
+      localPayload.reorder_level ??
+      "",
+    barcode:
+      serverPayload.barcode ||
+      savedStockForm.barcode ||
+      "",
+    stock_forms: stockForms,
+  };
+
+  return {
+    inventoryItems: inventoryItemId ? [existingItem] : [],
+    itemData: {
+      ...existingItem,
+      barcode: "",
+      quantity:
+        unitsPerPackaging === null ? "" : String(unitsPerPackaging),
+      unit_of_measure: unitOfMeasure,
+      unit_of_measure_value:
+        unitOfMeasureValue === null ? "" : String(unitOfMeasureValue),
+      packaging,
+      packaging_count:
+        packagingCount === null ? "" : String(packagingCount),
+      expiration_date:
+        localPayload.expiration_date ||
+        localPayload.expiryDate ||
+        "",
+    },
+  };
+};
+
 const fieldStyles = {
   label: {
     display: "block",
@@ -463,8 +600,11 @@ const SyncManagementPage = () => {
   const [pendingResolutionAction, setPendingResolutionAction] = useState("");
   const [isInventoryCorrectionFormOpen, setIsInventoryCorrectionFormOpen] =
     useState(false);
+  const [inventoryCorrectionTarget, setInventoryCorrectionTarget] =
+    useState("ITEM");
   const [inventoryCorrectionItemData, setInventoryCorrectionItemData] =
     useState(null);
+  const [inventoryCorrectionItems, setInventoryCorrectionItems] = useState([]);
   const [inventoryCorrectionErrorMessage, setInventoryCorrectionErrorMessage] =
     useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -1105,7 +1245,9 @@ const SyncManagementPage = () => {
       setReplacementBarcode("");
       setPendingResolutionAction("");
       setIsInventoryCorrectionFormOpen(false);
+      setInventoryCorrectionTarget("ITEM");
       setInventoryCorrectionItemData(null);
+      setInventoryCorrectionItems([]);
       setInventoryCorrectionErrorMessage("");
     } catch (error) {
       setFeedback({
@@ -1128,13 +1270,17 @@ const SyncManagementPage = () => {
     setReplacementBarcode("");
     setPendingResolutionAction("");
     setIsInventoryCorrectionFormOpen(false);
+    setInventoryCorrectionTarget("ITEM");
     setInventoryCorrectionItemData(null);
+    setInventoryCorrectionItems([]);
     setInventoryCorrectionErrorMessage("");
   }, []);
 
   const handleCloseInventoryCorrectionForm = useCallback(() => {
     setIsInventoryCorrectionFormOpen(false);
+    setInventoryCorrectionTarget("ITEM");
     setInventoryCorrectionItemData(null);
+    setInventoryCorrectionItems([]);
     setInventoryCorrectionErrorMessage("");
   }, []);
 
@@ -1207,7 +1353,9 @@ const SyncManagementPage = () => {
       setReplacementBarcode("");
       setPendingResolutionAction("");
       setIsInventoryCorrectionFormOpen(false);
+      setInventoryCorrectionTarget("ITEM");
       setInventoryCorrectionItemData(null);
+      setInventoryCorrectionItems([]);
       setInventoryCorrectionErrorMessage("");
       await loadSyncHistory();
       setFeedback({
@@ -1253,14 +1401,32 @@ const SyncManagementPage = () => {
 
     const opensInventoryCorrectionForm =
       action === "APPLY_LOCAL" &&
-      selectedConflictDetail.conflict_type === "DUPLICATE_INVENTORY_BARCODE" &&
-      selectedConflictDetail.entity_type === "INVENTORY_ITEM";
+      ["DUPLICATE_INVENTORY_BARCODE", "DUPLICATE_INVENTORY_ITEM"].includes(
+        selectedConflictDetail.conflict_type,
+      ) &&
+      ["INVENTORY_ITEM", "INVENTORY_BATCH"].includes(
+        selectedConflictDetail.entity_type,
+      );
 
     if (opensInventoryCorrectionForm) {
       setInventoryCorrectionErrorMessage("");
-      setInventoryCorrectionItemData(
-        getConflictCorrectionItemData(selectedConflictDetail),
-      );
+      if (
+        selectedConflictDetail.entity_type === "INVENTORY_BATCH" ||
+        selectedConflictDetail.conflict_type === "DUPLICATE_INVENTORY_ITEM"
+      ) {
+        const correctionData = getConflictCorrectionBatchData(
+          selectedConflictDetail,
+        );
+        setInventoryCorrectionTarget("BATCH");
+        setInventoryCorrectionItemData(correctionData.itemData);
+        setInventoryCorrectionItems(correctionData.inventoryItems);
+      } else {
+        setInventoryCorrectionTarget("ITEM");
+        setInventoryCorrectionItemData(
+          getConflictCorrectionItemData(selectedConflictDetail),
+        );
+        setInventoryCorrectionItems([]);
+      }
       setIsInventoryCorrectionFormOpen(true);
       return;
     }
@@ -1286,6 +1452,42 @@ const SyncManagementPage = () => {
     }
 
     const localPayload = getConflictLocalPayload(selectedConflictDetail);
+    if (inventoryCorrectionTarget === "BATCH") {
+      const packaging = String(formValues.packaging || "").trim().toLowerCase();
+      const unitsPerPackaging =
+        packaging === "piece" ? 1 : Number(formValues.quantity);
+      const packagingCount = Number(formValues.packaging_count);
+      const quantityReceived = packagingCount * unitsPerPackaging;
+      const existingItemId =
+        inventoryCorrectionItems[0]?.id ||
+        inventoryCorrectionItemData?.id ||
+        selectedConflictDetail.entity_server_id ||
+        localPayload.inventory_item_id ||
+        null;
+      const resolutionPayload = {
+        ...localPayload,
+        inventory_item_id: existingItemId,
+        // The corrected packaging is created as a new stock form. The local
+        // device id must not be sent back as the server stock-form id.
+        inventory_item_stock_form_id: null,
+        stock_form_barcode: formValues.barcode || null,
+        stock_form_packaging: packaging,
+        stock_form_units_per_packaging: unitsPerPackaging,
+        stock_form_unit_of_measure: formValues.unit_of_measure || "pc",
+        stock_form_unit_of_measure_value:
+          formValues.unit_of_measure_value || null,
+        quantity_received: quantityReceived,
+        inventory_item_reorder_level: formValues.reorder_level
+          ? Number(formValues.reorder_level)
+          : undefined,
+        expiration_date: formValues.expiration_date || null,
+      };
+
+      setInventoryCorrectionErrorMessage("");
+      void submitResolveConflict("APPLY_LOCAL", resolutionPayload);
+      return;
+    }
+
     const normalizedCategory = String(formValues.category || "")
       .trim()
       .toLowerCase();
@@ -1876,8 +2078,9 @@ const SyncManagementPage = () => {
         mode="create"
         source="manual"
         conflictResolution
+        conflictResolutionTarget={inventoryCorrectionTarget}
         itemData={inventoryCorrectionItemData}
-        inventoryItems={[]}
+        inventoryItems={inventoryCorrectionItems}
         getCurrentStockForItem={null}
         isSubmitting={isResolvingConflict}
         errorMessage={inventoryCorrectionErrorMessage}

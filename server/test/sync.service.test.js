@@ -6573,6 +6573,313 @@ test("Mayor can accept a barcode conflict as a corrected manual item", async () 
   );
 });
 
+test("Mayor can correct a barcode conflict for a packaging batch", async () => {
+  let updatedTransactionPayload = null;
+  let createdBatchPayload = null;
+  const baseConflict = {
+    id: "conflict-duplicate-barcode-batch",
+    sync_transaction_id: "sync-duplicate-barcode-batch",
+    user_id: "origin-mayor",
+    entity_type: "INVENTORY_BATCH",
+    entity_server_id: "saved-item",
+    conflict_type: "DUPLICATE_INVENTORY_BARCODE",
+    local_payload_json: {
+      inventory_item_id: "local-item-id",
+      item_name: "Salonpas",
+      batch_no: "SALONPAS-BATCH-002",
+      barcode: "987654321",
+      stock_form_barcode: "987654321",
+      stock_form_packaging: "pack",
+      stock_form_units_per_packaging: 10,
+      stock_form_unit_of_measure: "pc",
+      stock_form_unit_of_measure_value: 1,
+      quantity_received: 20,
+      source_type: "LGU",
+    },
+    server_payload_json: {
+      id: "saved-item",
+      item_name: "Salonpas",
+      barcode: "987654321",
+      inventory_item_stock_form: {
+        id: "saved-stock-form",
+        inventory_item_id: "saved-item",
+        barcode: "987654321",
+        packaging: "piece",
+        units_per_packaging: 1,
+        unit_of_measure: "pc",
+        unit_of_measure_value: 1,
+      },
+    },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "CREATE",
+    client_timestamp: "2026-08-09T01:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        getSyncConflictByIdForMayor: async () => baseConflict,
+        lockSyncConflictById: async () => baseConflict,
+        updateSyncTransaction: async (id, payload) => {
+          updatedTransactionPayload = { id, ...payload };
+          return updatedTransactionPayload;
+        },
+        markSyncConflictResolved: async (payload) => ({
+          ...baseConflict,
+          status: "RESOLVED",
+          resolution_action: payload.resolutionAction,
+          resolution_reason: payload.resolutionReason,
+          resolved_payload_json: payload.resolvedPayloadJson,
+          resolved_by: payload.resolvedBy,
+          resolved_at: "2026-08-09T05:00:00.000Z",
+        }),
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          createdBatchPayload = payload;
+          return {
+            id: "corrected-batch",
+            batch_no: payload.batch_no,
+          };
+        },
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async () => null,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail, resolveSyncConflict }) => {
+      const detail = await getSyncConflictDetail({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, [
+        "KEEP_SERVER",
+        "APPLY_LOCAL",
+      ]);
+
+      const resolved = await resolveSyncConflict({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+        action: "APPLY_LOCAL",
+        reason: "The pack uses its own barcode.",
+        resolutionPayload: {
+          inventory_item_id: "must-not-replace-saved-item",
+          inventory_item_stock_form_id: null,
+          batch_no: "SALONPAS-BATCH-002",
+          stock_form_barcode: "987654322",
+          stock_form_packaging: "pack",
+          stock_form_units_per_packaging: 10,
+          stock_form_unit_of_measure: "pc",
+          stock_form_unit_of_measure_value: 1,
+          quantity_received: 20,
+          source_type: "LGU",
+        },
+      });
+
+      assert.equal(createdBatchPayload.inventory_item_id, "saved-item");
+      assert.equal(createdBatchPayload.stock_form_barcode, "987654322");
+      assert.equal(createdBatchPayload.stock_form_packaging, "pack");
+      assert.equal(createdBatchPayload.quantity_received, 20);
+      assert.equal(createdBatchPayload.inventory_item_stock_form_id, null);
+      assert.equal(createdBatchPayload.created_by, "origin-mayor");
+      assert.equal(updatedTransactionPayload.sync_status, "SYNCED");
+      assert.equal(updatedTransactionPayload.entity_server_id, "corrected-batch");
+      assert.equal(resolved.status, "RESOLVED");
+      assert.equal(resolved.sync_status, "SYNCED");
+      assert.equal(resolved.entity_server_id, "corrected-batch");
+    },
+  );
+});
+
+test("Mayor can correct a duplicate-item barcode conflict as a new packaging batch", async () => {
+  let updatedTransactionPayload = null;
+  let createdBatchPayload = null;
+  const baseConflict = {
+    id: "conflict-duplicate-item-barcode",
+    sync_transaction_id: "sync-duplicate-item-barcode",
+    user_id: "origin-mayor",
+    entity_type: "INVENTORY_ITEM",
+    entity_server_id: "saved-item",
+    conflict_type: "DUPLICATE_INVENTORY_ITEM",
+    local_payload_json: {
+      item_name: "Salonpas",
+      item_code: "SALONPAS-OFFLINE",
+      category: "non-perishable",
+      is_perishable: false,
+      unit_of_measure: "pc",
+      unit_of_measure_value: 1,
+      barcode: "987654321",
+      packaging: "pack",
+      packaging_count: 2,
+      quantity: 10,
+      reorder_level: 5,
+    },
+    server_payload_json: {
+      id: "saved-item",
+      item_name: "Salonpas",
+      item_code: "SALONPAS",
+      category: "non-perishable",
+      is_perishable: false,
+      unit_of_measure: "pc",
+      unit_of_measure_value: 1,
+      barcode: "987654321",
+      inventory_item_stock_forms: [
+        {
+          id: "saved-stock-form",
+          inventory_item_id: "saved-item",
+          barcode: "987654321",
+          packaging: "piece",
+          units_per_packaging: 1,
+          unit_of_measure: "pc",
+          unit_of_measure_value: 1,
+          is_active: true,
+        },
+      ],
+    },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "CREATE",
+    client_timestamp: "2026-08-09T01:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        getSyncConflictByIdForMayor: async () => baseConflict,
+        lockSyncConflictById: async () => baseConflict,
+        updateSyncTransaction: async (id, payload) => {
+          updatedTransactionPayload = { id, ...payload };
+          return updatedTransactionPayload;
+        },
+        markSyncConflictResolved: async (payload) => ({
+          ...baseConflict,
+          status: "RESOLVED",
+          resolution_action: payload.resolutionAction,
+          resolution_reason: payload.resolutionReason,
+          resolved_payload_json: payload.resolvedPayloadJson,
+          resolved_by: payload.resolvedBy,
+          resolved_at: "2026-08-09T05:00:00.000Z",
+        }),
+      },
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemByIdForUpdate: async () => ({
+          id: "saved-item",
+          item_name: "Salonpas",
+          item_code: "SALONPAS",
+          category: "non-perishable",
+          is_perishable: false,
+          unit_of_measure: "pc",
+          unit_of_measure_value: 1,
+          barcode: "987654321",
+        }),
+        getInventoryItemById: async () => ({
+          id: "saved-item",
+          item_name: "Salonpas",
+          item_code: "SALONPAS",
+          category: "non-perishable",
+          is_perishable: false,
+          unit_of_measure: "pc",
+          unit_of_measure_value: 1,
+          barcode: "987654321",
+        }),
+      },
+      [inventoryItemStockFormRepositoryPath]: {
+        getInventoryItemStockFormsByItemId: async () =>
+          baseConflict.server_payload_json.inventory_item_stock_forms,
+      },
+      [inventoryBatchRepositoryPath]: {
+        getInventoryBatchesByItemIdForUpdate: async () => [
+          { id: "opening-batch", batch_no: "SALONPAS-BATCH-001" },
+        ],
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          createdBatchPayload = payload;
+          return {
+            id: "corrected-pack-batch",
+            batch_no: payload.batch_no,
+          };
+        },
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async () => null,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail, resolveSyncConflict }) => {
+      const detail = await getSyncConflictDetail({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, [
+        "KEEP_SERVER",
+        "APPLY_LOCAL",
+      ]);
+
+      const resolved = await resolveSyncConflict({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+        action: "APPLY_LOCAL",
+        reason: "The pack needs its own barcode.",
+        resolutionPayload: {
+          inventory_item_id: "must-not-replace-saved-item",
+          inventory_item_stock_form_id: null,
+          stock_form_barcode: "987654322",
+          stock_form_packaging: "pack",
+          stock_form_units_per_packaging: 10,
+          stock_form_unit_of_measure: "pc",
+          stock_form_unit_of_measure_value: 1,
+          quantity_received: 20,
+        },
+      });
+
+      assert.equal(createdBatchPayload.inventory_item_id, "saved-item");
+      assert.equal(createdBatchPayload.stock_form_barcode, "987654322");
+      assert.equal(createdBatchPayload.stock_form_packaging, "pack");
+      assert.equal(createdBatchPayload.batch_no, "SALONPAS-BATCH-002");
+      assert.equal(createdBatchPayload.quantity_received, 20);
+      assert.equal(createdBatchPayload.inventory_item_stock_form_id, null);
+      assert.equal(updatedTransactionPayload.sync_status, "SYNCED");
+      assert.equal(updatedTransactionPayload.entity_server_id, "corrected-pack-batch");
+      assert.equal(resolved.status, "RESOLVED");
+      assert.equal(resolved.sync_status, "SYNCED");
+      assert.equal(resolved.entity_server_id, "corrected-pack-batch");
+    },
+  );
+});
+
 test("BRG-SC-04B APPLY_LOCAL remains rejected for eligible stock-drift conflict", async () => {
   const baseConflict = {
     id: "conflict-stock-drift",

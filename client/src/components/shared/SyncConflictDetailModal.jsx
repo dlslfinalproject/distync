@@ -243,11 +243,17 @@ const SyncConflictDetailModal = ({
   const requiresReason = availableActions.some((action) =>
     ["KEEP_SERVER", "APPLY_LOCAL", "ACCEPT_BOTH"].includes(action),
   );
-  const needsReplacementBarcode =
+  const isBarcodeCorrection =
     !isResolved &&
-    conflict.conflict_type === "DUPLICATE_INVENTORY_BARCODE" &&
-    conflict.entity_type !== "INVENTORY_ITEM" &&
+    ["DUPLICATE_INVENTORY_BARCODE", "DUPLICATE_INVENTORY_ITEM"].includes(
+      conflict.conflict_type,
+    ) &&
+    ["INVENTORY_ITEM", "INVENTORY_BATCH"].includes(conflict.entity_type) &&
     availableActions.includes("APPLY_LOCAL");
+  const isPackagingBarcodeCorrection =
+    isBarcodeCorrection &&
+    (conflict.entity_type === "INVENTORY_BATCH" ||
+      conflict.conflict_type === "DUPLICATE_INVENTORY_ITEM");
   const isConfirmingResolution = Boolean(pendingResolutionAction);
   const footer = (
     <>
@@ -290,12 +296,7 @@ const SyncConflictDetailModal = ({
                   ? pageHeaderStyles.secondaryButton
                   : pageHeaderStyles.primaryButton
               }
-              disabled={
-                isResolving ||
-                (action === "APPLY_LOCAL" &&
-                  needsReplacementBarcode &&
-                  !replacementBarcode.trim())
-              }
+              disabled={isResolving}
             >
               {getActionLabel(action)}
             </button>
@@ -415,32 +416,12 @@ const SyncConflictDetailModal = ({
                 <div style={modalStyles.fieldLabel}>What You Need To Do</div>
                 <div style={modalStyles.value}>{resolutionSummary.whatHappened}</div>
               </div>
-              {needsReplacementBarcode ? (
-                <label style={modalStyles.field}>
-                  <span style={modalStyles.fieldLabel}>Replacement Barcode</span>
-                  <input
-                    value={replacementBarcode}
-                    onChange={(event) =>
-                      onReplacementBarcodeChange?.(event.target.value)
-                    }
-                    style={{ ...modalStyles.textarea, minHeight: "44px" }}
-                    inputMode="numeric"
-                    placeholder="Enter the correct barcode"
-                    disabled={isResolving}
-                  />
-                  <p style={modalStyles.warningText}>
-                    Use a barcode that is not already assigned to another item or packaging.
-                    Leave this blank to keep the saved record instead.
-                  </p>
-                </label>
-              ) : null}
-              {!isResolved &&
-              conflict.conflict_type === "DUPLICATE_INVENTORY_BARCODE" &&
-              conflict.entity_type === "INVENTORY_ITEM" &&
-              availableActions.includes("APPLY_LOCAL") ? (
+              {isBarcodeCorrection ? (
                 <p style={modalStyles.warningText}>
-                  Use This Device Record opens a correction form. Enter a new
-                  barcode, or leave it blank for a manual item.
+                  Use This Device Record opens a correction form.{" "}
+                  {isPackagingBarcodeCorrection
+                    ? "Enter a new unused barcode for this packaging."
+                    : "Enter a new barcode, or leave it blank for a manual item."}
                 </p>
               ) : null}
               {availableActions.length > 0 ? (

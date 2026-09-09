@@ -12,6 +12,10 @@ const helperSourcePath = new URL(
   "../src/features/sync/syncManagementHelpers.js",
   import.meta.url,
 );
+const serverSyncServiceSourcePath = new URL(
+  "../../server/src/services/sync.service.js",
+  import.meta.url,
+);
 
 test("sync history distinguishes resolved conflicts from ordinary synced entries", async () => {
   const { getSyncHistoryNotes, getSyncHistoryStatus } = await import(
@@ -83,7 +87,8 @@ test("missing conflict review notes are shown inline under the field", async () 
 });
 
 test("conflict actions require confirmation and barcode corrections reuse the inventory form", async () => {
-  const [pageSource, modalSource, formSource, serviceSource] = await Promise.all([
+  const [pageSource, modalSource, formSource, serviceSource, serverServiceSource] =
+    await Promise.all([
     fs.readFile(pageSourcePath, "utf8"),
     fs.readFile(modalSourcePath, "utf8"),
     fs.readFile(
@@ -94,15 +99,25 @@ test("conflict actions require confirmation and barcode corrections reuse the in
       new URL("../src/features/sync/syncHistoryService.js", import.meta.url),
       "utf8",
     ),
+    fs.readFile(serverSyncServiceSourcePath, "utf8"),
   ]);
 
   assert.match(pageSource, /pendingResolutionAction/);
   assert.match(pageSource, /setPendingResolutionAction\(action\)/);
   assert.match(pageSource, /getConflictCorrectionItemData/);
+  assert.match(pageSource, /getConflictCorrectionBatchData/);
+  assert.match(pageSource, /inventoryCorrectionTarget/);
+  assert.match(pageSource, /DUPLICATE_INVENTORY_ITEM/);
+  assert.match(pageSource, /stock_form_barcode: formValues\.barcode/);
   assert.match(pageSource, /conflictResolution/);
+  assert.match(pageSource, /conflictResolutionTarget=\{inventoryCorrectionTarget\}/);
   assert.match(modalSource, /Confirm and Resolve/);
   assert.match(modalSource, /onCancelPendingResolve/);
+  assert.match(modalSource, /isBarcodeCorrection/);
   assert.match(formSource, /Correct Inventory Record/);
   assert.match(formSource, /Optional\. Leave blank for a manual item\./);
+  assert.match(formSource, /Enter a new barcode for this packaging\./);
+  assert.match(formSource, /conflictResolutionTarget/);
   assert.match(serviceSource, /resolution_payload: resolutionPayload \|\| null/);
+  assert.match(serverServiceSource, /INVENTORY_BATCH_RESOLUTION_FIELDS/);
 });
