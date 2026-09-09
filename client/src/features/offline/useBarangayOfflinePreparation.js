@@ -7,6 +7,8 @@ import {
 } from "../../offline/offlinePreparation.js";
 import { getCachedMasterlistRows } from "../../offline/masterlistCache.js";
 import { getCachedStubSnapshotsForScope } from "../stubs/stubCache.js";
+import { getSyncQueueActorContext } from "../../offline/syncQueue.js";
+import { ROLE_CODES } from "../../utils/roleSession.js";
 import {
   getCachedEvacuationCentersByBarangay,
   getCachedRegistrationReferenceData,
@@ -16,8 +18,19 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
   const [readiness, setReadiness] = useState(OFFLINE_PREPARATION_STATUS.NOT_PREPARED);
   const [diagnostics, setDiagnostics] = useState(null);
   const [revision, setRevision] = useState(0);
+  const actorContext = getSyncQueueActorContext();
+  const actorAccessMode = actorContext.accessMode;
+  const actorUserId = actorContext.userId || "";
+  const actorRoleCode = actorContext.roleCode || "";
   useEffect(() => {
-    if (!enabled || !userId || !eventId || !barangayId) {
+    if (
+      !enabled ||
+      !userId ||
+      !eventId ||
+      !barangayId ||
+      actorUserId !== userId ||
+      actorRoleCode !== ROLE_CODES.BARANGAY
+    ) {
       setReadiness(OFFLINE_PREPARATION_STATUS.NOT_PREPARED);
       return undefined;
     }
@@ -51,15 +64,27 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
             row.offline_household_details.household.family_head_photo_data_url,
         ),
       );
+      const hasPersistedEmptyMasterlistSnapshot =
+        expectedMasterlistCount === 0 &&
+        existing?.datasets?.masterlist?.readBack === true &&
+        existing?.datasets?.masterlist?.complete === true;
       const hasRequiredMasterlistCache =
         existing?.cache_version === OFFLINE_CACHE_VERSION &&
         existing?.masterlist_count !== undefined &&
         hasCompleteHouseholdDetails &&
-        cachedMasterlistRows.length >= expectedMasterlistCount;
+        (expectedMasterlistCount > 0
+          ? cachedMasterlistRows.length >= expectedMasterlistCount
+          : hasPersistedEmptyMasterlistSnapshot);
+      const hasPersistedEmptyStubSnapshot =
+        expectedStubCount === 0 &&
+        existing?.datasets?.stubs?.readBack === true &&
+        existing?.datasets?.stubs?.complete === true;
       const hasRequiredStubCache =
         existing?.cache_version === OFFLINE_CACHE_VERSION &&
         existing?.stub_count !== undefined &&
-        cachedStubSnapshots.length >= expectedStubCount;
+        (expectedStubCount > 0
+          ? cachedStubSnapshots.length >= expectedStubCount
+          : hasPersistedEmptyStubSnapshot);
       const hasCompletePreparedCache =
         hasRequiredMasterlistCache &&
         hasRequiredStubCache &&
@@ -122,6 +147,9 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
     context?.eventStatus,
     enabled,
     eventId,
+    actorAccessMode,
+    actorRoleCode,
+    actorUserId,
     revision,
     userId,
   ]);

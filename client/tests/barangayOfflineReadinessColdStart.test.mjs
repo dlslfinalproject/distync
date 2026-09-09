@@ -34,3 +34,23 @@ test("Barangay readiness keeps a verified stale snapshot usable as Needs Refresh
   );
   assert.doesNotMatch(source, /hasCompletePreparedCache[\s\S]*existing\?\.status === OFFLINE_PREPARATION_STATUS\.READY/);
 });
+
+test("Barangay cold start waits for the restored actor scope and reruns when it changes", async () => {
+  const source = await read("features/offline/useBarangayOfflinePreparation.js");
+
+  assert.match(source, /getSyncQueueActorContext/);
+  assert.match(source, /actorUserId !== userId/);
+  assert.match(source, /actorRoleCode !== ROLE_CODES\.BARANGAY/);
+  assert.match(source, /actorAccessMode,\s*actorRoleCode,\s*actorUserId/);
+});
+
+test("zero-row prepared datasets require explicit durable snapshot metadata", async () => {
+  const source = await read("features/offline/useBarangayOfflinePreparation.js");
+
+  assert.match(source, /hasPersistedEmptyMasterlistSnapshot/);
+  assert.match(source, /hasPersistedEmptyStubSnapshot/);
+  assert.match(source, /datasets\?\.masterlist\?\.readBack === true/);
+  assert.match(source, /datasets\?\.stubs\?\.readBack === true/);
+  assert.match(source, /expectedMasterlistCount > 0/);
+  assert.match(source, /expectedStubCount > 0/);
+});

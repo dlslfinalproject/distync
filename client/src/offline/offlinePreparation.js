@@ -67,9 +67,17 @@ const fetchOfflinePhotoDataUrl = async (photoUrl, householdId) => {
   }
   return blobToDataUrl(blob);
 };
+const normalizeScopeValue = (value) => String(value || "").trim();
+
 const scopeKey = ({ eventId, barangayId }) => {
   const owner = getSyncQueueActorContext();
-  return [owner.accessMode, owner.userId, owner.roleCode, eventId, barangayId].join("|");
+  return [
+    owner.accessMode,
+    owner.userId,
+    owner.roleCode,
+    normalizeScopeValue(eventId),
+    normalizeScopeValue(barangayId),
+  ].join("|");
 };
 
 export const getOfflinePreparation = async ({ eventId, barangayId }) => {

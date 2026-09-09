@@ -292,8 +292,8 @@ export const getCachedStubSnapshotsForScope = async ({
       ownerContext.accessMode,
       ownerContext.userId,
       ownerContext.roleCode,
-      disasterEventId,
-      currentBarangayId,
+      trimValue(disasterEventId),
+      trimValue(currentBarangayId),
     ])
     .filter((row) =>
       isOfflineStubVisibleForContext(row, ownerContext, { currentBarangayId }),
