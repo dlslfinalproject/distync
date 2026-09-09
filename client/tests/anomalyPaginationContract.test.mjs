@@ -475,7 +475,10 @@ test("anomaly tracking removes summary cards, sync banner, and extra row review 
   assert.match(sidebarSource, /\{ label: "Anomaly Tracking", to: "\/mswdo\/anomalies"(?:, isSectionChild: true)? \}/);
   assert.match(layoutSource, /isBarangayAnomalyRoute/);
   assert.match(layoutSource, /shouldShowSyncStatusBanner/);
-  assert.match(layoutSource, /\{shouldShowSyncStatusBanner \? <SyncStatusBanner \/> : null\}/);
+  assert.match(
+    layoutSource,
+    /shouldShowSyncStatusBanner \? \([\s\S]*isMswdoPortal \? <MswdoOfflineModeNotice \/> : <SyncStatusBanner \/>/,
+  );
   assert.doesNotMatch(source, /<StatusCard\b|shellStyles\.statGrid|Total Detected|Open on Page|Sync Center Items on Page|Resolved on Page/);
   assert.match(source, /overflowX: "auto", width: "100%", minWidth: 0/);
   assert.match(source, /const isManualReviewableAnomaly = \(row\) => row\?\.manual_review_allowed === true/);

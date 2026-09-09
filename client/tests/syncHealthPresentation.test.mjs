@@ -148,7 +148,10 @@ test("SYNC-HEALTH-P07 Sync Center owns the full status card", async () => {
     /shouldShowSyncStatusBanner =\s*!isBarangayPortal[\s\S]*?!isMayorPortal[\s\S]*?isMayorAnomalyRoute[\s\S]*?isSyncRoute/,
   );
   assert.match(layout, /shouldShowSyncStatusBanner/);
-  assert.match(layout, /\{shouldShowSyncStatusBanner \? <SyncStatusBanner \/> : null\}/);
+  assert.match(
+    layout,
+    /shouldShowSyncStatusBanner \? \([\s\S]*isMswdoPortal \? <MswdoOfflineModeNotice \/> : <SyncStatusBanner \/>/,
+  );
   assert.doesNotMatch(component, /updated_at|latest timestamp|client_sync_id|PostgreSQL/i);
   assert.doesNotMatch(banner, /updated_at|latest timestamp|client_sync_id|PostgreSQL/i);
 });

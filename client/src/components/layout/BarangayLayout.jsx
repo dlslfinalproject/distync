@@ -16,6 +16,7 @@ import OfflineDataReadiness, {
   MayorOfflineReadyDismissalContext,
 } from "./OfflineDataReadiness";
 import BarangayOfflineModeNotice from "./BarangayOfflineModeNotice";
+import MswdoOfflineModeNotice from "./MswdoOfflineModeNotice";
 import MayorOfflineAccessNotice from "./MayorOfflineAccessNotice";
 import { isMayorOfflineBlockedRoute } from "../../features/offline/mayorOfflineAccess";
 import {
@@ -374,7 +375,9 @@ const BarangayLayout = () => {
 
         <main className="distync-shell__main" style={shellStyles.main}>
           <div className="distync-shell__content" style={shellStyles.content}>
-            {shouldShowSyncStatusBanner ? <SyncStatusBanner /> : null}
+            {shouldShowSyncStatusBanner ? (
+              isMswdoPortal ? <MswdoOfflineModeNotice /> : <SyncStatusBanner />
+            ) : null}
             {isBarangayPortal ? <BarangayOfflineModeNotice /> : null}
             <MayorOfflineReadyDismissalContext.Provider
               value={{
