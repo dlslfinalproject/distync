@@ -448,6 +448,16 @@ const tableStyles = {
   },
 };
 
+const syncStatusHeaderStyles = {
+  ...tableStyles.th,
+  textAlign: "center",
+};
+
+const syncStatusCellStyles = {
+  ...tableStyles.td,
+  textAlign: "center",
+};
+
 const detailTextStyles = {
   color: "#60738a",
   fontSize: "12px",
@@ -469,7 +479,30 @@ const srOnlyStyles = {
 
 const syncHistoryTableStyles = {
   ...tableStyles.table,
-  minWidth: "1080px",
+  minWidth: "1200px",
+  tableLayout: "fixed",
+};
+
+const syncHistoryColumnWidthStyles = {
+  withoutBarangay: {
+    recordType: { width: "9%" },
+    action: { width: "13%" },
+    affectedRecord: { width: "17%" },
+    status: { width: "10%" },
+    queuedAt: { width: "15%" },
+    processedAt: { width: "15%" },
+    notes: { width: "21%" },
+  },
+  withBarangay: {
+    recordType: { width: "7%" },
+    barangay: { width: "8%" },
+    action: { width: "11%" },
+    affectedRecord: { width: "15%" },
+    status: { width: "10%" },
+    queuedAt: { width: "15%" },
+    processedAt: { width: "15%" },
+    notes: { width: "19%" },
+  },
 };
 
 const conflictReviewTableStyles = {
@@ -575,6 +608,9 @@ const SyncManagementPage = () => {
   const { currentRole } = useAuth();
   const isMswdoPortal = currentRole === ROLE_CODES.MSWDO;
   const isMayorPortal = currentRole === ROLE_CODES.MAYOR;
+  const historyColumnWidths = isMswdoPortal
+    ? syncHistoryColumnWidthStyles.withBarangay
+    : syncHistoryColumnWidthStyles.withoutBarangay;
   const recordTypeOptions = isMayorPortal
     ? MAYOR_RECORD_TYPE_OPTIONS
     : RECORD_TYPE_OPTIONS;
@@ -1809,7 +1845,7 @@ const SyncManagementPage = () => {
                   ) : null}
                   <th style={tableStyles.th}>Operation</th>
                   <th style={tableStyles.th}>Affected Record</th>
-                  <th style={tableStyles.th}>Status</th>
+                  <th style={syncStatusHeaderStyles}>Status</th>
                   <th style={tableStyles.th}>Queued At</th>
                 </tr>
               </thead>
@@ -1822,7 +1858,7 @@ const SyncManagementPage = () => {
                         includeOperation: true,
                         includeDisasterEvent: false,
                       })}
-                      <td style={tableStyles.td}>
+                      <td style={syncStatusCellStyles}>
                         <SyncStatusBadge status={entry.status} />
                       </td>
                       <td style={tableStyles.td}>
@@ -1877,6 +1913,18 @@ const SyncManagementPage = () => {
         ) : (
           <div className="sync-center-table-scroll" style={{ overflowX: "auto" }}>
             <table style={syncHistoryTableStyles}>
+              <colgroup>
+                <col style={historyColumnWidths.recordType} />
+                {isMswdoPortal ? (
+                  <col style={historyColumnWidths.barangay} />
+                ) : null}
+                <col style={historyColumnWidths.action} />
+                <col style={historyColumnWidths.affectedRecord} />
+                <col style={historyColumnWidths.status} />
+                <col style={historyColumnWidths.queuedAt} />
+                <col style={historyColumnWidths.processedAt} />
+                <col style={historyColumnWidths.notes} />
+              </colgroup>
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Record Type</th>
@@ -1885,7 +1933,7 @@ const SyncManagementPage = () => {
                   ) : null}
                   <th style={tableStyles.th}>Action</th>
                   <th style={tableStyles.th}>Affected Record</th>
-                  <th style={tableStyles.th}>Status</th>
+                  <th style={syncStatusHeaderStyles}>Status</th>
                   <th style={tableStyles.th}>Queued At</th>
                   <th style={tableStyles.th}>Processed At</th>
                   <th style={tableStyles.th}>Notes</th>
@@ -1901,7 +1949,7 @@ const SyncManagementPage = () => {
                         includeBarangay: false,
                         includeDisasterEvent: false,
                       })}
-                      <td style={tableStyles.td}>
+                      <td style={syncStatusCellStyles}>
                         <SyncStatusBadge status={getSyncHistoryStatus(transaction)} />
                       </td>
                       <td style={tableStyles.td}>
@@ -1976,7 +2024,7 @@ const SyncManagementPage = () => {
                   ) : null}
                   <th style={tableStyles.th}>Affected Record</th>
                   <th style={tableStyles.th}>Conflict Reason</th>
-                  <th style={tableStyles.th}>Status</th>
+                  <th style={syncStatusHeaderStyles}>Status</th>
                   <th style={tableStyles.th}>Resolved At</th>
                   <th style={tableStyles.th}>Action</th>
                 </tr>
@@ -1993,7 +2041,7 @@ const SyncManagementPage = () => {
                       ) : null}
                       <td style={tableStyles.td}>{details.subject}</td>
                       <td style={tableStyles.td}>{getConflictReasonLabel(conflict)}</td>
-                      <td style={tableStyles.td}>
+                      <td style={syncStatusCellStyles}>
                         <SyncStatusBadge
                           status={conflict.status === "RESOLVED" ? "RESOLVED" : "OPEN"}
                           label={getResolutionStatusLabel(conflict)}

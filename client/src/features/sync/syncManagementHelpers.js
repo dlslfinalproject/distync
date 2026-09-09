@@ -722,16 +722,20 @@ export const buildSyncSearchText = (
   const details = getSyncRecordDetails(record);
   const payload = getPayloadContainer(record);
   const { barangay } = details;
+  const historyNotes = getSyncHistoryNotes(record);
 
   return [
     details.recordType,
+    details.operation,
     details.actionLabel,
     details.subject,
     details.familyHeadName,
     details.stubNumber,
     details.disasterEvent,
     details.status,
+    getSyncHistoryStatus(record),
     details.notes,
+    ...historyNotes,
     details.secondaryLabel,
     includeBarangay ? barangay : "",
     payload.item_name,

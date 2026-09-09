@@ -44,7 +44,7 @@ test("MSWDO uses the same three accessible tabs and operational table behavior",
     source,
     /<div className="sync-center-table-scroll" style=\{\{ overflowX: "auto" \}\}>/,
   );
-  assert.match(source, /minWidth: "1080px"/);
+  assert.match(source, /minWidth: "1200px"/);
   assert.match(source, /minWidth: "760px"/);
   assert.match(source, /minWidth: "820px"/);
 });

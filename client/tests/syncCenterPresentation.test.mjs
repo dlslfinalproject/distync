@@ -177,7 +177,29 @@ test("BRG-SC-P08B Barangay Sync History has the final columns in order", async (
   assert.doesNotMatch(historySection, /<th style=\{tableStyles\.th\}>Barangay<\/th>/);
   assert.match(historySection, /includeDisasterEvent: false/);
   assert.match(historySection, /<table style=\{syncHistoryTableStyles\}>/);
-  assert.match(source, /minWidth: "1080px"/);
+  assert.match(source, /minWidth: "1200px"/);
+});
+
+test("BRG-SC-P08D status pills are centered and history prioritizes timestamps", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+
+  assert.equal(
+    source.match(/<th style=\{syncStatusHeaderStyles\}>Status<\/th>/g)?.length,
+    3,
+  );
+  assert.equal(
+    source.match(/<td style=\{syncStatusCellStyles\}>/g)?.length,
+    3,
+  );
+  assert.match(source, /tableLayout: "fixed"/);
+  assert.match(source, /queuedAt: \{ width: "15%" \}/);
+  assert.match(source, /processedAt: \{ width: "15%" \}/);
+  assert.match(source, /notes: \{ width: "21%" \}/);
+  assert.match(source, /notes: \{ width: "19%" \}/);
+  assert.match(
+    source,
+    /<colgroup>[\s\S]*historyColumnWidths\.queuedAt[\s\S]*historyColumnWidths\.processedAt[\s\S]*historyColumnWidths\.notes/,
+  );
 });
 
 test("BRG-SC-P08C history row data stays aligned after removing Barangay", async () => {
@@ -389,6 +411,31 @@ test("BRG-SC-P14 Barangay search no longer advertises or indexes Barangay", asyn
     }),
     /barangay hidden search/,
   );
+});
+
+test("BRG-SC-P15 Sync Center search covers visible history notes and operations", async () => {
+  const { buildSyncSearchText } = await import(helperModulePath.href);
+
+  const searchText = buildSyncSearchText({
+    sync_status: "SYNCED",
+    sync_conflict_status: "RESOLVED",
+    sync_conflict_resolution_action: "KEEP_SERVER",
+    sync_conflict_resolution_reason: "Duplicate stock entry",
+    operation_type: "CREATE",
+    payload_json: {
+      action_key: "INVENTORY_BATCH_CREATE",
+      payload: {
+        quantity: 20,
+        source_type: "LGU",
+      },
+    },
+  });
+
+  assert.match(searchText, /create/);
+  assert.match(searchText, /duplicate stock entry/);
+  assert.match(searchText, /quantity: 20/);
+  assert.match(searchText, /source: lgu/);
+  assert.match(searchText, /resolved/);
 });
 
 test("BRG-OQ-P01 Offline Queue uses the streamlined operational columns", async () => {

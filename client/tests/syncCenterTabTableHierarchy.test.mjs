@@ -21,7 +21,11 @@ const getTabSection = (source, tabValue, nextTabValue) => {
 };
 
 const getHeaders = (section) =>
-  [...section.matchAll(/<th style=\{tableStyles\.th\}>([\s\S]*?)<\/th>/g)].map(
+  [
+    ...section.matchAll(
+      /<th style=\{(?:tableStyles\.th|syncStatusHeaderStyles)\}>([\s\S]*?)<\/th>/g,
+    ),
+  ].map(
     ([, label]) =>
       label.trim().includes("BARANGAY_COLUMN_LABEL")
         ? "Barangay"
