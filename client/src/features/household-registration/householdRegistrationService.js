@@ -263,6 +263,17 @@ export const cacheRegistrationEvacuationCentersByBarangay = (
   );
 };
 
+export const cacheRegistrationEvacuationCenters = (centers) => {
+  if (!Array.isArray(centers)) {
+    return;
+  }
+
+  safeWriteJson(
+    getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.evacuationCentersAll),
+    centers,
+  );
+};
+
 export const getCachedRegistrationReferenceData = () => {
   return {
     activeDisasterEvents: safeReadJson(
@@ -297,7 +308,15 @@ export const getCachedEvacuationCentersByBarangay = (barangayId) => {
 
   const cachedReferenceData = getCachedRegistrationReferenceData();
   const cachedCenters = cachedReferenceData.evacuationCentersByBarangay?.[barangayId];
-  return Array.isArray(cachedCenters) ? cachedCenters : [];
+  if (Array.isArray(cachedCenters)) {
+    return cachedCenters;
+  }
+
+  return Array.isArray(cachedReferenceData.evacuationCentersAll)
+    ? cachedReferenceData.evacuationCentersAll.filter(
+        (center) => String(center?.barangay_id || center?.barangay?.id || "") === String(barangayId),
+      )
+    : [];
 };
 
 export const clearRegistrationReferenceCache = () => {

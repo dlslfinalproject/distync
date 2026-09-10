@@ -366,6 +366,9 @@ export const useHouseholdRegistrationForm = ({
       setIsUsingCachedReferenceData(false);
 
       try {
+        if (isOffline) {
+          throw new Error("OFFLINE_USE_CACHED_REGISTRATION_REFERENCES");
+        }
         const [disasterEventsPayload, sectorsPayload, barangaysPayload] = await Promise.all([
           fetchActiveDisasterEvents(),
           fetchSectors(),
@@ -473,7 +476,7 @@ export const useHouseholdRegistrationForm = ({
         if (!hasCachedReferences) {
           setErrorMessage(
             isOffline
-              ? "Offline mode: please select an active disaster event while online first."
+              ? "Offline mode: please load the registration reference data while online first."
               : error.message || "Failed to load form options",
           );
           return;
@@ -803,9 +806,13 @@ export const useHouseholdRegistrationForm = ({
         return;
       }
 
-      let centers = needsBarangayScopedCenters
-        ? await fetchEvacuationCentersByBarangay(selectedBarangayId)
-        : await fetchEvacuationCenters();
+      let centers = isOffline
+        ? needsBarangayScopedCenters
+          ? getCachedEvacuationCentersByBarangay(selectedBarangayId)
+          : getCachedRegistrationReferenceData().evacuationCentersAll || []
+        : needsBarangayScopedCenters
+          ? await fetchEvacuationCentersByBarangay(selectedBarangayId)
+          : await fetchEvacuationCenters();
 
       if ((!Array.isArray(centers) || centers.length === 0) && isOffline) {
         const cachedReferenceData = getCachedRegistrationReferenceData();

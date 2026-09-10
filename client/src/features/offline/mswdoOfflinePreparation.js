@@ -11,6 +11,15 @@ import {
 import { fetchMswdoSectors } from "../mswdo-masterlist/mswdoMasterlistService.js";
 import { fetchMunicipalStubDashboard } from "../stubs/stubService.js";
 import { upsertOfflineStubSnapshots } from "../stubs/stubCache.js";
+import {
+  cacheRegistrationActiveDisasterEvents,
+  cacheRegistrationBarangays,
+  cacheRegistrationEvacuationCenters,
+  cacheRegistrationSectors,
+  cacheSelectedDisasterEvent,
+  cacheSelectedDisasterEventId,
+  fetchEvacuationCenters,
+} from "../household-registration/householdRegistrationService.js";
 
 export const MSWDO_OFFLINE_CACHE_VERSION = 2;
 export const MSWDO_OFFLINE_DATASET = "mswdo";
@@ -222,14 +231,28 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
   await runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.PREPARATION_METADATA, () => db.offlinePreparation.put(preparing));
   if (isCurrentPreparationGeneration(id, currentGeneration)) publish({ ...preparing, generation: currentGeneration });
   try {
-    const [events, barangays, sectors, masterlist, dashboard, stubDashboard] = await Promise.all([
+    const [events, barangays, sectors, evacuationCenters, masterlist, dashboard, stubDashboard] = await Promise.all([
       runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.REFERENCE_DATA, () => fetchDisasterEvents()),
       runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.REFERENCE_DATA, () => fetchBarangays()),
       runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.REFERENCE_DATA, () => fetchMswdoSectors()),
+      runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.REFERENCE_DATA, () => fetchEvacuationCenters()),
       runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.MASTERLIST, () => fetchConsolidatedMasterlist({ disasterEventId: eventId, recordStatus: "all" })),
       runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.DASHBOARD, () => fetchConsolidatedMasterlistDashboard({ disasterEventId: eventId })),
       runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.DISTRIBUTION_FETCH, () => fetchMunicipalStubDashboard({ disasterEventId: eventId, skipOfflineCache: true })),
     ]);
+    const selectedEvent = (Array.isArray(events) ? events : []).find(
+      (event) => String(event?.id || "") === String(eventId),
+    );
+    cacheRegistrationActiveDisasterEvents(
+      (Array.isArray(events) ? events : []).filter(
+        (event) => String(event?.status || "").toUpperCase() === "ACTIVE",
+      ),
+    );
+    cacheRegistrationBarangays(Array.isArray(barangays) ? barangays : []);
+    cacheRegistrationSectors(Array.isArray(sectors) ? sectors : []);
+    cacheRegistrationEvacuationCenters(Array.isArray(evacuationCenters) ? evacuationCenters : []);
+    cacheSelectedDisasterEventId(eventId);
+    if (selectedEvent) cacheSelectedDisasterEvent(selectedEvent);
     const masterlistRows = Array.isArray(masterlist?.data) ? masterlist.data : [];
     if (!Array.isArray(stubDashboard?.data)) {
       throw new MswdoOfflinePreparationError(MSWDO_PREPARATION_FAILURE_STAGES.DISTRIBUTION_VALIDATE, getMswdoPreparationFailureMessage(MSWDO_PREPARATION_FAILURE_STAGES.DISTRIBUTION_VALIDATE), "DISTRIBUTION_DATA_ARRAY");
@@ -290,7 +313,7 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
       ...preparing,
       status: "READY",
       datasets: {
-        filters: { complete: true, events, barangays, sectors },
+        filters: { complete: true, events, barangays, sectors, evacuationCenters },
         masterlist: { complete: true, valid: true, rows: preparedMasterlistRows, payload: masterlist },
         dashboard: { complete: true, valid: true, payload: dashboard },
         distribution: { complete: distributionComplete, valid: distributionComplete, rows: persistedStubs.length, payload: stubDashboard },
