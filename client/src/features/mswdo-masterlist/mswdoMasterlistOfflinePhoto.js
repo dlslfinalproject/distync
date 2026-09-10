@@ -1,4 +1,5 @@
 import { readMswdoOfflineSnapshot } from "../offline/mswdoOfflinePreparation.js";
+import { buildHouseholdDetailsSnapshot } from "../masterlist/barangayMasterlistUi.js";
 
 const normalizeId = (value) => String(value ?? "").trim();
 
@@ -20,13 +21,5 @@ export const getMswdoOfflineHouseholdDetails = async ({
     return null;
   }
 
-  return {
-    household,
-    members: Array.isArray(household.members) ? household.members : [],
-    household_sectors: Array.isArray(household.household_sectors)
-      ? household.household_sectors
-      : [],
-    latest_attendance: household.latest_attendance || null,
-    privacy_consent: household.privacy_consent || null,
-  };
+  return buildHouseholdDetailsSnapshot(household);
 };

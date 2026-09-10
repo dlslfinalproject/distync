@@ -29,7 +29,11 @@ import { readOperationalDisasterEventScope } from "../disaster-events/operationa
 import { resolveFamilyHeadPhoto } from "../masterlist/familyHeadPhoto.js";
 import { getMswdoOfflineHouseholdDetails } from "./mswdoMasterlistOfflinePhoto.js";
 
-const fetchMswdoDepartureDetails = async ({ householdId, eventId, userId }) => {
+const fetchMswdoDepartureDetails = async ({ householdId, eventId, userId, localDetails = null }) => {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return localDetails || await getMswdoOfflineHouseholdDetails({ userId, eventId, householdId });
+  }
+
   try {
     return await fetchHouseholdDetails(householdId);
   } catch (error) {
@@ -51,7 +55,28 @@ const fetchMswdoDepartureDetails = async ({ householdId, eventId, userId }) => {
   }
 };
 
+const resolveFamilyHeadName = (record = {}) => {
+  const household = record?.household || record || {};
+  const members = Array.isArray(record?.members)
+    ? record.members
+    : Array.isArray(household.members)
+      ? household.members
+      : [];
+  const familyHead = members.find((member) => member?.is_family_head) || {};
+  return String(
+    household.family_head_name ||
+      [
+        household.family_head_first_name || familyHead.first_name,
+        household.family_head_middle_name || familyHead.middle_name,
+        household.family_head_last_name || familyHead.last_name,
+        household.family_head_suffix || familyHead.suffix,
+      ].filter(Boolean).join(" ") ||
+      "",
+  ).trim();
+};
+
 export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
+  const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
   const {
     disasterEvents,
     barangays,
@@ -224,16 +249,9 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     const row = displayedRows.find((candidate) => candidate.household_id === householdId);
     return row?.disaster_event?.id || row?.disaster_event_id || "";
   };
-  const pendingDepartureFamilyHeadName = pendingDepartureHouseholdDetails?.household
-    ? [
-        pendingDepartureHouseholdDetails.household.family_head_first_name,
-        pendingDepartureHouseholdDetails.household.family_head_middle_name,
-        pendingDepartureHouseholdDetails.household.family_head_last_name,
-        pendingDepartureHouseholdDetails.household.family_head_suffix,
-      ]
-        .filter(Boolean)
-        .join(" ")
-    : pendingDepartureRow?.family_head_name || "";
+  const pendingDepartureFamilyHeadName = resolveFamilyHeadName(
+    pendingDepartureHouseholdDetails,
+  ) || pendingDepartureRow?.family_head_name || "";
   const pendingDepartureFamilyHeadPhotoUrl = resolveFamilyHeadPhoto(
     pendingDepartureHouseholdDetails,
     { isOffline: typeof navigator !== "undefined" && navigator.onLine === false },
@@ -493,6 +511,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
             householdId,
             eventId: selectedDisasterEventId,
             userId: authenticatedUser?.id || "",
+            localDetails: selectedRows.find((row) => row.household_id === householdId)?.offline_household_details || null,
           }),
         ),
       );
@@ -505,17 +524,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
         const fallbackRow = selectedRows.find(
           (row) => row.household_id === householdId,
         );
-        const detailHousehold = detailValue?.household || null;
-        const familyHeadName = detailHousehold
-          ? [
-              detailHousehold.family_head_first_name,
-              detailHousehold.family_head_middle_name,
-              detailHousehold.family_head_last_name,
-              detailHousehold.family_head_suffix,
-            ]
-              .filter(Boolean)
-              .join(" ")
-          : fallbackRow?.family_head_name || "";
+        const familyHeadName = resolveFamilyHeadName(detailValue) || fallbackRow?.family_head_name || "";
 
         return {
           household_id: householdId,
@@ -554,6 +563,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
         householdId,
         eventId: selectedDisasterEventId,
         userId: authenticatedUser?.id || "",
+        localDetails: displayedRows.find((row) => row.household_id === householdId)?.offline_household_details || null,
       });
       setPendingDepartureHouseholdDetails(details);
     } catch (_error) {
@@ -585,12 +595,15 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     try {
       if (isBulkDepartureConfirmOpen && selectedHouseholds.length > 0) {
         await Promise.all(
-          selectedHouseholds.map((householdId) =>
-            departHousehold({
+          selectedHouseholds.map((householdId) => {
+            const row = displayedRows.find((candidate) => candidate.household_id === householdId);
+            return departHousehold({
               householdId,
               disasterEventId: getDepartureDisasterEventId(householdId),
-            }),
-          ),
+              barangayId: row?.barangay_id || null,
+              disasterEventTitle: selectedDisasterEvent?.title || selectedDisasterEvent?.name || "",
+            });
+          }),
         );
 
         setAttendanceActionMessage("Selected households marked as departed");
@@ -607,10 +620,12 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
           householdId: pendingDepartureHouseholdId,
           disasterEventId:
             pendingDepartureHouseholdDetails?.household?.disaster_event_id ||
-            pendingDepartureHouseholdDetails?.household?.disaster_event?.id ||
-            pendingDepartureRow?.disaster_event?.id ||
-            pendingDepartureRow?.disaster_event_id ||
-            "",
+          pendingDepartureHouseholdDetails?.household?.disaster_event?.id ||
+          pendingDepartureRow?.disaster_event?.id ||
+          pendingDepartureRow?.disaster_event_id ||
+          "",
+          barangayId: pendingDepartureRow?.barangay_id || null,
+          disasterEventTitle: selectedDisasterEvent?.title || selectedDisasterEvent?.name || "",
         });
         setAttendanceActionMessage(
           response.message || "Household departure recorded successfully",
@@ -754,13 +769,30 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setHouseholdDetailsErrorMessage("");
 
     try {
-      const details = await fetchHouseholdDetails(householdId, {
-        evacuationLogId,
-      });
+      const selectedRow = displayedRows.find(
+        (row) => String(row.household_id) === String(householdId),
+      );
+      const details = isOffline
+        ? selectedRow?.offline_household_details ||
+          await getMswdoOfflineHouseholdDetails({
+            userId: authenticatedUser?.id || "",
+            eventId: selectedDisasterEventId,
+            householdId,
+          })
+        : await fetchHouseholdDetails(householdId, { evacuationLogId });
+      if (!details) {
+        throw new Error(
+          isOffline
+            ? "Offline household details are not available for this record."
+            : "Failed to load household details.",
+        );
+      }
       setHouseholdDetails(details);
     } catch (error) {
       setHouseholdDetailsErrorMessage(
-        error.message || "Failed to load household details.",
+        isOffline
+          ? error.message || "Offline household details are not available for this record."
+          : error.message || "Failed to load household details.",
       );
     } finally {
       setIsLoadingHouseholdDetails(false);
@@ -781,12 +813,25 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setIsLoadingEditHouseholdDetails(true);
 
     try {
-      const details = await fetchHouseholdDetails(householdId);
+      const selectedRow = displayedRows.find(
+        (row) => String(row.household_id) === String(householdId),
+      );
+      const details = isOffline
+        ? selectedRow?.offline_household_details ||
+          await getMswdoOfflineHouseholdDetails({
+            userId: authenticatedUser?.id || "",
+            eventId: selectedDisasterEventId,
+            householdId,
+          })
+        : await fetchHouseholdDetails(householdId);
+      if (!details) throw new Error("Offline household details are not available for this record.");
       setEditingHouseholdDetails(details);
       setEditingHouseholdId(householdId);
     } catch (error) {
       setEditHouseholdErrorMessage(
-        error.message || "Failed to load household details for editing.",
+        isOffline
+          ? error.message || "Offline household details are not available for this record."
+          : error.message || "Failed to load household details for editing.",
       );
     } finally {
       setIsLoadingEditHouseholdDetails(false);
@@ -828,7 +873,15 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       setIsLoadingReAdmissionHouseholdDetails(true);
 
       try {
-        const details = await fetchHouseholdDetails(sourceArchivedHouseholdId);
+        const details = isOffline
+          ? selectedRow?.offline_household_details ||
+            await getMswdoOfflineHouseholdDetails({
+              userId: authenticatedUser?.id || "",
+              eventId: selectedDisasterEventId,
+              householdId: sourceArchivedHouseholdId,
+            })
+          : await fetchHouseholdDetails(sourceArchivedHouseholdId);
+        if (!details) throw new Error("Offline household details are not available for this record.");
         const loadedHouseholdId = String(details?.household?.id || "").trim();
 
         if (requestSequence !== reAdmissionRequestSequenceRef.current) {
