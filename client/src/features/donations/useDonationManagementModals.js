@@ -217,7 +217,7 @@ const resolveSavedDonationItemStockDetails = (item) => {
     batchNumber: batch.batch_no || item?.batch_number || "",
     expirationDate: batch.expiration_date
       ? batch.expiration_date.slice(0, 10)
-      : item?.expiration_date || "",
+      : "",
   };
 };
 
@@ -451,7 +451,6 @@ const buildExistingLooseDonationItemPayload = (item) => ({
   remarks: null,
   expiration_date:
     item.inventory_batch?.expiration_date?.slice?.(0, 10) ||
-    item.expiration_date ||
     null,
   storage_location: null,
   stock_form_barcode:

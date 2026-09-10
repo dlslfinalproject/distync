@@ -488,6 +488,7 @@ const InventoryItemFormModal = ({
   const barcodeInputRef = useRef(null);
   const autocompleteRef = useRef(null);
   const previousMatchedItemKeyRef = useRef("");
+  const isEditMode = mode === "edit";
   const isBatchConflictResolution =
     conflictResolution && conflictResolutionTarget === "BATCH";
 
@@ -507,7 +508,9 @@ const InventoryItemFormModal = ({
         packaging: itemData.packaging || "",
         packaging_count: itemData.packaging_count || "",
         category: normalizeCategoryValue(itemData.category),
-        expiration_date: itemData.expiration_date ?? itemData.expiryDate ?? "",
+        expiration_date: isEditMode
+          ? ""
+          : itemData.expiration_date ?? itemData.expiryDate ?? "",
         reorder_level: itemData.reorder_level ?? "",
         tracking_method:
           itemData.tracking_method || inferTrackingMethod(resolvedUnitOfMeasure),
@@ -525,7 +528,7 @@ const InventoryItemFormModal = ({
     setIsAddingNewStockForm(isBatchConflictResolution);
     setIsAutocompleteOpen(false);
     setFieldErrors({});
-  }, [isBatchConflictResolution, isOpen, itemData]);
+  }, [isBatchConflictResolution, isEditMode, isOpen, itemData]);
 
   const trimmedItemName = formValues.item_name.trim();
   const eligibleExistingItems = mode === "create" ? inventoryItems : [];
@@ -1055,7 +1058,6 @@ const InventoryItemFormModal = ({
   }
 
   const trackingMethod = formValues.tracking_method || "Count-Based";
-  const isEditMode = mode === "edit";
   const usesWeightOrVolume = isWeightOrVolumeBased(trackingMethod);
   const isPerishable = normalizeCategoryValue(formValues.category) === "perishable";
   const selectedPackagingLabel = formatPackagingLabel(formValues.packaging);
@@ -1306,11 +1308,6 @@ const InventoryItemFormModal = ({
         (trackingMethod === "Count-Based" ? "1" : ""),
       quantity:
         isPiecePackaging ? "1" : formValues.quantity,
-      expiration_date: isEditMode
-        ? null
-        : isBlank(formValues.expiration_date)
-          ? null
-          : formValues.expiration_date,
       barcode: isBlank(effectiveBarcode)
         ? null
         : effectiveBarcode,
@@ -1320,6 +1317,16 @@ const InventoryItemFormModal = ({
           ? matchingStockFormByDefinition.id
           : matchedExistingStockForm?.id || null,
     };
+
+    if (isEditMode) {
+      // Parent expiration is legacy compatibility metadata, not an editable
+      // inventory-item property. Opening-batch input remains create-only.
+      delete normalizedFormValues.expiration_date;
+    } else {
+      normalizedFormValues.expiration_date = isBlank(formValues.expiration_date)
+        ? null
+        : formValues.expiration_date;
+    }
 
     onSubmit(normalizedFormValues);
   };
@@ -1818,8 +1825,8 @@ const InventoryItemFormModal = ({
                 <div>
                   <label htmlFor="expiration_date" style={labelStyles}>
                     {isPerishable
-                      ? "Expiration Date"
-                      : "Expiration Date (If Applicable)"}
+                      ? "Batch Expiration Date"
+                      : "Batch Expiration Date (If Applicable)"}
                   </label>
                   <input
                     id="expiration_date"

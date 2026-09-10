@@ -170,9 +170,21 @@ export const createInventoryItem = async (payload) => {
   });
 };
 
+export const buildInventoryItemUpdatePayload = (payload = {}) => {
+  const {
+    expiration_date: _legacyExpirationDate,
+    expiryDate: _legacyExpiryDate,
+    ...currentPayload
+  } = payload || {};
+
+  return currentPayload;
+};
+
 export const updateInventoryItem = async (inventoryItemId, payload) => {
+  const normalizedPayload = buildInventoryItemUpdatePayload(payload);
+
   return performOnlineOnlyMutation({
-    payload,
+    payload: normalizedPayload,
     requiredFields: ["item_name", "category", "unit_of_measure"],
     request: async () => {
       const response = await fetch(
@@ -182,7 +194,7 @@ export const updateInventoryItem = async (inventoryItemId, payload) => {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(normalizedPayload),
         },
       );
 

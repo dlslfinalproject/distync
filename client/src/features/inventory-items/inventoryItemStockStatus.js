@@ -1,5 +1,5 @@
-export const isItemExpiring = (item) => {
-  if (!item.expiration_date) {
+export const isItemExpiring = (expirationDateValue) => {
+  if (!expirationDateValue) {
     return false;
   }
 
@@ -9,7 +9,7 @@ export const isItemExpiring = (item) => {
     today.getMonth(),
     today.getDate(),
   );
-  const expirationDate = new Date(`${item.expiration_date}T00:00:00`);
+  const expirationDate = new Date(`${expirationDateValue}T00:00:00`);
 
   if (Number.isNaN(expirationDate.getTime())) {
     return false;
@@ -121,7 +121,7 @@ export const buildInventoryTrackingMap = (
 
       if (isDateExpired(batch.expiration_date)) {
         tracking.expiredOnHand += quantityAvailable;
-      } else if (isItemExpiring({ expiration_date: batch.expiration_date })) {
+      } else if (isItemExpiring(batch.expiration_date)) {
         tracking.nearExpiryOnHand += quantityAvailable;
       }
     }
