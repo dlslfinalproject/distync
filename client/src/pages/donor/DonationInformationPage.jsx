@@ -1976,6 +1976,20 @@ const isCurrentActiveDisasterEvent = (event, todayTime) => {
   );
 };
 
+const isCompletedDisasterEvent = (event, todayTime) => {
+  const normalizedStatus = String(event?.status || "").toUpperCase();
+  const startTime = getDateOnlyTime(event?.start_date);
+  const endTime = getDateOnlyTime(event?.end_date);
+  const hasStarted = startTime === null || startTime <= todayTime;
+  const isClosed = normalizedStatus === "CLOSED";
+  const isDateEnded =
+    isActiveDisasterStatus(normalizedStatus) &&
+    endTime !== null &&
+    endTime < todayTime;
+
+  return hasStarted && (isClosed || isDateEnded);
+};
+
 const sortDisasterEventsByRecency = (left, right) => {
   const leftStartTime = getDateOnlyTime(left.start_date);
   const rightStartTime = getDateOnlyTime(right.start_date);
@@ -2016,14 +2030,7 @@ const getActiveDisasterEventsForPortal = (events) => {
 
   return {
     events: disasterEvents
-      .filter((event) => {
-        const startTime = getDateOnlyTime(event?.start_date);
-
-        return (
-          isActiveDisasterStatus(event?.status) &&
-          (startTime === null || startTime <= todayTime)
-        );
-      })
+      .filter((event) => isCompletedDisasterEvent(event, todayTime))
       .sort(sortDisasterEventsByRecency)
       .slice(0, 3),
     isShowingRecentFallback: true,
@@ -2478,7 +2485,7 @@ const QuickLinksSection = () => {
 
 const ActiveDisastersSection = ({ events, isShowingRecentFallback }) => {
   const sectionTitle = isShowingRecentFallback
-    ? "Recent Active Disaster Relief Operations"
+    ? "Recent Completed Disaster Relief Operations"
     : "Active Disaster Relief Operations";
 
   if (!events.length) {
@@ -2493,7 +2500,11 @@ const ActiveDisastersSection = ({ events, isShowingRecentFallback }) => {
         </h2>
         <div style={{ ...styles.emptyState, marginTop: "14px" }}>
           <FiCheckCircle size={20} color={COLORS.success} aria-hidden="true" />
-          <span>There is currently no active disaster relief operation.</span>
+          <span>
+            {isShowingRecentFallback
+              ? "There are no active or recently completed disaster relief operations."
+              : "There is currently no active disaster relief operation."}
+          </span>
         </div>
       </section>
     );
@@ -2896,7 +2907,7 @@ const TransparencySection = ({ recentDonations, transparencySummary }) => {
           <div style={styles.summaryTop}>
             <p style={styles.label}>Relief Packs Received</p>
             <span style={styles.summaryIcon} aria-hidden="true">
-              <FaBoxOpen size={18} />
+              <FaShoppingBag size={18} />
             </span>
           </div>
           <p style={styles.summaryValue}>

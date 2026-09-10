@@ -1,7 +1,10 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { validatePublicDonationPortal } = require("../src/validators/donation.validator");
+const {
+  validateDonationManagementTransparency,
+  validatePublicDonationPortal,
+} = require("../src/validators/donation.validator");
 
 const runValidator = (query) => {
   const response = {
@@ -20,6 +23,29 @@ const runValidator = (query) => {
   let nextCalled = false;
 
   validatePublicDonationPortal(request, response, () => {
+    nextCalled = true;
+  });
+
+  return { nextCalled, request, response };
+};
+
+const runManagementTransparencyValidator = (query) => {
+  const response = {
+    statusCode: null,
+    body: null,
+    status(statusCode) {
+      this.statusCode = statusCode;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      return this;
+    },
+  };
+  const request = { query };
+  let nextCalled = false;
+
+  validateDonationManagementTransparency(request, response, () => {
     nextCalled = true;
   });
 
@@ -85,4 +111,26 @@ test("public portal pagination rejects malformed and out-of-range values", () =>
     );
     assert.equal(result.response.statusCode, 400);
   }
+});
+
+test("Mayor transparency validator accepts optional event scope only", () => {
+  const allEvents = runManagementTransparencyValidator({});
+  assert.equal(allEvents.nextCalled, true);
+  assert.deepEqual(allEvents.request.validatedQuery, {
+    disaster_event_id: null,
+  });
+
+  const closedEvent = runManagementTransparencyValidator({
+    disaster_event_id: "00000000-0000-4000-8000-000000000001",
+  });
+  assert.equal(closedEvent.nextCalled, true);
+  assert.deepEqual(closedEvent.request.validatedQuery, {
+    disaster_event_id: "00000000-0000-4000-8000-000000000001",
+  });
+
+  const invalidEvent = runManagementTransparencyValidator({
+    disaster_event_id: "closed-event",
+  });
+  assert.equal(invalidEvent.nextCalled, false);
+  assert.equal(invalidEvent.response.statusCode, 400);
 });

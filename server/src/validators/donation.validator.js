@@ -794,6 +794,22 @@ const validatePublicDonationPortal = (req, res, next) => {
   return next();
 };
 
+const validateDonationManagementTransparency = (req, res, next) => {
+  const { disaster_event_id } = req.query;
+
+  if (disaster_event_id !== undefined && !isValidUuid(disaster_event_id)) {
+    return res.status(400).json({
+      message: "disaster_event_id must be a valid UUID when provided",
+    });
+  }
+
+  req.validatedQuery = {
+    disaster_event_id: disaster_event_id || null,
+  };
+
+  return next();
+};
+
 module.exports = {
   validateDonationNeedId,
   validateDonationNeedFilters,
@@ -808,5 +824,6 @@ module.exports = {
   validateDonationItemId,
   validateDonationItemPayload,
   validateReassignLeftoverStockPayload,
+  validateDonationManagementTransparency,
   validatePublicDonationPortal,
 };

@@ -11,7 +11,7 @@ test("donor portal active disaster operations section uses concise public copy",
   const source = await fs.readFile(donationInformationPageSourcePath, "utf8");
 
   assert.match(source, /Active Disaster Relief Operations/);
-  assert.match(source, /Recent Active Disaster Relief Operations/);
+  assert.match(source, /Recent Completed Disaster Relief Operations/);
   assert.doesNotMatch(
     source,
     /Public information for up to three current active relief operations\./,
@@ -36,11 +36,15 @@ test("donor portal shows all current active disaster events before using the thr
   );
   assert.match(
     source,
-    /const startTime = getDateOnlyTime\(event\?\.start_date\);\s+return \(\s+isActiveDisasterStatus\(event\?\.status\) &&\s+\(startTime === null \|\| startTime <= todayTime\)\s+\);/,
+    /const isCompletedDisasterEvent = \(event, todayTime\) => \{/,
   );
   assert.match(
     source,
-    /\.sort\(sortDisasterEventsByRecency\)\s+\.slice\(0, 3\),\s+isShowingRecentFallback: true,/,
+    /const isClosed = normalizedStatus === "CLOSED";/,
+  );
+  assert.match(
+    source,
+    /\.filter\(\(event\) => isCompletedDisasterEvent\(event, todayTime\)\)\s+\.sort\(sortDisasterEventsByRecency\)\s+\.slice\(0, 3\),\s+isShowingRecentFallback: true,/,
   );
 });
 
@@ -49,7 +53,7 @@ test("donor portal active disaster operations heading changes for recent fallbac
 
   assert.match(
     source,
-    /const sectionTitle = isShowingRecentFallback\s+\? "Recent Active Disaster Relief Operations"\s+: "Active Disaster Relief Operations";/,
+    /const sectionTitle = isShowingRecentFallback\s+\? "Recent Completed Disaster Relief Operations"\s+: "Active Disaster Relief Operations";/,
   );
   assert.match(source, /<ActiveDisastersSection\s+events=\{activeDisasters\}\s+isShowingRecentFallback=\{isShowingRecentActiveDisasters\}/);
 });

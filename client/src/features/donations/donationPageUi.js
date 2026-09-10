@@ -9,6 +9,10 @@ export const defaultPortalData = {
     total_donated_items_distributed: 0,
     total_donated_items_written_off: 0,
     remaining_donated_inventory: 0,
+    total_loose_items_received: 0,
+    total_loose_items_remaining: 0,
+    total_relief_packs_received: 0,
+    total_relief_packs_remaining: 0,
     received_vs_distributed: [],
   },
 };

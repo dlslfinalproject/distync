@@ -302,6 +302,105 @@ test("public portal reports relief-pack utilization in packs and loose utilizati
   );
 });
 
+test("Mayor donation transparency preserves management scope and donor names", async () => {
+  const eventId = "00000000-0000-0000-0000-000000000002";
+  const requestedScopes = [];
+
+  await withStubbedDonationService(
+    {
+      donationRepositoryOverrides: {
+        getDonationSummaryTotals: async (requestedEventId) => {
+          requestedScopes.push(["totals", requestedEventId]);
+          return {
+            total_donations_received: 2,
+            total_quantity_received: 22,
+            total_donated_items_distributed: 8,
+            total_donated_items_written_off: 0,
+            remaining_donated_inventory: 14,
+          };
+        },
+        getDonationItemTransparencySummary: async (requestedEventId) => {
+          requestedScopes.push(["rows", requestedEventId]);
+          return [
+            {
+              donation_id: "management-pack",
+              donor_name: "Relief Partner",
+              donor_type: "NGO",
+              disaster_event_id: eventId,
+              disaster_event_title: "Closed Flood Response",
+              inventory_item_id: "water-item",
+              item_name: "Bottled Water",
+              quantity_received: 10,
+              quantity_distributed: 5,
+              quantity_remaining: 5,
+              quantity_written_off: 0,
+              donation_item_remarks: "Relief Pack: Family Pack x 2",
+            },
+            {
+              donation_id: "management-pack",
+              donor_name: "Relief Partner",
+              donor_type: "NGO",
+              disaster_event_id: eventId,
+              disaster_event_title: "Closed Flood Response",
+              inventory_item_id: "tuna-item",
+              item_name: "Canned Tuna",
+              quantity_received: 4,
+              quantity_distributed: 2,
+              quantity_remaining: 2,
+              quantity_written_off: 0,
+              donation_item_remarks: "Relief Pack: Family Pack x 2",
+            },
+            {
+              donation_id: "management-loose",
+              donor_name: "Community Group",
+              donor_type: "NGO",
+              disaster_event_id: eventId,
+              disaster_event_title: "Closed Flood Response",
+              inventory_item_id: "shampoo-item",
+              item_name: "Sunsilk Shampoo",
+              quantity_received: 12,
+              quantity_distributed: 3,
+              quantity_remaining: 9,
+              quantity_written_off: 0,
+              donation_item_remarks: "Loose Item",
+            },
+          ];
+        },
+      },
+    },
+    async ({ getDonationManagementTransparency }) => {
+      const payload = await getDonationManagementTransparency({
+        disaster_event_id: eventId,
+      });
+      const rows = payload.transparency_summary.received_vs_distributed;
+      const packRow = rows.find((row) => row.source_type === "RELIEF_PACK");
+      const looseRow = rows.find((row) => row.source_type === "LOOSE_ITEM");
+
+      assert.deepEqual(requestedScopes, [
+        ["totals", eventId],
+        ["rows", eventId],
+      ]);
+      assert.equal(packRow.donor_name, "Relief Partner");
+      assert.equal(packRow.quantity_received, 2);
+      assert.equal(packRow.quantity_distributed, 1);
+      assert.equal(packRow.quantity_remaining, 1);
+      assert.equal(looseRow.donor_name, "Community Group");
+      assert.equal(looseRow.quantity_received, 12);
+      assert.equal(looseRow.quantity_remaining, 9);
+      assert.equal(
+        payload.transparency_summary.total_relief_packs_received,
+        2,
+      );
+      assert.equal(
+        payload.transparency_summary.total_relief_packs_remaining,
+        1,
+      );
+      assert.equal(payload.transparency_summary.total_loose_items_received, 12);
+      assert.equal(payload.transparency_summary.total_loose_items_remaining, 9);
+    },
+  );
+});
+
 test("public portal does not show preparedness defaults when a current forecast has no stock shortfall", async () => {
   await withStubbedDonationService(
     {
@@ -398,7 +497,7 @@ test("public portal scopes donation transparency to current displayed disaster o
             id: endedEventId,
             title: "Ended Flood Response",
             disaster_type: "Flood",
-            status: "ACTIVE",
+            status: "CLOSED",
             start_date: formatDateOnly(addDays(today, -8)),
             end_date: formatDateOnly(addDays(today, -2)),
             created_at: addDays(today, -8).toISOString(),
@@ -450,7 +549,7 @@ test("public portal scopes donation transparency to current displayed disaster o
   );
 });
 
-test("public portal scopes donation transparency to the three recent operations during fallback", async () => {
+test("public portal scopes donation transparency to the three recent completed operations during fallback", async () => {
   const today = new Date();
   const recentEventIds = [
     "00000000-0000-0000-0000-000000000201",
@@ -458,6 +557,7 @@ test("public portal scopes donation transparency to the three recent operations 
     "00000000-0000-0000-0000-000000000203",
   ];
   const olderEventId = "00000000-0000-0000-0000-000000000204";
+  const upcomingEventId = "00000000-0000-0000-0000-000000000205";
   const scopedCalls = [];
 
   await withStubbedDonationService(
@@ -465,10 +565,20 @@ test("public portal scopes donation transparency to the three recent operations 
       donationRepositoryOverrides: {
         getPublicDonationDisasterSummaries: async () => [
           {
+            id: upcomingEventId,
+            title: "Upcoming Response",
+            disaster_type: "Flood",
+            status: "ACTIVE",
+            start_date: formatDateOnly(addDays(today, 5)),
+            end_date: formatDateOnly(addDays(today, 8)),
+            created_at: addDays(today, 5).toISOString(),
+            updated_at: addDays(today, 5).toISOString(),
+          },
+          {
             id: olderEventId,
             title: "Older Landslide Response",
             disaster_type: "Landslide",
-            status: "ACTIVE",
+            status: "CLOSED",
             start_date: formatDateOnly(addDays(today, -18)),
             end_date: formatDateOnly(addDays(today, -15)),
             created_at: addDays(today, -18).toISOString(),
@@ -478,7 +588,7 @@ test("public portal scopes donation transparency to the three recent operations 
             id,
             title: `Recent Response ${index + 1}`,
             disaster_type: "Flood",
-            status: "ACTIVE",
+            status: "CLOSED",
             start_date: formatDateOnly(addDays(today, -index - 4)),
             end_date: formatDateOnly(addDays(today, -index - 1)),
             created_at: addDays(today, -index - 4).toISOString(),

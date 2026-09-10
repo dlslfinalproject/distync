@@ -630,6 +630,26 @@ const mapPublicDonationUtilizationRow = (row, getPublicDonorLabel) => ({
   quantity_remaining: row.quantity_remaining,
 });
 
+const mapManagementDonationUtilizationRow = (row) => ({
+  public_key: createPublicKey("utilization-source", row.source_key),
+  donor_name: row.donor_name || null,
+  donor_type: row.donor_type,
+  donor_type_label: donorTypeLabels[row.donor_type] || "Other",
+  disaster_event_id: row.disaster_event_id,
+  disaster_event_title: row.disaster_event_title,
+  source_type: row.source_type,
+  relief_pack_name: row.relief_pack_name,
+  item_name: row.item_name,
+  unit_of_measure: row.unit_of_measure,
+  quantity_received: row.quantity_received,
+  quantity_distributed: row.quantity_distributed,
+  quantity_written_off: row.quantity_written_off,
+  write_off_reasons: Array.isArray(row.write_off_reasons)
+    ? row.write_off_reasons
+    : [],
+  quantity_remaining: row.quantity_remaining,
+});
+
 const getDateOnlyTime = (value) => {
   if (!value) {
     return null;
@@ -654,14 +674,32 @@ const getDisasterFallbackTime = (event) => {
   );
 };
 
+const isPublicActiveDisasterStatus = (status) =>
+  ["ACTIVE", "ONGOING"].includes(String(status || "").toUpperCase());
+
 const isCurrentPublicDisaster = (event, todayTime) => {
   const startTime = getDateOnlyTime(event?.start_date);
   const endTime = getDateOnlyTime(event?.end_date);
 
   return (
+    isPublicActiveDisasterStatus(event?.status) &&
     (startTime === null || startTime <= todayTime) &&
     (endTime === null || endTime >= todayTime)
   );
+};
+
+const isCompletedPublicDisaster = (event, todayTime) => {
+  const normalizedStatus = String(event?.status || "").toUpperCase();
+  const startTime = getDateOnlyTime(event?.start_date);
+  const endTime = getDateOnlyTime(event?.end_date);
+  const hasStarted = startTime === null || startTime <= todayTime;
+  const isClosed = normalizedStatus === "CLOSED";
+  const isDateEnded =
+    isPublicActiveDisasterStatus(normalizedStatus) &&
+    endTime !== null &&
+    endTime < todayTime;
+
+  return hasStarted && (isClosed || isDateEnded);
 };
 
 const sortPublicDisastersByRecency = (left, right) => {
@@ -699,7 +737,10 @@ const getVisiblePublicDisasterSummaries = (events) => {
     return currentEvents;
   }
 
-  return disasterEvents.sort(sortPublicDisastersByRecency).slice(0, 3);
+  return disasterEvents
+    .filter((event) => isCompletedPublicDisaster(event, todayTime))
+    .sort(sortPublicDisastersByRecency)
+    .slice(0, 3);
 };
 
 const combinePublicForecastSuggestions = (latestForecasts) => {
@@ -2789,6 +2830,43 @@ const getPublicDonationPortal = async (options = null) => {
   };
 };
 
+const getDonationManagementTransparency = async (options = null) => {
+  const normalizedOptions =
+    typeof options === "string"
+      ? { disasterEventId: options }
+      : options && typeof options === "object"
+        ? options
+        : {};
+  const disasterEventId =
+    normalizedOptions.disaster_event_id ??
+    normalizedOptions.disasterEventId ??
+    null;
+
+  const [summaryTotals, transparencyRows] = await Promise.all([
+    donationRepository.getDonationSummaryTotals(disasterEventId),
+    donationRepository.getDonationItemTransparencySummary(disasterEventId),
+  ]);
+  const utilizationRows = buildPublicDonationUtilizationRows(transparencyRows);
+  const utilizationTotals = calculatePublicDonationUtilizationTotals(
+    utilizationRows,
+  );
+
+  return {
+    transparency_summary: {
+      ...summaryTotals,
+      total_loose_items_received: utilizationTotals.loose_items_received,
+      total_loose_items_distributed: utilizationTotals.loose_items_distributed,
+      total_loose_items_remaining: utilizationTotals.loose_items_remaining,
+      total_relief_packs_received: utilizationTotals.relief_packs_received,
+      total_relief_packs_distributed: utilizationTotals.relief_packs_distributed,
+      total_relief_packs_remaining: utilizationTotals.relief_packs_remaining,
+      received_vs_distributed: utilizationRows.map(
+        mapManagementDonationUtilizationRow,
+      ),
+    },
+  };
+};
+
 const donationTypeLabels = {
   LOOSE_ITEM: "Loose Item",
   RELIEF_PACK: "Relief Pack",
@@ -3061,6 +3139,7 @@ module.exports = {
   reassignLeftoverDonationStock,
   deleteDonationRecord,
   getPublicDonationPortal,
+  getDonationManagementTransparency,
   exportReceivedDonationsReport,
   exportDonationTransparencyReport,
 };

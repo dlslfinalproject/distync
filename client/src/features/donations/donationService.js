@@ -54,6 +54,22 @@ export const fetchDonationPortalData = async (filters = {}) => {
   return handleJsonResponse(response, "Failed to fetch donor portal data");
 };
 
+export const fetchDonationManagementTransparency = async (filters = {}) => {
+  const { signal, ...queryFilters } = filters || {};
+  const searchParams = new URLSearchParams();
+  appendFilters(searchParams, queryFilters);
+
+  const url = `${API_BASE_URL}/api/v1/donations/management-transparency${
+    searchParams.toString() ? `?${searchParams.toString()}` : ""
+  }`;
+  const response = signal ? await fetch(url, { signal }) : await fetch(url);
+
+  return handleJsonResponse(
+    response,
+    "Failed to fetch donation management transparency data",
+  );
+};
+
 export const exportDonationTransparencySummary = async (
   format = "csv",
   filters = {},

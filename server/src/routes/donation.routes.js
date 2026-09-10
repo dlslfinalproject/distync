@@ -17,6 +17,7 @@ const {
   validateDonationItemPayload,
   validateReassignLeftoverStockPayload,
   validateDonationTransparencyExportFilters,
+  validateDonationManagementTransparency,
   validatePublicDonationPortal,
 } = require("../validators/donation.validator");
 
@@ -28,6 +29,27 @@ const resolveExportFormat = (format) => {
     ? normalizedFormat
     : null;
 };
+
+router.get(
+  "/management-transparency",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateDonationManagementTransparency,
+  async (req, res) => {
+    try {
+      const payload = await donationService.getDonationManagementTransparency(
+        req.validatedQuery,
+      );
+
+      return res.status(200).json(payload);
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to fetch donation transparency data",
+      });
+    }
+  },
+);
 
 router.get(
   "/public-portal",

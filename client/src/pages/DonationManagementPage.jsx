@@ -22,6 +22,7 @@ import { fetchInventoryItems } from "../features/inventory-items/inventoryItemSe
 import {
   exportDonationTransparencySummary,
   exportReceivedDonationsReport,
+  fetchDonationManagementTransparency,
   fetchDonationPortalData,
   fetchDonations,
   reassignLeftoverDonationStock,
@@ -353,15 +354,21 @@ const DonationManagementPage = () => {
 
       const resolvedEventId = eventId || "";
 
+      const transparencyDataRequest = canManageDonations
+        ? fetchDonationManagementTransparency({
+            disaster_event_id: resolvedEventId || undefined,
+          })
+        : fetchDonationPortalData({
+            disaster_event_id: resolvedEventId || undefined,
+          });
+
       const [donationRows, donationPortal] = await Promise.all([
         canManageDonations
           ? fetchDonations({
               disaster_event_id: resolvedEventId || undefined,
             })
           : Promise.resolve([]),
-        fetchDonationPortalData({
-          disaster_event_id: resolvedEventId || undefined,
-        }),
+        transparencyDataRequest,
       ]);
 
       setDisasterEvents(normalizeDonationEventRows(eventRows));
@@ -457,22 +464,28 @@ const DonationManagementPage = () => {
 
     return [
       {
-        label: "Total Donations Received",
-        value: formatSummaryNumber(transparencySummary.total_donations_received),
-      },
-      {
-        label: "Total Quantity Received",
-        value: formatSummaryNumber(transparencySummary.total_quantity_received),
-      },
-      {
-        label: "Total Donated Items Distributed",
+        label: "Total Donated Relief Packs",
         value: formatSummaryNumber(
-          transparencySummary.total_donated_items_distributed,
+          transparencySummary.total_relief_packs_received,
         ),
       },
       {
-        label: "Remaining Donated Inventory",
-        value: formatSummaryNumber(transparencySummary.remaining_donated_inventory),
+        label: "Total Remaining Relief Packs",
+        value: formatSummaryNumber(
+          transparencySummary.total_relief_packs_remaining,
+        ),
+      },
+      {
+        label: "Total Donated Loose Items",
+        value: formatSummaryNumber(
+          transparencySummary.total_loose_items_received,
+        ),
+      },
+      {
+        label: "Total Remaining Loose Items",
+        value: formatSummaryNumber(
+          transparencySummary.total_loose_items_remaining,
+        ),
       },
     ];
   }, [portalData]);

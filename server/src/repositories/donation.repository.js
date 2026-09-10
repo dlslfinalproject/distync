@@ -1003,7 +1003,7 @@ const getPublicDonationDisasterSummaries = async (
 ) => {
   const values = [];
   const conditions = [
-    `UPPER(de.status) IN ('ACTIVE', 'ONGOING')`,
+    `UPPER(de.status) IN ('ACTIVE', 'ONGOING', 'CLOSED')`,
   ];
 
   if (disasterEventId) {

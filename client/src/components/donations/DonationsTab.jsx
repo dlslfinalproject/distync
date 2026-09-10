@@ -11,7 +11,6 @@ import {
   getTablePaginationState,
   TABLE_PAGE_SIZE_OPTIONS,
 } from "../../features/pagination/pagination.mjs";
-import SyncStatusIcon from "../shared/SyncStatusIcon";
 import TableActionsMenu from "../shared/TableActionsMenu";
 import TablePagination from "../shared/TablePagination";
 import { DONATION_PAGE_PANEL_STYLE } from "./DonationPageTabs";
@@ -255,7 +254,6 @@ const DonationsTab = ({
                     <td style={tableStyles.bodyCell}>
                       <div style={tableStyles.donorCell}>
                         <span style={{ fontWeight: 700 }}>{donation.donor_name}</span>
-                        <SyncStatusIcon status={donation.sync_status} />
                       </div>
                       <div style={tableStyles.mutedText}>
                         {formatDonorType(

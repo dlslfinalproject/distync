@@ -53,6 +53,14 @@ test("donation management loads complete event-scoped data for local search and 
     source,
     /return getDonationSummaryCards\(donationsWithSyncStatus\)/,
   );
+  assert.match(
+    source,
+    /fetchDonationManagementTransparency\(\{\s*disaster_event_id: resolvedEventId \|\| undefined,\s*\}\)/s,
+  );
+  assert.match(source, /label: "Total Donated Relief Packs"/);
+  assert.match(source, /label: "Total Remaining Relief Packs"/);
+  assert.match(source, /label: "Total Donated Loose Items"/);
+  assert.match(source, /label: "Total Remaining Loose Items"/);
 });
 
 test("closed event filters do not preselect an invalid add-donation event", async () => {
@@ -88,4 +96,11 @@ test("donation toolbar controls call the page filters and modal open handlers", 
   assert.match(pageSource, /onOpenDonationModal=\{\(\) => openDonationModal\(\)\}/);
   assert.match(pageSource, /onExportDonations=\{openDonationExportModal\}/);
   assert.match(pageSource, /setIsDonationExportModalOpen\(true\)/);
+});
+
+test("donation donor cells do not display the offline sync icon", async () => {
+  const source = await readSource(["components", "donations", "DonationsTab.jsx"]);
+
+  assert.doesNotMatch(source, /SyncStatusIcon/);
+  assert.match(source, /donation\.donor_name/);
 });

@@ -19,10 +19,13 @@ const getPublicPortalDisasterSummarySource = async () => {
   return source.slice(startIndex, endIndex);
 };
 
-test("public portal disaster summaries expose all active events for frontend current/recent selection", async () => {
+test("public portal disaster summaries expose active and completed events for frontend selection", async () => {
   const source = await getPublicPortalDisasterSummarySource();
 
-  assert.match(source, /UPPER\(de\.status\) IN \('ACTIVE', 'ONGOING'\)/);
+  assert.match(
+    source,
+    /UPPER\(de\.status\) IN \('ACTIVE', 'ONGOING', 'CLOSED'\)/,
+  );
   assert.doesNotMatch(source, /de\.start_date IS NULL OR de\.start_date <= CURRENT_DATE/);
   assert.doesNotMatch(source, /de\.end_date IS NULL OR de\.end_date >= CURRENT_DATE/);
   assert.doesNotMatch(source, /LIMIT 3/);
