@@ -23,6 +23,7 @@ const {
   assertNoProtectedFamilyHeadChanges,
   sanitizeHouseholdUpdateRequestData,
 } = require("./householdEditProtection.service");
+const donatedReliefPackAssignmentService = require("./donatedReliefPackAssignment.service");
 
 const NON_RESIDENT_BARANGAY_CODE = "NON_RESIDENT_OUTSIDE_MALVAR";
 const RESIDENCY_STATUSES = {
@@ -2418,6 +2419,11 @@ const registerHousehold = async (
         },
         client,
       );
+
+      await donatedReliefPackAssignmentService.ensureDonatedReliefPackAssignmentsForEvent(
+        requestDataWithDerivedAgeGroups.disaster_event_id,
+        client,
+      );
     }
 
     if (shouldAutoArchiveWithoutAttendance) {
@@ -2672,10 +2678,23 @@ const departHousehold = async (
     const archivedHousehold =
       await householdRegistrationRepository.archiveHousehold(householdId, client);
     const archivedEvacuees =
-      await householdRegistrationRepository.deactivateEvacueesByHouseholdId(
+    await householdRegistrationRepository.deactivateEvacueesByHouseholdId(
+      householdId,
+      client,
+    );
+
+    await donatedReliefPackAssignmentService.releaseDonatedReliefPackAssignmentsForHousehold(
+      {
         householdId,
+        disasterEventId: lockedHousehold.disaster_event_id,
+        releaseReason: "Household departed the evacuation center",
         client,
-      );
+      },
+    );
+    await donatedReliefPackAssignmentService.ensureDonatedReliefPackAssignmentsForEvent(
+      lockedHousehold.disaster_event_id,
+      client,
+    );
 
     if (!externalClient) {
       await client.query("COMMIT");

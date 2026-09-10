@@ -49,6 +49,9 @@ const paths = {
   reliefPackAssignmentService: require.resolve(
     "../src/services/reliefPackAssignment.service",
   ),
+  donatedReliefPackAssignmentService: require.resolve(
+    "../src/services/donatedReliefPackAssignment.service",
+  ),
   mswdoReportExport: require.resolve("../src/utils/mswdoReportExport"),
   inventoryBatchStatus: require.resolve("../src/utils/inventoryBatchStatus"),
   reliefPackEligibility: require.resolve(
@@ -399,6 +402,10 @@ const createStubServiceStubs = ({
     },
     [paths.reliefPackAssignmentService]: {
       getAssignedReliefPackTemplatesForSectorIds: () => [],
+    },
+    [paths.donatedReliefPackAssignmentService]: {
+      ensureDonatedReliefPackAssignmentsForEvent: async () => [],
+      getAssignedDonatedReliefPacksByStubIds: async () => new Map(),
     },
     [paths.mswdoReportExport]: emptyModule(),
     [paths.reliefPackEligibility]: {

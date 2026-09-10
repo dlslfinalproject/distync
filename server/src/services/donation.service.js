@@ -7,6 +7,7 @@ const inventoryBatchRepository = require("../repositories/inventoryBatch.reposit
 const inventoryItemStockFormRepository = require("../repositories/inventoryItemStockForm.repository");
 const inventoryItemService = require("./inventoryItem.service");
 const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
+const donatedReliefPackAssignmentService = require("./donatedReliefPackAssignment.service");
 const forecastService = require("./forecast.service");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
@@ -1814,6 +1815,14 @@ const createDonation = async (payload, actor) => {
       });
     }
 
+    // Existing eligible stubs may predate this donation. Assign newly received
+    // donated relief packs inside the same transaction so they are ready for
+    // online or offline claiming as soon as the donation is saved.
+    await donatedReliefPackAssignmentService.ensureDonatedReliefPackAssignmentsForEvent(
+      donationRecord.disaster_event_id,
+      client,
+    );
+
     await client.query("COMMIT");
     const createdDonationRecord = await getDonationById(createdDonation.id);
 
@@ -2071,6 +2080,11 @@ const createDonationItem = async (donationId, payload, performedBy) => {
       dbClient: client,
       inventoryItemByNameCache: new Map(),
     });
+
+    await donatedReliefPackAssignmentService.ensureDonatedReliefPackAssignmentsForEvent(
+      donation.disaster_event_id,
+      client,
+    );
 
     if (
       typeof distributionTransactionRepository.updateDonationStatusesByIds ===

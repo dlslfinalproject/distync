@@ -26,6 +26,9 @@ const automaticReliefPackClaimServicePath = require.resolve(
 const reliefPackAssignmentServicePath = require.resolve(
   "../src/services/reliefPackAssignment.service",
 );
+const donatedReliefPackAssignmentServicePath = require.resolve(
+  "../src/services/donatedReliefPackAssignment.service",
+);
 const systemLogPath = require.resolve("../src/utils/systemLog");
 const mswdoReportExportPath = require.resolve("../src/utils/mswdoReportExport");
 const inventoryBatchStatusServicePath = require.resolve(
@@ -167,6 +170,10 @@ const createBaseStubs = ({
   [reliefPackAssignmentServicePath]: {
     getPrimaryAssignedReliefPackTemplate: () => null,
     resolveAssignedReliefPackTemplatesForHousehold: async () => [],
+  },
+  [donatedReliefPackAssignmentServicePath]: {
+    ensureDonatedReliefPackAssignmentsForEvent: async () => [],
+    getAssignedDonatedReliefPacksByStubIds: async () => new Map(),
   },
   [systemLogPath]: {
     logAuditSafely: async () => {},

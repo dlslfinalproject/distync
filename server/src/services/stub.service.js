@@ -6,12 +6,12 @@ const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate
 const stubRepository = require("../repositories/stub.repository");
 const mswdoReportExport = require("../utils/mswdoReportExport");
 const {
-  getAvailableDonatedReliefPacksForClaimPreview,
   recordAutomaticReliefPackClaim,
 } = require("./automaticReliefPackClaim.service");
 const {
   getAssignedReliefPackTemplatesForSectorIds,
 } = require("./reliefPackAssignment.service");
+const donatedReliefPackAssignmentService = require("./donatedReliefPackAssignment.service");
 const {
   isLiveUnclaimedReliefPackAssignment,
   normalizeReliefPackAssignmentSnapshots,
@@ -487,6 +487,10 @@ const getBarangayStubDashboard = async (filters) => {
     throw error;
   }
 
+  await donatedReliefPackAssignmentService.ensureDonatedReliefPackAssignmentsForEvent(
+    filters.disaster_event_id,
+  );
+
   const metrics = await stubRepository.getStubDashboardMetrics(
     filters.disaster_event_id,
     effectiveBarangay.id,
@@ -522,6 +526,10 @@ const getBarangayStubDashboard = async (filters) => {
   const rowsWithQr = await Promise.all(
     rows.map((row) => ensureStubQrMetadata(row, filters.qr_generated_by)),
   );
+  const assignedDonatedReliefPacksByStubId =
+    await donatedReliefPackAssignmentService.getAssignedDonatedReliefPacksByStubIds(
+      rowsWithQr.map((row) => row.id),
+    );
   const householdIds = rowsWithQr.map((row) => row.household_id);
   const householdSectors =
     await stubRepository.getHouseholdSectorsByHouseholdIds(householdIds);
@@ -543,28 +551,6 @@ const getBarangayStubDashboard = async (filters) => {
     memberSectors,
     "household_id",
   );
-  const donatedReliefPackPreviewByQueuePosition = new Map();
-  const getDonatedReliefPackPreviewForQueuePosition = async (queuePosition) => {
-    const normalizedQueuePosition = Number(queuePosition || 0);
-
-    if (normalizedQueuePosition <= 0) {
-      return [];
-    }
-
-    if (!donatedReliefPackPreviewByQueuePosition.has(normalizedQueuePosition)) {
-      donatedReliefPackPreviewByQueuePosition.set(
-        normalizedQueuePosition,
-        getAvailableDonatedReliefPacksForClaimPreview(
-          filters.disaster_event_id,
-          normalizedQueuePosition,
-        ),
-      );
-    }
-
-    return await donatedReliefPackPreviewByQueuePosition.get(
-      normalizedQueuePosition,
-    );
-  };
   const response = {
     assigned_barangay: {
       id: effectiveBarangay.id,
@@ -613,6 +599,8 @@ const getBarangayStubDashboard = async (filters) => {
         status: row.status,
         disasterEventStatus: scopedDisasterEvent.status,
       });
+      const assignedDonatedReliefPacks =
+        assignedDonatedReliefPacksByStubId.get(row.id) || [];
       const reliefPackName = assignedReliefPacks
         .map((template) => template.name)
         .filter(Boolean)
@@ -668,10 +656,11 @@ const getBarangayStubDashboard = async (filters) => {
         ),
         sector_ids: sectorIds,
         assigned_relief_packs: assignedReliefPacks,
+        assigned_donated_relief_packs: assignedDonatedReliefPacks,
         available_donated_relief_packs:
           showLiveClaimPreview
-            ? await getDonatedReliefPackPreviewForQueuePosition(
-                row.unclaimed_queue_position,
+            ? assignedDonatedReliefPacks.filter(
+                (pack) => pack.assignment_status === "RESERVED",
               )
             : [],
         available_donated_loose_items: [],
@@ -721,6 +710,10 @@ const getMunicipalStubDashboard = async ({
     error.code = "DISASTER_EVENT_NOT_ACTIVE";
     throw error;
   }
+
+  await donatedReliefPackAssignmentService.ensureDonatedReliefPackAssignmentsForEvent(
+    disasterEventId,
+  );
 
   const mappedBarangays =
     await disasterEventRepository.getAffectedBarangayScopeByDisasterEventId(
@@ -781,6 +774,10 @@ const getMunicipalStubDashboard = async ({
   const rowsWithQr = await Promise.all(
     rows.map((row) => ensureStubQrMetadata(row, qrGeneratedBy)),
   );
+  const assignedDonatedReliefPacksByStubId =
+    await donatedReliefPackAssignmentService.getAssignedDonatedReliefPacksByStubIds(
+      rowsWithQr.map((row) => row.id),
+    );
   const householdIds = [
     ...new Set(rowsWithQr.map((row) => row.household_id).filter(Boolean)),
   ];
@@ -811,28 +808,6 @@ const getMunicipalStubDashboard = async ({
       row.latest_attendance_status === "PRESENT" &&
       row.latest_attendance_time_out === null,
   ).length;
-  const donatedReliefPackPreviewByQueuePosition = new Map();
-  const getDonatedReliefPackPreviewForQueuePosition = async (queuePosition) => {
-    const normalizedQueuePosition = Number(queuePosition || 0);
-
-    if (normalizedQueuePosition <= 0) {
-      return [];
-    }
-
-    if (!donatedReliefPackPreviewByQueuePosition.has(normalizedQueuePosition)) {
-      donatedReliefPackPreviewByQueuePosition.set(
-        normalizedQueuePosition,
-        getAvailableDonatedReliefPacksForClaimPreview(
-          disasterEventId,
-          normalizedQueuePosition,
-        ),
-      );
-    }
-
-    return await donatedReliefPackPreviewByQueuePosition.get(
-      normalizedQueuePosition,
-    );
-  };
   const data = await Promise.all(
     rowsWithQr.map(async (row) => {
       const sectorIds = buildSectorIds(
@@ -867,6 +842,8 @@ const getMunicipalStubDashboard = async ({
         status: row.status,
         disasterEventStatus: scopedDisasterEvent.status,
       });
+      const assignedDonatedReliefPacks =
+        assignedDonatedReliefPacksByStubId.get(row.id) || [];
       const reliefPackName = assignedReliefPacks
         .map((template) => template.name)
         .filter(Boolean)
@@ -922,9 +899,10 @@ const getMunicipalStubDashboard = async ({
         ),
         sector_ids: sectorIds,
         assigned_relief_packs: assignedReliefPacks,
+        assigned_donated_relief_packs: assignedDonatedReliefPacks,
         available_donated_relief_packs: showLiveClaimPreview
-          ? await getDonatedReliefPackPreviewForQueuePosition(
-              row.unclaimed_queue_position,
+          ? assignedDonatedReliefPacks.filter(
+              (pack) => pack.assignment_status === "RESERVED",
             )
           : [],
         available_donated_loose_items: [],
@@ -1207,17 +1185,21 @@ const getStubDetails = async (id, requester = null) => {
     .map((template) => template.name)
     .filter(Boolean)
     .join(", ");
-  const stubQueueContext =
-    useLiveAssignment
-      ? await distributionTransactionRepository.getPresentUnclaimedStubQueueContext(
-          ensuredStub.id,
-        )
-      : { queue_position: 0, eligible_households_count: 0 };
+  if (useLiveAssignment) {
+    await donatedReliefPackAssignmentService.ensureDonatedReliefPackAssignmentsForEvent(
+      ensuredStub.disaster_event_id,
+    );
+  }
+  const assignedDonatedReliefPacksByStubId =
+    await donatedReliefPackAssignmentService.getAssignedDonatedReliefPacksByStubIds([
+      ensuredStub.id,
+    ]);
+  const assignedDonatedReliefPacks =
+    assignedDonatedReliefPacksByStubId.get(ensuredStub.id) || [];
   const availableDonatedReliefPacks =
     useLiveAssignment
-      ? await getAvailableDonatedReliefPacksForClaimPreview(
-          ensuredStub.disaster_event_id,
-          stubQueueContext.queue_position,
+      ? assignedDonatedReliefPacks.filter(
+          (pack) => pack.assignment_status === "RESERVED",
         )
       : [];
   return {
@@ -1266,6 +1248,7 @@ const getStubDetails = async (id, requester = null) => {
     },
     distribution_transaction: latestDistributionTransaction,
     assigned_relief_packs: assignedReliefPacks,
+    assigned_donated_relief_packs: assignedDonatedReliefPacks,
     available_donated_relief_packs: availableDonatedReliefPacks,
     available_donated_loose_items: [],
     relief_pack_name:

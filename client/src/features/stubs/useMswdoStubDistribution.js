@@ -68,6 +68,11 @@ const getMappedRows = (stubRows) =>
     assigned_relief_packs: Array.isArray(stubRow.assigned_relief_packs)
       ? stubRow.assigned_relief_packs
       : [],
+    assigned_donated_relief_packs: Array.isArray(
+      stubRow.assigned_donated_relief_packs,
+    )
+      ? stubRow.assigned_donated_relief_packs
+      : [],
     available_donated_relief_packs: Array.isArray(
       stubRow.available_donated_relief_packs,
     )

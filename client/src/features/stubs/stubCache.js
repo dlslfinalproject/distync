@@ -76,6 +76,39 @@ const sanitizeAssignedReliefPacks = (row = {}) => {
     }));
 };
 
+const sanitizeAssignedDonatedReliefPacks = (row = {}) => {
+  const assignedDonatedReliefPacks = Array.isArray(
+    row.assigned_donated_relief_packs,
+  )
+    ? row.assigned_donated_relief_packs
+    : Array.isArray(row.available_donated_relief_packs)
+      ? row.available_donated_relief_packs
+      : [];
+
+  return assignedDonatedReliefPacks
+    .filter((pack) => pack && typeof pack === "object")
+    .map((pack) => ({
+      id: pack.id || "",
+      donation_id: pack.donation_id || "",
+      donor_name: pack.donor_name || "",
+      name: pack.name || "",
+      pack_quantity: Number(pack.pack_quantity || 1) || 1,
+      assignment_status: pack.assignment_status || "RESERVED",
+      assigned_at: pack.assigned_at || null,
+      items: Array.isArray(pack.items)
+        ? pack.items
+            .filter((item) => item && typeof item === "object")
+            .map((item) => ({
+              inventory_item_id: item.inventory_item_id || "",
+              item_name: item.item_name || "",
+              category: item.category || "",
+              quantity_released: Number(item.quantity_released || 0) || 0,
+              unit_of_measure: item.unit_of_measure || "",
+            }))
+        : [],
+    }));
+};
+
 export const toOfflineStubSnapshot = (
   serverRow,
   ownerContext = getSyncQueueActorContext(),
@@ -140,6 +173,10 @@ export const toOfflineStubSnapshot = (
       ),
     ),
     assigned_relief_packs: sanitizeAssignedReliefPacks(serverRow),
+    assigned_donated_relief_packs: sanitizeAssignedDonatedReliefPacks(serverRow),
+    available_donated_relief_packs: sanitizeAssignedDonatedReliefPacks({
+      available_donated_relief_packs: serverRow.available_donated_relief_packs,
+    }),
     sectors_text: trimValue(serverRow.sectors_text) || "-",
     status: trimValue(serverRow.status) || "ISSUED",
     latest_attendance_status: trimValue(
@@ -189,6 +226,11 @@ export const toStubRowFromOfflineSnapshot = (snapshot, syncEntry = null) => {
     qr_status: snapshot.qr_status,
     relief_pack_name: snapshot.relief_pack_name,
     assigned_relief_packs: snapshot.assigned_relief_packs || [],
+    assigned_donated_relief_packs: snapshot.assigned_donated_relief_packs || [],
+    available_donated_relief_packs:
+      snapshot.available_donated_relief_packs ||
+      snapshot.assigned_donated_relief_packs ||
+      [],
     sectors_text: snapshot.sectors_text || "-",
     status: snapshot.status || "ISSUED",
     latest_attendance_status: snapshot.latest_attendance_status || "",

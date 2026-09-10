@@ -8,9 +8,9 @@ const inventoryItemRepository = require("../repositories/inventoryItem.repositor
 const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
 const masterlistService = require("./masterlist.service");
 const {
-  getAvailableDonatedReliefPacksForClaimPreview,
   recordAutomaticReliefPackClaim,
 } = require("./automaticReliefPackClaim.service");
+const donatedReliefPackAssignmentService = require("./donatedReliefPackAssignment.service");
 const {
   getAssignedReliefPackTemplatesForSectorIds,
   getPrimaryAssignedReliefPackTemplate,
@@ -691,6 +691,15 @@ const exportInventoryDistribution = async ({ requester, filters }) => {
       exportStubIds,
     );
   const reliefSourceRowsByStubId = groupByKey(reliefSourceRows, "stub_id");
+  if (disasterEvent?.status === "ACTIVE") {
+    await donatedReliefPackAssignmentService.ensureDonatedReliefPackAssignmentsForEvent(
+      filters.disaster_event_id,
+    );
+  }
+  const assignedDonatedReliefPacksByStubId =
+    await donatedReliefPackAssignmentService.getAssignedDonatedReliefPacksByStubIds(
+      exportStubIds,
+    );
   const mappedRows = await Promise.all(context.exportRows.map(async (household) => {
     const stubStatus = getInventoryExportRowStatus(household);
     const sourceRows = reliefSourceRowsByStubId[household?.stub?.id] || [];
@@ -706,17 +715,12 @@ const exportInventoryDistribution = async ({ requester, filters }) => {
       status: stubStatus,
       disasterEventStatus: disasterEvent?.status,
     });
-    const stubQueueContext =
-      showLiveClaimPreview && household?.stub?.id
-        ? await distributionTransactionRepository.getPresentUnclaimedStubQueueContext(
-            household.stub.id,
-          )
-        : { queue_position: 0, eligible_households_count: 0 };
+    const assignedDonatedReliefPacks =
+      assignedDonatedReliefPacksByStubId.get(household?.stub?.id) || [];
     const donatedReliefPacks =
       showLiveClaimPreview
-        ? await getAvailableDonatedReliefPacksForClaimPreview(
-            filters.disaster_event_id,
-            stubQueueContext.queue_position,
+        ? assignedDonatedReliefPacks.filter(
+            (pack) => pack.assignment_status === "RESERVED",
           )
         : [];
     return {

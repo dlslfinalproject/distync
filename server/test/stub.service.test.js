@@ -21,6 +21,9 @@ const automaticReliefPackClaimServicePath = require.resolve(
 const reliefPackAssignmentServicePath = require.resolve(
   "../src/services/reliefPackAssignment.service",
 );
+const donatedReliefPackAssignmentServicePath = require.resolve(
+  "../src/services/donatedReliefPackAssignment.service",
+);
 
 const withStubbedStubService = async (stubs, runTest) => {
   const dependencyPaths = Object.keys(stubs);
@@ -100,6 +103,7 @@ const createBaseStubs = ({
   disasterEventOverrides = {},
   reliefPackTemplateOverrides = {},
   automaticReliefPackClaimOverrides = {},
+  donatedReliefPackAssignmentOverrides = {},
   stubRepositoryOverrides = {},
 }) => ({
   [masterlistRepositoryPath]: {
@@ -174,6 +178,11 @@ const createBaseStubs = ({
   },
   [reliefPackAssignmentServicePath]: {
     getAssignedReliefPackTemplatesForSectorIds: () => [],
+  },
+  [donatedReliefPackAssignmentServicePath]: {
+    ensureDonatedReliefPackAssignmentsForEvent: async () => [],
+    getAssignedDonatedReliefPacksByStubIds: async () => new Map(),
+    ...donatedReliefPackAssignmentOverrides,
   },
 });
 
@@ -1366,7 +1375,7 @@ test("Stage 5 municipal service coalesces identical donor preview contexts", asy
       unclaimed_queue_position: 1,
     },
   ];
-  let donatedReliefPackPreviewCalls = 0;
+  let donatedReliefPackAssignmentCalls = 0;
 
   await withStubbedStubService(
     createBaseStubs({
@@ -1383,16 +1392,24 @@ test("Stage 5 municipal service coalesces identical donor preview contexts", asy
       stubRepositoryOverrides: {
         getMunicipalStubDashboardRows: async () => previewRows,
       },
-      automaticReliefPackClaimOverrides: {
-        getAvailableDonatedReliefPacksForClaimPreview: async (
-          eventId,
-          queuePosition,
-        ) => {
-          donatedReliefPackPreviewCalls += 1;
+      donatedReliefPackAssignmentOverrides: {
+        ensureDonatedReliefPackAssignmentsForEvent: async (eventId) => {
+          donatedReliefPackAssignmentCalls += 1;
           assert.equal(eventId, baseStub.disaster_event_id);
-          assert.equal(queuePosition, 1);
-          return [{ donation_id: "donation-1", name: "Donated Pack" }];
         },
+        getAssignedDonatedReliefPacksByStubIds: async (stubIds) =>
+          new Map(
+            stubIds.map((stubId) => [
+              stubId,
+              [
+                {
+                  donation_id: "donation-1",
+                  name: "Donated Pack",
+                  assignment_status: "RESERVED",
+                },
+              ],
+            ]),
+          ),
       },
     }),
     async ({ getMunicipalStubDashboard }) => {
@@ -1407,7 +1424,7 @@ test("Stage 5 municipal service coalesces identical donor preview contexts", asy
     },
   );
 
-  assert.equal(donatedReliefPackPreviewCalls, 1);
+  assert.equal(donatedReliefPackAssignmentCalls, 1);
 });
 
 test("Stage 5 municipal service preserves existing QR metadata and backfills each missing row once", async () => {

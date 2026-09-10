@@ -59,6 +59,46 @@ const serverStub = {
       inventory_batches: [{ id: "batch-sensitive" }],
     },
   ],
+  assigned_donated_relief_packs: [
+    {
+      id: "assignment-1",
+      donation_id: "donation-1",
+      donor_name: "Community Donor",
+      name: "Acer at Your Service Pack",
+      pack_quantity: 1,
+      assignment_status: "RESERVED",
+      assigned_at: "2026-08-09T01:30:00.000Z",
+      items: [
+        {
+          inventory_item_id: "item-sensitive",
+          item_name: "Rice",
+          category: "Food",
+          quantity_released: 2,
+          unit_of_measure: "kg",
+          batch_no: "batch-sensitive",
+        },
+      ],
+    },
+  ],
+  available_donated_relief_packs: [
+    {
+      id: "assignment-1",
+      donation_id: "donation-1",
+      donor_name: "Community Donor",
+      name: "Acer at Your Service Pack",
+      pack_quantity: 1,
+      assignment_status: "RESERVED",
+      items: [
+        {
+          inventory_item_id: "item-sensitive",
+          item_name: "Rice",
+          category: "Food",
+          quantity_released: 2,
+          unit_of_measure: "kg",
+        },
+      ],
+    },
+  ],
   sectors_text: "Senior Citizen",
   status: "ISSUED",
   latest_attendance_status: "PRESENT",
@@ -87,11 +127,23 @@ test("BRG-SC-07-M01 TEST A snapshot sanitizer uses an allowlist and owner stamp"
   assert.equal(snapshot.latest_attendance_status, "PRESENT");
   assert.equal(snapshot.latest_attendance_time_out, null);
   assert.equal(snapshot.assigned_relief_packs[0].name, "Family Pack");
+  assert.equal(
+    snapshot.assigned_donated_relief_packs[0].name,
+    "Acer at Your Service Pack",
+  );
+  assert.equal(
+    snapshot.available_donated_relief_packs[0].assignment_status,
+    "RESERVED",
+  );
 
   assert.equal(Object.hasOwn(snapshot, "audit_records"), false);
   assert.equal(Object.hasOwn(snapshot, "contact_number"), false);
   assert.equal(Object.hasOwn(snapshot, "family_head_photo_url"), false);
   assert.equal(Object.hasOwn(snapshot.assigned_relief_packs[0], "inventory_batches"), false);
+  assert.equal(
+    Object.hasOwn(snapshot.assigned_donated_relief_packs[0].items[0], "batch_no"),
+    false,
+  );
 });
 
 test("BRG-SC-07-M01 TEST B pseudo stubs and missing owner context fail closed", () => {
@@ -166,6 +218,10 @@ test("BRG-SC-07-M01 TEST D cached row and details preserve claim UI fields witho
   assert.equal(pendingRow.latest_attendance_status, "PRESENT");
   assert.equal(pendingRow.latest_attendance_time_out, null);
   assert.equal(pendingRow.household.family_head_name, "Juan Dela Cruz");
+  assert.equal(
+    pendingRow.available_donated_relief_packs[0].name,
+    "Acer at Your Service Pack",
+  );
   assert.equal(details.household.members.length, 0);
   assert.equal(details.household.family_head_photo_url, "");
   assert.equal(details.qr_code_value, "QR-AUTH-1");

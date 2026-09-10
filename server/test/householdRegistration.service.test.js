@@ -23,6 +23,10 @@ const dependencyPaths = {
     __dirname,
     "../src/utils/registrationOptions.js",
   ),
+  donatedReliefPackAssignmentService: path.resolve(
+    __dirname,
+    "../src/services/donatedReliefPackAssignment.service.js",
+  ),
 };
 
 const loadServiceWithMocks = (repositoryOverrides = {}, dbOverrides = {}) => {
@@ -107,6 +111,13 @@ const loadServiceWithMocks = (repositoryOverrides = {}, dbOverrides = {}) => {
         getCanonicalAgeSectorCodeFromValue: (value) => value || null,
         getCanonicalMemberSectorCode: (value) => value || null,
         getMemberFlagsFromSectorCodes: () => ({}),
+      },
+    ],
+    [
+      dependencyPaths.donatedReliefPackAssignmentService,
+      {
+        ensureDonatedReliefPackAssignmentsForEvent: async () => [],
+        releaseDonatedReliefPackAssignmentsForHousehold: async () => [],
       },
     ],
   ]);

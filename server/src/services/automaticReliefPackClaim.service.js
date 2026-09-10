@@ -3,6 +3,7 @@ const inventoryTransactionRepository = require("../repositories/inventoryTransac
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate.repository");
 const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
+const donatedReliefPackAssignmentService = require("./donatedReliefPackAssignment.service");
 const {
   getPrimaryAssignedReliefPackTemplate,
   resolveAssignedReliefPackTemplatesForHousehold,
@@ -638,23 +639,41 @@ const recordAutomaticReliefPackClaim = async ({
     throw error;
   }
 
+  await donatedReliefPackAssignmentService.ensureDonatedReliefPackAssignmentsForEvent(
+    stub.disaster_event_id,
+    client,
+  );
+
   const allocations = await buildAutomaticClaimAllocations(
     assignedTemplateItems,
     stub.household_size,
     stub.disaster_event_id,
     client,
   );
-  const donatedQueueContext =
-    await distributionTransactionRepository.getPresentUnclaimedStubQueueContext(
-      stub.id,
+  const persistedDonatedClaimPlan =
+    await donatedReliefPackAssignmentService.getDonatedReliefPackClaimPlanForStub({
+      stubId: stub.id,
+      disasterEventId: stub.disaster_event_id,
       client,
+    });
+  let donatedClaimPlan = persistedDonatedClaimPlan;
+
+  // Keep the pre-assignment path as a compatibility fallback for rows created
+  // before the assignment migration is applied or when no donated stock is
+  // available yet. New rows are assigned by the event-wide reservation flow.
+  if (!persistedDonatedClaimPlan.hasPersistedAssignment) {
+    const donatedQueueContext =
+      await distributionTransactionRepository.getPresentUnclaimedStubQueueContext(
+        stub.id,
+        client,
+      );
+    const donatedQueuePosition = donatedQueueContext.queue_position;
+    donatedClaimPlan = await buildDonatedReliefPackClaimPlan(
+      stub.disaster_event_id,
+      client,
+      donatedQueuePosition,
     );
-  const donatedQueuePosition = donatedQueueContext.queue_position;
-  const donatedClaimPlan = await buildDonatedReliefPackClaimPlan(
-    stub.disaster_event_id,
-    client,
-    donatedQueuePosition,
-  );
+  }
   const combinedAllocations = [
     ...allocations,
     ...donatedClaimPlan.allocations,
@@ -879,6 +898,13 @@ const recordAutomaticReliefPackClaim = async ({
     client,
     claimedAt,
   );
+
+  if (persistedDonatedClaimPlan.hasPersistedAssignment) {
+    await donatedReliefPackAssignmentService.markDonatedReliefPackAssignmentsClaimed(
+      stub.id,
+      client,
+    );
+  }
 
   return {
     assignedReliefPackTemplate: primaryAssignedReliefPackTemplate,

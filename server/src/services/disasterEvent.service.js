@@ -5,6 +5,7 @@ const settingsRepository = require("../repositories/settings.repository");
 const disasterEventExport = require("../utils/disasterEventExport");
 const notificationService = require("../modules/notifications/notification.service");
 const mswdoReportExport = require("../utils/mswdoReportExport");
+const donatedReliefPackAssignmentService = require("./donatedReliefPackAssignment.service");
 const {
   resolveDisasterEventReportSelection,
 } = require("../utils/disasterEventReportSelection");
@@ -177,6 +178,14 @@ const closeDisasterEventWithTimestamp = async ({
           client,
         );
       }
+
+      await donatedReliefPackAssignmentService.releaseDonatedReliefPackAssignmentsForEvent(
+        {
+          disasterEventId: disasterEvent.id,
+          releaseReason: "Disaster event closed",
+          client,
+        },
+      );
 
       await client.query("COMMIT");
       transactionFinished = true;

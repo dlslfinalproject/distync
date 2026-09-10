@@ -34,6 +34,9 @@ const systemLogRepositoryPath = require.resolve(
 const inventoryBatchStatusServicePath = require.resolve(
   "../src/services/inventoryBatchStatus.service",
 );
+const donatedReliefPackAssignmentServicePath = require.resolve(
+  "../src/services/donatedReliefPackAssignment.service",
+);
 
 const dependencyPaths = [
   dbPath,
@@ -49,6 +52,7 @@ const dependencyPaths = [
   systemLogPath,
   systemLogRepositoryPath,
   inventoryBatchStatusServicePath,
+  donatedReliefPackAssignmentServicePath,
 ];
 
 const buildDonationPayload = (items) => ({
@@ -104,6 +108,7 @@ const withStubbedDonationService = async (overrides, runTest) => {
     insertedDonationItems: [],
     insertedBatches: [],
     insertedTransactions: [],
+    donatedPackAssignmentCalls: [],
   };
   const client = buildClient(events);
   const donationRecord = {
@@ -287,6 +292,17 @@ const withStubbedDonationService = async (overrides, runTest) => {
         ...(overrides.inventoryBatchStatusService || {}),
       },
     };
+    require.cache[donatedReliefPackAssignmentServicePath] = {
+      id: donatedReliefPackAssignmentServicePath,
+      filename: donatedReliefPackAssignmentServicePath,
+      loaded: true,
+      exports: {
+        ensureDonatedReliefPackAssignmentsForEvent: async (...args) => {
+          calls.donatedPackAssignmentCalls.push(args);
+        },
+        ...(overrides.donatedReliefPackAssignmentService || {}),
+      },
+    };
     require.cache[forecastServicePath] = {
       id: forecastServicePath,
       filename: forecastServicePath,
@@ -389,12 +405,13 @@ test("donation creation rolls back a staged inventory item when a later inventor
       assert.ok(events.includes("ROLLBACK"));
       assert.equal(events.includes("COMMIT"), false);
       assert.equal(calls.insertedTransactions.length, 0);
+      assert.equal(calls.donatedPackAssignmentCalls.length, 0);
     },
   );
 });
 
 test("donation creation reuses one staged inventory item for duplicate names", async () => {
-  await withStubbedDonationService({}, async (service, { calls, events }) => {
+  await withStubbedDonationService({}, async (service, { calls, events, client }) => {
     const donation = await service.createDonation(
       buildDonationPayload([
         buildDonationItemPayload(5),
@@ -417,6 +434,9 @@ test("donation creation reuses one staged inventory item for duplicate names", a
       [5, 7],
     );
     assert.equal(donation.total_quantity_received, 12);
+    assert.equal(calls.donatedPackAssignmentCalls.length, 1);
+    assert.equal(calls.donatedPackAssignmentCalls[0][0], "event-1");
+    assert.equal(calls.donatedPackAssignmentCalls[0][1], client);
     assert.ok(events.includes("COMMIT"));
     assert.equal(events.includes("ROLLBACK"), false);
   });
