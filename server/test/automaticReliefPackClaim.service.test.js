@@ -225,11 +225,6 @@ test("automatic claims link and consume inventory for standard and multiple addi
         }),
         getReliefPackTemplateItemsByTemplateId: async (templateId) =>
           templateItems.get(templateId) || [],
-        getPresentUnclaimedStubQueueContext: async () => ({
-          queue_position: 1,
-          eligible_households_count: 1,
-        }),
-        getDonatedReliefPackItemsByDisasterEventId: async () => [],
         getDistributionReceiptSequence: async () => "RCPT-2026-000001",
         insertDistributionTransaction: async () => ({
           id: "distribution-1",
@@ -414,68 +409,6 @@ test("automatic claims link and consume inventory for standard and multiple addi
       );
       assert.equal(updatedBatches.find((batch) => batch.id === "blanket-batch").quantity_available, 4);
       assert.equal(updatedItemSnapshots.length, 0);
-    },
-  );
-});
-
-test("donated relief-pack previews never return a pack with a missing component", async () => {
-  const donatedPackRows = [
-    {
-      donation_id: "donation-1",
-      donor_name: "Community Donor",
-      donation_received_at: "2026-09-01T08:00:00.000Z",
-      donation_item_id: "donation-item-water",
-      inventory_item_id: "water-item",
-      inventory_batch_id: "water-donation-batch",
-      quantity_received: 1,
-      quantity_available: 1,
-      remarks: "Relief Pack: Family Care Pack x 1",
-      batch_no: "DON-WATER-1",
-      item_code: "WATER",
-      item_name: "Water",
-      category: "Non-Perishable",
-      unit_of_measure: "pc",
-      expiration_date: "2099-12-31",
-      status: "AVAILABLE",
-    },
-    {
-      donation_id: "donation-1",
-      donor_name: "Community Donor",
-      donation_received_at: "2026-09-01T08:00:00.000Z",
-      donation_item_id: "donation-item-rice",
-      inventory_item_id: "rice-item",
-      inventory_batch_id: "rice-donation-batch",
-      quantity_received: 1,
-      quantity_available: 0,
-      remarks: "Relief Pack: Family Care Pack x 1",
-      batch_no: "DON-RICE-1",
-      item_code: "RICE",
-      item_name: "Rice",
-      category: "Perishable",
-      unit_of_measure: "kg",
-      expiration_date: "2099-12-31",
-      status: "DEPLETED",
-    },
-  ];
-
-  await withStubbedAutomaticClaimService(
-    {
-      [distributionTransactionRepositoryPath]: {
-        getDonatedReliefPackItemsByDisasterEventId: async () =>
-          donatedPackRows,
-      },
-      [inventoryTransactionRepositoryPath]: {},
-      [inventoryItemRepositoryPath]: {},
-      [reliefPackTemplateRepositoryPath]: {},
-      [reliefPackAssignmentServicePath]: {},
-    },
-    async ({ getAvailableDonatedReliefPacksForClaimPreview }) => {
-      const result = await getAvailableDonatedReliefPacksForClaimPreview(
-        "event-1",
-        1,
-      );
-
-      assert.deepEqual(result, []);
     },
   );
 });

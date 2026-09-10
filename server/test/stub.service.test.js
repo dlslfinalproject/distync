@@ -167,7 +167,6 @@ const createBaseStubs = ({
   },
   [mswdoReportExportPath]: {},
   [automaticReliefPackClaimServicePath]: {
-    getAvailableDonatedReliefPacksForClaimPreview: async () => [],
     getAvailableDonatedLooseItemsForClaimPreview: async () => [],
     recordAutomaticReliefPackClaim:
       claimHandler ||

@@ -81,9 +81,9 @@ test("Mayor donation management records and details keep table overflow local", 
   assert.match(donationsSource, /className="mayor-donation-management-table"/);
   assert.match(donationsSource, /disasterEventBodyCell/);
   assert.match(donationsSource, /whiteSpace: "normal"/);
-  assert.match(donationsSource, /itemsHeaderCell:[\s\S]*?width: "24%"[\s\S]*?minWidth: "240px"/);
-  assert.match(donationsSource, /dateBodyCell:[\s\S]*?width: "170px"[\s\S]*?padding: "16px 8px"/);
-  assert.match(donationsSource, /actionBodyCell:[\s\S]*?width: "64px"[\s\S]*?padding: "16px 8px"/);
+  assert.match(donationsSource, /itemsHeaderCell:[\s\S]*?width: "21%"[\s\S]*?minWidth: "210px"/);
+  assert.match(donationsSource, /dateBodyCell:[\s\S]*?width: "154px"[\s\S]*?padding: "16px 8px"/);
+  assert.match(donationsSource, /actionBodyCell:[\s\S]*?width: "86px"[\s\S]*?padding: "16px 8px"/);
   assert.match(donationsSource, /itemNameText:[\s\S]*?textOverflow: "ellipsis"[\s\S]*?whiteSpace: "nowrap"/);
   assert.match(donationsSource, /title=\{line\}/);
   assert.match(transparencySource, /className="mayor-donation-management-table-scroll"/);

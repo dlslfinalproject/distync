@@ -427,6 +427,15 @@ body {
   max-width: none !important;
 }
 
+.mayor-donation-transparency-table {
+  table-layout: fixed !important;
+}
+
+.mayor-donation-transparency-table th,
+.mayor-donation-transparency-table td {
+  box-sizing: border-box;
+}
+
 @media (min-width: 1025px) {
   .distync-sidebar[data-collapsed="true"]
     ~ .distync-shell__main
@@ -435,6 +444,18 @@ body {
     width: 100% !important;
     min-width: 0 !important;
     table-layout: fixed !important;
+  }
+
+  .distync-sidebar[data-collapsed="true"]
+    ~ .distync-shell__main
+    #donation-management-donations-panel
+    .mayor-donation-management-table th,
+  .distync-sidebar[data-collapsed="true"]
+    ~ .distync-shell__main
+    #donation-management-donations-panel
+    .mayor-donation-management-table td {
+    box-sizing: border-box;
+    min-width: 0 !important;
   }
 
   .distync-sidebar[data-collapsed="true"]

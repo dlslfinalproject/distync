@@ -40,11 +40,26 @@ const tableStyles = {
   },
   mutedText: {
     color: "#6b8298",
-    fontSize: "13px",
+    fontSize: "12px",
+    lineHeight: 1.45,
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
   },
   stackedList: {
     display: "grid",
-    gap: "4px",
+    gap: "8px",
+  },
+  itemNameRow: {
+    display: "flex",
+    alignItems: "center",
+    width: "100%",
+    minWidth: 0,
+  },
+  itemNameText: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
 };
 
@@ -90,6 +105,9 @@ const DonorTransparencyTab = ({
     (pagination.currentPage - 1) * pagination.pageSize,
     pagination.currentPage * pagination.pageSize,
   );
+  const transparencyColumnWidths = showDisasterEventColumn
+    ? ["14%", "15%", "20%", "10%", "17%", "13%", "11%"]
+    : ["17%", "25%", "11%", "18%", "14%", "15%"];
 
   useEffect(() => {
     setCurrentPage(1);
@@ -161,7 +179,15 @@ const DonorTransparencyTab = ({
           </p>
         ) : (
           <div className="mayor-donation-management-table-scroll" style={{ overflowX: "auto" }}>
-            <table className="mayor-donation-management-table" style={tableStyles.table}>
+            <table
+              className="mayor-donation-management-table mayor-donation-transparency-table"
+              style={tableStyles.table}
+            >
+              <colgroup>
+                {transparencyColumnWidths.map((width, index) => (
+                  <col key={`transparency-column-${index}`} style={{ width }} />
+                ))}
+              </colgroup>
               <thead>
                 <tr>
                   <th style={tableStyles.headerCell}>Donor Name</th>
@@ -175,7 +201,7 @@ const DonorTransparencyTab = ({
                       Disaster Event
                     </th>
                   ) : null}
-                  <th style={tableStyles.headerCell}>Item Name</th>
+                  <th style={tableStyles.headerCell}>Items</th>
                   <th
                     style={{
                       ...tableStyles.headerCell,
@@ -206,7 +232,7 @@ const DonorTransparencyTab = ({
                       textAlign: "center",
                     }}
                   >
-                    Remaining Balance
+                    Remaining
                   </th>
                 </tr>
               </thead>
@@ -231,7 +257,14 @@ const DonorTransparencyTab = ({
                       </td>
                     ) : null}
                     <td style={tableStyles.bodyCell}>
-                      {row.item_name || "--"}
+                      <div style={tableStyles.itemNameRow}>
+                        <div
+                          style={tableStyles.itemNameText}
+                          title={row.item_name || "--"}
+                        >
+                          {row.item_name || "--"}
+                        </div>
+                      </div>
                     </td>
                     <td
                       style={{
@@ -263,7 +296,7 @@ const DonorTransparencyTab = ({
                               key={`${row.public_key}-${eventRow.event_id || "unassigned"}`}
                               style={tableStyles.mutedText}
                             >
-                              To {eventRow.event_title || "Unassigned disaster event"}: {" "}
+                              {eventRow.event_title || "Unassigned disaster event"}: {" "}
                               {formatQuantityWithUnit(
                                 eventRow.quantity,
                                 row.unit_of_measure,

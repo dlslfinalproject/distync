@@ -534,109 +534,6 @@ const updateDonationStatusesByIds = async (donationIds, dbClient) => {
   return result.rows;
 };
 
-const getPresentUnclaimedStubQueuePosition = async (stubId, dbClient = pool) => {
-  const query = `
-    WITH target_stub AS (
-      SELECT
-        s.id,
-        s.disaster_event_id
-      FROM stubs s
-      WHERE s.id = $1
-    ),
-    eligible_queue AS (
-      SELECT
-        s.id,
-        ROW_NUMBER() OVER (
-          ORDER BY
-            latest_attendance.time_in ASC,
-            s.issued_at ASC,
-            s.id ASC
-        )::integer AS queue_position
-      FROM stubs s
-      INNER JOIN households h ON h.id = s.household_id
-      INNER JOIN target_stub target
-        ON target.disaster_event_id = s.disaster_event_id
-      INNER JOIN LATERAL (
-        SELECT el.status, el.time_in, el.time_out
-        FROM evacuation_logs el
-        WHERE el.household_id = h.id
-          AND el.disaster_event_id = s.disaster_event_id
-        ORDER BY
-          COALESCE(el.time_out, el.time_in) DESC,
-          el.updated_at DESC,
-          el.created_at DESC
-        LIMIT 1
-      ) latest_attendance ON TRUE
-      WHERE s.status = 'ISSUED'
-        AND h.current_stay_type = 'EVAC_CENTER'
-        AND h.is_active = TRUE
-        AND latest_attendance.status = 'PRESENT'
-        AND latest_attendance.time_out IS NULL
-    )
-    SELECT queue_position
-    FROM eligible_queue
-    WHERE id = $1
-  `;
-
-  const result = await dbClient.query(query, [stubId]);
-  return Number(result.rows[0]?.queue_position || 0);
-};
-
-const getPresentUnclaimedStubQueueContext = async (stubId, dbClient = pool) => {
-  const query = `
-    WITH target_stub AS (
-      SELECT
-        s.id,
-        s.disaster_event_id
-      FROM stubs s
-      WHERE s.id = $1
-    ),
-    eligible_queue AS (
-      SELECT
-        s.id,
-        ROW_NUMBER() OVER (
-          ORDER BY
-            latest_attendance.time_in ASC,
-            s.issued_at ASC,
-            s.id ASC
-        )::integer AS queue_position,
-        COUNT(*) OVER ()::integer AS eligible_households_count
-      FROM stubs s
-      INNER JOIN households h ON h.id = s.household_id
-      INNER JOIN target_stub target
-        ON target.disaster_event_id = s.disaster_event_id
-      INNER JOIN LATERAL (
-        SELECT el.status, el.time_in, el.time_out
-        FROM evacuation_logs el
-        WHERE el.household_id = h.id
-          AND el.disaster_event_id = s.disaster_event_id
-        ORDER BY
-          COALESCE(el.time_out, el.time_in) DESC,
-          el.updated_at DESC,
-          el.created_at DESC
-        LIMIT 1
-      ) latest_attendance ON TRUE
-      WHERE s.status = 'ISSUED'
-        AND h.current_stay_type = 'EVAC_CENTER'
-        AND h.is_active = TRUE
-        AND latest_attendance.status = 'PRESENT'
-        AND latest_attendance.time_out IS NULL
-    )
-    SELECT queue_position, eligible_households_count
-    FROM eligible_queue
-    WHERE id = $1
-  `;
-
-  const result = await dbClient.query(query, [stubId]);
-
-  return {
-    queue_position: Number(result.rows[0]?.queue_position || 0),
-    eligible_households_count: Number(
-      result.rows[0]?.eligible_households_count || 0,
-    ),
-  };
-};
-
 const insertDistributionTransaction = async (transactionData, dbClient) => {
   const query = `
     INSERT INTO distribution_transactions (
@@ -1880,8 +1777,6 @@ module.exports = {
   getDonatedReliefPackItemsByDisasterEventId,
   getAvailableDonatedLooseItemsByDisasterEventId,
   updateDonationStatusesByIds,
-  getPresentUnclaimedStubQueuePosition,
-  getPresentUnclaimedStubQueueContext,
   insertDistributionTransaction,
   insertDistributionTransactionReliefPackTemplates,
   insertDistributionTransactionItem,

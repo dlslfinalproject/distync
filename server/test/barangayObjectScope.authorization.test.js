@@ -383,19 +383,13 @@ const createStubServiceStubs = ({
     verificationCalls,
     [paths.masterlistRepository]: emptyModule(),
     [paths.db]: {},
-    [paths.distributionRepository]: {
-      getPresentUnclaimedStubQueueContext: async () => ({
-        queue_position: 0,
-        eligible_households_count: 0,
-      }),
-    },
+    [paths.distributionRepository]: {},
     [paths.reliefPackTemplateRepository]: {
       getReliefPackTemplates: async () => [],
     },
     [paths.stubRepository]: repository,
     [paths.automaticReliefPackClaimService]: {
       getAvailableDonatedLooseItemsForClaimPreview: async () => [],
-      getAvailableDonatedReliefPacksForClaimPreview: async () => [],
       recordAutomaticReliefPackClaim: async () => {
         throw new Error("not used by read tests");
       },
