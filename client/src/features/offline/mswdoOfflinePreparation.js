@@ -251,23 +251,41 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
       row.roleCode === ROLE_CODES.MSWDO &&
       String(row.disaster_event_id) === String(eventId),
     );
-    const requiredPhotoRows = preparedStubRows.filter((row) =>
+    const requiredPhotoRows = [...masterlistRows, ...stubRows].filter((row) =>
       row?.household?.family_head_photo_url || row?.household?.family_head_photo_data_url || row?.family_head_photo_url,
     );
-    const preparedPhotoCount = requiredPhotoRows.filter((row) => {
-      const householdId = String(row?.household_id || row?.household?.id || "");
-      return Boolean(photoByHousehold.get(householdId)?.dataUrl);
-    }).length;
-    const storedPhotoCount = scopedStubRows.filter((row) =>
-      requiredPhotoRows.some((candidate) => String(candidate?.household_id || candidate?.household?.id || "") === String(row.household_id || "")) &&
-      isImageDataUrl(row.family_head_photo_data_url),
-    ).length;
+    const requiredPhotoHouseholdIds = new Set(
+      requiredPhotoRows
+        .map((row) => String(row?.household_id || row?.household?.id || ""))
+        .filter(Boolean),
+    );
+    const preparedPhotoHouseholdIds = new Set(
+      [...requiredPhotoHouseholdIds].filter((householdId) =>
+        Boolean(photoByHousehold.get(householdId)?.dataUrl),
+      ),
+    );
+    const persistedPhotoHouseholdIds = new Set(
+      preparedMasterlistRows
+        .filter((row) =>
+          requiredPhotoHouseholdIds.has(String(row?.household_id || row?.id || "")) &&
+          isImageDataUrl(row?.family_head_photo_data_url),
+        )
+        .map((row) => String(row.household_id || row.id)),
+    );
+    scopedStubRows
+      .filter((row) =>
+        requiredPhotoHouseholdIds.has(String(row?.household_id || "")) &&
+        isImageDataUrl(row?.family_head_photo_data_url),
+      )
+      .forEach((row) => persistedPhotoHouseholdIds.add(String(row.household_id)));
     const distributionComplete =
       Array.isArray(stubDashboard?.data) &&
       persistedStubs.length === preparedStubRows.length &&
       preparedStubRows.every((row) => row?.id && row?.qr_code_value) &&
       scopedStubRows.length >= persistedStubs.length;
-    const photoCacheComplete = preparedPhotoCount === requiredPhotoRows.length && storedPhotoCount === requiredPhotoRows.length;
+    const photoCacheComplete =
+      preparedPhotoHouseholdIds.size === requiredPhotoHouseholdIds.size &&
+      persistedPhotoHouseholdIds.size === requiredPhotoHouseholdIds.size;
     const snapshot = {
       ...preparing,
       status: "READY",
@@ -276,7 +294,7 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
         masterlist: { complete: true, valid: true, rows: preparedMasterlistRows, payload: masterlist },
         dashboard: { complete: true, valid: true, payload: dashboard },
         distribution: { complete: distributionComplete, valid: distributionComplete, rows: persistedStubs.length, payload: stubDashboard },
-        photoCache: { complete: photoCacheComplete, required: requiredPhotoRows.length, prepared: preparedPhotoCount, actual_bytes_persisted: preparedPhotoCount },
+        photoCache: { complete: photoCacheComplete, required: requiredPhotoHouseholdIds.size, prepared: preparedPhotoHouseholdIds.size, actual_bytes_persisted: persistedPhotoHouseholdIds.size },
       },
       masterlist_count: preparedMasterlistRows.length,
       updated_at: new Date().toISOString(),

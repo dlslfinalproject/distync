@@ -27,6 +27,29 @@ import { MASTERLIST_SORT_OPTIONS } from "../masterlist/masterlistService";
 import { getCanonicalMemberSectorCode } from "../../utils/registrationOptions";
 import { readOperationalDisasterEventScope } from "../disaster-events/operationalDisasterEventSelection";
 import { resolveFamilyHeadPhoto } from "../masterlist/familyHeadPhoto.js";
+import { getMswdoOfflineHouseholdDetails } from "./mswdoMasterlistOfflinePhoto.js";
+
+const fetchMswdoDepartureDetails = async ({ householdId, eventId, userId }) => {
+  try {
+    return await fetchHouseholdDetails(householdId);
+  } catch (error) {
+    if (typeof navigator === "undefined" || navigator.onLine !== false) {
+      throw error;
+    }
+
+    const cachedDetails = await getMswdoOfflineHouseholdDetails({
+      userId,
+      eventId,
+      householdId,
+    });
+
+    if (!cachedDetails) {
+      throw error;
+    }
+
+    return cachedDetails;
+  }
+};
 
 export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const {
@@ -465,7 +488,13 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
 
     try {
       const detailResults = await Promise.allSettled(
-        selectedHouseholds.map((householdId) => fetchHouseholdDetails(householdId)),
+        selectedHouseholds.map((householdId) =>
+          fetchMswdoDepartureDetails({
+            householdId,
+            eventId: selectedDisasterEventId,
+            userId: authenticatedUser?.id || "",
+          }),
+        ),
       );
 
       const previewItems = selectedHouseholds.map((householdId, index) => {
@@ -521,7 +550,11 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setIsLoadingDepartureHouseholdDetails(true);
 
     try {
-      const details = await fetchHouseholdDetails(householdId);
+      const details = await fetchMswdoDepartureDetails({
+        householdId,
+        eventId: selectedDisasterEventId,
+        userId: authenticatedUser?.id || "",
+      });
       setPendingDepartureHouseholdDetails(details);
     } catch (_error) {
       setPendingDepartureHouseholdDetails(null);
