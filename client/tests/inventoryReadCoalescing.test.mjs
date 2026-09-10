@@ -12,6 +12,7 @@ let fetchInventoryItems;
 let fetchInventoryItemsFromBatchService;
 let fetchInventoryItemsFromReliefPackService;
 let fetchInventoryBatches;
+let fetchInventoryBatchesPage;
 let fetchInventoryBatchesFromTransactionService;
 let fetchInventoryTransactions;
 
@@ -44,7 +45,7 @@ before(async () => {
     await viteServer.ssrLoadModule(
       "/src/features/relief-pack-templates/reliefPackTemplateService.js?inventory-read-relief-pack-test",
     ));
-  ({ fetchInventoryBatches } = await viteServer.ssrLoadModule(
+  ({ fetchInventoryBatches, fetchInventoryBatchesPage } = await viteServer.ssrLoadModule(
     "/src/features/inventory-batches/inventoryBatchService.js?inventory-read-test",
   ));
   ({ fetchInventoryBatches: fetchInventoryBatchesFromTransactionService } =
@@ -157,6 +158,135 @@ test("identical batch reads share one underlying request", async () => {
     ]);
     assert.equal(calls.length, 1);
     assert.equal(calls[0], "http://localhost:5000/api/v1/inventory-batches?source_type=DONATED");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("identical paginated batch reads share one request while legacy reads stay arrays", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  let releaseResponse;
+  const responseReady = new Promise((resolve) => {
+    releaseResponse = resolve;
+  });
+  const paginatedPayload = {
+    data: [{ id: "batch-1" }],
+    pagination: {
+      page: 1,
+      pageSize: 25,
+      totalItems: 26,
+      totalPages: 2,
+      hasPreviousPage: false,
+      hasNextPage: true,
+    },
+  };
+
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    await responseReady;
+    return createJsonResponse(paginatedPayload);
+  };
+
+  try {
+    const first = fetchInventoryBatchesPage({
+      search: " rice ",
+      page: 1,
+      pageSize: 25,
+    });
+    const second = fetchInventoryBatchesPage({
+      pageSize: 25,
+      page: 1,
+      search: "rice",
+    });
+
+    await flushMicrotasks();
+    assert.equal(calls.length, 1);
+    assert.equal(
+      calls[0],
+      "http://localhost:5000/api/v1/inventory-batches?search=rice&page=1&pageSize=25",
+    );
+
+    releaseResponse();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    assert.deepEqual(firstResult, paginatedPayload);
+    assert.deepEqual(secondResult, paginatedPayload);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  globalThis.fetch = async () =>
+    createJsonResponse([{ id: "complete-batch-1" }, { id: "complete-batch-2" }]);
+
+  try {
+    const legacyResult = await fetchInventoryBatches({ search: "rice" });
+    assert.equal(Array.isArray(legacyResult), true);
+    assert.equal(Object.prototype.hasOwnProperty.call(legacyResult, "data"), false);
+    assert.equal(legacyResult.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("different paginated batch pages and filters do not coalesce", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    return createJsonResponse({
+      data: [],
+      pagination: {
+        page: 1,
+        pageSize: 25,
+        totalItems: 0,
+        totalPages: 0,
+        hasPreviousPage: false,
+        hasNextPage: false,
+      },
+    });
+  };
+
+  try {
+    await Promise.all([
+      fetchInventoryBatchesPage({ page: 1, pageSize: 25 }),
+      fetchInventoryBatchesPage({ page: 2, pageSize: 25 }),
+      fetchInventoryBatchesPage({
+        page: 1,
+        pageSize: 25,
+        source_type: "DONATED",
+      }),
+    ]);
+
+    assert.equal(calls.length, 3);
+    assert.deepEqual(
+      [...calls].sort(),
+      [
+        "http://localhost:5000/api/v1/inventory-batches?page=1&pageSize=25",
+        "http://localhost:5000/api/v1/inventory-batches?page=2&pageSize=25",
+        "http://localhost:5000/api/v1/inventory-batches?source_type=DONATED&page=1&pageSize=25",
+      ],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("batch service keeps legacy and paginated response contracts explicit", async () => {
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = async () => createJsonResponse([]);
+    await assert.rejects(
+      fetchInventoryBatchesPage({ page: 1, pageSize: 25 }),
+      /incomplete paginated inventory batch response/,
+    );
+
+    globalThis.fetch = async () =>
+      createJsonResponse({ data: [], pagination: { totalItems: 0 } });
+    await assert.rejects(
+      fetchInventoryBatches(),
+      /invalid inventory batch list response/,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

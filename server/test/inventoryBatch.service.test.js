@@ -1236,3 +1236,83 @@ test("createInventoryBatch retries a concurrent offline batch collision", async 
     "RICE-BATCH-005",
   ]);
 });
+
+test("getInventoryBatches maps paginated rows without changing the batch DTO", async () => {
+  const pagination = {
+    page: 2,
+    pageSize: 25,
+    totalItems: 26,
+    totalPages: 2,
+    hasPreviousPage: true,
+    hasNextPage: false,
+  };
+  const sourceRow = {
+    id: "batch-page-26",
+    inventory_item_id: "item-1",
+    inventory_item_stock_form_id: null,
+    batch_no: "LOT-26",
+    source_type: "LGU",
+    quantity_received: 10,
+    quantity_available: 10,
+    stock_version: 0,
+    item_total_stock: 10,
+    expiration_date: null,
+    received_at: "2026-08-09T00:00:00.000Z",
+    storage_location: "Mayor's Office Inventory",
+    status: "AVAILABLE",
+    created_by: "user-1",
+    created_at: "2026-08-09T00:00:00.000Z",
+    updated_at: "2026-08-09T00:00:00.000Z",
+    item_code: "RICE",
+    item_name: "Rice",
+    category: "Food",
+    unit_of_measure: "sack",
+    reorder_level: 10,
+    barcode: null,
+    is_perishable: false,
+  };
+
+  await withStubbedInventoryBatchService(
+    {
+      ...baseStubs({
+        getInventoryBatches: async () => ({
+          rows: [sourceRow],
+          pagination,
+        }),
+      }),
+    },
+    async ({ getInventoryBatches }) => {
+      const result = await getInventoryBatches({ page: 2, pageSize: 25 });
+
+      assert.deepEqual(result.pagination, pagination);
+      assert.equal(result.data.length, 1);
+      assert.equal(result.data[0].id, sourceRow.id);
+      assert.equal(result.data[0].inventory_item.item_name, "Rice");
+      assert.equal(result.data[0].item_total_stock, 10);
+      assert.equal(Object.prototype.hasOwnProperty.call(result, "rows"), false);
+    },
+  );
+});
+
+test("exportInventoryBatches strips pagination and requests the complete filtered array", async () => {
+  let receivedFilters;
+
+  await withStubbedInventoryBatchService(
+    {
+      ...baseStubs({
+        getInventoryBatches: async (filters) => {
+          receivedFilters = filters;
+          return [];
+        },
+      }),
+    },
+    async ({ exportInventoryBatches }) => {
+      await exportInventoryBatches(
+        { search: "rice", page: 2, pageSize: 25 },
+        "csv",
+      );
+    },
+  );
+
+  assert.deepEqual(receivedFilters, { search: "rice" });
+});

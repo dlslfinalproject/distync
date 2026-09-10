@@ -36,6 +36,8 @@ const downloadResponseAsFile = async (response, fallbackMessage) => {
 };
 
 export const fetchInventoryBatches = (filters = {}) => {
+  const hasPage = filters.page !== undefined;
+  const hasPageSize = filters.pageSize !== undefined;
   const searchParams = new URLSearchParams();
 
   if (filters.search) {
@@ -54,6 +56,32 @@ export const fetchInventoryBatches = (filters = {}) => {
     searchParams.set("status", filters.status);
   }
 
+  if (
+    filters.is_expiring === true ||
+    filters.is_expiring === false ||
+    filters.is_expiring === "true" ||
+    filters.is_expiring === "false"
+  ) {
+    searchParams.set("is_expiring", String(filters.is_expiring));
+  }
+
+  if (
+    filters.is_expired === true ||
+    filters.is_expired === false ||
+    filters.is_expired === "true" ||
+    filters.is_expired === "false"
+  ) {
+    searchParams.set("is_expired", String(filters.is_expired));
+  }
+
+  if (hasPage) {
+    searchParams.set("page", String(filters.page));
+  }
+
+  if (hasPageSize) {
+    searchParams.set("pageSize", String(filters.pageSize));
+  }
+
   const queryString = searchParams.toString();
   const url = `${API_BASE_URL}/api/v1/inventory-batches${
     queryString ? `?${queryString}` : ""
@@ -61,8 +89,48 @@ export const fetchInventoryBatches = (filters = {}) => {
 
   return coalesceInventoryRead("inventory-batches", url, async () => {
     const response = await fetch(url);
-    return handleJsonResponse(response, "Failed to fetch inventory batches");
+    const payload = await handleJsonResponse(
+      response,
+      "Failed to fetch inventory batches",
+    );
+
+    if (!hasPage && !hasPageSize) {
+      if (!Array.isArray(payload)) {
+        throw new Error(
+          "DISTYNC returned an invalid inventory batch list response.",
+        );
+      }
+
+      return payload;
+    }
+
+    if (
+      !payload ||
+      Array.isArray(payload) ||
+      !Array.isArray(payload.data) ||
+      !payload.pagination ||
+      typeof payload.pagination !== "object"
+    ) {
+      throw new Error(
+        "DISTYNC returned an incomplete paginated inventory batch response.",
+      );
+    }
+
+    return {
+      data: payload.data,
+      pagination: payload.pagination,
+    };
   });
+};
+
+export const fetchInventoryBatchesPage = (filters = {}) => {
+  if (filters.page === undefined || filters.pageSize === undefined) {
+    throw new TypeError(
+      "fetchInventoryBatchesPage requires both page and pageSize",
+    );
+  }
+
+  return fetchInventoryBatches(filters);
 };
 
 export const fetchInventoryBatchById = async (inventoryBatchId) => {

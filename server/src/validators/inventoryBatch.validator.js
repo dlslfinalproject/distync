@@ -40,6 +40,18 @@ const parseOptionalBoolean = (value) => {
   return { isProvided: true, value: "invalid" };
 };
 
+const isStrictPositiveInteger = (value) => {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value > 0;
+  }
+
+  return (
+    typeof value === "string" &&
+    /^[1-9]\d*$/.test(value) &&
+    Number.isSafeInteger(Number(value))
+  );
+};
+
 const validateInventoryBatchId = (req, res, next) => {
   try {
     const { id } = req.params;
@@ -68,6 +80,8 @@ const validateGetInventoryBatches = (req, res, next) => {
       is_expiring,
       is_expired,
       search,
+      page,
+      pageSize,
     } = req.query;
 
     if (inventory_item_id !== undefined && !isValidUuid(inventory_item_id)) {
@@ -91,6 +105,30 @@ const validateGetInventoryBatches = (req, res, next) => {
       });
     }
 
+    const hasPage = page !== undefined;
+    const hasPageSize = pageSize !== undefined;
+
+    if (hasPage !== hasPageSize) {
+      return res.status(400).json({
+        message: "page and pageSize must be provided together",
+      });
+    }
+
+    if (hasPage && !isStrictPositiveInteger(page)) {
+      return res.status(400).json({
+        message: "page must be a positive integer when provided",
+      });
+    }
+
+    if (
+      hasPageSize &&
+      (!isStrictPositiveInteger(pageSize) || Number(pageSize) > 100)
+    ) {
+      return res.status(400).json({
+        message: "pageSize must be an integer between 1 and 100",
+      });
+    }
+
     req.validatedQuery = {
       inventory_item_id: inventory_item_id || null,
       source_type: typeof source_type === "string" && source_type.trim() ? source_type.trim() : null,
@@ -98,6 +136,8 @@ const validateGetInventoryBatches = (req, res, next) => {
       is_expiring: parsedIsExpiring.isProvided ? parsedIsExpiring.value : null,
       is_expired: parsedIsExpired.isProvided ? parsedIsExpired.value : null,
       search: typeof search === "string" && search.trim() ? search.trim() : null,
+      page: hasPage ? Number(page) : null,
+      pageSize: hasPageSize ? Number(pageSize) : null,
     };
 
     return next();
