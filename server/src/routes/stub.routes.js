@@ -106,7 +106,7 @@ router.get(
 
 router.get(
   "/municipal-dashboard",
-  requireRoles(ROLE_CODES.MAYOR),
+  requireRoles(ROLE_CODES.MAYOR, ROLE_CODES.MSWDO),
   validateGetMunicipalStubDashboard,
   async (req, res) => {
     try {

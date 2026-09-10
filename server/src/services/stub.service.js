@@ -25,6 +25,7 @@ const isOverrideAllowed = process.env.NODE_ENV !== "production";
 const ACTIVE_QR_STATUS = "ACTIVE";
 const BARANGAY_ROLE_CODE = "BARANGAY";
 const MAYOR_ROLE_CODE = "MAYOR";
+const MSWDO_ROLE_CODE = "MSWDO";
 const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
 const ARCHIVED_HOUSEHOLD_CODE = "HOUSEHOLD_ARCHIVED";
 const HOUSEHOLD_NOT_PRESENT_CODE = "HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER";
@@ -695,9 +696,9 @@ const getMunicipalStubDashboard = async ({
   requester,
   qr_generated_by: qrGeneratedBy,
 } = {}) => {
-  if (requester?.roleCode !== MAYOR_ROLE_CODE) {
+  if (![MAYOR_ROLE_CODE, MSWDO_ROLE_CODE].includes(requester?.roleCode)) {
     const error = new Error(
-      "Only Mayor users can access the municipal stub dashboard",
+      "Only Mayor or MSWDO users can access the municipal stub dashboard",
     );
     error.statusCode = 403;
     error.code = "MUNICIPAL_STUB_FORBIDDEN";

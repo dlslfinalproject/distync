@@ -95,7 +95,7 @@ const selectedBarangayId = "22222222-2222-4222-8222-222222222222";
 const craftedBarangayId = "99999999-9999-4999-8999-999999999999";
 const stubId = "44444444-4444-4444-8444-444444444444";
 
-test("Stage 5 municipal route is Mayor-only and passes requester context to the service", async () => {
+test("Stage 5 municipal route allows Mayor and MSWDO and passes requester context to the service", async () => {
   let capturedQuery = null;
   let capturedRequester = null;
   let capturedAllowedRoles = null;
@@ -157,12 +157,12 @@ test("Stage 5 municipal route is Mayor-only and passes requester context to the 
     },
   );
 
-  assert.deepEqual(capturedAllowedRoles, ["MAYOR"]);
+  assert.deepEqual(capturedAllowedRoles, ["MAYOR", "MSWDO"]);
   assert.equal(capturedQuery, eventId);
   assert.equal(capturedRequester.roleCode, "MAYOR");
 });
 
-for (const deniedRole of ["MSWDO", "BARANGAY"]) {
+for (const deniedRole of ["BARANGAY", "DONOR"]) {
   test(`Stage 5 municipal route denies ${deniedRole}`, async () => {
     await withStubbedStubRoute(
       {
