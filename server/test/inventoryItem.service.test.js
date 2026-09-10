@@ -381,3 +381,77 @@ test("createInventoryItem with skip_opening_stock does not create opening batch 
   assert.equal(calls.insertedTransaction, null);
   assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
 });
+
+test("buildInventoryTrackingMap does not treat a parent-only expiry as current stock expiry", async () => {
+  const { stubs } = buildServiceStubs();
+
+  await withStubbedInventoryItemService(
+    stubs,
+    async ({ buildInventoryTrackingMap }) => {
+      const tracking = buildInventoryTrackingMap(
+        [{ id: "item-parent-only", expiration_date: "2020-01-01" }],
+        [],
+        [],
+      ).get("item-parent-only");
+
+      assert.equal(tracking.nearestExpirationDate, null);
+      assert.equal(tracking.onHand, 0);
+    },
+  );
+});
+
+test("buildInventoryTrackingMap does not inject a parent expiry for null-expiry batches", async () => {
+  const { stubs } = buildServiceStubs();
+
+  await withStubbedInventoryItemService(
+    stubs,
+    async ({ buildInventoryTrackingMap }) => {
+      const tracking = buildInventoryTrackingMap(
+        [{ id: "item-null-batch", expiration_date: "2020-01-01" }],
+        [
+          {
+            inventory_item_id: "item-null-batch",
+            quantity_available: 8,
+            expiration_date: null,
+          },
+        ],
+        [],
+      ).get("item-null-batch");
+
+      assert.equal(tracking.nearestExpirationDate, null);
+      assert.equal(tracking.onHand, 8);
+    },
+  );
+});
+
+test("buildInventoryTrackingMap preserves the batch-derived nearest expiry and stock quantities", async () => {
+  const { stubs } = buildServiceStubs();
+
+  await withStubbedInventoryItemService(
+    stubs,
+    async ({ buildInventoryTrackingMap }) => {
+      const tracking = buildInventoryTrackingMap(
+        [{ id: "item-multi-batch", expiration_date: "2020-01-01" }],
+        [
+          {
+            inventory_item_id: "item-multi-batch",
+            quantity_available: 8,
+            expiration_date: "2027-06-30",
+            status: "AVAILABLE",
+          },
+          {
+            inventory_item_id: "item-multi-batch",
+            quantity_available: 4,
+            expiration_date: "2027-01-01",
+            status: "AVAILABLE",
+          },
+        ],
+        [],
+      ).get("item-multi-batch");
+
+      assert.equal(tracking.nearestExpirationDate, "2027-01-01");
+      assert.equal(tracking.onHand, 12);
+      assert.equal(tracking.expiredOnHand, 0);
+    },
+  );
+});

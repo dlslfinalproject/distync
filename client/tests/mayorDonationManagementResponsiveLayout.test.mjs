@@ -90,6 +90,11 @@ test("Mayor donation management records and details keep table overflow local", 
   assert.match(detailSource, /panelClassName="mayor-donation-management-detail-modal"/);
   assert.match(detailSource, /className="mayor-donation-management-detail-table-scroll"/);
   assert.match(detailSource, /className="mayor-donation-management-detail-table"/);
+  assert.match(detailSource, /item\.inventory_batch\?\.expiration_date/);
+  assert.doesNotMatch(
+    detailSource,
+    /item\.inventory_batch\?\.expiration_date\s*\|\|\s*item\.expiration_date/,
+  );
   assert.match(donationsSource, /overflowX:\s*"auto"/);
   assert.doesNotMatch(donationsSource, /overflowX:\s*"hidden"/);
   assert.match(

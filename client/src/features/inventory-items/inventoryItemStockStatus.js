@@ -159,12 +159,13 @@ export const buildInventoryTrackingMap = (
   return trackingMap;
 };
 
-export const getTrackedExpirationDate = (item, trackingStats = {}) => {
-  if (trackingStats.hasBatchRecords) {
-    return trackingStats.hasAvailableBatch
-      ? trackingStats.nearestExpirationDate
-      : null;
+export const getTrackedExpirationDate = (_item, trackingStats = {}) => {
+  // Preserve the two-argument helper shape for callers while making current
+  // expiry strictly batch-derived. The item expiration field is legacy
+  // compatibility/opening-stock metadata, not a no-batch fallback.
+  if (!trackingStats.hasBatchRecords || !trackingStats.hasAvailableBatch) {
+    return null;
   }
 
-  return item?.expiration_date || null;
+  return trackingStats.nearestExpirationDate || null;
 };

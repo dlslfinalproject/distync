@@ -398,8 +398,7 @@ const DonationDetailModal = ({
                               </td>
                               <td style={modalStyles.td}>
                                 {formatDate(
-                                  item.inventory_batch?.expiration_date ||
-                                    item.expiration_date,
+                                  item.inventory_batch?.expiration_date,
                                 )}
                               </td>
                             </tr>
@@ -468,8 +467,7 @@ const DonationDetailModal = ({
                           </td>
                           <td style={modalStyles.td}>
                             {formatDate(
-                              item.inventory_batch?.expiration_date ||
-                                item.expiration_date,
+                              item.inventory_batch?.expiration_date,
                             )}
                           </td>
                         </tr>

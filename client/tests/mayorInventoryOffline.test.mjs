@@ -496,3 +496,24 @@ test("MAYOR-OFFLINE-06 fallback identifiers remain valid UUIDs and client timest
   assert.match(batchRepositorySource, /\$11::timestamptz/);
   assert.match(transactionRepositorySource, /\$11::timestamptz/);
 });
+
+test("Stage 1 keeps current inventory expiry batch-derived while retaining compatibility shapes", async () => {
+  const [itemsPageSource, transactionsPageSource, stockStatusSource, formSource, syncSource, offlineSource] =
+    await Promise.all([
+      readSource("../src/pages/inventory/InventoryItemsPage.jsx"),
+      readSource("../src/pages/inventory/InventoryTransactionsPage.jsx"),
+      readSource("../src/features/inventory-items/inventoryItemStockStatus.js"),
+      readSource("../src/components/inventory-items/InventoryItemFormModal.jsx"),
+      readSource("../src/features/inventory-items/inventoryItemSync.js"),
+      readSource("../src/offline/mayorInventoryOfflineModel.js"),
+    ]);
+
+  assert.match(itemsPageSource, /getTrackedExpirationDate/);
+  assert.match(transactionsPageSource, /getTrackedExpirationDate/);
+  assert.doesNotMatch(itemsPageSource, /item\??\.expiration_date/);
+  assert.doesNotMatch(transactionsPageSource, /item\??\.expiration_date/);
+  assert.doesNotMatch(stockStatusSource, /return item\?\.expiration_date/);
+  assert.match(formSource, /expiration_date/);
+  assert.match(syncSource, /expiration_date/);
+  assert.match(offlineSource, /expiration_date/);
+});

@@ -597,7 +597,9 @@ const buildInventoryTrackingMap = (inventoryItems, inventoryBatches, inventoryTr
       spoiled: 0,
       stolen: 0,
       other: 0,
-      nearestExpirationDate: item.expiration_date || null,
+      // Current expiry is derived from actual inventory batches only.
+      // The item field remains a compatibility/opening-stock mirror.
+      nearestExpirationDate: null,
     });
   });
 
@@ -1548,4 +1550,5 @@ module.exports = {
   getInventoryItemDetail,
   createInventoryItem,
   updateInventoryItem,
+  buildInventoryTrackingMap,
 };

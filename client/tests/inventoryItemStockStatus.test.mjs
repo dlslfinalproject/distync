@@ -105,7 +105,7 @@ test("expiry tracking still monitors positive-stock expired and near-expiry batc
   assert.equal(trackingStats.nearExpiryOnHand, 6);
 });
 
-test("item-level expiry remains available as a fallback without batch records", () => {
+test("parent compatibility expiry is ignored without batch records", () => {
   const item = {
     id: "item-4",
     expiration_date: getDateOnlyWithOffset(-1),
@@ -114,12 +114,83 @@ test("item-level expiry remains available as a fallback without batch records", 
   const trackingStats = buildTrackingStats(item, []);
 
   assert.equal(trackingStats.hasBatchRecords, false);
-  assert.equal(getTrackedExpirationDate(item, trackingStats), item.expiration_date);
+  assert.equal(trackingStats.nearestExpirationDate, null);
+  assert.equal(getTrackedExpirationDate(item, trackingStats), null);
+});
+
+test("parent compatibility expiry is ignored when all actual batches have null expiry", () => {
+  const item = {
+    id: "item-5",
+    expiration_date: getDateOnlyWithOffset(-1),
+    is_active: true,
+  };
+  const trackingStats = buildTrackingStats(item, [
+    {
+      inventory_item_id: item.id,
+      quantity_received: 10,
+      quantity_available: 10,
+      expiration_date: null,
+    },
+  ]);
+
+  assert.equal(trackingStats.hasBatchRecords, true);
+  assert.equal(trackingStats.hasAvailableBatch, true);
+  assert.equal(trackingStats.onHand, 10);
+  assert.equal(trackingStats.nearestExpirationDate, null);
+  assert.equal(getTrackedExpirationDate(item, trackingStats), null);
+});
+
+test("batch-only expiration remains authoritative across later restocks", () => {
+  const item = {
+    id: "item-6",
+    expiration_date: getDateOnlyWithOffset(-365),
+    is_active: true,
+  };
+  const firstBatchExpiry = getDateOnlyWithOffset(45);
+  const laterBatchExpiry = getDateOnlyWithOffset(120);
+  const trackingStats = buildTrackingStats(item, [
+    {
+      inventory_item_id: item.id,
+      quantity_received: 10,
+      quantity_available: 10,
+      expiration_date: firstBatchExpiry,
+    },
+    {
+      inventory_item_id: item.id,
+      quantity_received: 5,
+      quantity_available: 5,
+      expiration_date: laterBatchExpiry,
+    },
+  ]);
+
+  assert.equal(trackingStats.onHand, 15);
+  assert.equal(trackingStats.totalReceived, 15);
+  assert.equal(trackingStats.nearestExpirationDate, firstBatchExpiry);
+  assert.equal(getTrackedExpirationDate(item, trackingStats), firstBatchExpiry);
+});
+
+test("a batch expiry is used when the parent compatibility field is null", () => {
+  const item = {
+    id: "item-7",
+    expiration_date: null,
+    is_active: true,
+  };
+  const batchExpiry = getDateOnlyWithOffset(45);
+  const trackingStats = buildTrackingStats(item, [
+    {
+      inventory_item_id: item.id,
+      quantity_received: 10,
+      quantity_available: 10,
+      expiration_date: batchExpiry,
+    },
+  ]);
+
+  assert.equal(getTrackedExpirationDate(item, trackingStats), batchExpiry);
 });
 
 test("other write-offs are tracked as a separate loss category", () => {
   const item = {
-    id: "item-5",
+    id: "item-8",
     expiration_date: null,
     is_active: true,
   };

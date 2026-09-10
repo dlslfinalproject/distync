@@ -34,7 +34,7 @@ const sampleItem = {
   packaging_count: 12,
   quantity: 1,
   reorder_level: 5,
-  expiration_date: null,
+  expiration_date: "2027-01-01",
   barcode: "8850006330449",
   is_perishable: false,
   is_active: true,
@@ -152,6 +152,7 @@ test("lookupInventoryItemByBarcode returns local inventory item before external 
       assert.equal(result.source, "LOCAL_INVENTORY");
       assert.equal(result.item.item_name, "Colgate Toothbrush");
       assert.equal(result.item.barcode, "8850006330449");
+      assert.equal(result.item.expiration_date, sampleItem.expiration_date);
       assert.equal(fetchCalled, false);
     },
   );

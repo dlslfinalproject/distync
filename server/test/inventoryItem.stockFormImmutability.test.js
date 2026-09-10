@@ -350,6 +350,25 @@ test("an unrelated item edit is a stock-form no-op even when the current form is
   assert.deepEqual(harness.state.stockForms, [formA]);
 });
 
+test("item update keeps accepting the parent expiration compatibility field without changing stock forms", async () => {
+  const formA = makeStockForm("form-a");
+  const harness = createHarness({
+    item: makeInventoryItem({ expiration_date: "2027-01-01" }),
+    stockForms: [formA],
+  });
+
+  await runUpdate(
+    harness,
+    buildUpdatePayload(harness.state.item, { expiration_date: "2027-06-30" }),
+  );
+
+  assert.equal(harness.calls.updateItem[0].itemData.expiration_date, "2027-06-30");
+  assert.equal(harness.state.item.expiration_date, "2027-06-30");
+  assert.equal(harness.calls.insertStockForms.length, 0);
+  assert.equal(harness.calls.updateStockForms.length, 0);
+  assert.deepEqual(harness.state.stockForms, [formA]);
+});
+
 test("A to B to C creates a new form each time the current form is referenced", async () => {
   const formA = makeStockForm("form-a");
   const harness = createHarness({
