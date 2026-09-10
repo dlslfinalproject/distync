@@ -21,6 +21,11 @@ test("Mayor donation transparency renders every movement with its inventory unit
   assert.match(source, /transparencyColumnWidths/);
   assert.match(
     source,
+    /disasterEventBodyCell:[\s\S]*?whiteSpace: "normal"[\s\S]*?overflowWrap: "anywhere"/,
+  );
+  assert.match(source, /\.\.\.tableStyles\.disasterEventBodyCell/);
+  assert.match(
+    source,
     /itemNameText:[\s\S]*?textOverflow: "ellipsis"[\s\S]*?whiteSpace: "nowrap"/,
   );
   assert.match(source, /title=\{row\.item_name \|\| "--"\}/);

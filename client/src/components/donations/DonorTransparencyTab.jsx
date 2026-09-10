@@ -38,6 +38,13 @@ const tableStyles = {
     verticalAlign: "middle",
     whiteSpace: "nowrap",
   },
+  disasterEventBodyCell: {
+    textAlign: "center",
+    verticalAlign: "middle",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+  },
   mutedText: {
     color: "#6b8298",
     fontSize: "12px",
@@ -250,7 +257,7 @@ const DonorTransparencyTab = ({
                       <td
                         style={{
                           ...tableStyles.bodyCell,
-                          ...tableStyles.centeredBodyCell,
+                          ...tableStyles.disasterEventBodyCell,
                         }}
                       >
                         {row.disaster_event_title || "--"}
