@@ -2186,6 +2186,64 @@ test("MAYOR-OFFLINE-ITEM-01 item creation queue reaches the supported sync handl
   );
 });
 
+test("MAYOR-OFFLINE-ITEM-UPDATE reuses the online inventory item update handler", async () => {
+  let receivedArguments = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemById: async () => ({
+          id: "33333333-3333-4333-8333-333333333333",
+          updated_at: null,
+        }),
+      },
+      [inventoryItemServicePath]: {
+        updateInventoryItem: async (...args) => {
+          receivedArguments = args;
+          return { id: args[0] };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "mayor-offline-item-update-1",
+            action_key: "INVENTORY_ITEM_UPDATE",
+            entity_type: "INVENTORY_ITEM",
+            entity_server_id: "33333333-3333-4333-8333-333333333333",
+            client_timestamp: "2026-09-07T02:00:00.000Z",
+            payload: {
+              item_name: "Offline Rice Updated",
+              category: "non-perishable",
+              unit_of_measure: "pc",
+              unit_of_measure_value: 1,
+              packaging: "box",
+              packaging_count: 1,
+              quantity: 12,
+              reorder_level: 5,
+              barcode: null,
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+    },
+  );
+
+  assert.equal(receivedArguments[0], "33333333-3333-4333-8333-333333333333");
+  assert.equal(receivedArguments[1].item_name, "Offline Rice Updated");
+  assert.equal(receivedArguments[2].roleCode, "MAYOR");
+  assert.equal(Object.prototype.hasOwnProperty.call(receivedArguments[3], "dbClient"), true);
+});
+
 test("MAYOR-OFFLINE-ITEM-02 restock queued for a local item resolves after item creation sync", async () => {
   let receivedPayload = null;
 

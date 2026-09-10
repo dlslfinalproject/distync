@@ -29,6 +29,9 @@ const {
 } = require("../utils/inventoryItemIdentity");
 const { normalizeInventoryBarcode } = require("../utils/inventoryBarcode");
 const {
+  areInventoryStockFormDefinitionsEqual,
+} = require("../utils/inventoryStockFormDefinition");
+const {
   verifyInventoryStateBasis,
 } = require("../utils/inventoryStateBasis");
 const {
@@ -1224,20 +1227,6 @@ const buildInventoryStockFormDefinitionFromItemPayload = (payload = {}) => {
     ),
   };
 };
-
-const areInventoryStockFormDefinitionsEqual = (firstDefinition, secondDefinition) =>
-  normalizeInventoryConflictText(firstDefinition?.packaging) ===
-    normalizeInventoryConflictText(secondDefinition?.packaging) &&
-  areInventoryConflictNumbersEqual(
-    firstDefinition?.units_per_packaging,
-    secondDefinition?.units_per_packaging,
-  ) &&
-  normalizeInventoryConflictText(firstDefinition?.unit_of_measure) ===
-    normalizeInventoryConflictText(secondDefinition?.unit_of_measure) &&
-  areInventoryConflictNumbersEqual(
-    firstDefinition?.unit_of_measure_value,
-    secondDefinition?.unit_of_measure_value,
-  );
 
 const getInventoryItemForSyncConflict = async (itemId, dbClient) => {
   if (!itemId) {

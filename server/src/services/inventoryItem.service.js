@@ -23,6 +23,9 @@ const {
   createDuplicateInventoryBarcodeError,
   createDuplicateInventoryItemError,
 } = require("../utils/inventoryItemIdentity");
+const {
+  areInventoryStockFormDefinitionsEqual,
+} = require("../utils/inventoryStockFormDefinition");
 
 const OPEN_FOOD_FACTS_API_BASE_URL =
   process.env.OPEN_FOOD_FACTS_API_BASE_URL ||
@@ -304,6 +307,281 @@ const buildStockFormPayloadFromItem = (item, itemData = item, stockForm = null) 
   unit_of_measure_value: itemData.unit_of_measure_value || null,
   is_active: stockForm?.is_active ?? true,
 });
+
+const buildStockFormDefinitionFromItem = (item, itemData = item) => {
+  const payload = buildStockFormPayloadFromItem(item, itemData);
+
+  return {
+    packaging: payload.packaging,
+    units_per_packaging: payload.units_per_packaging,
+    unit_of_measure: payload.unit_of_measure,
+    unit_of_measure_value: payload.unit_of_measure_value,
+  };
+};
+
+const createInactiveStockFormDefinitionError = (stockForm) => {
+  const error = new Error(
+    "An inactive stock form already exists for the requested definition",
+  );
+  error.code = "INACTIVE_STOCK_FORM_DEFINITION";
+  error.statusCode = 409;
+  error.entityServerId = stockForm?.inventory_item_id || null;
+  error.serverPayload = {
+    inventory_item_stock_form: summarizeInventoryItemStockForm(stockForm || {}),
+  };
+  return error;
+};
+
+const findExactStockFormDefinition = (stockForms, stockFormDefinition) =>
+  stockForms.find((stockForm) =>
+    areInventoryStockFormDefinitionsEqual(stockForm, stockFormDefinition),
+  ) || null;
+
+const isStockFormDefinitionUniqueViolation = (error) =>
+  error?.code === "23505" &&
+  /inventory_item_stock_forms_unique_definition/i.test(
+    String(error.constraint || error.detail || ""),
+  );
+
+const insertStockFormForInventoryItemUpdate = async ({
+  stockFormPayload,
+  inventoryItemId,
+  dbClient,
+}) => {
+  try {
+    return await inventoryItemStockFormRepository.insertInventoryItemStockForm(
+      stockFormPayload,
+      dbClient,
+    );
+  } catch (error) {
+    if (!isStockFormDefinitionUniqueViolation(error)) {
+      throw error;
+    }
+
+    const refreshedStockForms =
+      await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(
+        inventoryItemId,
+        dbClient,
+      );
+    const matchingStockForm = findExactStockFormDefinition(
+      refreshedStockForms,
+      stockFormPayload,
+    );
+
+    if (!matchingStockForm) {
+      throw error;
+    }
+
+    if (matchingStockForm.is_active === false) {
+      throw createInactiveStockFormDefinitionError(matchingStockForm);
+    }
+
+    return matchingStockForm;
+  }
+};
+
+const ensureInventoryItemUpdateBarcodeOwner = async ({
+  barcode,
+  targetStockForm,
+  inventoryItem,
+  dbClient,
+}) => {
+  if (
+    !barcode ||
+    typeof inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode !==
+      "function"
+  ) {
+    return;
+  }
+
+  const barcodeOwner =
+    await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
+      barcode,
+      dbClient,
+    );
+
+  if (barcodeOwner && String(barcodeOwner.id) !== String(targetStockForm?.id)) {
+    const existingItem =
+      String(barcodeOwner.inventory_item_id) === String(inventoryItem.id)
+        ? inventoryItem
+        : typeof inventoryItemRepository.getInventoryItemById === "function"
+          ? await inventoryItemRepository.getInventoryItemById(
+              barcodeOwner.inventory_item_id,
+              dbClient,
+            )
+          : null;
+
+    throw createDuplicateInventoryBarcodeError({
+      existingItem,
+      existingStockForm: barcodeOwner,
+      packagingConflict: true,
+    });
+  }
+};
+
+const updateStockFormForInventoryItemUpdate = async ({
+  targetStockForm,
+  stockFormPayload,
+  dbClient,
+}) => {
+  const targetPayload = {
+    ...stockFormPayload,
+    is_active: targetStockForm.is_active ?? true,
+  };
+  const targetBarcode = normalizeInventoryBarcode(targetStockForm.barcode);
+  const nextBarcode = normalizeInventoryBarcode(targetPayload.barcode);
+  const definitionChanged = !areInventoryStockFormDefinitionsEqual(
+    targetStockForm,
+    targetPayload,
+  );
+
+  if (
+    !definitionChanged &&
+    targetBarcode === nextBarcode &&
+    (targetStockForm.is_active ?? true) === targetPayload.is_active
+  ) {
+    return targetStockForm;
+  }
+
+  const updatedStockForm =
+    await inventoryItemStockFormRepository.updateInventoryItemStockForm(
+      targetStockForm.id,
+      targetPayload,
+      dbClient,
+    );
+
+  if (!updatedStockForm) {
+    const error = new Error("The inventory item stock form could not be updated");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return updatedStockForm;
+};
+
+const resolveStockFormForInventoryItemUpdate = async ({
+  existingItem,
+  updatedItem,
+  itemData,
+  existingStockForms,
+  dbClient,
+}) => {
+  const currentParentDefinition = buildStockFormDefinitionFromItem(existingItem);
+  const currentStockForm =
+    findExactStockFormDefinition(existingStockForms, currentParentDefinition) ||
+    existingStockForms[0] ||
+    null;
+  const requestedStockFormPayload = buildStockFormPayloadFromItem(
+    updatedItem,
+    itemData,
+  );
+
+  if (!currentStockForm) {
+    await ensureInventoryItemUpdateBarcodeOwner({
+      barcode: requestedStockFormPayload.barcode,
+      targetStockForm: null,
+      inventoryItem: updatedItem,
+      dbClient,
+    });
+
+    return insertStockFormForInventoryItemUpdate({
+      stockFormPayload: requestedStockFormPayload,
+      inventoryItemId: updatedItem.id,
+      dbClient,
+    });
+  }
+
+  const requestedDefinitionMatchesCurrent =
+    areInventoryStockFormDefinitionsEqual(
+      currentStockForm,
+      requestedStockFormPayload,
+    );
+
+  if (requestedDefinitionMatchesCurrent) {
+    await ensureInventoryItemUpdateBarcodeOwner({
+      barcode: requestedStockFormPayload.barcode,
+      targetStockForm: currentStockForm,
+      inventoryItem: updatedItem,
+      dbClient,
+    });
+
+    return updateStockFormForInventoryItemUpdate({
+      targetStockForm: currentStockForm,
+      stockFormPayload: requestedStockFormPayload,
+      dbClient,
+    });
+  }
+
+  const exactRequestedStockForm = findExactStockFormDefinition(
+    existingStockForms,
+    requestedStockFormPayload,
+  );
+
+  if (exactRequestedStockForm) {
+    if (exactRequestedStockForm.is_active === false) {
+      throw createInactiveStockFormDefinitionError(exactRequestedStockForm);
+    }
+
+    await ensureInventoryItemUpdateBarcodeOwner({
+      barcode: requestedStockFormPayload.barcode,
+      targetStockForm: exactRequestedStockForm,
+      inventoryItem: updatedItem,
+      dbClient,
+    });
+
+    return updateStockFormForInventoryItemUpdate({
+      targetStockForm: exactRequestedStockForm,
+      stockFormPayload: requestedStockFormPayload,
+      dbClient,
+    });
+  }
+
+  if (
+    typeof inventoryItemStockFormRepository.isInventoryItemStockFormReferencedByBatch !==
+    "function"
+  ) {
+    const error = new Error(
+      "The stock form reference check is unavailable; the definition was not changed",
+    );
+    error.code = "STOCK_FORM_REFERENCE_CHECK_UNAVAILABLE";
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const currentStockFormIsReferenced =
+    await inventoryItemStockFormRepository.isInventoryItemStockFormReferencedByBatch(
+      currentStockForm.id,
+      dbClient,
+    );
+
+  if (currentStockFormIsReferenced) {
+    await ensureInventoryItemUpdateBarcodeOwner({
+      barcode: requestedStockFormPayload.barcode,
+      targetStockForm: null,
+      inventoryItem: updatedItem,
+      dbClient,
+    });
+
+    return insertStockFormForInventoryItemUpdate({
+      stockFormPayload: requestedStockFormPayload,
+      inventoryItemId: updatedItem.id,
+      dbClient,
+    });
+  }
+
+  await ensureInventoryItemUpdateBarcodeOwner({
+    barcode: requestedStockFormPayload.barcode,
+    targetStockForm: currentStockForm,
+    inventoryItem: updatedItem,
+    dbClient,
+  });
+
+  return updateStockFormForInventoryItemUpdate({
+    targetStockForm: currentStockForm,
+    stockFormPayload: requestedStockFormPayload,
+    dbClient,
+  });
+};
 
 const buildInventoryTrackingMap = (inventoryItems, inventoryBatches, inventoryTransactions) => {
   const trackingMap = new Map();
@@ -1219,25 +1497,13 @@ const updateInventoryItem = async (id, itemData, actor = null, options = {}) => 
         id,
         client,
       );
-    const primaryStockForm = existingStockForms[0] || null;
-    const nextStockFormPayload = buildStockFormPayloadFromItem(
+    await resolveStockFormForInventoryItemUpdate({
+      existingItem,
       updatedItem,
-      inventoryItemToUpdate,
-      primaryStockForm,
-    );
-
-    if (primaryStockForm) {
-      await inventoryItemStockFormRepository.updateInventoryItemStockForm(
-        primaryStockForm.id,
-        nextStockFormPayload,
-        client,
-      );
-    } else {
-      await inventoryItemStockFormRepository.insertInventoryItemStockForm(
-        nextStockFormPayload,
-        client,
-      );
-    }
+      itemData: inventoryItemToUpdate,
+      existingStockForms,
+      dbClient: client,
+    });
 
     if (existingItem.reorder_level !== updatedItem.reorder_level) {
       await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(

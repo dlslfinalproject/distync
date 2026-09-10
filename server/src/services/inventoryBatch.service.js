@@ -16,6 +16,9 @@ const {
   createDuplicateInventoryBarcodeError,
 } = require("../utils/inventoryItemIdentity");
 const {
+  areInventoryStockFormDefinitionsEqual,
+} = require("../utils/inventoryStockFormDefinition");
+const {
   INVENTORY_BATCH_STORAGE_LOCATION_MAX_LENGTH,
   isInventoryBatchStorageLocationLengthValid,
 } = require("../utils/inventoryBatchStorageLocation");
@@ -179,28 +182,6 @@ const normalizeStockFormDefinition = (batchData, inventoryItem) => {
     unit_of_measure_value: unitOfMeasureValue,
     is_active: true,
   };
-};
-
-const areStockFormDefinitionsEqual = (stockForm, stockFormDefinition) => {
-  const normalizeNullableNumber = (value) => {
-    if (value === null || value === undefined || value === "") {
-      return null;
-    }
-
-    const parsedValue = Number(value);
-    return Number.isFinite(parsedValue) ? parsedValue : null;
-  };
-
-  return (
-    String(stockForm?.packaging || "").trim().toLowerCase() ===
-      String(stockFormDefinition?.packaging || "").trim().toLowerCase() &&
-    Number(stockForm?.units_per_packaging || 0) ===
-      Number(stockFormDefinition?.units_per_packaging || 0) &&
-    String(stockForm?.unit_of_measure || "").trim().toLowerCase() ===
-      String(stockFormDefinition?.unit_of_measure || "").trim().toLowerCase() &&
-    normalizeNullableNumber(stockForm?.unit_of_measure_value) ===
-      normalizeNullableNumber(stockFormDefinition?.unit_of_measure_value)
-  );
 };
 
 const hasStockFormDefinitionInput = (batchData) =>
@@ -519,7 +500,10 @@ const areBatchPackagingDefinitionsEqual = ({
       null,
   };
 
-  return areStockFormDefinitionsEqual(existingDefinition, requestedDefinition);
+  return areInventoryStockFormDefinitionsEqual(
+    existingDefinition,
+    requestedDefinition,
+  );
 };
 
 const validateBarcodeAssignmentTarget = async ({
@@ -594,7 +578,8 @@ const validateBarcodeAssignmentTarget = async ({
 
   if (
     hasStockFormDefinitionInput(batchData) &&
-    (!stockFormDefinition || !areStockFormDefinitionsEqual(stockForm, stockFormDefinition))
+    (!stockFormDefinition ||
+      !areInventoryStockFormDefinitionsEqual(stockForm, stockFormDefinition))
   ) {
     const error = new Error(
       "The selected packaging does not match the existing stock form",
@@ -851,7 +836,8 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
 
     if (
       hasStockFormDefinitionInput(batchData) &&
-      (!stockFormDefinition || !areStockFormDefinitionsEqual(stockForm, stockFormDefinition))
+      (!stockFormDefinition ||
+        !areInventoryStockFormDefinitionsEqual(stockForm, stockFormDefinition))
     ) {
       const error = new Error(
         "The selected packaging does not match the submitted packaging details",
@@ -926,7 +912,7 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
 
     const matchingStockForm = stockFormDefinition
       ? activeStockForms.find((stockForm) =>
-          areStockFormDefinitionsEqual(stockForm, stockFormDefinition),
+          areInventoryStockFormDefinitionsEqual(stockForm, stockFormDefinition),
         ) || null
       : null;
 
@@ -945,7 +931,7 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
         barcodeOwner &&
         (barcodeOwner.is_active === false ||
           String(barcodeOwner.inventory_item_id) !== String(inventoryItem.id) ||
-          !areStockFormDefinitionsEqual(barcodeOwner, stockFormDefinition))
+          !areInventoryStockFormDefinitionsEqual(barcodeOwner, stockFormDefinition))
       ) {
         const existingItem =
           typeof inventoryItemRepository.getInventoryItemById === "function"

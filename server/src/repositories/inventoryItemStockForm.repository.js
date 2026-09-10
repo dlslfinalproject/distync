@@ -1,4 +1,7 @@
 const pool = require("../config/db");
+const {
+  areInventoryStockFormDefinitionsEqual,
+} = require("../utils/inventoryStockFormDefinition");
 
 let hasInventoryItemStockFormIsActiveColumnCache = null;
 
@@ -142,6 +145,24 @@ const getInventoryItemStockFormByDefinition = async (
   return result.rows[0] || null;
 };
 
+const isInventoryItemStockFormReferencedByBatch = async (
+  stockFormId,
+  dbClient = pool,
+) => {
+  const result = await dbClient.query(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM inventory_batches
+        WHERE inventory_item_stock_form_id = $1
+      ) AS is_referenced
+    `,
+    [stockFormId],
+  );
+
+  return Boolean(result.rows[0]?.is_referenced);
+};
+
 const insertInventoryItemStockForm = async (stockFormData, dbClient = pool) => {
   const hasIsActiveColumn = await hasInventoryItemStockFormIsActiveColumn(dbClient);
   const columns = [
@@ -184,6 +205,28 @@ const insertInventoryItemStockForm = async (stockFormData, dbClient = pool) => {
 
 const updateInventoryItemStockForm = async (id, stockFormData, dbClient = pool) => {
   const hasIsActiveColumn = await hasInventoryItemStockFormIsActiveColumn(dbClient);
+  const existingStockForm = await getInventoryItemStockFormById(id, dbClient);
+
+  if (!existingStockForm) {
+    return null;
+  }
+
+  if (
+    !areInventoryStockFormDefinitionsEqual(existingStockForm, stockFormData) &&
+    (await isInventoryItemStockFormReferencedByBatch(id, dbClient))
+  ) {
+    const error = new Error(
+      "Referenced stock form definitions are immutable once used by a batch",
+    );
+    error.code = "REFERENCED_STOCK_FORM_DEFINITION_IMMUTABLE";
+    error.statusCode = 409;
+    error.entityServerId = existingStockForm.inventory_item_id || null;
+    error.serverPayload = {
+      inventory_item_stock_form: existingStockForm,
+    };
+    throw error;
+  }
+
   const values = [
     id,
     stockFormData.barcode,
@@ -225,6 +268,7 @@ module.exports = {
   getInventoryItemStockFormById,
   getInventoryItemStockFormByBarcode,
   getInventoryItemStockFormByDefinition,
+  isInventoryItemStockFormReferencedByBatch,
   insertInventoryItemStockForm,
   updateInventoryItemStockForm,
 };

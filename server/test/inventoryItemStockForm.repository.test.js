@@ -211,5 +211,126 @@ test("getInventoryItemStockFormsByItemIds propagates metadata and data query fai
   });
 });
 
+test("isInventoryItemStockFormReferencedByBatch checks every stored batch reference", async () => {
+  const calls = [];
+  const dbClient = {
+    query: async (sql, values) => {
+      calls.push({ sql, values });
+      return { rows: [{ is_referenced: true }] };
+    },
+  };
+
+  await withFreshStockFormRepository(dbClient, async (repository) => {
+    assert.equal(
+      await repository.isInventoryItemStockFormReferencedByBatch(
+        "form-historical",
+        dbClient,
+      ),
+      true,
+    );
+  });
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].values, ["form-historical"]);
+  assert.match(calls[0].sql, /FROM inventory_batches/i);
+  assert.match(calls[0].sql, /inventory_item_stock_form_id = \$1/i);
+  assert.doesNotMatch(calls[0].sql, /status/i);
+});
+
+test("updateInventoryItemStockForm rejects protected definition changes for referenced forms", async () => {
+  const existingStockForm = {
+    id: "form-historical",
+    inventory_item_id: "item-1",
+    barcode: "11111111",
+    packaging: "box",
+    units_per_packaging: "12",
+    unit_of_measure: "pc",
+    unit_of_measure_value: "1",
+    is_active: true,
+  };
+  const calls = [];
+  const dbClient = {
+    query: async (sql, values) => {
+      calls.push({ sql, values });
+
+      if (calls.length === 1) {
+        return { rows: [{ has_column: true }] };
+      }
+
+      if (calls.length === 2) {
+        return { rows: [existingStockForm] };
+      }
+
+      return { rows: [{ is_referenced: true }] };
+    },
+  };
+
+  await withFreshStockFormRepository(dbClient, async (repository) => {
+    await assert.rejects(
+      repository.updateInventoryItemStockForm(
+        existingStockForm.id,
+        {
+          ...existingStockForm,
+          packaging: "sack",
+          units_per_packaging: 24,
+        },
+        dbClient,
+      ),
+      (error) => {
+        assert.equal(error.code, "REFERENCED_STOCK_FORM_DEFINITION_IMMUTABLE");
+        assert.equal(error.statusCode, 409);
+        return true;
+      },
+    );
+  });
+
+  assert.equal(calls.length, 3);
+  assert.equal(calls.some(({ sql }) => /UPDATE inventory_item_stock_forms/i.test(sql)), false);
+});
+
+test("updateInventoryItemStockForm keeps barcode-only updates separate from definition immutability", async () => {
+  const existingStockForm = {
+    id: "form-historical",
+    inventory_item_id: "item-1",
+    barcode: null,
+    packaging: "box",
+    units_per_packaging: "12",
+    unit_of_measure: "pc",
+    unit_of_measure_value: "1",
+    is_active: true,
+  };
+  const updatedStockForm = { ...existingStockForm, barcode: "11111111" };
+  const calls = [];
+  const dbClient = {
+    query: async (sql, values) => {
+      calls.push({ sql, values });
+
+      if (calls.length === 1) {
+        return { rows: [{ has_column: true }] };
+      }
+
+      if (calls.length === 2) {
+        return { rows: [existingStockForm] };
+      }
+
+      return { rows: [updatedStockForm] };
+    },
+  };
+
+  await withFreshStockFormRepository(dbClient, async (repository) => {
+    assert.deepEqual(
+      await repository.updateInventoryItemStockForm(
+        existingStockForm.id,
+        { ...existingStockForm, barcode: "11111111" },
+        dbClient,
+      ),
+      updatedStockForm,
+    );
+  });
+
+  assert.equal(calls.length, 3);
+  assert.match(calls[2].sql, /UPDATE inventory_item_stock_forms/i);
+});
+
 const resultContainsInactive = (rows) =>
   rows.some((row) => row.is_active === false);
