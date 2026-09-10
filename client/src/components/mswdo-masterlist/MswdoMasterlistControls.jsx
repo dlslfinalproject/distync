@@ -248,7 +248,6 @@ const MswdoMasterlistControls = ({
           <button
             type="button"
             onClick={onOpenRegisterModal}
-            disabled={isOffline}
             style={{
               ...pageHeaderStyles.primaryButton,
               display: "flex",
