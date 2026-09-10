@@ -16,6 +16,7 @@ import {
   exportInventoryBatches,
   fetchInventoryBatchDetail,
   fetchInventoryBatches,
+  fetchInventoryBatchesPage,
   fetchInventoryItems,
 } from "../../features/inventory-batches/inventoryBatchService";
 import db from "../../offline/db.js";
@@ -33,6 +34,10 @@ import {
 import { MAYOR_INVENTORY_PREPARATION_STATUS } from "../../offline/mayorInventoryPreparation";
 import { useMayorInventoryOfflinePreparation } from "../../features/offline/useMayorInventoryOfflinePreparation";
 import { ROLE_CODES } from "../../utils/roleSession";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
@@ -60,6 +65,30 @@ const statusOptions = [
   "MISSING",
   "DAMAGED",
 ];
+
+const createEmptyPagination = (page = 1, pageSize = DEFAULT_TABLE_PAGE_SIZE) => ({
+  page,
+  pageSize,
+  totalItems: 0,
+  totalPages: 0,
+  hasPreviousPage: false,
+  hasNextPage: false,
+});
+
+const buildPaginationFromTotal = (totalItems, pageSize) => {
+  const safeTotalItems = Math.max(Number(totalItems) || 0, 0);
+  const totalPages =
+    safeTotalItems > 0 ? Math.ceil(safeTotalItems / pageSize) : 0;
+
+  return {
+    page: 1,
+    pageSize,
+    totalItems: safeTotalItems,
+    totalPages,
+    hasPreviousPage: false,
+    hasNextPage: totalPages > 1,
+  };
+};
 
 const buildQueuedBatch = (entry, inventoryItems) => {
   return {
@@ -111,7 +140,11 @@ const filterCachedBatches = (batches, filters = {}) => {
   });
 };
 
-const getInventoryBatchRefreshScopeKey = (filters = {}) =>
+const getInventoryBatchRefreshScopeKey = (
+  filters = {},
+  page = null,
+  pageSize = null,
+) =>
   JSON.stringify(
     [
       filters.search ? ["search", String(filters.search).trim()] : null,
@@ -122,6 +155,16 @@ const getInventoryBatchRefreshScopeKey = (filters = {}) =>
         ? ["source_type", String(filters.source_type)]
         : null,
       filters.status ? ["status", String(filters.status)] : null,
+      filters.is_expiring === true || filters.is_expiring === false
+        ? ["is_expiring", String(filters.is_expiring)]
+        : null,
+      filters.is_expired === true || filters.is_expired === false
+        ? ["is_expired", String(filters.is_expired)]
+        : null,
+      page !== null && page !== undefined ? ["page", Number(page)] : null,
+      pageSize !== null && pageSize !== undefined
+        ? ["pageSize", Number(pageSize)]
+        : null,
     ].filter(Boolean),
   );
 
@@ -136,6 +179,12 @@ const InventoryBatchesPage = () => {
     status: "",
   });
   const [inventoryBatches, setInventoryBatches] = useState([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const [pagination, setPagination] = useState(
+    createEmptyPagination(1, DEFAULT_TABLE_PAGE_SIZE),
+  );
+  const [isUsingCachedBatches, setIsUsingCachedBatches] = useState(false);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -158,6 +207,7 @@ const InventoryBatchesPage = () => {
     message: "",
   });
   const [hasHandledScanRedirect, setHasHandledScanRedirect] = useState(false);
+  const previousOnlineRef = useRef(isOnline);
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
   const mayorOfflinePreparation = useMayorInventoryOfflinePreparation({
@@ -166,12 +216,23 @@ const InventoryBatchesPage = () => {
     roleCode: currentRole,
   });
   const refreshGateRef = useRef(null);
+  const isMountedRef = useRef(true);
 
   if (!refreshGateRef.current) {
     refreshGateRef.current = createInventoryRefreshGate();
   }
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   const initialInventoryItemId = searchParams.get("inventory_item_id") || "";
   const shouldOpenCreateFromScan = searchParams.get("open_create") === "1";
+  const isPaginatedLiveTable =
+    isMayorPortal && isOnline && !isUsingCachedBatches;
 
   const downloadFile = (file) => {
     downloadExportFile(file);
@@ -190,12 +251,16 @@ const InventoryBatchesPage = () => {
       return false;
     }
 
-    if (!isLatestRefresh()) {
+    if (!isMountedRef.current || !isLatestRefresh()) {
       return false;
     }
 
-    setInventoryBatches(filterCachedBatches(cacheRow.batches, activeFilters));
+    const filteredBatches = filterCachedBatches(cacheRow.batches, activeFilters);
+    setInventoryBatches(filteredBatches);
     setInventoryItems(cacheRow.items || []);
+    setCurrentPage(1);
+    setPagination(buildPaginationFromTotal(filteredBatches.length, pageSize));
+    setIsUsingCachedBatches(true);
     return true;
   };
 
@@ -217,60 +282,140 @@ const InventoryBatchesPage = () => {
       showLoading = true,
       clearError = true,
       isLatestRefresh = () => true,
+      activePage = currentPage,
+      activePageSize = pageSize,
+      includeItems = true,
     } = options;
+    const isRefreshCurrent = () =>
+      isMountedRef.current && isLatestRefresh();
 
-    if (showLoading && isLatestRefresh()) {
+    if (!isRefreshCurrent()) {
+      return;
+    }
+
+    if (showLoading && isRefreshCurrent()) {
       setIsLoading(true);
     }
 
-    if (clearError && isLatestRefresh()) {
+    if (clearError && isRefreshCurrent()) {
       setErrorMessage("");
     }
 
     if (!isOnline && isMayorPortal) {
       const restored = await restoreMayorInventoryCache(
         activeFilters,
-        isLatestRefresh,
+        isRefreshCurrent,
       );
 
-      if (!restored && isLatestRefresh()) {
+      if (!restored && isRefreshCurrent()) {
         setErrorMessage(
           "Inventory batches are not prepared on this device yet. Connect to DISTYNC before using offline stock-in.",
         );
       }
 
-      if (isLatestRefresh()) {
+      if (isRefreshCurrent()) {
         setIsLoading(false);
       }
       return;
     }
 
     try {
-      const [batchResponse, itemResponse] = await Promise.all([
-        fetchInventoryBatches(activeFilters),
-        fetchInventoryItems(),
-      ]);
+      const batchRequest = isMayorPortal
+        ? fetchInventoryBatchesPage({
+            ...activeFilters,
+            page: activePage,
+            pageSize: activePageSize,
+          })
+        : fetchInventoryBatches(activeFilters);
+      let batchResponse;
+      let itemResponse;
 
-      if (!isLatestRefresh()) {
+      if (includeItems) {
+        [batchResponse, itemResponse] = await Promise.all([
+          batchRequest,
+          fetchInventoryItems(),
+        ]);
+      } else {
+        batchResponse = await batchRequest;
+      }
+
+      if (!isRefreshCurrent()) {
         return;
       }
 
-      setInventoryBatches(batchResponse || []);
-      setInventoryItems(itemResponse || []);
+      if (isMayorPortal) {
+        if (
+          !batchResponse ||
+          Array.isArray(batchResponse) ||
+          !Array.isArray(batchResponse.data)
+        ) {
+          throw new Error(
+            "DISTYNC returned an incomplete paginated inventory batch response.",
+          );
+        }
+
+        const responsePagination = batchResponse.pagination || {};
+        const totalItems = Math.max(Number(responsePagination.totalItems) || 0, 0);
+        const responsePageSize =
+          Number(responsePagination.pageSize) || activePageSize;
+        const totalPages =
+          totalItems > 0 ? Math.ceil(totalItems / responsePageSize) : 0;
+        const safePage =
+          totalPages > 0 ? Math.min(Math.max(activePage, 1), totalPages) : 1;
+        const nextPagination = {
+          ...createEmptyPagination(activePage, responsePageSize),
+          ...responsePagination,
+          page: activePage,
+          pageSize: responsePageSize,
+          totalItems,
+          totalPages,
+          hasPreviousPage: activePage > 1 && totalPages > 0,
+          hasNextPage: totalPages > 0 && activePage < totalPages,
+        };
+
+        setInventoryBatches(batchResponse.data);
+        setPagination(nextPagination);
+        setIsUsingCachedBatches(false);
+
+        if (includeItems) {
+          setInventoryItems(itemResponse || []);
+        }
+
+        if (activePage !== safePage) {
+          setCurrentPage(safePage);
+
+          if (totalPages > 0) {
+            void requestPageRefresh({
+              activeFilters,
+              activePage: safePage,
+              activePageSize: responsePageSize,
+              includeItems: false,
+              trigger: "pagination-clamp",
+            });
+          }
+        }
+      } else {
+        setInventoryBatches(batchResponse || []);
+        setPagination(createEmptyPagination(1, activePageSize));
+        setIsUsingCachedBatches(false);
+        if (includeItems) {
+          setInventoryItems(itemResponse || []);
+        }
+      }
     } catch (error) {
       if (isMayorPortal && canUseMayorInventoryCacheAfterError(error)) {
         const restored = await restoreMayorInventoryCache(
           activeFilters,
-          isLatestRefresh,
+          isRefreshCurrent,
         );
-        if (!restored && isLatestRefresh()) {
+        if (!restored && isRefreshCurrent()) {
           setErrorMessage(error.message || "Failed to load inventory batches.");
         }
-      } else if (isLatestRefresh()) {
+      } else if (isRefreshCurrent()) {
         setErrorMessage(error.message || "Failed to load inventory batches.");
       }
     } finally {
-      if (isLatestRefresh()) {
+      if (isRefreshCurrent()) {
         setIsLoading(false);
       }
     }
@@ -278,20 +423,46 @@ const InventoryBatchesPage = () => {
 
   const requestPageRefresh = ({
     activeFilters = filters,
+    activePage = currentPage,
+    activePageSize = pageSize,
     trigger = "passive",
     showLoading = true,
     clearError = true,
+    includeItems = true,
   } = {}) =>
     refreshGateRef.current.requestRefresh({
-      scopeKey: getInventoryBatchRefreshScopeKey(activeFilters),
+      scopeKey: getInventoryBatchRefreshScopeKey(
+        activeFilters,
+        activePage,
+        activePageSize,
+      ),
       trigger,
       run: ({ isLatest }) =>
         loadPageData(activeFilters, {
           showLoading,
           clearError,
+          activePage,
+          activePageSize,
+          includeItems,
           isLatestRefresh: isLatest,
         }),
     });
+
+  useEffect(() => {
+    const wasOffline = previousOnlineRef.current === false;
+    previousOnlineRef.current = isOnline;
+
+    if (!wasOffline || !isOnline || !isMayorPortal) {
+      return;
+    }
+
+    void requestPageRefresh({
+      activeFilters: filters,
+      activePage: currentPage,
+      activePageSize: pageSize,
+      trigger: "online",
+    });
+  }, [isOnline, isMayorPortal]);
 
   useEffect(() => {
     if (!isMayorPortal) {
@@ -300,6 +471,7 @@ const InventoryBatchesPage = () => {
 
     const handlePreparationUpdate = (event) => {
       if (
+        isOnline ||
         event.detail?.status !== MAYOR_INVENTORY_PREPARATION_STATUS.READY
       ) {
         return;
@@ -319,7 +491,7 @@ const InventoryBatchesPage = () => {
         handlePreparationUpdate,
       );
     };
-  }, [filters, isMayorPortal]);
+  }, [filters, isMayorPortal, isOnline]);
 
   useEffect(() => {
     void requestPageRefresh({ activeFilters: filters, trigger: "initial" });
@@ -380,7 +552,7 @@ const InventoryBatchesPage = () => {
     });
 
     return () => unsubscribe();
-  }, [filters]);
+  }, [currentPage, filters, pageSize]);
 
   const itemOptions = useMemo(() => inventoryItems, [inventoryItems]);
   const inventoryBatchesWithSyncStatus = useMemo(() => {
@@ -421,10 +593,26 @@ const InventoryBatchesPage = () => {
       })
       .map((entry) => buildQueuedBatch(entry, inventoryItems));
 
-    return filterCachedBatches([...optimisticRows, ...syncedRows], filters);
-  }, [filters, inventoryBatches, inventoryItems, syncQueueEntries]);
+    const filteredOptimisticRows = filterCachedBatches(optimisticRows, filters);
+
+    if (isPaginatedLiveTable) {
+      return currentPage === 1
+        ? [...filteredOptimisticRows, ...syncedRows]
+        : syncedRows;
+    }
+
+    return filterCachedBatches([...filteredOptimisticRows, ...syncedRows], filters);
+  }, [
+    currentPage,
+    filters,
+    inventoryBatches,
+    inventoryItems,
+    isPaginatedLiveTable,
+    syncQueueEntries,
+  ]);
 
   const handleFilterChange = (fieldName, value) => {
+    setCurrentPage(1);
     setFilters((currentFilters) => ({
       ...currentFilters,
       [fieldName]: value,
@@ -432,7 +620,50 @@ const InventoryBatchesPage = () => {
   };
 
   const handleApplyFilters = async () => {
-    await requestPageRefresh({ activeFilters: filters, trigger: "manual" });
+    setCurrentPage(1);
+    await requestPageRefresh({
+      activeFilters: filters,
+      activePage: 1,
+      activePageSize: pageSize,
+      trigger: "manual",
+    });
+  };
+
+  const handlePageChange = (nextPage) => {
+    if (!isPaginatedLiveTable) {
+      return;
+    }
+
+    const safeNextPage = Math.max(Number(nextPage) || 1, 1);
+    setCurrentPage(safeNextPage);
+    void requestPageRefresh({
+      activeFilters: filters,
+      activePage: safeNextPage,
+      activePageSize: pageSize,
+      includeItems: false,
+      trigger: "pagination",
+    });
+  };
+
+  const handlePageSizeChange = (nextPageSize) => {
+    const numericPageSize = Number(nextPageSize);
+
+    if (
+      !isPaginatedLiveTable ||
+      !TABLE_PAGE_SIZE_OPTIONS.includes(numericPageSize)
+    ) {
+      return;
+    }
+
+    setPageSize(numericPageSize);
+    setCurrentPage(1);
+    void requestPageRefresh({
+      activeFilters: filters,
+      activePage: 1,
+      activePageSize: numericPageSize,
+      includeItems: false,
+      trigger: "pagination",
+    });
   };
 
   const handleOpenCreateModal = () => {
@@ -520,7 +751,11 @@ const InventoryBatchesPage = () => {
     setSuccessMessage("");
     setIsExportModalOpen(false);
 
-    if (inventoryBatchesWithSyncStatus.length === 0) {
+    const hasExportableData = isPaginatedLiveTable
+      ? pagination.totalItems > 0
+      : inventoryBatchesWithSyncStatus.length > 0;
+
+    if (!hasExportableData) {
       setExportFeedback({
         type: "error",
         message: NO_EXPORT_DATA_MESSAGE,
@@ -706,6 +941,9 @@ const InventoryBatchesPage = () => {
         isLoading={isLoading}
         errorMessage={errorMessage}
         onViewDetails={handleOpenBatchDetail}
+        pagination={isPaginatedLiveTable ? pagination : null}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handlePageSizeChange}
       />
 
       <InventoryBatchFormModal

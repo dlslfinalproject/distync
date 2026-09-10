@@ -78,7 +78,7 @@ const baseSelectQuery = `
   ) source_donation ON TRUE
 `;
 
-const getInventoryBatches = async (filters) => {
+const buildInventoryBatchFilterQuery = (filters = {}) => {
   const values = [];
   const conditions = [];
 
@@ -117,14 +117,72 @@ const getInventoryBatches = async (filters) => {
   const whereClause =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
+  return { values, whereClause };
+};
+
+const buildInventoryBatchPaginationMetadata = ({ page, pageSize, totalItems }) => {
+  const totalPages = totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
+
+  return {
+    page,
+    pageSize,
+    totalItems,
+    totalPages,
+    hasPreviousPage: page > 1 && totalPages > 0,
+    hasNextPage: totalPages > 0 && page < totalPages,
+  };
+};
+
+const getInventoryBatches = async (filters = {}) => {
+  const { values, whereClause } = buildInventoryBatchFilterQuery(filters);
+  const isPaginated =
+    Number.isInteger(filters.page) &&
+    filters.page > 0 &&
+    Number.isInteger(filters.pageSize) &&
+    filters.pageSize > 0;
+
+  if (!isPaginated) {
+    const query = `
+      ${baseSelectQuery}
+      ${whereClause}
+      ORDER BY ib.received_at DESC, ib.id DESC
+    `;
+
+    const result = await pool.query(query, values);
+    return result.rows;
+  }
+
+  const countQuery = `
+    SELECT COUNT(*)::int AS total_items
+    FROM inventory_batches ib
+    INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    ${whereClause}
+  `;
+  const paginatedValues = [...values, filters.pageSize, (filters.page - 1) * filters.pageSize];
+  const limitParamIndex = paginatedValues.length - 1;
+  const offsetParamIndex = paginatedValues.length;
   const query = `
     ${baseSelectQuery}
     ${whereClause}
-    ORDER BY ib.received_at DESC
+    ORDER BY ib.received_at DESC, ib.id DESC
+    LIMIT $${limitParamIndex}
+    OFFSET $${offsetParamIndex}
   `;
 
-  const result = await pool.query(query, values);
-  return result.rows;
+  const [countResult, result] = await Promise.all([
+    pool.query(countQuery, values),
+    pool.query(query, paginatedValues),
+  ]);
+  const totalItems = Number(countResult.rows[0]?.total_items || 0);
+
+  return {
+    rows: result.rows,
+    pagination: buildInventoryBatchPaginationMetadata({
+      page: filters.page,
+      pageSize: filters.pageSize,
+      totalItems,
+    }),
+  };
 };
 
 const getInventoryBatchById = async (id, dbClient = pool) => {

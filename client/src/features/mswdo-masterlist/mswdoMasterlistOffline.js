@@ -1,4 +1,5 @@
 import { sortMasterlistRows } from "../masterlist/masterlistSort.js";
+import { resolveEffectiveMasterlistRows } from "../masterlist/barangayMasterlistUi.js";
 
 const normalizeId = (value) => String(value ?? "").trim();
 
@@ -25,6 +26,17 @@ const matchesSearch = (row, searchTerm) => {
   );
 };
 
+const filterProjectedRows = ({ rows, selectedBarangayId, recordStatus, searchTerm, selectedSectorIds }) => {
+  const barangayId = normalizeId(selectedBarangayId);
+  const sectorCodes = new Set((Array.isArray(selectedSectorIds) ? selectedSectorIds : []).map(normalizeId));
+  return rows.filter((row) => {
+    if (barangayId && normalizeId(row?.barangay_id) !== barangayId) return false;
+    if (!matchesRecordStatus(row, recordStatus)) return false;
+    if (sectorCodes.size > 0 && !(row?.sector_codes || []).some((code) => sectorCodes.has(normalizeId(code)))) return false;
+    return matchesSearch(row, searchTerm);
+  });
+};
+
 export const buildMswdoOfflineMasterlistPayload = ({
   households = [],
   mapRow,
@@ -36,6 +48,9 @@ export const buildMswdoOfflineMasterlistPayload = ({
   currentPage = 1,
   pageSize = 25,
   basePayload = {},
+  syncQueueEntries = [],
+  selectedEventTitle = "",
+  sectorOptions = [],
 } = {}) => {
   const sourceRows = Array.isArray(households) ? households : [];
   const mapHousehold = typeof mapRow === "function" ? mapRow : (household) => household;
@@ -43,54 +58,48 @@ export const buildMswdoOfflineMasterlistPayload = ({
     household,
     row: mapHousehold(household, sourceRows),
   }));
-  const normalizedBarangayId = normalizeId(selectedBarangayId);
-  const selectedSectorCodes = new Set(
-    (Array.isArray(selectedSectorIds) ? selectedSectorIds : []).map(normalizeId),
-  );
-
-  const filteredRows = mappedRows.filter(({ row }) => {
-    if (
-      normalizedBarangayId &&
-      normalizeId(row?.barangay_id) !== normalizedBarangayId
-    ) {
-      return false;
-    }
-
-    if (!matchesRecordStatus(row, recordStatus)) return false;
-
-    if (
-      selectedSectorCodes.size > 0 &&
-      !(row?.sector_codes || []).some((code) =>
-        selectedSectorCodes.has(normalizeId(code)),
-      )
-    ) {
-      return false;
-    }
-
-    return matchesSearch(row, searchTerm);
+  const projectedRows = resolveEffectiveMasterlistRows({
+    rows: mappedRows.map(({ row }) => row).filter(Boolean),
+    syncQueueEntries,
+    recordStatus: "all",
+    selectedEventId: basePayload?.filters?.disaster_event_id || "",
+    selectedEventTitle,
+    sectorOptions,
+    sortOrder: selectedSortOrder,
+  });
+  const filteredRows = filterProjectedRows({
+    rows: projectedRows,
+    selectedBarangayId,
+    recordStatus,
+    searchTerm,
+    selectedSectorIds,
   });
   const sortedRows = sortMasterlistRows(
-    filteredRows.map(({ row }) => row),
+    filteredRows,
     selectedSortOrder,
     { recordStatus },
   );
-  const sourceByRow = new Map(
-    filteredRows.map(({ household, row }) => [row, household]),
-  );
-  const sortedHouseholds = sortedRows.map((row) => sourceByRow.get(row));
   const safePageSize = Math.max(Number(pageSize) || 25, 1);
   const safePage = Math.max(Number(currentPage) || 1, 1);
-  const totalItems = sortedHouseholds.length;
+  const totalItems = sortedRows.length;
   const totalPages = Math.ceil(totalItems / safePageSize);
-  const pageRows = sortedHouseholds.slice(
+  const pageRows = sortedRows.slice(
     (safePage - 1) * safePageSize,
     safePage * safePageSize,
+  );
+  const sourceByHouseholdId = new Map(
+    mappedRows.map(({ household }) => [
+      String(household?.household_id || household?.id || ""),
+      household,
+    ]),
   );
 
   return {
     ...basePayload,
     count: totalItems,
-    data: pageRows,
+    data: pageRows.map((row) => sourceByHouseholdId.get(String(row?.household_id || "")) || row),
+    offline_projected_rows: pageRows,
+    offline_all_projected_rows: projectedRows,
     pagination: {
       page: safePage,
       pageSize: safePageSize,

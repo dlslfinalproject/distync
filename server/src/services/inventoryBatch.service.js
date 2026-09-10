@@ -611,8 +611,16 @@ const validateBarcodeAssignmentTarget = async ({
 };
 
 const getInventoryBatches = async (filters) => {
-  const batches = await inventoryBatchRepository.getInventoryBatches(filters);
-  return batches.map(mapInventoryBatch);
+  const result = await inventoryBatchRepository.getInventoryBatches(filters);
+
+  if (Array.isArray(result)) {
+    return result.map(mapInventoryBatch);
+  }
+
+  return {
+    data: (result.rows || []).map(mapInventoryBatch),
+    pagination: result.pagination,
+  };
 };
 
 const getInventoryBatchById = async (id) => {
@@ -1335,7 +1343,8 @@ const updateInventoryBatchExpiry = async (id, payload, actor = null) => {
 };
 
 const exportInventoryBatches = async (filters, format) => {
-  const batches = await getInventoryBatches(filters);
+  const { page: _page, pageSize: _pageSize, ...completeFilters } = filters || {};
+  const batches = await getInventoryBatches(completeFilters);
 
   const rows = batches.map((batch) => ({
     batch_no: batch.batch_no || "--",

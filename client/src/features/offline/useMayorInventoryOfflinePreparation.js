@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ROLE_CODES } from "../../utils/roleSession.js";
 import {
+  getMayorInventoryCacheScope,
   getMayorInventoryCacheSnapshot,
 } from "../../offline/mayorInventoryCache.js";
 import {
@@ -8,6 +9,7 @@ import {
   MAYOR_INVENTORY_PREPARATION_STATUS,
   prepareMayorInventoryOfflineData,
 } from "../../offline/mayorInventoryPreparation.js";
+import { mayorInventoryReconnectCoordinator } from "../../offline/mayorInventoryReconnectCoordinator.js";
 
 export const useMayorInventoryOfflinePreparation = ({
   enabled = true,
@@ -21,13 +23,22 @@ export const useMayorInventoryOfflinePreparation = ({
   const [hasCompleteCache, setHasCompleteCache] = useState(false);
   const [revision, setRevision] = useState(0);
   const refreshRequestedRef = useRef(false);
+  const explicitRetryRef = useRef(false);
+  const reconnectGenerationRef = useRef(null);
 
   useEffect(() => {
     if (!enabled || roleCode !== ROLE_CODES.MAYOR || !userId) {
       setReadiness(MAYOR_INVENTORY_PREPARATION_STATUS.NOT_PREPARED);
       setDiagnostics(null);
       setHasCompleteCache(false);
+      reconnectGenerationRef.current = null;
       return undefined;
+    }
+
+    const scope = getMayorInventoryCacheScope();
+    const scopeKey = mayorInventoryReconnectCoordinator.buildScopeKey(scope);
+    if (reconnectGenerationRef.current?.scopeKey !== scopeKey) {
+      reconnectGenerationRef.current = null;
     }
 
     let mounted = true;
@@ -48,9 +59,15 @@ export const useMayorInventoryOfflinePreparation = ({
 
       const isOffline =
         typeof navigator !== "undefined" && navigator.onLine === false;
+      const lifecycleRequiresRefresh =
+        Boolean(scope) &&
+        mayorInventoryReconnectCoordinator.hasPendingPreparation(scope);
+      const explicitRetry = explicitRetryRef.current;
       const shouldRefreshOnline =
         !isOffline &&
         (refreshRequestedRef.current ||
+          explicitRetry ||
+          lifecycleRequiresRefresh ||
           preparation?.status ===
             MAYOR_INVENTORY_PREPARATION_STATUS.NEEDS_REFRESH);
 
@@ -80,17 +97,59 @@ export const useMayorInventoryOfflinePreparation = ({
       setReadiness(MAYOR_INVENTORY_PREPARATION_STATUS.PREPARING);
 
       try {
-        const result = await prepareMayorInventoryOfflineData({ userId });
+        const requestToken =
+          reconnectGenerationRef.current ||
+          (lifecycleRequiresRefresh
+            ? mayorInventoryReconnectCoordinator.getCurrentGeneration(scope)
+            : null);
+        const result = await mayorInventoryReconnectCoordinator.requestCompleteGeneration({
+          scope,
+          token: requestToken,
+          force: explicitRetry,
+          requireFresh:
+            !cache ||
+            preparation?.status ===
+              MAYOR_INVENTORY_PREPARATION_STATUS.NEEDS_REFRESH,
+          waitForSync: Boolean(requestToken?.waitForSync),
+          run: () => prepareMayorInventoryOfflineData({ userId }),
+        });
+
         if (mounted) {
-          setDiagnostics(result?.diagnostics || null);
+          if (result?.stale) {
+            // A sync invalidation crossed the preparation boundary. Let the
+            // next effect run the current generation instead of treating the
+            // older graph as post-sync authority.
+            refreshRequestedRef.current = true;
+            reconnectGenerationRef.current =
+              mayorInventoryReconnectCoordinator.getCurrentGeneration(scope);
+            setReadiness(MAYOR_INVENTORY_PREPARATION_STATUS.PREPARING);
+            setRevision((value) => value + 1);
+            return;
+          }
+
+          setDiagnostics(result?.diagnostics || preparation || null);
           const verifiedCache = await getMayorInventoryCacheSnapshot();
           if (!mounted) {
             return;
           }
           setHasCompleteCache(Boolean(verifiedCache));
           refreshRequestedRef.current = false;
+          explicitRetryRef.current = false;
+          reconnectGenerationRef.current = null;
+          const resultStatus =
+            result?.status || MAYOR_INVENTORY_PREPARATION_STATUS.READY;
+          const hasVerifiedReadyResult =
+            result?.skipped
+              ? Boolean(verifiedCache)
+              : result?.verifiedCompleteGraph === true &&
+                Boolean(verifiedCache);
           setReadiness(
-            result?.status || MAYOR_INVENTORY_PREPARATION_STATUS.READY,
+            resultStatus === MAYOR_INVENTORY_PREPARATION_STATUS.READY &&
+              !hasVerifiedReadyResult
+              ? verifiedCache
+                ? MAYOR_INVENTORY_PREPARATION_STATUS.NEEDS_REFRESH
+                : MAYOR_INVENTORY_PREPARATION_STATUS.NOT_READY
+              : resultStatus,
           );
         }
       } catch (_error) {
@@ -104,6 +163,7 @@ export const useMayorInventoryOfflinePreparation = ({
           }
 
           setHasCompleteCache(Boolean(cacheAfterFailure));
+          explicitRetryRef.current = false;
           setReadiness(
             cacheAfterFailure
               ? MAYOR_INVENTORY_PREPARATION_STATUS.NEEDS_REFRESH
@@ -114,6 +174,39 @@ export const useMayorInventoryOfflinePreparation = ({
         }
       }
     };
+
+    const handleLifecycleEvent = (event) => {
+      if (!mounted || !event) {
+        return;
+      }
+
+      if (event.type === "online") {
+        if (!event.isNewReconnect) {
+          return;
+        }
+
+        reconnectGenerationRef.current =
+          mayorInventoryReconnectCoordinator.beginReconnectGeneration(scope);
+        refreshRequestedRef.current = true;
+        setRevision((value) => value + 1);
+        return;
+      }
+
+      if (
+        event.type !== "invalidated" ||
+        event.scopeKey !== scopeKey
+      ) {
+        return;
+      }
+
+      reconnectGenerationRef.current =
+        mayorInventoryReconnectCoordinator.getCurrentGeneration(scope);
+      refreshRequestedRef.current = true;
+      setRevision((value) => value + 1);
+    };
+
+    const unsubscribeLifecycle =
+      mayorInventoryReconnectCoordinator.subscribe(handleLifecycleEvent);
 
     const handlePreparationUpdate = (event) => {
       if (!mounted || !event.detail) {
@@ -137,14 +230,8 @@ export const useMayorInventoryOfflinePreparation = ({
       });
     };
 
-    const handleOnline = () => {
-      refreshRequestedRef.current = true;
-      setRevision((value) => value + 1);
-    };
-
     void run();
     if (typeof window !== "undefined") {
-      window.addEventListener("online", handleOnline);
       window.addEventListener(
         "distync-offline-preparation-updated",
         handlePreparationUpdate,
@@ -153,8 +240,8 @@ export const useMayorInventoryOfflinePreparation = ({
 
     return () => {
       mounted = false;
+      unsubscribeLifecycle();
       if (typeof window !== "undefined") {
-        window.removeEventListener("online", handleOnline);
         window.removeEventListener(
           "distync-offline-preparation-updated",
           handlePreparationUpdate,
@@ -172,6 +259,7 @@ export const useMayorInventoryOfflinePreparation = ({
     isReady: hasCompleteCache,
     hasCompleteCache,
     retry: () => {
+      explicitRetryRef.current = true;
       refreshRequestedRef.current = true;
       setRevision((value) => value + 1);
     },

@@ -160,7 +160,11 @@ export const prepareMayorInventoryOfflineData = ({ userId } = {}) => {
           error: previousCompleteCache ? null : "Inventory data is not prepared on this device.",
           updatedAt: saved.updated_at,
         });
-        return { status: offlineStatus, diagnostics: saved };
+        return {
+          status: offlineStatus,
+          diagnostics: saved,
+          verifiedCompleteGraph: false,
+        };
       }
 
       const [items, batches, transactions] = await withTimeout(
@@ -216,7 +220,11 @@ export const prepareMayorInventoryOfflineData = ({ userId } = {}) => {
         completedAt: new Date().toISOString(),
         updatedAt: saved.updated_at,
       });
-      return { status: MAYOR_INVENTORY_PREPARATION_STATUS.READY, diagnostics: saved };
+      return {
+        status: MAYOR_INVENTORY_PREPARATION_STATUS.READY,
+        diagnostics: saved,
+        verifiedCompleteGraph: true,
+      };
     } catch (error) {
       const terminalStatus = previousCompleteCache
         ? MAYOR_INVENTORY_PREPARATION_STATUS.NEEDS_REFRESH

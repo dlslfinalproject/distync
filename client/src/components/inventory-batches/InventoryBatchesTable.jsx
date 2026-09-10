@@ -1,5 +1,10 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
+import TablePagination from "../shared/TablePagination";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 import SyncStatusBadge from "../shared/SyncStatusBadge";
 
 const tableStyles = {
@@ -66,7 +71,41 @@ const formatDate = (value) => {
   });
 };
 
-const InventoryBatchesTable = ({ rows, isLoading, errorMessage, onViewDetails }) => {
+const InventoryBatchesTable = ({
+  rows,
+  isLoading,
+  errorMessage,
+  onViewDetails,
+  pagination = null,
+  onPageChange,
+  onPageSizeChange,
+}) => {
+  const paginationEnabled = pagination !== null;
+  const paginationTotalItems = Number(
+    pagination?.totalItems ?? rows.length,
+  );
+  const currentPage = Number(pagination?.page || 1);
+  const currentPageSize = Number(
+    pagination?.pageSize || DEFAULT_TABLE_PAGE_SIZE,
+  );
+
+  const paginationControls = (
+    <TablePagination
+      totalItems={paginationTotalItems}
+      currentPage={currentPage}
+      pageSize={currentPageSize}
+      pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+      onPageChange={onPageChange}
+      onPageSizeChange={onPageSizeChange}
+      isVisible={paginationEnabled}
+      disabled={isLoading}
+      disablePageSize={isLoading}
+      ariaLabel="Inventory batches pagination"
+      previousAriaLabel="Go to previous inventory batches page"
+      nextAriaLabel="Go to next inventory batches page"
+    />
+  );
+
   if (isLoading) {
     return (
       <section style={shellStyles.card}>
@@ -93,6 +132,7 @@ const InventoryBatchesTable = ({ rows, isLoading, errorMessage, onViewDetails })
     return (
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Batches</h3>
+        {paginationControls}
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           No matching records found. Try adjusting your search or filters.
         </p>
@@ -109,6 +149,7 @@ const InventoryBatchesTable = ({ rows, isLoading, errorMessage, onViewDetails })
           expiration details.
         </p>
       </div>
+      {paginationControls}
 
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyles.table}>

@@ -262,6 +262,8 @@ export const buildQueuedHouseholdRow = (
     masterlist_record_id: entry.id || entry.entityLocalId || `local-${entry.clientTimestamp}`,
     family_head_name: familyHeadName || "Pending household",
     address: currentAddress,
+    barangay_id: entry.barangayId || payload.barangay_id || null,
+    barangay_name: payload.barangay_name || assignedBarangayName || "",
     members_count: (hasPersonName(payload.family_head) ? 1 : 0) + submittedMembers.length,
     sectors_text: buildQueuedSectorsText(payload, sectorOptions),
     arrival_time_text: formatDateTime(entry.clientTimestamp),

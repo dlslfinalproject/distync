@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { ROLE_CODES } from "../../utils/roleSession";
 import {
   fetchActiveDisasterEvents,
@@ -27,6 +28,9 @@ import {
 } from "../disaster-events/operationalDisasterEventSelection";
 import { readMswdoOfflineSnapshot } from "../offline/mswdoOfflinePreparation.js";
 import { buildMswdoOfflineMasterlistPayload } from "./mswdoMasterlistOffline.js";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue.js";
+import { deriveBarangayDashboardMetrics } from "../barangay-dashboard/barangayDashboardOfflineMetrics.js";
+import { subscribeToSyncUpdates } from "../../offline/syncService.js";
 
 const emptyMasterlistPayload = {
   disaster_event: null,
@@ -118,7 +122,55 @@ const getSummaryMetrics = (dashboardPayload) => {
   };
 };
 
+const buildOfflineMswdoDashboardPayload = ({ cached, selectedEventId, selectedBarangayId, syncQueueEntries }) => {
+  const projectedRows = buildMswdoOfflineMasterlistPayload({
+    households: cached.datasets.masterlist.rows || [],
+    mapRow: (household, allHouseholds) =>
+      getMappedRows(allHouseholds, allHouseholds, selectedEventId).find(
+        (row) => row.household_id === household.household_id,
+      ),
+    selectedBarangayId,
+    recordStatus: "all",
+    pageSize: Number.MAX_SAFE_INTEGER,
+    basePayload: cached.datasets.masterlist.payload || emptyMasterlistPayload,
+    syncQueueEntries,
+    selectedEventTitle: cached.datasets.masterlist.payload?.disaster_event?.title || "",
+    sectorOptions: cached.datasets.filters.sectors || [],
+  });
+  const baseDashboard = cached.datasets.dashboard.payload || emptyDashboardPayload;
+  const rows = projectedRows.offline_all_projected_rows || [];
+  const metricRows = selectedBarangayId
+    ? rows.filter((row) => String(row?.barangay_id || "") === String(selectedBarangayId))
+    : rows;
+  const barangayIds = new Set(rows.map((row) => row?.barangay_id).filter(Boolean));
+  const derived = deriveBarangayDashboardMetrics({
+    rows: metricRows,
+    syncQueueEntries,
+    selectedEventId,
+    assignedBarangayId: selectedBarangayId,
+  });
+  return {
+    ...baseDashboard,
+    has_data: rows.length > 0,
+    summary_metrics: {
+      ...baseDashboard.summary_metrics,
+      total_number_of_evacuees_individuals: derived.total_evacuees_individuals,
+      total_number_of_families: derived.total_families,
+      currently_admitted_evacuees: derived.currently_admitted_evacuees,
+      total_departed_evacuees: derived.total_departed_evacuees,
+      total_barangays_covered: selectedBarangayId
+        ? (rows.some((row) => String(row.barangay_id) === String(selectedBarangayId)) ? 1 : 0)
+        : barangayIds.size,
+    },
+  };
+};
+
 export const useMswdoMasterlist = ({ userId = "" } = {}) => {
+  const syncQueueEntries = useLiveQuery(
+    () => getVisibleSyncQueueEntries(),
+    [userId],
+    [],
+  ) || [];
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
   const [sectors, setSectors] = useState([]);
@@ -355,6 +407,9 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
               ...emptyMasterlistPayload,
               data: completeHouseholds,
             },
+            syncQueueEntries,
+            selectedEventTitle: cached.datasets.masterlist.payload?.disaster_event?.title || "",
+            sectorOptions: cached.datasets.filters.sectors || [],
           });
           setMasterlistPayload(offlinePayload);
           return;
@@ -399,6 +454,9 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
               currentPage,
               pageSize,
               basePayload: cached.datasets.masterlist.payload || emptyMasterlistPayload,
+              syncQueueEntries,
+              selectedEventTitle: cached.datasets.masterlist.payload?.disaster_event?.title || "",
+              sectorOptions: cached.datasets.filters.sectors || [],
             }));
             setErrorMessage("");
           } else {
@@ -431,6 +489,7 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
     selectedDisasterEventId,
     selectedSectorIds,
     selectedSortOrder,
+    syncQueueEntries,
   ]);
 
   useEffect(() => {
@@ -458,7 +517,12 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
         if (isMounted) {
           const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
           if (cached) {
-            setDashboardPayload(cached.datasets.dashboard.payload || emptyDashboardPayload);
+            setDashboardPayload(buildOfflineMswdoDashboardPayload({
+              cached,
+              selectedEventId: selectedDisasterEventId,
+              selectedBarangayId,
+              syncQueueEntries,
+            }));
             setDashboardErrorMessage("");
           } else {
             setDashboardPayload(emptyDashboardPayload);
@@ -485,8 +549,14 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
     return () => window?.removeEventListener?.("online", refresh);
   }, []);
 
+  useEffect(() => subscribeToSyncUpdates(() => setReloadKey((value) => value + 1)), []);
+
   const mappedRows = useMemo(() => {
     const pageHouseholds = masterlistPayload.data || [];
+
+    if (Array.isArray(masterlistPayload.offline_projected_rows)) {
+      return masterlistPayload.offline_projected_rows;
+    }
 
     return getMappedRows(
       pageHouseholds,

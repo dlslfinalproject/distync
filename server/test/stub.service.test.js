@@ -1164,7 +1164,7 @@ test("Stage 5 municipal service uses one set-wise context and returns the comple
   });
 });
 
-test("Stage 5 municipal service returns an authoritative empty success without the dataset query", async () => {
+test("DISTFETCH-08 municipal service accepts a valid empty event for MSWDO without the dataset query", async () => {
   let datasetQueryCalled = false;
 
   await withStubbedStubService(
@@ -1182,7 +1182,7 @@ test("Stage 5 municipal service returns an authoritative empty success without t
     async ({ getMunicipalStubDashboard }) => {
       const result = await getMunicipalStubDashboard({
         disaster_event_id: baseStub.disaster_event_id,
-        requester: { roleCode: "MAYOR" },
+        requester: { roleCode: "MSWDO", userId: "mswdo-user" },
       });
 
       assert.deepEqual(result.barangay_ids, []);
@@ -1195,7 +1195,7 @@ test("Stage 5 municipal service returns an authoritative empty success without t
   assert.equal(datasetQueryCalled, false);
 });
 
-test("Stage 5 municipal service fails closed for non-Mayors, inactive events, and invalid affected mappings", async () => {
+test("DISTFETCH-04 municipal service fails closed for unauthorized roles, inactive events, and invalid affected mappings", async () => {
   await withStubbedStubService(
     createBaseStubs({
       disasterEventOverrides: {
@@ -1214,7 +1214,7 @@ test("Stage 5 municipal service fails closed for non-Mayors, inactive events, an
         () =>
           getMunicipalStubDashboard({
             disaster_event_id: baseStub.disaster_event_id,
-            requester: { roleCode: "MSWDO" },
+            requester: { roleCode: "BARANGAY" },
           }),
         (error) => {
           assert.equal(error.statusCode, 403);
