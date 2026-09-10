@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useLiveQuery } from "dexie-react-hooks";
 import { FiX } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
 import { shellStyles } from "../components/layout/BarangayLayout";
@@ -28,7 +27,6 @@ import {
   reassignLeftoverDonationStock,
   updateDonationPublicName,
 } from "../features/donations/donationService";
-import { mergeDonationsWithSyncStatus } from "../features/donations/donationSync";
 import {
   defaultPortalData,
   filterDonations,
@@ -43,9 +41,6 @@ import {
 } from "../features/donations/donationPageUi";
 import { useDonationManagementModals } from "../features/donations/useDonationManagementModals";
 import { useAuth } from "../context/AuthContext";
-import db from "../offline/db.js";
-import { subscribeToSyncUpdates } from "../offline/syncService";
-import { getVisibleSyncQueueEntries } from "../offline/syncQueue";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
@@ -336,9 +331,6 @@ const DonationManagementPage = () => {
     isSubmitting: false,
   });
 
-  const syncQueueEntries =
-    useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
-
   const loadPageData = async (eventId = selectedEventId) => {
     setIsLoading(true);
     setPageErrorMessage("");
@@ -390,30 +382,12 @@ const DonationManagementPage = () => {
     loadPageData(selectedEventId);
   }, [canManageDonations, selectedEventId]);
 
-  useEffect(() => {
-    const unsubscribe = subscribeToSyncUpdates(() => {
-      if (typeof navigator !== "undefined" && navigator.onLine) {
-        loadPageData(selectedEventId);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [selectedEventId]);
-
-  const donationsWithSyncStatus = useMemo(() => {
-    return mergeDonationsWithSyncStatus({
-      donations,
-      syncQueueEntries,
-      selectedEventId,
-      inventoryItems,
-      disasterEvents,
-    });
-  }, [disasterEvents, donations, inventoryItems, selectedEventId, syncQueueEntries]);
+  const donationRows = Array.isArray(donations) ? donations : [];
 
   const donorSuggestions = useMemo(() => {
     const donorMap = new Map();
 
-    donationsWithSyncStatus.forEach((donation) => {
+    donationRows.forEach((donation) => {
       const donorName = String(donation?.donor_name || "").trim();
 
       if (!donorName) {
@@ -453,11 +427,11 @@ const DonationManagementPage = () => {
         { sensitivity: "base" },
       ),
     );
-  }, [donationsWithSyncStatus]);
+  }, [donationRows]);
 
   const donationSummaryCards = useMemo(() => {
-    return getDonationSummaryCards(donationsWithSyncStatus);
-  }, [donationsWithSyncStatus]);
+    return getDonationSummaryCards(donationRows);
+  }, [donationRows]);
 
   const transparencySummaryCards = useMemo(() => {
     const transparencySummary = portalData.transparency_summary || {};
@@ -494,7 +468,7 @@ const DonationManagementPage = () => {
     return sortDonations(
       filterDonationsByDonorTypes(
         filterDonationsByType(
-          filterDonations(donationsWithSyncStatus, donationSearch),
+          filterDonations(donationRows, donationSearch),
           donationTypeFilter,
         ),
         donationToolbarFilters.donorTypes,
@@ -505,7 +479,7 @@ const DonationManagementPage = () => {
       can_reassign_leftover_stock: canReassignDonationLeftoverStock(donation),
     }));
   }, [
-    donationsWithSyncStatus,
+    donationRows,
     donationSearch,
     donationTypeFilter,
     donationToolbarFilters.donorTypes,
@@ -528,12 +502,16 @@ const DonationManagementPage = () => {
       const writeOffReasonText = (row.write_off_reasons || [])
         .map((reasonRow) => reasonRow.reason)
         .join(" ");
+      const distributionEventText = (row.distribution_event_breakdown || [])
+        .map((eventRow) => eventRow.event_title)
+        .join(" ");
 
       return [
         row.donor_name,
         row.item_name,
         row.disaster_event_title,
         writeOffReasonText,
+        distributionEventText,
       ]
         .join(" ")
         .toLowerCase()
@@ -763,7 +741,7 @@ const DonationManagementPage = () => {
   };
 
   const openDonorNameVisibilityModal = (donation) => {
-    if (!donation?.id || donation.is_local_only) {
+    if (!donation?.id) {
       return;
     }
 

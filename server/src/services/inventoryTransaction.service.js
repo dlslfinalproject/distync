@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
+const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
 const mayorReportExport = require("../utils/mayorReportExport");
@@ -585,6 +586,28 @@ const createInventoryTransaction = async (transactionData) => {
       inventoryBatch.inventory_item_id,
       { dbClient: client },
     );
+
+    if (inventoryBatch.source_type === "DONATED") {
+      const linkedDonationIdsResult = await client.query(
+        `
+          SELECT DISTINCT donation_id
+          FROM donation_items
+          WHERE inventory_batch_id = $1
+            AND donation_id IS NOT NULL
+        `,
+        [inventoryBatch.id],
+      );
+
+      if (
+        typeof distributionTransactionRepository.updateDonationStatusesByIds ===
+        "function"
+      ) {
+        await distributionTransactionRepository.updateDonationStatusesByIds(
+          linkedDonationIdsResult.rows.map((row) => row.donation_id),
+          client,
+        );
+      }
+    }
 
     const domainSideEffect = {
       transaction: createdTransaction,

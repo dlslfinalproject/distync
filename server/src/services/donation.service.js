@@ -472,7 +472,99 @@ const mergePublicDonationWriteOffReasons = (existingReasons, nextReasons) => {
     .map(([reason, quantity]) => ({ reason, quantity }));
 };
 
-const buildPublicDonationUtilizationRows = (rows) => {
+const mergePublicDonationDistributionEvents = (
+  existingEvents,
+  nextEvents,
+) => {
+  const eventTotals = new Map();
+
+  [
+    ...(Array.isArray(existingEvents) ? existingEvents : []),
+    ...(Array.isArray(nextEvents) ? nextEvents : []),
+  ].forEach((eventRow) => {
+    const eventId = eventRow?.event_id || null;
+    const eventTitle = String(
+      eventRow?.event_title || "Unassigned disaster event",
+    ).trim();
+    const eventKey = `${eventId || "unassigned"}|${eventTitle}`;
+
+    eventTotals.set(eventKey, {
+      event_id: eventId,
+      event_title: eventTitle,
+      quantity:
+        Number(eventTotals.get(eventKey)?.quantity || 0) +
+        Number(eventRow?.quantity || 0),
+    });
+  });
+
+  return [...eventTotals.values()]
+    .filter((eventRow) => eventRow.quantity > 0)
+    .sort((leftEvent, rightEvent) =>
+      leftEvent.event_title.localeCompare(rightEvent.event_title),
+    );
+};
+
+const buildCompletePackEventBreakdown = (components, breakdownField) => {
+  const eventRows = new Map();
+
+  (Array.isArray(components) ? components : []).forEach((component) => {
+    (Array.isArray(component?.[breakdownField])
+      ? component[breakdownField]
+      : []
+    ).forEach((eventRow) => {
+      const eventId = eventRow?.event_id || null;
+      const eventTitle = String(
+        eventRow?.event_title || "Unassigned disaster event",
+      ).trim();
+      const eventKey = `${eventId || "unassigned"}|${eventTitle}`;
+
+      if (!eventRows.has(eventKey)) {
+        eventRows.set(eventKey, {
+          event_id: eventId,
+          event_title: eventTitle,
+        });
+      }
+    });
+  });
+
+  return [...eventRows.values()]
+    .map((eventRow) => {
+      const eventKey = `${eventRow.event_id || "unassigned"}|${
+        eventRow.event_title
+      }`;
+      const quantity = Math.min(
+        ...(Array.isArray(components) ? components : []).map((component) => {
+          const componentEventQuantity = (
+            Array.isArray(component?.[breakdownField])
+              ? component[breakdownField]
+              : []
+          ).find(
+            (componentEvent) =>
+              `${componentEvent?.event_id || "unassigned"}|${
+                componentEvent?.event_title || "Unassigned disaster event"
+              }` === eventKey,
+          )?.quantity;
+
+          return Math.floor(
+            Number(componentEventQuantity || 0) /
+              Number(component.quantity_per_pack || 1),
+          );
+        }),
+      );
+
+      return {
+        ...eventRow,
+        quantity,
+      };
+    })
+    .filter((eventRow) => eventRow.quantity > 0)
+    .sort((leftEvent, rightEvent) =>
+      leftEvent.event_title.localeCompare(rightEvent.event_title),
+    );
+};
+
+const buildPublicDonationUtilizationRows = (rows, options = {}) => {
+  const publicView = options.publicView === true;
   const groups = new Map();
 
   (Array.isArray(rows) ? rows : []).forEach((row) => {
@@ -514,10 +606,17 @@ const buildPublicDonationUtilizationRows = (rows) => {
       quantity_written_off: 0,
       quantity_remaining: 0,
       write_off_reasons: [],
+      distribution_event_breakdown: [],
+      transfer_event_breakdown: [],
       components: [],
     };
 
     if (packMeta) {
+      const quantityReceivedAfterWriteOff = Math.max(
+        0,
+        Number(row.quantity_received || 0) -
+          (publicView ? Number(row.quantity_written_off || 0) : 0),
+      );
       const quantityPerPack = Math.floor(
         Number(row.quantity_received || 0) / packMeta.packQuantity,
       );
@@ -528,12 +627,27 @@ const buildPublicDonationUtilizationRows = (rows) => {
 
       existingGroup.components.push({
         quantity_per_pack: quantityPerPack,
+        quantity_received_packs: Math.floor(
+          quantityReceivedAfterWriteOff / quantityPerPack,
+        ),
         quantity_distributed: Number(row.quantity_distributed || 0),
         quantity_written_off: Number(row.quantity_written_off || 0),
         quantity_remaining: Number(row.quantity_remaining || 0),
+        distribution_event_breakdown: Array.isArray(
+          row.distribution_event_breakdown,
+        )
+          ? row.distribution_event_breakdown
+          : [],
+        transfer_event_breakdown: Array.isArray(row.transfer_event_breakdown)
+          ? row.transfer_event_breakdown
+          : [],
       });
     } else {
-      existingGroup.quantity_received += Number(row.quantity_received || 0);
+      existingGroup.quantity_received += Math.max(
+        0,
+        Number(row.quantity_received || 0) -
+          (publicView ? Number(row.quantity_written_off || 0) : 0),
+      );
       existingGroup.quantity_distributed += Number(
         row.quantity_distributed || 0,
       );
@@ -547,11 +661,22 @@ const buildPublicDonationUtilizationRows = (rows) => {
       existingGroup.write_off_reasons,
       row.write_off_reasons,
     );
+    existingGroup.distribution_event_breakdown =
+      mergePublicDonationDistributionEvents(
+        existingGroup.distribution_event_breakdown,
+        row.distribution_event_breakdown,
+      );
+    existingGroup.transfer_event_breakdown =
+      mergePublicDonationDistributionEvents(
+        existingGroup.transfer_event_breakdown,
+        row.transfer_event_breakdown,
+      );
 
     groups.set(sourceKey, existingGroup);
   });
 
-  return [...groups.values()].map((group) => {
+  return [...groups.values()]
+    .map((group) => {
     if (group.source_type !== "RELIEF_PACK") {
       return group;
     }
@@ -573,13 +698,37 @@ const buildPublicDonationUtilizationRows = (rows) => {
 
     return {
       ...group,
-      quantity_received: group.pack_quantity,
+      quantity_received: publicView
+        ? Math.min(
+            ...group.components.map((component) =>
+              Number(component.quantity_received_packs || 0),
+            ),
+          )
+        : group.pack_quantity,
       quantity_distributed: getCompletePackCount("quantity_distributed"),
       quantity_written_off: getCompletePackCount("quantity_written_off"),
       quantity_remaining: getCompletePackCount("quantity_remaining"),
+      distribution_event_breakdown: buildCompletePackEventBreakdown(
+        group.components,
+        "distribution_event_breakdown",
+      ),
+      transfer_event_breakdown: buildCompletePackEventBreakdown(
+        group.components,
+        "transfer_event_breakdown",
+      ),
       components: undefined,
     };
-  });
+    })
+    .filter((group) => {
+      if (!publicView) {
+        return true;
+      }
+
+      return (
+        Number(group.quantity_received || 0) > 0 ||
+        Number(group.quantity_distributed || 0) > 0
+      );
+    });
 };
 
 const calculatePublicDonationUtilizationTotals = (rows) =>
@@ -627,6 +776,9 @@ const mapPublicDonationUtilizationRow = (row, getPublicDonorLabel) => ({
   write_off_reasons: Array.isArray(row.write_off_reasons)
     ? row.write_off_reasons
     : [],
+  distribution_event_breakdown: Array.isArray(row.distribution_event_breakdown)
+    ? row.distribution_event_breakdown
+    : [],
   quantity_remaining: row.quantity_remaining,
 });
 
@@ -646,6 +798,12 @@ const mapManagementDonationUtilizationRow = (row) => ({
   quantity_written_off: row.quantity_written_off,
   write_off_reasons: Array.isArray(row.write_off_reasons)
     ? row.write_off_reasons
+    : [],
+  distribution_event_breakdown: Array.isArray(row.distribution_event_breakdown)
+    ? row.distribution_event_breakdown
+    : [],
+  transfer_event_breakdown: Array.isArray(row.transfer_event_breakdown)
+    ? row.transfer_event_breakdown
     : [],
   quantity_remaining: row.quantity_remaining,
 });
@@ -1914,6 +2072,16 @@ const createDonationItem = async (donationId, payload, performedBy) => {
       inventoryItemByNameCache: new Map(),
     });
 
+    if (
+      typeof distributionTransactionRepository.updateDonationStatusesByIds ===
+      "function"
+    ) {
+      await distributionTransactionRepository.updateDonationStatusesByIds(
+        [donation.id],
+        client,
+      );
+    }
+
     await client.query("COMMIT");
 
     const donationItem = await donationRepository.getDonationItemById(
@@ -2126,6 +2294,16 @@ const updateDonationItem = async (id, payload, performedBy) => {
       { dbClient: client },
     );
 
+    if (
+      typeof distributionTransactionRepository.updateDonationStatusesByIds ===
+      "function"
+    ) {
+      await distributionTransactionRepository.updateDonationStatusesByIds(
+        [donation.id],
+        client,
+      );
+    }
+
     await client.query("COMMIT");
 
     const donationItem = await donationRepository.getDonationItemById(id, pool);
@@ -2273,6 +2451,17 @@ const deleteDonationItem = async (id, performedBy) => {
       performedBy,
       dbClient: client,
     });
+
+    if (
+      typeof distributionTransactionRepository.updateDonationStatusesByIds ===
+      "function"
+    ) {
+      await distributionTransactionRepository.updateDonationStatusesByIds(
+        [donation.id],
+        client,
+      );
+    }
+
     await client.query("COMMIT");
 
     await logAuditSafely({
@@ -2479,7 +2668,7 @@ const reassignLeftoverDonationStock = async (
 
     await donationRepository.insertInventoryTransaction(
       {
-        disaster_event_id: sourceDonation.disaster_event_id,
+        disaster_event_id: targetEvent.id,
         inventory_batch_id: sourceBatch.id,
         transaction_type: "OUTFLOW",
         quantity: quantityToReassign,
@@ -2671,10 +2860,12 @@ const getPublicDonationPortal = async (options = null) => {
     defaultEmergencyNeedRows,
   ] = visibleDisasterEventIds.length > 0
     ? await Promise.all([
-        donationRepository.getDonationSummaryTotals(visibleDisasterEventIds),
+        donationRepository.getDonationSummaryTotals(visibleDisasterEventIds, {
+          scope: "public",
+        }),
         donationRepository.getDonationItemTransparencySummary(
           visibleDisasterEventIds,
-          transparencyPaginationOptions || undefined,
+          transparencyPaginationOptions || { scope: "public" },
         ),
         donationRepository.getPublicRecentDonationSummaries(
           visibleDisasterEventIds,
@@ -2721,7 +2912,9 @@ const getPublicDonationPortal = async (options = null) => {
       : Array.isArray(transparencyQueryResult?.rows)
         ? transparencyQueryResult.rows
         : []
-    : buildPublicDonationUtilizationRows(transparencyQueryResult);
+    : buildPublicDonationUtilizationRows(transparencyQueryResult, {
+        publicView: true,
+      });
   const publicUtilizationTotals =
     hasTransparencyPagination && transparencyQueryResult?.totals
       ? {
@@ -2843,8 +3036,12 @@ const getDonationManagementTransparency = async (options = null) => {
     null;
 
   const [summaryTotals, transparencyRows] = await Promise.all([
-    donationRepository.getDonationSummaryTotals(disasterEventId),
-    donationRepository.getDonationItemTransparencySummary(disasterEventId),
+    donationRepository.getDonationSummaryTotals(disasterEventId, {
+      includeCrossEventDistributions: true,
+    }),
+    donationRepository.getDonationItemTransparencySummary(disasterEventId, {
+      scope: "management",
+    }),
   ]);
   const utilizationRows = buildPublicDonationUtilizationRows(transparencyRows);
   const utilizationTotals = calculatePublicDonationUtilizationTotals(
@@ -3065,8 +3262,45 @@ const exportReceivedDonationsReport = async (filters = {}, format) => {
     ],
     rows,
     format,
+    pdfLayout: "wide",
+    excelLayout: "wide",
   });
 };
+
+const formatDonationEventDetails = (breakdown, unitOfMeasure, prefix) => {
+  let normalizedBreakdown = breakdown;
+
+  if (typeof normalizedBreakdown === "string") {
+    try {
+      normalizedBreakdown = JSON.parse(normalizedBreakdown);
+    } catch (_error) {
+      normalizedBreakdown = [];
+    }
+  }
+
+  if (!Array.isArray(normalizedBreakdown) || normalizedBreakdown.length === 0) {
+    return "--";
+  }
+
+  const normalizedUnit = String(unitOfMeasure || "").trim();
+
+  return normalizedBreakdown
+    .map((eventRow) => {
+      const eventTitle = String(
+        eventRow?.event_title || "Unassigned disaster event",
+      ).trim();
+      const quantity = Number(eventRow?.quantity || 0);
+
+      return `${prefix} ${eventTitle}: ${quantity}${normalizedUnit ? ` ${normalizedUnit}` : ""}`;
+    })
+    .join("; ");
+};
+
+const formatDistributionEventDetails = (breakdown, unitOfMeasure) =>
+  formatDonationEventDetails(breakdown, unitOfMeasure, "To");
+
+const formatTransferEventDetails = (breakdown, unitOfMeasure) =>
+  formatDonationEventDetails(breakdown, unitOfMeasure, "Transferred to");
 
 const exportDonationTransparencyReport = async (filters = {}, format) => {
   const rows = await donationRepository.getDonationTransparencyExportRows(
@@ -3075,6 +3309,14 @@ const exportDonationTransparencyReport = async (filters = {}, format) => {
   const sortedRows = sortDonationRowsForReport(rows, filters.sort_order).map(
     (row) => ({
       ...row,
+      distribution_event_details: formatDistributionEventDetails(
+        row.distribution_event_breakdown,
+        row.unit_of_measure,
+      ),
+      transfer_event_details: formatTransferEventDetails(
+        row.transfer_event_breakdown,
+        row.unit_of_measure,
+      ),
       write_off_reasons: row.write_off_reasons || "--",
     }),
   );
@@ -3099,6 +3341,18 @@ const exportDonationTransparencyReport = async (filters = {}, format) => {
     columns: [
       { key: "donor_name", label: "Donor Name", width: 24, pdfWidth: 100 },
       { key: "disaster_event", label: "Disaster Event", width: 28, pdfWidth: 118 },
+      {
+        key: "distribution_event_details",
+        label: "Distribution Details",
+        width: 32,
+        pdfWidth: 154,
+      },
+      {
+        key: "transfer_event_details",
+        label: "Transfer Details",
+        width: 30,
+        pdfWidth: 140,
+      },
       { key: "item_name", label: "Item Name", width: 28, pdfWidth: 124 },
       { key: "unit_of_measure", label: "Unit", width: 14, pdfWidth: 64 },
       { key: "quantity_received", label: "Received", width: 14, pdfWidth: 70 },
@@ -3119,6 +3373,8 @@ const exportDonationTransparencyReport = async (filters = {}, format) => {
     ],
     rows: sortedRows,
     format,
+    pdfLayout: "wide",
+    excelLayout: "wide",
   });
 };
 

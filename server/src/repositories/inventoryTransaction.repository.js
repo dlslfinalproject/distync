@@ -148,6 +148,7 @@ const getInventoryBatchByIdForUpdate = async (id, dbClient) => {
       ib.quantity_received,
       ib.quantity_available,
       ib.stock_version,
+      ib.source_type,
       ib.expiration_date,
       ib.status,
       ii.item_code,

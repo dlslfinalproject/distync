@@ -1479,35 +1479,29 @@ export const useDonationManagementModals = ({
           );
         }
 
-        const response = await createDonation({
+        await createDonation({
           ...payload,
           items: resolvedDonationItems,
         });
         setSuccessMessage("Donation recorded successfully.");
-        if (!response?.queued_offline) {
-          await loadPageData(selectedEventId);
-        }
+        await loadPageData(selectedEventId);
       } else {
-        const response = await updateDonation(donationForm.id, payload);
-        if (!response?.queued_offline) {
-          for (const item of itemsForSubmission) {
-            if (item.entry_type === "RELIEF_PACK") {
-              const reliefPackItemPayloads = buildExistingReliefPackDonationItemPayloads(item);
+        await updateDonation(donationForm.id, payload);
+        for (const item of itemsForSubmission) {
+          if (item.entry_type === "RELIEF_PACK") {
+            const reliefPackItemPayloads = buildExistingReliefPackDonationItemPayloads(item);
 
-              for (const reliefPackItemPayload of reliefPackItemPayloads) {
-                await updateDonationItem(reliefPackItemPayload.id, reliefPackItemPayload);
-              }
-              continue;
+            for (const reliefPackItemPayload of reliefPackItemPayloads) {
+              await updateDonationItem(reliefPackItemPayload.id, reliefPackItemPayload);
             }
-
-            const stagedLooseItemPayload = buildExistingLooseDonationItemPayload(item);
-            await updateDonationItem(stagedLooseItemPayload.id, stagedLooseItemPayload);
+            continue;
           }
+
+          const stagedLooseItemPayload = buildExistingLooseDonationItemPayload(item);
+          await updateDonationItem(stagedLooseItemPayload.id, stagedLooseItemPayload);
         }
         setSuccessMessage("Donation updated successfully.");
-        if (!response?.queued_offline) {
-          await loadPageData(selectedEventId);
-        }
+        await loadPageData(selectedEventId);
       }
 
       closeDonationModal();

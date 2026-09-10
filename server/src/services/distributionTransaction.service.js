@@ -1730,6 +1730,16 @@ const createDistributionTransaction = async (requestData) => {
       { dbClient: client },
     );
 
+    if (
+      typeof distributionTransactionRepository.updateDonationStatusesByIds ===
+      "function"
+    ) {
+      await distributionTransactionRepository.updateDonationStatusesByIds(
+        [...new Set(releasedItems.map((item) => item.donation_id).filter(Boolean))],
+        client,
+      );
+    }
+
     const updatedStub = await distributionTransactionRepository.updateStubAsClaimed(
       requestData.stub_id,
       client,

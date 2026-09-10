@@ -427,6 +427,24 @@ body {
   max-width: none !important;
 }
 
+@media (min-width: 1025px) {
+  .distync-sidebar[data-collapsed="true"]
+    ~ .distync-shell__main
+    #donation-management-donations-panel
+    .mayor-donation-management-table {
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed !important;
+  }
+
+  .distync-sidebar[data-collapsed="true"]
+    ~ .distync-shell__main
+    #donation-management-donations-panel
+    .mayor-donation-management-table-scroll {
+    overflow-x: hidden !important;
+  }
+}
+
 .mayor-donation-management-detail-table {
   min-width: 760px !important;
 }

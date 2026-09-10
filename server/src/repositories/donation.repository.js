@@ -724,6 +724,7 @@ const syncDonationInventoryTransactions = async (
       FROM donation_items di
       WHERE di.id = it.reference_id
         AND it.reference_type = 'DONATION'
+        AND COALESCE(it.remarks, '') NOT ILIKE 'Reassigned leftover donated stock%'
         AND di.donation_id = $1
     `,
     [donationId, disaster_event_id],
@@ -742,6 +743,7 @@ const syncDonationInventoryTransactions = async (
           FROM inventory_transactions it
           INNER JOIN donation_items di ON di.id = it.reference_id
           WHERE it.reference_type = 'DONATION'
+            AND COALESCE(it.remarks, '') NOT ILIKE 'Reassigned leftover donated stock%'
             AND di.donation_id = $1
         )
         UPDATE inventory_transactions it
@@ -777,6 +779,7 @@ const syncDonationInventoryTransactions = async (
         INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
         INNER JOIN donation_source ds ON ds.id = di.donation_id
         WHERE it.reference_type = 'DONATION'
+          AND COALESCE(it.remarks, '') NOT ILIKE 'Reassigned leftover donated stock%'
           AND di.donation_id = $1
       )
       UPDATE inventory_transactions it
@@ -1246,6 +1249,35 @@ const getPublicRecentDonationSummaries = async (
         INNER JOIN disaster_events de ON de.id = d.disaster_event_id
         WHERE d.disaster_event_id = ANY($1::uuid[])
           AND d.status <> 'CANCELLED'
+          AND EXISTS (
+            SELECT 1
+            FROM donation_items public_di
+            INNER JOIN inventory_batches public_ib
+              ON public_ib.id = public_di.inventory_batch_id
+             AND public_ib.source_type = 'DONATED'
+            LEFT JOIN LATERAL (
+              SELECT COALESCE(SUM(it.quantity), 0)::int AS quantity_written_off
+              FROM inventory_transactions it
+              WHERE it.inventory_batch_id = public_di.inventory_batch_id
+                AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN', 'OTHER')
+            ) public_write_offs ON TRUE
+            LEFT JOIN LATERAL (
+              SELECT COALESCE(SUM(it.quantity), 0)::int AS quantity_distributed
+              FROM inventory_transactions it
+              WHERE it.inventory_batch_id = public_di.inventory_batch_id
+                AND it.transaction_type = 'OUTFLOW'
+                AND it.reference_type = 'DISTRIBUTION'
+                AND it.disaster_event_id = ANY($1::uuid[])
+            ) public_distributions ON TRUE
+            WHERE public_di.donation_id = d.id
+              AND (
+                GREATEST(
+                  public_di.quantity_received - public_write_offs.quantity_written_off,
+                  0
+                ) > 0
+                OR public_distributions.quantity_distributed > 0
+              )
+          )
         GROUP BY
           LOWER(BTRIM(d.donor_name)),
           d.donor_type,
@@ -1284,12 +1316,20 @@ const getPublicRecentDonationSummaries = async (
       LEFT JOIN LATERAL (
         SELECT
           COUNT(DISTINCT di.id)::int AS item_count,
-          COALESCE(SUM(di.quantity_received), 0)::int AS total_quantity_received,
+          COALESCE(SUM(
+            GREATEST(
+              di.quantity_received - COALESCE(write_offs.quantity_written_off, 0),
+              0
+            )
+          ), 0)::int AS total_quantity_received,
           COALESCE(
             SUM(
               CASE
                 WHEN COALESCE(di.remarks, '') ILIKE 'Relief Pack:%' THEN 0
-                ELSE di.quantity_received
+                ELSE GREATEST(
+                  di.quantity_received - COALESCE(write_offs.quantity_written_off, 0),
+                  0
+                )
               END
             ),
             0
@@ -1298,24 +1338,45 @@ const getPublicRecentDonationSummaries = async (
             (
               SELECT SUM(pack_rows.relief_pack_quantity)
               FROM (
-                SELECT DISTINCT
+                SELECT
                   d2.id,
                   di2.remarks,
-                  COALESCE(
-                    NULLIF(
-                      SUBSTRING(di2.remarks FROM '\\sx\\s([0-9]+)\\s*$'),
-                      ''
-                    )::int,
-                    0
-                  ) AS relief_pack_quantity
+                  MIN(
+                    FLOOR(
+                      GREATEST(
+                        di2.quantity_received - COALESCE(pack_write_offs.quantity_written_off, 0),
+                        0
+                      )::numeric /
+                      NULLIF(
+                        FLOOR(
+                          di2.quantity_received::numeric /
+                          NULLIF(
+                            NULLIF(
+                              SUBSTRING(di2.remarks FROM '\\sx\\s([0-9]+)\\s*$'),
+                              ''
+                            )::int,
+                            0
+                          )
+                        ),
+                        0
+                      )
+                    )
+                  )::int AS relief_pack_quantity
                 FROM donations d2
                 INNER JOIN donation_items di2 ON di2.donation_id = d2.id
+                LEFT JOIN LATERAL (
+                  SELECT COALESCE(SUM(it.quantity), 0)::int AS quantity_written_off
+                  FROM inventory_transactions it
+                  WHERE it.inventory_batch_id = di2.inventory_batch_id
+                    AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN', 'OTHER')
+                ) pack_write_offs ON TRUE
                 WHERE LOWER(BTRIM(d2.donor_name)) = donor_groups.normalized_donor_name
                   AND d2.donor_type = donor_groups.donor_type
                   AND COALESCE(d2.donor_type_other, '') = COALESCE(donor_groups.donor_type_other, '')
                   AND d2.disaster_event_id = donor_groups.disaster_event_id
                   AND d2.status <> 'CANCELLED'
                   AND COALESCE(di2.remarks, '') ILIKE 'Relief Pack:%'
+                GROUP BY d2.id, di2.remarks
               ) pack_rows
             ),
             0
@@ -1324,7 +1385,10 @@ const getPublicRecentDonationSummaries = async (
             JSON_AGG(
               JSON_BUILD_OBJECT(
                 'item_name', ii.item_name,
-                'quantity_received', di.quantity_received,
+                'quantity_received', GREATEST(
+                  di.quantity_received - COALESCE(write_offs.quantity_written_off, 0),
+                  0
+                ),
                 'unit_of_measure', ii.unit_of_measure
               )
               ORDER BY ii.item_name
@@ -1334,11 +1398,22 @@ const getPublicRecentDonationSummaries = async (
         FROM donation_items di
         INNER JOIN donations d ON d.id = di.donation_id
         INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
+        LEFT JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(SUM(it.quantity), 0)::int AS quantity_written_off
+          FROM inventory_transactions it
+          WHERE it.inventory_batch_id = di.inventory_batch_id
+            AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN', 'OTHER')
+        ) write_offs ON TRUE
         WHERE LOWER(BTRIM(d.donor_name)) = donor_groups.normalized_donor_name
           AND d.donor_type = donor_groups.donor_type
           AND COALESCE(d.donor_type_other, '') = COALESCE(donor_groups.donor_type_other, '')
           AND d.disaster_event_id = donor_groups.disaster_event_id
           AND d.status <> 'CANCELLED'
+          AND GREATEST(
+            di.quantity_received - COALESCE(write_offs.quantity_written_off, 0),
+            0
+          ) > 0
       ) item_summary ON TRUE
       LEFT JOIN LATERAL (
         SELECT
@@ -1358,12 +1433,27 @@ const getPublicRecentDonationSummaries = async (
   return result.rows;
 };
 
-const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
+const getDonationSummaryTotals = async (
+  disasterEventId,
+  optionsOrDbClient = null,
+  maybeDbClient = pool,
+) => {
+  const dbClient = isDatabaseClient(optionsOrDbClient)
+    ? optionsOrDbClient
+    : maybeDbClient;
+  const options = isDatabaseClient(optionsOrDbClient)
+    ? {}
+    : optionsOrDbClient && typeof optionsOrDbClient === "object"
+      ? optionsOrDbClient
+      : {};
+  const isPublicView = options.scope === "public";
+  const includeCrossEventDistributions =
+    options.includeCrossEventDistributions === true;
   const values = [];
   const donationConditions = [`d.status <> 'CANCELLED'`];
   const distributionConditions = [
     `ib.source_type = 'DONATED'`,
-    `it.transaction_type IN ('OUTFLOW', 'RETURN')`,
+    `it.transaction_type = 'OUTFLOW'`,
     `it.reference_type = 'DISTRIBUTION'`,
   ];
   const writeOffConditions = [
@@ -1380,9 +1470,11 @@ const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
     donatedBatchDonationConditions.push(
       `d.disaster_event_id = ANY($${values.length}::uuid[])`,
     );
-    distributionConditions.push(
-      `it.disaster_event_id = ANY($${values.length}::uuid[])`,
-    );
+    if (!includeCrossEventDistributions) {
+      distributionConditions.push(
+        `it.disaster_event_id = ANY($${values.length}::uuid[])`,
+      );
+    }
   }
 
   const donatedBatchDonationCondition = `EXISTS (
@@ -1402,9 +1494,57 @@ const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
   const writeOffWhere = `WHERE ${writeOffConditions.join(" AND ")}`;
   const batchWhere = `WHERE ${batchConditions.join(" AND ")}`;
 
-  const [donationResult, distributionResult, writeOffResult, batchResult] = await Promise.all([
-    dbClient.query(
+  const donationResultQuery = isPublicView
+    ? `
+        WITH public_item_totals AS (
+          SELECT
+            di.donation_id,
+            COALESCE(SUM(
+              GREATEST(
+                di.quantity_received - COALESCE(write_offs.quantity_written_off, 0),
+                0
+              )
+            ), 0)::int AS quantity_received,
+            COALESCE(SUM(COALESCE(distributions.quantity_distributed, 0)), 0)::int AS quantity_distributed
+          FROM donation_items di
+          LEFT JOIN LATERAL (
+            SELECT COALESCE(SUM(it.quantity), 0)::int AS quantity_written_off
+            FROM inventory_transactions it
+            WHERE it.inventory_batch_id = di.inventory_batch_id
+              AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN', 'OTHER')
+              ${!includeCrossEventDistributions && disasterEventIds.length > 0
+                ? `AND it.disaster_event_id = ANY($1::uuid[])`
+                : ""}
+          ) write_offs ON TRUE
+          LEFT JOIN LATERAL (
+            SELECT COALESCE(SUM(it.quantity), 0)::int AS quantity_distributed
+            FROM inventory_transactions it
+            WHERE it.inventory_batch_id = di.inventory_batch_id
+              AND it.transaction_type = 'OUTFLOW'
+              AND it.reference_type = 'DISTRIBUTION'
+              ${!includeCrossEventDistributions && disasterEventIds.length > 0
+                ? `AND it.disaster_event_id = ANY($1::uuid[])`
+                : ""}
+          ) distributions ON TRUE
+          INNER JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
+            AND ib.source_type = 'DONATED'
+          INNER JOIN donations d2 ON d2.id = di.donation_id
+            AND d2.status <> 'CANCELLED'
+          GROUP BY di.donation_id
+        )
+        SELECT
+          COUNT(DISTINCT d.id)::int AS total_donations_received,
+          COALESCE(SUM(public_item_totals.quantity_received), 0)::int AS total_quantity_received
+        FROM donations d
+        INNER JOIN public_item_totals
+          ON public_item_totals.donation_id = d.id
+        ${donationWhere}
+          AND (
+            public_item_totals.quantity_received > 0
+            OR public_item_totals.quantity_distributed > 0
+          )
       `
+    : `
         SELECT
           COUNT(DISTINCT d.id)::int AS total_donations_received,
           COALESCE(SUM(di.quantity_received), 0)::int AS total_quantity_received
@@ -1414,21 +1554,16 @@ const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
           ON ib.id = di.inventory_batch_id
          AND ib.source_type = 'DONATED'
         ${donationWhere}
-      `,
+      `;
+
+  const [donationResult, distributionResult, writeOffResult, batchResult] = await Promise.all([
+    dbClient.query(
+      donationResultQuery,
       values,
     ),
     dbClient.query(
       `
-        SELECT GREATEST(
-          COALESCE(SUM(
-            CASE
-              WHEN it.transaction_type = 'OUTFLOW' THEN it.quantity
-              WHEN it.transaction_type = 'RETURN' THEN -it.quantity
-              ELSE 0
-            END
-          ), 0),
-          0
-        )::int AS total_donated_items_distributed
+        SELECT COALESCE(SUM(it.quantity), 0)::int AS total_donated_items_distributed
         FROM inventory_transactions it
         INNER JOIN inventory_batches ib ON ib.id = it.inventory_batch_id
         ${distributionWhere}
@@ -1470,6 +1605,7 @@ const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
 const getDonationItemTransparencySummaryLegacy = async (
   disasterEventId,
   dbClient = pool,
+  options = {},
 ) => {
   const values = [];
   const conditions = [
@@ -1477,10 +1613,78 @@ const getDonationItemTransparencySummaryLegacy = async (
     `d.status <> 'CANCELLED'`,
   ];
   const disasterEventIds = normalizeDisasterEventFilter(disasterEventId);
+  const includeCrossEventDistributions =
+    options.includeCrossEventDistributions === true;
   const distributionEventFilter =
-    disasterEventIds.length > 0
+    disasterEventIds.length > 0 && !includeCrossEventDistributions
       ? "AND it.disaster_event_id = ANY($1::uuid[])"
       : "";
+
+  const distributionEventBreakdownSelect = includeCrossEventDistributions
+    ? `COALESCE(
+          distribution_events.distribution_event_breakdown,
+          '[]'::json
+        ) AS distribution_event_breakdown,`
+    : "'[]'::json AS distribution_event_breakdown,";
+  const distributionEventBreakdownJoin = includeCrossEventDistributions
+    ? `LEFT JOIN LATERAL (
+          SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'event_id', event_rows.event_id,
+              'event_title', event_rows.event_title,
+              'quantity', event_rows.quantity
+            )
+            ORDER BY event_rows.event_title ASC, event_rows.event_id ASC
+          ) AS distribution_event_breakdown
+          FROM (
+            SELECT
+              it.disaster_event_id AS event_id,
+              COALESCE(de2.title, 'Unassigned disaster event') AS event_title,
+              COALESCE(SUM(it.quantity), 0)::int AS quantity
+            FROM inventory_transactions it
+            LEFT JOIN disaster_events de2 ON de2.id = it.disaster_event_id
+            WHERE it.inventory_batch_id = di.inventory_batch_id
+              AND it.transaction_type = 'OUTFLOW'
+              AND it.reference_type = 'DISTRIBUTION'
+              AND it.disaster_event_id IS DISTINCT FROM d.disaster_event_id
+            GROUP BY it.disaster_event_id, de2.title
+            HAVING COALESCE(SUM(it.quantity), 0) > 0
+          ) event_rows
+        ) distribution_events ON TRUE`
+    : "";
+  const transferEventBreakdownSelect = includeCrossEventDistributions
+    ? `COALESCE(
+          transfer_events.transfer_event_breakdown,
+          '[]'::json
+        ) AS transfer_event_breakdown,`
+    : "'[]'::json AS transfer_event_breakdown,";
+  const transferEventBreakdownJoin = includeCrossEventDistributions
+    ? `LEFT JOIN LATERAL (
+          SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'event_id', event_rows.event_id,
+              'event_title', event_rows.event_title,
+              'quantity', event_rows.quantity
+            )
+            ORDER BY event_rows.event_title ASC, event_rows.event_id ASC
+          ) AS transfer_event_breakdown
+          FROM (
+            SELECT
+              it.disaster_event_id AS event_id,
+              COALESCE(de2.title, 'Unassigned disaster event') AS event_title,
+              COALESCE(SUM(it.quantity), 0)::int AS quantity
+            FROM inventory_transactions it
+            LEFT JOIN disaster_events de2 ON de2.id = it.disaster_event_id
+            WHERE it.inventory_batch_id = di.inventory_batch_id
+              AND it.transaction_type = 'OUTFLOW'
+              AND it.reference_type = 'DONATION'
+              AND it.remarks ILIKE 'Reassigned leftover donated stock%'
+              AND it.disaster_event_id IS DISTINCT FROM d.disaster_event_id
+            GROUP BY it.disaster_event_id, de2.title
+            HAVING COALESCE(SUM(it.quantity), 0) > 0
+          ) event_rows
+        ) transfer_events ON TRUE`
+    : "";
 
   if (disasterEventIds.length > 0) {
     values.push(disasterEventIds);
@@ -1509,22 +1713,15 @@ const getDonationItemTransparencySummaryLegacy = async (
         di.quantity_received,
         di.remarks AS donation_item_remarks,
         COALESCE(ib.quantity_available, 0)::int AS quantity_remaining,
+        ${distributionEventBreakdownSelect}
+        ${transferEventBreakdownSelect}
         COALESCE((
-          SELECT GREATEST(
-            COALESCE(SUM(
-              CASE
-                WHEN it.transaction_type = 'OUTFLOW' THEN it.quantity
-                WHEN it.transaction_type = 'RETURN' THEN -it.quantity
-                ELSE 0
-              END
-            ), 0),
-            0
-          )::int
+          SELECT COALESCE(SUM(it.quantity), 0)::int
           FROM inventory_transactions it
           INNER JOIN inventory_batches ib2 ON ib2.id = it.inventory_batch_id
           WHERE ib2.id = di.inventory_batch_id
             AND ib2.source_type = 'DONATED'
-            AND it.transaction_type IN ('OUTFLOW', 'RETURN')
+            AND it.transaction_type = 'OUTFLOW'
             AND it.reference_type = 'DISTRIBUTION'
             AND EXISTS (
               SELECT 1
@@ -1590,6 +1787,8 @@ const getDonationItemTransparencySummaryLegacy = async (
       INNER JOIN disaster_events de ON de.id = d.disaster_event_id
         INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
       LEFT JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
+      ${distributionEventBreakdownJoin}
+      ${transferEventBreakdownJoin}
       WHERE ${conditions.join(" AND ")}
       ORDER BY d.received_at DESC, d.donor_name ASC, ii.item_name ASC, di.id ASC
     `,
@@ -1626,27 +1825,28 @@ const buildPublicTransparencyGroupedCte = ({
         d.received_at,
         di.id AS donation_item_id,
         di.inventory_batch_id,
-        ii.id AS inventory_item_id,
-        ii.item_name,
-        di.quantity_received,
-        di.remarks AS donation_item_remarks,
+         ii.id AS inventory_item_id,
+         ii.item_name,
+         di.quantity_received AS quantity_received_original,
+         GREATEST(
+           di.quantity_received - COALESCE((
+             SELECT SUM(it.quantity)
+             FROM inventory_transactions it
+             WHERE it.inventory_batch_id = di.inventory_batch_id
+               AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN', 'OTHER')
+               ${distributionEventFilter}
+           ), 0),
+           0
+         )::int AS quantity_received,
+         di.remarks AS donation_item_remarks,
         COALESCE(ib.quantity_available, 0)::int AS quantity_remaining,
         COALESCE((
-          SELECT GREATEST(
-            COALESCE(SUM(
-              CASE
-                WHEN it.transaction_type = 'OUTFLOW' THEN it.quantity
-                WHEN it.transaction_type = 'RETURN' THEN -it.quantity
-                ELSE 0
-              END
-            ), 0),
-            0
-          )::int
+          SELECT COALESCE(SUM(it.quantity), 0)::int
           FROM inventory_transactions it
           INNER JOIN inventory_batches ib2 ON ib2.id = it.inventory_batch_id
           WHERE ib2.id = di.inventory_batch_id
             AND ib2.source_type = 'DONATED'
-            AND it.transaction_type IN ('OUTFLOW', 'RETURN')
+            AND it.transaction_type = 'OUTFLOW'
             AND it.reference_type = 'DISTRIBUTION'
             AND EXISTS (
               SELECT 1
@@ -1741,11 +1941,24 @@ const buildPublicTransparencyGroupedCte = ({
         parsed_rows.*,
         CASE
           WHEN parsed_rows.source_type = 'RELIEF_PACK' THEN FLOOR(
-            COALESCE(parsed_rows.quantity_received, 0)::numeric /
+            COALESCE(parsed_rows.quantity_received_original, 0)::numeric /
               NULLIF(parsed_rows.pack_quantity, 0)
           )::int
           ELSE NULL
         END AS quantity_per_pack,
+        CASE
+          WHEN parsed_rows.source_type = 'RELIEF_PACK' THEN FLOOR(
+            COALESCE(parsed_rows.quantity_received, 0)::numeric /
+              NULLIF(
+                FLOOR(
+                  COALESCE(parsed_rows.quantity_received_original, 0)::numeric /
+                    NULLIF(parsed_rows.pack_quantity, 0)
+                ),
+                0
+              )
+          )::int
+          ELSE NULL
+        END AS quantity_received_packs,
         CASE
           WHEN parsed_rows.source_type = 'RELIEF_PACK' THEN CONCAT(
             parsed_rows.donation_id::text,
@@ -1841,7 +2054,7 @@ const buildPublicTransparencyGroupedCte = ({
         (ARRAY_AGG(eligible_rows.pack_name ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS relief_pack_name,
         'pack'::text AS unit_of_measure,
         (ARRAY_AGG(eligible_rows.pack_quantity ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS pack_quantity,
-        (ARRAY_AGG(eligible_rows.pack_quantity ORDER BY eligible_rows.item_name ASC NULLS LAST, eligible_rows.donation_item_id ASC))[1] AS quantity_received,
+        MIN(eligible_rows.quantity_received_packs)::int AS quantity_received,
         MIN(FLOOR(
           eligible_rows.quantity_distributed::numeric /
             NULLIF(eligible_rows.quantity_per_pack, 0)
@@ -1871,24 +2084,30 @@ const buildPublicTransparencyGroupedCte = ({
       LEFT JOIN reason_arrays
         ON reason_arrays.source_key = base_grouped_rows.source_key
     ),
-    donor_first_rows AS (
-      SELECT DISTINCT ON (grouped_rows.donor_key)
-        grouped_rows.donor_key,
-        grouped_rows.sort_received_at,
-        grouped_rows.sort_donor_name,
-        grouped_rows.sort_item_name,
-        grouped_rows.sort_donation_item_id,
-        grouped_rows.source_key
+    visible_rows AS (
+      SELECT *
       FROM grouped_rows
-      WHERE grouped_rows.donor_name_public IS NOT TRUE
-        OR NULLIF(BTRIM(COALESCE(grouped_rows.donor_name, '')), '') IS NULL
+      WHERE quantity_received > 0
+        OR quantity_distributed > 0
+    ),
+    donor_first_rows AS (
+      SELECT DISTINCT ON (visible_rows.donor_key)
+        visible_rows.donor_key,
+        visible_rows.sort_received_at,
+        visible_rows.sort_donor_name,
+        visible_rows.sort_item_name,
+        visible_rows.sort_donation_item_id,
+        visible_rows.source_key
+      FROM visible_rows
+      WHERE visible_rows.donor_name_public IS NOT TRUE
+        OR NULLIF(BTRIM(COALESCE(visible_rows.donor_name, '')), '') IS NULL
       ORDER BY
-        grouped_rows.donor_key,
-        grouped_rows.sort_received_at DESC,
-        grouped_rows.sort_donor_name ASC,
-        grouped_rows.sort_item_name ASC NULLS LAST,
-        grouped_rows.sort_donation_item_id ASC,
-        grouped_rows.source_key ASC
+        visible_rows.donor_key,
+        visible_rows.sort_received_at DESC,
+        visible_rows.sort_donor_name ASC,
+        visible_rows.sort_item_name ASC NULLS LAST,
+        visible_rows.sort_donation_item_id ASC,
+        visible_rows.source_key ASC
     ),
     donor_labels AS (
       SELECT
@@ -1905,11 +2124,11 @@ const buildPublicTransparencyGroupedCte = ({
     ),
     ordered_rows AS (
       SELECT
-        grouped_rows.*,
+        visible_rows.*,
         donor_labels.donor_label_number
-      FROM grouped_rows
+      FROM visible_rows
       LEFT JOIN donor_labels
-        ON donor_labels.donor_key = grouped_rows.donor_key
+        ON donor_labels.donor_key = visible_rows.donor_key
     )
   `;
 };
@@ -1950,8 +2169,8 @@ const getPaginatedDonationItemTransparencySummary = async (
         COALESCE(SUM(CASE WHEN source_type = 'LOOSE_ITEM' THEN quantity_remaining ELSE 0 END), 0)::int AS total_loose_items_remaining,
         COALESCE(SUM(CASE WHEN source_type = 'RELIEF_PACK' THEN quantity_received ELSE 0 END), 0)::int AS total_relief_packs_received,
         COALESCE(SUM(CASE WHEN source_type = 'RELIEF_PACK' THEN quantity_distributed ELSE 0 END), 0)::int AS total_relief_packs_distributed,
-        COALESCE(SUM(CASE WHEN source_type = 'RELIEF_PACK' THEN quantity_remaining ELSE 0 END), 0)::int AS total_relief_packs_remaining
-      FROM grouped_rows
+         COALESCE(SUM(CASE WHEN source_type = 'RELIEF_PACK' THEN quantity_remaining ELSE 0 END), 0)::int AS total_relief_packs_remaining
+      FROM visible_rows
     `,
     eventValues,
   );
@@ -2029,6 +2248,22 @@ const getDonationItemTransparencySummary = async (
   }
 
   if (optionsOrDbClient && typeof optionsOrDbClient === "object") {
+    if (optionsOrDbClient.scope === "management") {
+      return getDonationItemTransparencySummaryLegacy(
+        disasterEventId,
+        maybeDbClient,
+        { includeCrossEventDistributions: true },
+      );
+    }
+
+    if (optionsOrDbClient.scope === "public") {
+      return getDonationItemTransparencySummaryLegacy(
+        disasterEventId,
+        maybeDbClient,
+        { scope: "public" },
+      );
+    }
+
     return getPaginatedDonationItemTransparencySummary(
       disasterEventId,
       optionsOrDbClient,
@@ -2068,6 +2303,14 @@ const getDonationTransparencyExportRows = async (
         ii.unit_of_measure,
         di.quantity_received,
         COALESCE(distributed.quantity_distributed, 0)::int AS quantity_distributed,
+        COALESCE(
+          distribution_events.distribution_event_breakdown,
+          '[]'::json
+        ) AS distribution_event_breakdown,
+        COALESCE(
+          transfer_events.transfer_event_breakdown,
+          '[]'::json
+        ) AS transfer_event_breakdown,
         COALESCE(written_off.quantity_written_off, 0)::int AS quantity_written_off,
         COALESCE(written_off.write_off_reasons, '') AS write_off_reasons,
         COALESCE(ib.quantity_available, 0)::int AS remaining_stock
@@ -2077,21 +2320,66 @@ const getDonationTransparencyExportRows = async (
       INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
       LEFT JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
       LEFT JOIN LATERAL (
-        SELECT GREATEST(
-          COALESCE(SUM(
-            CASE
-              WHEN it.transaction_type = 'OUTFLOW' THEN it.quantity
-              WHEN it.transaction_type = 'RETURN' THEN -it.quantity
-              ELSE 0
-            END
-          ), 0),
-          0
-        )::int AS quantity_distributed
+        SELECT COALESCE(SUM(it.quantity), 0)::int AS quantity_distributed
         FROM inventory_transactions it
         WHERE it.inventory_batch_id = di.inventory_batch_id
-          AND it.transaction_type IN ('OUTFLOW', 'RETURN')
+          AND it.transaction_type = 'OUTFLOW'
           AND it.reference_type = 'DISTRIBUTION'
       ) distributed ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(
+          JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'event_id', event_rows.event_id,
+              'event_title', event_rows.event_title,
+              'quantity', event_rows.quantity
+            )
+            ORDER BY event_rows.event_title ASC, event_rows.event_id ASC
+          ),
+          '[]'::json
+        ) AS distribution_event_breakdown
+        FROM (
+          SELECT
+            it.disaster_event_id AS event_id,
+            COALESCE(de2.title, 'Unassigned disaster event') AS event_title,
+            SUM(it.quantity)::int AS quantity
+          FROM inventory_transactions it
+          LEFT JOIN disaster_events de2 ON de2.id = it.disaster_event_id
+          WHERE it.inventory_batch_id = di.inventory_batch_id
+            AND it.transaction_type = 'OUTFLOW'
+            AND it.reference_type = 'DISTRIBUTION'
+          GROUP BY it.disaster_event_id, de2.title
+          HAVING SUM(it.quantity) > 0
+        ) event_rows
+      ) distribution_events ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(
+          JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'event_id', event_rows.event_id,
+              'event_title', event_rows.event_title,
+              'quantity', event_rows.quantity
+            )
+            ORDER BY event_rows.event_title ASC, event_rows.event_id ASC
+          ),
+          '[]'::json
+        ) AS transfer_event_breakdown
+        FROM (
+          SELECT
+            it.disaster_event_id AS event_id,
+            COALESCE(de2.title, 'Unassigned disaster event') AS event_title,
+            SUM(it.quantity)::int AS quantity
+          FROM inventory_transactions it
+          LEFT JOIN disaster_events de2 ON de2.id = it.disaster_event_id
+          WHERE it.inventory_batch_id = di.inventory_batch_id
+            AND it.transaction_type = 'OUTFLOW'
+            AND it.reference_type = 'DONATION'
+            AND it.remarks ILIKE 'Reassigned leftover donated stock%'
+            AND it.disaster_event_id IS DISTINCT FROM d.disaster_event_id
+          GROUP BY it.disaster_event_id, de2.title
+          HAVING SUM(it.quantity) > 0
+        ) event_rows
+      ) transfer_events ON TRUE
       LEFT JOIN LATERAL (
         SELECT
           COALESCE(SUM(reason_rows.quantity), 0)::int AS quantity_written_off,

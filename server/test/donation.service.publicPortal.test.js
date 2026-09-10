@@ -223,6 +223,13 @@ test("public portal reports relief-pack utilization in packs and loose utilizati
             quantity_distributed: 5,
             quantity_remaining: 5,
             quantity_written_off: 0,
+            transfer_event_breakdown: [
+              {
+                event_id: "event-internal",
+                event_title: "Internal Transfer Event",
+                quantity: 2,
+              },
+            ],
             donation_item_remarks: "Relief Pack: Family Pack x 2",
           },
           {
@@ -298,6 +305,72 @@ test("public portal reports relief-pack utilization in packs and loose utilizati
       assert.equal(packRow.donor_type_label, "NGO");
       assert.equal(looseRow.donor_name, "Donor #2");
       assert.equal(looseRow.donor_type_label, "NGO");
+      assert.equal("transfer_event_breakdown" in packRow, false);
+    },
+  );
+});
+
+test("public donation utilization removes write-offs from received and hides fully written-off sources", async () => {
+  const eventId = "00000000-0000-0000-0000-000000000001";
+
+  await withStubbedDonationService(
+    {
+      donationRepositoryOverrides: {
+        getDonationItemTransparencySummary: async () => [
+          {
+            donation_id: "donation-pack",
+            donor_name: "Relief Partner",
+            donor_type: "NGO",
+            disaster_event_id: eventId,
+            disaster_event_title: "Active Flood Response",
+            inventory_item_id: "water-item",
+            item_name: "Bottled Water",
+            quantity_received: 10,
+            quantity_distributed: 0,
+            quantity_remaining: 8,
+            quantity_written_off: 2,
+            donation_item_remarks: "Relief Pack: Family Pack x 2",
+          },
+          {
+            donation_id: "donation-pack",
+            donor_name: "Relief Partner",
+            donor_type: "NGO",
+            disaster_event_id: eventId,
+            disaster_event_title: "Active Flood Response",
+            inventory_item_id: "tuna-item",
+            item_name: "Canned Tuna",
+            quantity_received: 4,
+            quantity_distributed: 0,
+            quantity_remaining: 4,
+            quantity_written_off: 0,
+            donation_item_remarks: "Relief Pack: Family Pack x 2",
+          },
+          {
+            donation_id: "donation-hidden",
+            donor_name: "Expired Partner",
+            donor_type: "NGO",
+            disaster_event_id: eventId,
+            disaster_event_title: "Active Flood Response",
+            inventory_item_id: "expired-item",
+            item_name: "Expired Goods",
+            quantity_received: 5,
+            quantity_distributed: 0,
+            quantity_remaining: 0,
+            quantity_written_off: 5,
+            donation_item_remarks: "Loose Item",
+          },
+        ],
+      },
+    },
+    async ({ getPublicDonationPortal }) => {
+      const payload = await getPublicDonationPortal();
+      const rows = payload.transparency_summary.received_vs_distributed;
+      const packRow = rows.find((row) => row.source_type === "RELIEF_PACK");
+
+      assert.equal(rows.length, 1);
+      assert.equal(packRow.quantity_received, 1);
+      assert.equal(packRow.quantity_remaining, 1);
+      assert.equal(rows.some((row) => row.item_name === "Expired Goods"), false);
     },
   );
 });
@@ -334,6 +407,13 @@ test("Mayor donation transparency preserves management scope and donor names", a
               quantity_distributed: 5,
               quantity_remaining: 5,
               quantity_written_off: 0,
+              distribution_event_breakdown: [
+                {
+                  event_id: "event-b",
+                  event_title: "Later Response",
+                  quantity: 5,
+                },
+              ],
               donation_item_remarks: "Relief Pack: Family Pack x 2",
             },
             {
@@ -348,6 +428,13 @@ test("Mayor donation transparency preserves management scope and donor names", a
               quantity_distributed: 2,
               quantity_remaining: 2,
               quantity_written_off: 0,
+              distribution_event_breakdown: [
+                {
+                  event_id: "event-b",
+                  event_title: "Later Response",
+                  quantity: 2,
+                },
+              ],
               donation_item_remarks: "Relief Pack: Family Pack x 2",
             },
             {
@@ -362,6 +449,20 @@ test("Mayor donation transparency preserves management scope and donor names", a
               quantity_distributed: 3,
               quantity_remaining: 9,
               quantity_written_off: 0,
+              distribution_event_breakdown: [
+                {
+                  event_id: "event-b",
+                  event_title: "Later Response",
+                  quantity: 4,
+                },
+              ],
+              transfer_event_breakdown: [
+                {
+                  event_id: "event-c",
+                  event_title: "Next Response",
+                  quantity: 2,
+                },
+              ],
               donation_item_remarks: "Loose Item",
             },
           ];
@@ -384,9 +485,30 @@ test("Mayor donation transparency preserves management scope and donor names", a
       assert.equal(packRow.quantity_received, 2);
       assert.equal(packRow.quantity_distributed, 1);
       assert.equal(packRow.quantity_remaining, 1);
+      assert.deepEqual(packRow.distribution_event_breakdown, [
+        {
+          event_id: "event-b",
+          event_title: "Later Response",
+          quantity: 1,
+        },
+      ]);
       assert.equal(looseRow.donor_name, "Community Group");
       assert.equal(looseRow.quantity_received, 12);
       assert.equal(looseRow.quantity_remaining, 9);
+      assert.deepEqual(looseRow.distribution_event_breakdown, [
+        {
+          event_id: "event-b",
+          event_title: "Later Response",
+          quantity: 4,
+        },
+      ]);
+      assert.deepEqual(looseRow.transfer_event_breakdown, [
+        {
+          event_id: "event-c",
+          event_title: "Next Response",
+          quantity: 2,
+        },
+      ]);
       assert.equal(
         payload.transparency_summary.total_relief_packs_received,
         2,

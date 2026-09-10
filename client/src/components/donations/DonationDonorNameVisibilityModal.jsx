@@ -27,16 +27,6 @@ const modalStyles = {
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
   },
-  notice: {
-    marginTop: "14px",
-    padding: "12px 14px",
-    borderRadius: "14px",
-    backgroundColor: "#eef5fb",
-    border: "1px solid #d6e2ee",
-    color: "#4f677f",
-    fontSize: "13px",
-    lineHeight: 1.5,
-  },
 };
 
 const DonationDonorNameVisibilityModal = ({
@@ -88,13 +78,6 @@ const DonationDonorNameVisibilityModal = ({
             {isPublishing ? "Anonymous" : "Published publicly"}
           </div>
         </div>
-      </div>
-
-      <div style={modalStyles.notice}>
-        {isPublishing
-          ? "Only the donor name will be revealed. Donation quantities and other private information will not be changed."
-          : "The donor name will be shown anonymously on the public donation page."
-        }
       </div>
 
       {errorMessage ? (

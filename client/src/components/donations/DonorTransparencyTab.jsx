@@ -250,10 +250,28 @@ const DonorTransparencyTab = ({
                         ...tableStyles.centeredBodyCell,
                       }}
                     >
-                      {formatQuantityWithUnit(
-                        row.quantity_distributed,
-                        row.unit_of_measure,
-                      )}
+                      <div style={tableStyles.stackedList}>
+                        <div>
+                          {formatQuantityWithUnit(
+                            row.quantity_distributed,
+                            row.unit_of_measure,
+                          )}
+                        </div>
+                        {(row.distribution_event_breakdown || []).map(
+                          (eventRow) => (
+                            <div
+                              key={`${row.public_key}-${eventRow.event_id || "unassigned"}`}
+                              style={tableStyles.mutedText}
+                            >
+                              To {eventRow.event_title || "Unassigned disaster event"}: {" "}
+                              {formatQuantityWithUnit(
+                                eventRow.quantity,
+                                row.unit_of_measure,
+                              )}
+                            </div>
+                          ),
+                        )}
+                      </div>
                     </td>
                     <td
                       style={{
@@ -288,10 +306,28 @@ const DonorTransparencyTab = ({
                         ...tableStyles.centeredBodyCell,
                       }}
                     >
-                      {formatQuantityWithUnit(
-                        row.quantity_remaining,
-                        row.unit_of_measure,
-                      )}
+                      <div style={tableStyles.stackedList}>
+                        <div>
+                          {formatQuantityWithUnit(
+                            row.quantity_remaining,
+                            row.unit_of_measure,
+                          )}
+                        </div>
+                        {(row.transfer_event_breakdown || []).map(
+                          (eventRow) => (
+                            <div
+                              key={`${row.public_key}-${eventRow.event_id || "unassigned"}`}
+                              style={tableStyles.mutedText}
+                            >
+                              Transferred to {eventRow.event_title || "Unassigned disaster event"}: {" "}
+                              {formatQuantityWithUnit(
+                                eventRow.quantity,
+                                row.unit_of_measure,
+                              )}
+                            </div>
+                          ),
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

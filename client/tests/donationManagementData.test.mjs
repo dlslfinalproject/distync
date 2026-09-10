@@ -51,8 +51,9 @@ test("donation management loads complete event-scoped data for local search and 
   );
   assert.match(
     source,
-    /return getDonationSummaryCards\(donationsWithSyncStatus\)/,
+    /return getDonationSummaryCards\(donationRows\)/,
   );
+  assert.doesNotMatch(source, /useLiveQuery|mergeDonationsWithSyncStatus|syncQueueEntries|subscribeToSyncUpdates/);
   assert.match(
     source,
     /fetchDonationManagementTransparency\(\{\s*disaster_event_id: resolvedEventId \|\| undefined,\s*\}\)/s,
@@ -99,8 +100,14 @@ test("donation toolbar controls call the page filters and modal open handlers", 
 });
 
 test("donation donor cells do not display the offline sync icon", async () => {
-  const source = await readSource(["components", "donations", "DonationsTab.jsx"]);
+  const [pageSource, tabSource] = await Promise.all([
+    readSource(["pages", "DonationManagementPage.jsx"]),
+    readSource(["components", "donations", "DonationsTab.jsx"]),
+  ]);
 
-  assert.doesNotMatch(source, /SyncStatusIcon/);
-  assert.match(source, /donation\.donor_name/);
+  assert.doesNotMatch(tabSource, /SyncStatusIcon|Available after sync|is_local_only/);
+  assert.doesNotMatch(pageSource, /DonationSync|is_local_only|sync_status/);
+  assert.match(tabSource, /donation\.donor_name/);
+  assert.match(tabSource, /"Items"/);
+  assert.doesNotMatch(tabSource, /"Item Name"/);
 });

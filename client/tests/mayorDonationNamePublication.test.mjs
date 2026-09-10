@@ -32,7 +32,10 @@ test("donation name publication follows the relief-pack status action pattern", 
     modalSource,
     /public_donor_name|publicDonorName|donor_display_name|publicDisplayName/,
   );
-  assert.match(modalSource, /Only the donor name will be revealed/);
+  assert.doesNotMatch(
+    modalSource,
+    /Only the donor name will be revealed|shown anonymously on the public donation page|modalStyles\.notice/,
+  );
   assert.match(serviceSource, /\/public-name/);
   assert.match(serviceSource, /donor_name_public: donorNamePublic/);
 });

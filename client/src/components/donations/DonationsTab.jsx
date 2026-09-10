@@ -31,6 +31,10 @@ const tableStyles = {
     borderBottom: "1px solid #e0eaf4",
     whiteSpace: "nowrap",
   },
+  donorHeaderCell: {
+    width: "190px",
+    minWidth: "190px",
+  },
   bodyCell: {
     padding: "16px",
     color: "#21405f",
@@ -40,14 +44,59 @@ const tableStyles = {
     lineHeight: 1.5,
     wordBreak: "break-word",
   },
+  donorBodyCell: {
+    width: "190px",
+    minWidth: "190px",
+    wordBreak: "normal",
+  },
+  itemsHeaderCell: {
+    width: "24%",
+    minWidth: "240px",
+  },
+  itemsBodyCell: {
+    width: "24%",
+    minWidth: "240px",
+  },
+  disasterEventHeaderCell: {
+    width: "220px",
+    minWidth: "220px",
+  },
+  disasterEventBodyCell: {
+    width: "220px",
+    minWidth: "220px",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+  },
+  quantityHeaderCell: {
+    width: "110px",
+    minWidth: "110px",
+    padding: "14px 8px",
+  },
+  quantityBodyCell: {
+    width: "110px",
+    minWidth: "110px",
+    padding: "16px 8px",
+  },
+  dateHeaderCell: {
+    width: "170px",
+    minWidth: "170px",
+    padding: "14px 8px",
+  },
+  dateBodyCell: {
+    width: "170px",
+    minWidth: "170px",
+    padding: "16px 8px",
+  },
   actionHeaderCell: {
-    width: "72px",
-    minWidth: "72px",
+    width: "64px",
+    minWidth: "64px",
+    padding: "14px 8px",
     textAlign: "center",
   },
   actionBodyCell: {
-    width: "72px",
-    minWidth: "72px",
+    width: "64px",
+    minWidth: "64px",
+    padding: "16px 8px",
     textAlign: "center",
     verticalAlign: "middle",
     whiteSpace: "nowrap",
@@ -69,6 +118,18 @@ const tableStyles = {
     color: "#21405f",
     fontWeight: 400,
     lineHeight: 1.5,
+  },
+  itemNameRow: {
+    display: "flex",
+    alignItems: "center",
+    width: "100%",
+    minWidth: 0,
+  },
+  itemNameText: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   donorCell: {
     display: "flex",
@@ -179,15 +240,15 @@ const DonationsTab = ({
         "Donor",
         "Donation Type",
         "Disaster Event",
-        "Item Name",
-        "Quantity Per Item",
+        "Items",
+        "Quantity",
         "Date",
       ]
     : [
         "Donor",
         "Donation Type",
-        "Item Name",
-        "Quantity Per Item",
+        "Items",
+        "Quantity",
         "Date",
       ];
 
@@ -220,12 +281,29 @@ const DonationsTab = ({
                   <th
                     key={label}
                     style={
-                      label === "Donation Type" ||
-                      label === "Disaster Event" ||
-                      label === "Quantity Per Item" ||
-                      label === "Date"
+                      label === "Donor"
                         ? {
                             ...tableStyles.headerCell,
+                            ...tableStyles.donorHeaderCell,
+                          }
+                        : label === "Items"
+                        ? {
+                            ...tableStyles.headerCell,
+                            ...tableStyles.itemsHeaderCell,
+                          }
+                        : label === "Donation Type" ||
+                            label === "Disaster Event" ||
+                            label === "Quantity" ||
+                            label === "Date"
+                        ? {
+                            ...tableStyles.headerCell,
+                            ...(label === "Disaster Event"
+                              ? tableStyles.disasterEventHeaderCell
+                              : label === "Quantity"
+                              ? tableStyles.quantityHeaderCell
+                              : label === "Date"
+                              ? tableStyles.dateHeaderCell
+                              : {}),
                             textAlign: "center",
                           }
                         : tableStyles.headerCell
@@ -251,7 +329,12 @@ const DonationsTab = ({
 
                 return (
                   <tr key={donation.id}>
-                    <td style={tableStyles.bodyCell}>
+                    <td
+                      style={{
+                        ...tableStyles.bodyCell,
+                        ...tableStyles.donorBodyCell,
+                      }}
+                    >
                       <div style={tableStyles.donorCell}>
                         <span style={{ fontWeight: 700 }}>{donation.donor_name}</span>
                       </div>
@@ -266,6 +349,7 @@ const DonationsTab = ({
                       style={{
                         ...tableStyles.bodyCell,
                         ...tableStyles.centeredBodyCell,
+                        ...tableStyles.quantityBodyCell,
                       }}
                     >
                       {donationTypeLabel}
@@ -275,19 +359,27 @@ const DonationsTab = ({
                         style={{
                           ...tableStyles.bodyCell,
                           ...tableStyles.centeredBodyCell,
+                          ...tableStyles.disasterEventBodyCell,
                         }}
                       >
                         {donation.disaster_event?.title || "--"}
                       </td>
                     ) : null}
-                    <td style={tableStyles.bodyCell}>
+                    <td
+                      style={{
+                        ...tableStyles.bodyCell,
+                        ...tableStyles.itemsBodyCell,
+                      }}
+                    >
                       <div style={tableStyles.stackedList}>
                         {itemDetails.itemLines.map((line, index) => (
                           <div
                             key={`${donation.id}-item-${index}`}
-                            style={tableStyles.stackedListRow}
+                            style={tableStyles.itemNameRow}
                           >
-                            {line}
+                            <div style={tableStyles.itemNameText} title={line}>
+                              {line}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -296,6 +388,7 @@ const DonationsTab = ({
                       style={{
                         ...tableStyles.bodyCell,
                         ...tableStyles.centeredBodyCell,
+                        ...tableStyles.dateBodyCell,
                       }}
                     >
                       <div style={tableStyles.stackedList}>
@@ -323,10 +416,7 @@ const DonationsTab = ({
                       <TableActionsMenu
                         row={donation}
                         menuId={`donation-actions-${donation.id}`}
-                        disabled={donation.is_local_only}
-                        buttonTitle={
-                          donation.is_local_only ? "Available after sync" : "Actions"
-                        }
+                        buttonTitle="Actions"
                         buttonAriaLabel="Actions"
                         variant="icon-grid"
                         menuWidth={168}
@@ -336,16 +426,12 @@ const DonationsTab = ({
                             label: "View Donation Details",
                             icon: <FiEye size={18} />,
                             onClick: (row) => onOpenDonationDetail(row.id),
-                            disabled: donation.is_local_only,
-                            title: donation.is_local_only ? "Available after sync" : undefined,
                           },
                           {
                             key: "edit",
                             label: "Edit Donation Details",
                             icon: <FiEdit2 size={18} />,
                             onClick: (row) => onOpenDonationModal(row.id),
-                            disabled: donation.is_local_only,
-                            title: donation.is_local_only ? "Available after sync" : undefined,
                           },
                           {
                             key: "donor-name-visibility",
@@ -355,12 +441,6 @@ const DonationsTab = ({
                                 : "Publish Donor Name",
                             icon: <FiPower size={18} />,
                             onClick: (row) => onOpenDonorNameVisibility(row),
-                            disabled: donation.is_local_only,
-                            title: donation.is_local_only
-                              ? "Available after sync"
-                              : donation.donor_name_public === true
-                                ? "Unpublish Donor Name"
-                                : "Publish Donor Name",
                           },
                         ]}
                       />

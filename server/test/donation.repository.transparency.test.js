@@ -86,7 +86,7 @@ const createCapturingDbClient = ({
   };
 };
 
-test("donation transparency totals exclude cancelled donations and net distribution returns", async () => {
+test("donation transparency totals exclude cancelled donations and count distribution outflows", async () => {
   await withStubbedRepository(async (repository) => {
     const dbClient = createCapturingDbClient();
     const eventIds = ["event-1", "event-2"];
@@ -117,11 +117,8 @@ test("donation transparency totals exclude cancelled donations and net distribut
     assert.match(receiptQuery.sql, /d\.status <> 'CANCELLED'/);
     assert.match(receiptQuery.sql, /INNER JOIN inventory_batches/);
     assert.match(receiptQuery.sql, /ib\.source_type = 'DONATED'/);
-    assert.match(distributionQuery.sql, /transaction_type IN \('OUTFLOW', 'RETURN'\)/);
-    assert.match(
-      distributionQuery.sql,
-      /WHEN it\.transaction_type = 'RETURN' THEN -it\.quantity/,
-    );
+    assert.match(distributionQuery.sql, /it\.transaction_type = 'OUTFLOW'/);
+    assert.doesNotMatch(distributionQuery.sql, /RETURN/);
     assert.match(distributionQuery.sql, /d\.status <> 'CANCELLED'/);
     assert.match(writeOffQuery.sql, /d\.status <> 'CANCELLED'/);
     assert.match(remainingQuery.sql, /d\.status <> 'CANCELLED'/);
@@ -143,14 +140,8 @@ test("donation transparency rows and exports use the same cancelled and net move
     assert.ok(itemQuery);
     assert.match(itemQuery.sql, /d\.status <> 'CANCELLED'/);
     assert.match(itemQuery.sql, /d\.donor_name_public/);
-    assert.match(
-      itemQuery.sql,
-      /transaction_type IN \('OUTFLOW', 'RETURN'\)/,
-    );
-    assert.match(
-      itemQuery.sql,
-      /WHEN it\.transaction_type = 'RETURN' THEN -it\.quantity/,
-    );
+    assert.match(itemQuery.sql, /it\.transaction_type = 'OUTFLOW'/);
+    assert.doesNotMatch(itemQuery.sql, /RETURN/);
     assert.match(itemQuery.sql, /d2\.status <> 'CANCELLED'/);
 
     const exportDbClient = createCapturingDbClient();
@@ -159,15 +150,79 @@ test("donation transparency rows and exports use the same cancelled and net move
     assert.equal(exportDbClient.calls.length, 1);
     assert.match(exportDbClient.calls[0].sql, /d\.status <> 'CANCELLED'/);
     assert.match(exportDbClient.calls[0].sql, /ii\.unit_of_measure/);
+    assert.match(exportDbClient.calls[0].sql, /it\.transaction_type = 'OUTFLOW'/);
+    assert.match(exportDbClient.calls[0].sql, /distribution_event_breakdown/);
+    assert.match(exportDbClient.calls[0].sql, /transfer_event_breakdown/);
     assert.match(
       exportDbClient.calls[0].sql,
-      /transaction_type IN \('OUTFLOW', 'RETURN'\)/,
+      /it\.remarks ILIKE 'Reassigned leftover donated stock%'/,
     );
-    assert.match(
-      exportDbClient.calls[0].sql,
-      /WHEN it\.transaction_type = 'RETURN' THEN -it\.quantity/,
-    );
+    assert.match(exportDbClient.calls[0].sql, /de2\.title/);
+    assert.doesNotMatch(exportDbClient.calls[0].sql, /RETURN/);
     assert.deepEqual(exportDbClient.calls[0].values, ["event-1"]);
+  });
+});
+
+test("management transparency keeps cross-event movement in the batch total", async () => {
+  await withStubbedRepository(async (repository) => {
+    const dbClient = createCapturingDbClient();
+
+    await repository.getDonationSummaryTotals(
+      ["event-1"],
+      { includeCrossEventDistributions: true },
+      dbClient,
+    );
+    await repository.getDonationItemTransparencySummary(
+      ["event-1"],
+      { scope: "management" },
+      dbClient,
+    );
+
+    const distributionTotalsQuery = dbClient.calls.find((call) =>
+      call.sql.includes("total_donated_items_distributed"),
+    );
+    const managementRowsQuery = dbClient.calls.find((call) =>
+      call.sql.includes("distribution_event_breakdown"),
+    );
+
+    assert.ok(distributionTotalsQuery);
+    assert.ok(managementRowsQuery);
+    assert.doesNotMatch(
+      distributionTotalsQuery.sql,
+      /it\.disaster_event_id = ANY\(\$\d+::uuid\[\]\)/,
+    );
+    assert.match(
+      managementRowsQuery.sql,
+      /it\.disaster_event_id IS DISTINCT FROM d\.disaster_event_id/,
+    );
+    assert.doesNotMatch(
+      managementRowsQuery.sql,
+      /AND it\.disaster_event_id = ANY\(\$1::uuid\[\]\)/,
+    );
+    assert.match(managementRowsQuery.sql, /transfer_event_breakdown/);
+  });
+});
+
+test("donation edits preserve reassigned transfer event attribution", async () => {
+  await withStubbedRepository(async (repository) => {
+    const dbClient = createCapturingDbClient();
+
+    await repository.syncDonationInventoryTransactions(
+      "donation-1",
+      {
+        disaster_event_id: "event-a",
+        received_at: "2026-09-10T00:00:00.000Z",
+      },
+      dbClient,
+    );
+
+    assert.equal(dbClient.calls.length, 3);
+    dbClient.calls.forEach((call) => {
+      assert.match(
+        call.sql,
+        /COALESCE\(it\.remarks, ''\) NOT ILIKE 'Reassigned leftover donated stock%'/,
+      );
+    });
   });
 });
 

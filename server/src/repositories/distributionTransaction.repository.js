@@ -459,24 +459,68 @@ const updateDonationStatusesByIds = async (donationIds, dbClient) => {
   }
 
   const query = `
-    WITH donation_totals AS (
+    WITH donation_receipts AS (
+      SELECT
+        di.donation_id,
+        COALESCE(SUM(di.quantity_received), 0)::integer AS quantity_received
+      FROM donation_items di
+      WHERE di.donation_id = ANY($1::uuid[])
+      GROUP BY di.donation_id
+    ),
+    donation_distributions AS (
+      SELECT
+        di.donation_id,
+        COALESCE(SUM(it.quantity), 0)::integer AS quantity_distributed
+      FROM donation_items di
+      INNER JOIN inventory_transactions it
+        ON it.inventory_batch_id = di.inventory_batch_id
+       AND it.transaction_type = 'OUTFLOW'
+       AND it.reference_type = 'DISTRIBUTION'
+      WHERE di.donation_id = ANY($1::uuid[])
+      GROUP BY di.donation_id
+    ),
+    donation_write_offs AS (
+      SELECT
+        di.donation_id,
+        COALESCE(SUM(it.quantity), 0)::integer AS quantity_written_off
+      FROM donation_items di
+      INNER JOIN inventory_transactions it
+        ON it.inventory_batch_id = di.inventory_batch_id
+       AND it.transaction_type IN (
+         'EXPIRED',
+         'MISSING',
+         'DAMAGED',
+         'SPOILED',
+         'STOLEN',
+         'OTHER'
+       )
+      WHERE di.donation_id = ANY($1::uuid[])
+      GROUP BY di.donation_id
+    ),
+    donation_totals AS (
       SELECT
         d.id,
-        COALESCE(SUM(di.quantity_received), 0)::integer AS quantity_received,
-        COALESCE(SUM(ib.quantity_available), 0)::integer AS quantity_available
+        COALESCE(receipts.quantity_received, 0)::integer AS quantity_received,
+        COALESCE(distributions.quantity_distributed, 0)::integer AS quantity_distributed,
+        COALESCE(write_offs.quantity_written_off, 0)::integer AS quantity_written_off
       FROM donations d
-      LEFT JOIN donation_items di ON di.donation_id = d.id
-      LEFT JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
+      LEFT JOIN donation_receipts receipts ON receipts.donation_id = d.id
+      LEFT JOIN donation_distributions distributions
+        ON distributions.donation_id = d.id
+      LEFT JOIN donation_write_offs write_offs
+        ON write_offs.donation_id = d.id
       WHERE d.id = ANY($1::uuid[])
         AND d.status <> 'CANCELLED'
-      GROUP BY d.id
     )
     UPDATE donations d
     SET status = CASE
-          WHEN donation_totals.quantity_received > 0
-            AND donation_totals.quantity_available <= 0
+          WHEN donation_totals.quantity_distributed > 0
+            AND donation_totals.quantity_distributed >= GREATEST(
+              donation_totals.quantity_received - donation_totals.quantity_written_off,
+              0
+            )
             THEN 'DISTRIBUTED'
-          WHEN donation_totals.quantity_available < donation_totals.quantity_received
+          WHEN donation_totals.quantity_distributed > 0
             THEN 'PARTIALLY_DISTRIBUTED'
           ELSE 'RECEIVED'
         END,

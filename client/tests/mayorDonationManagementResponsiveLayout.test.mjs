@@ -79,6 +79,13 @@ test("Mayor donation management records and details keep table overflow local", 
   assert.match(donationsSource, /className="mayor-donation-management-records-card"/);
   assert.match(donationsSource, /className="mayor-donation-management-table-scroll"/);
   assert.match(donationsSource, /className="mayor-donation-management-table"/);
+  assert.match(donationsSource, /disasterEventBodyCell/);
+  assert.match(donationsSource, /whiteSpace: "normal"/);
+  assert.match(donationsSource, /itemsHeaderCell:[\s\S]*?width: "24%"[\s\S]*?minWidth: "240px"/);
+  assert.match(donationsSource, /dateBodyCell:[\s\S]*?width: "170px"[\s\S]*?padding: "16px 8px"/);
+  assert.match(donationsSource, /actionBodyCell:[\s\S]*?width: "64px"[\s\S]*?padding: "16px 8px"/);
+  assert.match(donationsSource, /itemNameText:[\s\S]*?textOverflow: "ellipsis"[\s\S]*?whiteSpace: "nowrap"/);
+  assert.match(donationsSource, /title=\{line\}/);
   assert.match(transparencySource, /className="mayor-donation-management-table-scroll"/);
   assert.match(detailSource, /panelClassName="mayor-donation-management-detail-modal"/);
   assert.match(detailSource, /className="mayor-donation-management-detail-table-scroll"/);
@@ -92,6 +99,14 @@ test("Mayor donation management records and details keep table overflow local", 
   assert.match(
     cssSource,
     /@media \(max-width: 480px\)[\s\S]*?\.mayor-donation-management-table \{[\s\S]*?min-width: 780px !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(min-width: 1025px\)[\s\S]*?\.distync-sidebar\[data-collapsed="true"\][\s\S]*?#donation-management-donations-panel[\s\S]*?\.mayor-donation-management-table \{[\s\S]*?min-width: 0 !important;[\s\S]*?table-layout: fixed !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(min-width: 1025px\)[\s\S]*?\.distync-sidebar\[data-collapsed="true"\][\s\S]*?#donation-management-donations-panel[\s\S]*?\.mayor-donation-management-table-scroll \{[\s\S]*?overflow-x: hidden !important;/,
   );
 });
 
