@@ -31,6 +31,20 @@ const OPEN_FOOD_FACTS_API_BASE_URL =
   process.env.OPEN_FOOD_FACTS_API_BASE_URL ||
   "https://world.openfoodfacts.org";
 
+const INVENTORY_ITEM_UPDATE_FIELDS = [
+  "item_code",
+  "item_name",
+  "category",
+  "unit_of_measure",
+  "unit_of_measure_value",
+  "packaging",
+  "packaging_count",
+  "quantity",
+  "reorder_level",
+  "barcode",
+  "is_perishable",
+];
+
 const buildItemCodeSeed = (itemName) => {
   const normalizedName = itemName
     .toUpperCase()
@@ -188,6 +202,59 @@ const normalizeAndValidateItemBarcode = (barcode) => {
 
   return normalizedBarcode || null;
 };
+
+const buildInventoryItemUpdatePayload = (existingItem, itemData = {}) => {
+  const hasField = (fieldName) =>
+    Object.prototype.hasOwnProperty.call(itemData, fieldName);
+  const getFieldValue = (fieldName) =>
+    hasField(fieldName) ? itemData[fieldName] : existingItem[fieldName];
+  const category = hasField("category")
+    ? normalizeInventoryItemCategory(itemData.category)
+    : existingItem.category;
+
+  return {
+    item_code: itemData.item_code || existingItem.item_code,
+    item_name: getFieldValue("item_name"),
+    category,
+    unit_of_measure: getFieldValue("unit_of_measure"),
+    unit_of_measure_value: getFieldValue("unit_of_measure_value"),
+    packaging: getFieldValue("packaging"),
+    packaging_count: getFieldValue("packaging_count"),
+    quantity: getFieldValue("quantity"),
+    reorder_level: getFieldValue("reorder_level"),
+    barcode: hasField("barcode")
+      ? normalizeAndValidateItemBarcode(itemData.barcode)
+      : existingItem.barcode ?? null,
+    is_perishable: hasField("is_perishable")
+      ? resolveInventoryItemPerishability(itemData.is_perishable, category)
+      : existingItem.is_perishable,
+  };
+};
+
+const areInventoryItemFieldValuesEqual = (leftValue, rightValue) => {
+  if (leftValue === null || leftValue === undefined) {
+    return rightValue === null || rightValue === undefined;
+  }
+
+  if (rightValue === null || rightValue === undefined) {
+    return false;
+  }
+
+  if (typeof leftValue === "number" || typeof rightValue === "number") {
+    return Number(leftValue) === Number(rightValue);
+  }
+
+  return leftValue === rightValue;
+};
+
+const hasPersistedInventoryItemChanges = (existingItem, nextItem) =>
+  INVENTORY_ITEM_UPDATE_FIELDS.some(
+    (fieldName) =>
+      !areInventoryItemFieldValuesEqual(
+        existingItem[fieldName],
+        nextItem[fieldName],
+      ),
+  );
 
 const inferCategoryFromLookup = (lookupPayload) => {
   const categoryText = [
@@ -1480,19 +1547,33 @@ const updateInventoryItem = async (id, itemData, actor = null, options = {}) => 
       throw error;
     }
 
-    const inventoryItemToUpdate = {
-      ...itemData,
-      barcode: normalizeAndValidateItemBarcode(itemData.barcode),
-      item_code: itemData.item_code || existingItem.item_code,
-    };
+    const inventoryItemToUpdate = buildInventoryItemUpdatePayload(
+      existingItem,
+      itemData,
+    );
+
+    if (!hasPersistedInventoryItemChanges(existingItem, inventoryItemToUpdate)) {
+      if (!externalClient) {
+        await client.query("COMMIT");
+        transactionStarted = false;
+      }
+
+      return existingItem;
+    }
 
     await ensureUniqueFields(inventoryItemToUpdate, id, client);
 
-    const updatedItem = await inventoryItemRepository.updateInventoryItem(
+    const persistedUpdatedItem = await inventoryItemRepository.updateInventoryItem(
       id,
       inventoryItemToUpdate,
       client,
     );
+    const updatedItem = persistedUpdatedItem
+      ? {
+          ...persistedUpdatedItem,
+          expiration_date: existingItem.expiration_date,
+        }
+      : persistedUpdatedItem;
 
     const existingStockForms =
       await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(

@@ -379,6 +379,7 @@ test("createInventoryItem with skip_opening_stock does not create opening batch 
 
   assert.equal(calls.insertedBatch, null);
   assert.equal(calls.insertedTransaction, null);
+  assert.equal(calls.insertedItem.expiration_date, "2027-08-14");
   assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
 });
 

@@ -2244,6 +2244,60 @@ test("MAYOR-OFFLINE-ITEM-UPDATE reuses the online inventory item update handler"
   assert.equal(Object.prototype.hasOwnProperty.call(receivedArguments[3], "dbClient"), true);
 });
 
+test("legacy INVENTORY_ITEM_UPDATE expiration-only payload syncs through the compatibility handler", async () => {
+  let receivedArguments = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemById: async () => ({
+          id: "33333333-3333-4333-8333-333333333333",
+          updated_at: null,
+          expiration_date: "2027-01-01",
+        }),
+      },
+      [inventoryItemServicePath]: {
+        updateInventoryItem: async (...args) => {
+          receivedArguments = args;
+          return {
+            id: args[0],
+            expiration_date: "2027-01-01",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "mayor-offline-item-expiration-only-1",
+            action_key: "INVENTORY_ITEM_UPDATE",
+            entity_type: "INVENTORY_ITEM",
+            entity_server_id: "33333333-3333-4333-8333-333333333333",
+            client_timestamp: "2026-09-07T02:30:00.000Z",
+            payload: {
+              expiration_date: "2028-05-01",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.data.expiration_date, "2027-01-01");
+    },
+  );
+
+  assert.equal(receivedArguments[1].expiration_date, "2028-05-01");
+  assert.equal(receivedArguments[2].roleCode, "MAYOR");
+  assert.equal(Object.prototype.hasOwnProperty.call(receivedArguments[3], "dbClient"), true);
+});
+
 test("MAYOR-OFFLINE-ITEM-02 restock queued for a local item resolves after item creation sync", async () => {
   let receivedPayload = null;
 

@@ -279,6 +279,7 @@ const validateExportInventoryItems = (req, res, next) => {
 
 const validateInventoryItemPayload = (req, res, next) => {
   try {
+    const body = req.body || {};
     const {
       item_code,
       item_name,
@@ -293,7 +294,28 @@ const validateInventoryItemPayload = (req, res, next) => {
       barcode,
       is_perishable,
       skip_opening_stock,
-    } = req.body;
+    } = body;
+
+    const isExpirationOnlyUpdate =
+      req.method === "PUT" &&
+      Object.keys(body).length === 1 &&
+      Object.prototype.hasOwnProperty.call(body, "expiration_date");
+
+    if (isExpirationOnlyUpdate) {
+      const parsedExpirationDate = parseOptionalDate(expiration_date);
+
+      if (parsedExpirationDate === "invalid") {
+        return res.status(400).json({
+          message: "expiration_date must be a valid date in YYYY-MM-DD format",
+        });
+      }
+
+      req.validatedBody = {
+        expiration_date: parsedExpirationDate,
+      };
+
+      return next();
+    }
 
     if (
       item_code !== undefined &&

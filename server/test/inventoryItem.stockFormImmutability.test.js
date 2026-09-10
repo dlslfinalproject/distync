@@ -141,6 +141,7 @@ const createHarness = ({
     updateItem: [],
     insertStockForms: [],
     updateStockForms: [],
+    audit: [],
   };
   const events = [];
   const client = {
@@ -168,7 +169,9 @@ const createHarness = ({
         state.item.item_name === itemName ? clone(state.item) : null,
       updateInventoryItem: async (id, itemData) => {
         calls.updateItem.push({ id, itemData: clone(itemData) });
-        state.item = { ...state.item, ...clone(itemData), id };
+        const persistedItemData = clone(itemData);
+        delete persistedItemData.expiration_date;
+        state.item = { ...state.item, ...persistedItemData, id };
         return clone(state.item);
       },
     },
@@ -225,7 +228,9 @@ const createHarness = ({
       ALLOWED_EXPORT_FORMATS: ["csv", "excel", "pdf"],
     },
     [systemLogPath]: {
-      logAuditSafely: async () => {},
+      logAuditSafely: async (auditEntry) => {
+        calls.audit.push(clone(auditEntry));
+      },
       pickDefined: (value, keys) =>
         keys.reduce((picked, key) => {
           if (value[key] !== undefined) {
@@ -350,23 +355,122 @@ test("an unrelated item edit is a stock-form no-op even when the current form is
   assert.deepEqual(harness.state.stockForms, [formA]);
 });
 
-test("item update keeps accepting the parent expiration compatibility field without changing stock forms", async () => {
+test("expiration-only item update is an accepted persistence no-op", async () => {
+  const cases = [
+    { existingExpiration: "2027-01-01", incomingExpiration: "2027-01-01" },
+    { existingExpiration: "2027-01-01", incomingExpiration: "2027-06-30" },
+    { existingExpiration: "2027-01-01", incomingExpiration: null },
+    { existingExpiration: "2027-01-01", incomingExpiration: "" },
+    { existingExpiration: null, incomingExpiration: "2028-05-01" },
+  ];
+
+  for (const { existingExpiration, incomingExpiration } of cases) {
+    const formA = makeStockForm("form-a");
+    const harness = createHarness({
+      item: makeInventoryItem({ expiration_date: existingExpiration }),
+      stockForms: [formA],
+    });
+
+    const result = await runUpdate(harness, {
+      expiration_date: incomingExpiration,
+    });
+
+    assert.equal(result.expiration_date, existingExpiration);
+    assert.equal(harness.calls.updateItem.length, 0);
+    assert.equal(harness.state.item.expiration_date, existingExpiration);
+    assert.equal(harness.calls.insertStockForms.length, 0);
+    assert.equal(harness.calls.updateStockForms.length, 0);
+    assert.equal(harness.calls.audit.length, 0);
+    assert.deepEqual(harness.state.stockForms, [formA]);
+    assert.equal(harness.state.item.updated_at, "2026-09-08T00:00:00.000Z");
+    assert.deepEqual(harness.events, ["BEGIN", "COMMIT", "RELEASE"]);
+  }
+});
+
+test("mixed item update persists legitimate fields while ignoring parent expiration", async () => {
   const formA = makeStockForm("form-a");
   const harness = createHarness({
     item: makeInventoryItem({ expiration_date: "2027-01-01" }),
     stockForms: [formA],
   });
 
-  await runUpdate(
+  const result = await runUpdate(
     harness,
-    buildUpdatePayload(harness.state.item, { expiration_date: "2027-06-30" }),
+    buildUpdatePayload(harness.state.item, {
+      item_name: "Premium Rice",
+      expiration_date: "2028-01-01",
+    }),
   );
 
-  assert.equal(harness.calls.updateItem[0].itemData.expiration_date, "2027-06-30");
-  assert.equal(harness.state.item.expiration_date, "2027-06-30");
+  assert.equal(result.item_name, "Premium Rice");
+  assert.equal(result.expiration_date, "2027-01-01");
+  assert.equal(harness.state.item.item_name, "Premium Rice");
+  assert.equal(harness.state.item.expiration_date, "2027-01-01");
+  assert.equal(harness.calls.updateItem.length, 1);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      harness.calls.updateItem[0].itemData,
+      "expiration_date",
+    ),
+    false,
+  );
   assert.equal(harness.calls.insertStockForms.length, 0);
   assert.equal(harness.calls.updateStockForms.length, 0);
+  assert.equal(harness.calls.audit.length, 1);
+  assert.equal(harness.calls.audit[0].oldValues.expiration_date, "2027-01-01");
+  assert.equal(harness.calls.audit[0].newValues.expiration_date, "2027-01-01");
+});
+
+test("a full legacy item payload with only expiration changed remains a no-op", async () => {
+  const formA = makeStockForm("form-a");
+  const harness = createHarness({
+    item: makeInventoryItem({ expiration_date: "2027-01-01" }),
+    stockForms: [formA],
+  });
+
+  const result = await runUpdate(
+    harness,
+    buildUpdatePayload(harness.state.item, {
+      expiration_date: "2028-05-01",
+    }),
+  );
+
+  assert.equal(result.expiration_date, "2027-01-01");
+  assert.equal(harness.calls.updateItem.length, 0);
+  assert.equal(harness.calls.insertStockForms.length, 0);
+  assert.equal(harness.calls.updateStockForms.length, 0);
+  assert.equal(harness.calls.audit.length, 0);
   assert.deepEqual(harness.state.stockForms, [formA]);
+});
+
+test("stock-form copy on write remains independent when an update also carries legacy expiration", async () => {
+  const formA = makeStockForm("form-a");
+  const harness = createHarness({
+    item: makeInventoryItem({ expiration_date: "2027-01-01" }),
+    stockForms: [formA],
+    referencedStockFormIds: [formA.id],
+  });
+
+  await runUpdate(
+    harness,
+    buildUpdatePayload(harness.state.item, {
+      packaging: "sack",
+      quantity: 24,
+      expiration_date: "2028-01-01",
+    }),
+  );
+
+  assert.equal(harness.state.item.expiration_date, "2027-01-01");
+  assert.equal(harness.state.stockForms.length, 2);
+  assert.equal(harness.calls.insertStockForms.length, 1);
+  assert.equal(harness.calls.updateStockForms.length, 0);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      harness.calls.updateItem[0].itemData,
+      "expiration_date",
+    ),
+    false,
+  );
 });
 
 test("A to B to C creates a new form each time the current form is referenced", async () => {

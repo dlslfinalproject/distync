@@ -300,9 +300,8 @@ const updateInventoryItem = async (id, itemData, dbClient = pool) => {
         packaging_count = $8,
         quantity = $9,
         ${hasReorderLevelColumn ? "reorder_level = $10," : ""}
-        expiration_date = $${hasReorderLevelColumn ? 11 : 10},
-        barcode = $${hasReorderLevelColumn ? 12 : 11},
-        is_perishable = $${hasReorderLevelColumn ? 13 : 12},
+        barcode = $${hasReorderLevelColumn ? 11 : 10},
+        is_perishable = $${hasReorderLevelColumn ? 12 : 11},
         updated_at = NOW()
     WHERE id = $1
     RETURNING
@@ -334,7 +333,6 @@ const updateInventoryItem = async (id, itemData, dbClient = pool) => {
     itemData.packaging_count,
     itemData.quantity,
     ...(hasReorderLevelColumn ? [itemData.reorder_level] : []),
-    itemData.expiration_date,
     itemData.barcode,
     itemData.is_perishable,
   ];
