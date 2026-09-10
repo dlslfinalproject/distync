@@ -45,7 +45,7 @@ test("photo network, HTTP, MIME, and conversion failures remain strict and class
 test("missing photo rows retain the existing non-blocking policy", async () => {
   const source = await read("features/offline/mswdoOfflinePreparation.js");
   assert.match(source, /if \(!photoUrl\) return ""/);
-  assert.match(source, /const requiredPhotoRows = preparedStubRows\.filter/);
+  assert.match(source, /const requiredPhotoRows = \[\.\.\.masterlistRows, \.\.\.stubRows\]\.filter/);
 });
 
 test("distribution and photo persistence failures are not hidden by generic errors", async () => {

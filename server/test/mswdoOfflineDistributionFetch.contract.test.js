@@ -59,3 +59,11 @@ test("DISTFETCH-10 invalid distribution payload remains DISTRIBUTION_VALIDATE", 
   assert.match(preparationSource, /MSWDO_PREPARATION_FAILURE_STAGES\.DISTRIBUTION_VALIDATE/);
   assert.match(preparationSource, /DISTRIBUTION_ID_OR_QR/);
 });
+
+test("MSWDO-PHOTO-01 masterlist projection carries the authoritative photo reference", () => {
+  const repositorySource = read("src", "repositories", "masterlist.repository.js");
+  const serviceSource = read("src", "services", "masterlist.service.js");
+  assert.match(repositorySource, /h\.family_head_photo_url/);
+  assert.match(repositorySource, /paged_records\.family_head_photo_url/);
+  assert.match(serviceSource, /family_head_photo_url: household\.family_head_photo_url/);
+});
