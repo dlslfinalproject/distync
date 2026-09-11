@@ -424,13 +424,35 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
           search: searchTerm,
           sectorCodes: selectedSectorIds,
           sortOrder: selectedSortOrder,
+          completeDataset: recordStatus === "archived",
         });
+
+        const renderedPayload = recordStatus === "archived" && !payload.pagination
+          ? buildMswdoOfflineMasterlistPayload({
+              households: payload.data || [],
+              mapRow: (household, allHouseholds) =>
+                getMappedRows(allHouseholds, allHouseholds, selectedDisasterEventId).find(
+                  (row) => row.household_id === household.household_id,
+                ),
+              selectedBarangayId,
+              recordStatus,
+              searchTerm,
+              selectedSectorIds,
+              selectedSortOrder,
+              currentPage,
+              pageSize,
+              basePayload: payload,
+              syncQueueEntries,
+              selectedEventTitle: payload.disaster_event?.title || "",
+              sectorOptions: sectors,
+            })
+          : payload;
 
         if (
           isMounted &&
           masterlistRequestSequenceRef.current === requestSequence
         ) {
-          setMasterlistPayload(payload);
+          setMasterlistPayload(renderedPayload);
         }
       } catch (error) {
         if (

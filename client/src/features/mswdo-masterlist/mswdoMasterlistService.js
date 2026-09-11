@@ -54,6 +54,7 @@ export const fetchConsolidatedMasterlist = async ({
   search = "",
   sectorCodes = [],
   sortOrder = "newest",
+  completeDataset = false,
 }) => {
   if (!disasterEventId) {
     return {
@@ -79,7 +80,7 @@ export const fetchConsolidatedMasterlist = async ({
     searchParams.set("event_scope", eventScope);
   }
 
-  const isPaginatedRequest = page !== undefined && pageSize !== undefined;
+  const isPaginatedRequest = !completeDataset && page !== undefined && pageSize !== undefined;
   const requestedRecordStatus =
     !isPaginatedRequest && recordStatus === "archived" ? "all" : recordStatus;
 

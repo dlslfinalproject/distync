@@ -599,7 +599,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
             const row = displayedRows.find((candidate) => candidate.household_id === householdId);
             return departHousehold({
               householdId,
-              disasterEventId: getDepartureDisasterEventId(householdId),
+              disasterEventId: getDepartureDisasterEventId(householdId) || selectedDisasterEventId,
               barangayId: row?.barangay_id || null,
               disasterEventTitle: selectedDisasterEvent?.title || selectedDisasterEvent?.name || "",
             });
@@ -623,6 +623,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
           pendingDepartureHouseholdDetails?.household?.disaster_event?.id ||
           pendingDepartureRow?.disaster_event?.id ||
           pendingDepartureRow?.disaster_event_id ||
+          selectedDisasterEventId ||
           "",
           barangayId: pendingDepartureRow?.barangay_id || null,
           disasterEventTitle: selectedDisasterEvent?.title || selectedDisasterEvent?.name || "",
