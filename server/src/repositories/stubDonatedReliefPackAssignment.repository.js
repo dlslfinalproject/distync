@@ -100,7 +100,11 @@ const getActiveAssignmentsByEvent = async (disasterEventId, dbClient = pool) => 
 const getAssignmentsByStubIds = async (
   stubIds,
   dbClient = pool,
-  { includeReleased = false, forUpdate = false } = {},
+  {
+    includeReleased = false,
+    forUpdate = false,
+    disasterEventId = null,
+  } = {},
 ) => {
   const normalizedStubIds = [
     ...new Set((Array.isArray(stubIds) ? stubIds : []).filter(Boolean)),
@@ -131,11 +135,12 @@ const getAssignmentsByStubIds = async (
       INNER JOIN donations d
         ON d.id = a.donation_id
       WHERE a.stub_id = ANY($1::uuid[])
+        AND ($2::uuid IS NULL OR a.disaster_event_id = $2::uuid)
         AND ${includeReleased ? "TRUE" : "a.assignment_status <> 'RELEASED'"}
       ORDER BY a.assigned_at ASC, a.id ASC
       ${forUpdate ? "FOR UPDATE OF a" : ""}
     `,
-    [normalizedStubIds],
+    [normalizedStubIds, disasterEventId || null],
   );
 
   return result.rows;
@@ -186,7 +191,15 @@ const insertAssignment = async (assignment, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
-const markAssignmentsClaimedForStub = async (stubId, dbClient = pool) => {
+const markAssignmentsClaimedForStub = async (
+  stubId,
+  dbClient = pool,
+  { disasterEventId = null } = {},
+) => {
+  if (!stubId || !disasterEventId) {
+    return [];
+  }
+
   const result = await dbClient.query(
     `
       UPDATE stub_donated_relief_pack_assignments
@@ -195,10 +208,11 @@ const markAssignmentsClaimedForStub = async (stubId, dbClient = pool) => {
         claimed_at = COALESCE(claimed_at, NOW()),
         updated_at = NOW()
       WHERE stub_id = $1
+        AND disaster_event_id = $2::uuid
         AND assignment_status = 'RESERVED'
       RETURNING id, stub_id, donation_id, pack_name, pack_size, assignment_status
     `,
-    [stubId],
+    [stubId, disasterEventId],
   );
 
   return result.rows;

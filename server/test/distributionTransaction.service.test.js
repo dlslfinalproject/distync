@@ -30,6 +30,7 @@ const donatedReliefPackAssignmentServicePath = require.resolve(
   "../src/services/donatedReliefPackAssignment.service",
 );
 const systemLogPath = require.resolve("../src/utils/systemLog");
+const distributionAuditPath = require.resolve("../src/utils/distributionAudit");
 const mswdoReportExportPath = require.resolve("../src/utils/mswdoReportExport");
 const inventoryBatchStatusServicePath = require.resolve(
   "../src/services/inventoryBatchStatus.service",
@@ -122,6 +123,7 @@ const createBaseStubs = ({
   events,
   stub = baseStub,
   claimHandler = null,
+  distributionAuditOverrides = {},
   latestAttendance = {
     status: "PRESENT",
     time_out: null,
@@ -179,6 +181,10 @@ const createBaseStubs = ({
     logAuditSafely: async () => {},
     pickDefined: (value, keys) =>
       Object.fromEntries(keys.map((key) => [key, value?.[key]]).filter(([, item]) => item !== undefined)),
+  },
+  [distributionAuditPath]: {
+    recordDistributionAudit: async () => {},
+    ...distributionAuditOverrides,
   },
   [mswdoReportExportPath]: {},
   [inventoryBatchStatusServicePath]: {
@@ -303,6 +309,73 @@ test("H05-04 non-claimed invalid stub status remains a non-conflict validation e
   );
 
   assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
+});
+
+test("offline QR distribution defers its audit until the outer sync transaction commits", async () => {
+  const events = [];
+  const deferredSideEffects = [];
+  const auditCalls = [];
+  const distributionTransaction = {
+    id: "distribution-qr-1",
+    distribution_status: "CLAIMED",
+    distribution_date: "2026-08-08T01:00:00.000Z",
+    qr_reference_value: baseStub.qr_code_value,
+  };
+  const stubs = createBaseStubs({
+    events,
+    stub: {
+      ...baseStub,
+      status: "ISSUED",
+      disaster_event_status: "ACTIVE",
+    },
+    distributionAuditOverrides: {
+      recordDistributionAudit: async (payload) => {
+        auditCalls.push(payload);
+      },
+    },
+    claimHandler: async () => ({
+      assignedReliefPackTemplate: { id: "template-1", name: "Family Pack" },
+      assignedReliefPackTemplates: [
+        { id: "template-1", name: "Family Pack" },
+      ],
+      distributionTransaction,
+      releasedItems: [],
+      updatedStub: {
+        ...baseStub,
+        status: "CLAIMED",
+        stub_no: "STUB-001",
+      },
+      donatedReliefPacks: [],
+      packQuantity: 1,
+    }),
+  });
+
+  await withStubbedDistributionService(
+    stubs,
+    async ({ claimDistributionTransactionFromQr }) => {
+      const result = await claimDistributionTransactionFromQr({
+        ...baseRequest,
+        qr_reference_value: baseStub.qr_code_value,
+        dbClient: { query: async () => ({ rows: [] }) },
+        deferDomainSideEffect: (sideEffect) => {
+          deferredSideEffects.push(sideEffect);
+        },
+      });
+
+      assert.equal(result.distribution_transaction_id, distributionTransaction.id);
+    },
+  );
+
+  assert.deepEqual(events, []);
+  assert.equal(auditCalls.length, 0);
+  assert.equal(deferredSideEffects.length, 1);
+
+  await deferredSideEffects[0]();
+
+  assert.equal(auditCalls.length, 1);
+  assert.equal(auditCalls[0].action, "DISTRIBUTION_QR_CLAIM");
+  assert.equal(auditCalls[0].distributionTransaction.id, distributionTransaction.id);
+  assert.equal(auditCalls[0].actor.userId, baseRequest.requester.userId);
 });
 
 for (const constraint of [

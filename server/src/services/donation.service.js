@@ -2,7 +2,6 @@ const pool = require("../config/db");
 const crypto = require("crypto");
 const donationRepository = require("../repositories/donation.repository");
 const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
-const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
 const inventoryItemStockFormRepository = require("../repositories/inventoryItemStockForm.repository");
 const inventoryItemService = require("./inventoryItem.service");

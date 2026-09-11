@@ -280,7 +280,8 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
         fetchAllPages(
           (page, pageSize) => fetchMasterlist({ disasterEventId: eventId, barangayId, recordStatus: "all", page, pageSize }),
           (pageInfo) => {
-            const { pageRows, ...safePageInfo } = pageInfo;
+            const safePageInfo = { ...pageInfo };
+            delete safePageInfo.pageRows;
             diagnostics.datasets.masterlist = {
               ...diagnostics.datasets.masterlist,
               ...safePageInfo,
@@ -364,7 +365,6 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
           cachedRow.offline_household_details?.household?.family_head_photo_data_url,
         ),
       );
-      const masterlistReadBackSucceeded = masterlistReadBack;
       if (!qrReadBack.every(Boolean) || !masterlistReadBack || stubRowsAfterWrite.length < persistedStubs.length) {
         throw new Error("Offline preparation read-back verification failed");
       }

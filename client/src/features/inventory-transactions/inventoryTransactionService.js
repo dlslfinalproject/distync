@@ -97,6 +97,34 @@ export const exportInventoryTransactions = async (format = "csv", filters = {}) 
     searchParams.set("reference_type", filters.reference_type);
   }
 
+  if (filters.transaction_label) {
+    searchParams.set("transaction_label", filters.transaction_label);
+  }
+
+  if (filters.movement) {
+    searchParams.set("movement", filters.movement);
+  }
+
+  if (filters.source) {
+    searchParams.set("source", filters.source);
+  }
+
+  if (filters.date_from) {
+    searchParams.set("date_from", filters.date_from);
+  }
+
+  if (filters.date_to) {
+    searchParams.set("date_to", filters.date_to);
+  }
+
+  if (Array.isArray(filters.stock_form_packaging)) {
+    filters.stock_form_packaging
+      .filter(Boolean)
+      .forEach((packaging) => {
+        searchParams.append("stock_form_packaging", packaging);
+      });
+  }
+
   const response = await fetch(
     `${API_BASE_URL}/api/v1/inventory-transactions/export${
       searchParams.toString() ? `?${searchParams.toString()}` : ""

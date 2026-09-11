@@ -310,6 +310,10 @@ const buildInventoryCreateStubs = ({
   disasterEventStatus = "ACTIVE",
   existingTransaction = null,
   batchQuantity = 20,
+  batchSourceType = "LGU",
+  batchDonationType = null,
+  batchDonationEventId = null,
+  insertedTransactions = [],
   events = [],
 } = {}) => ({
   [repositoryPath]: {
@@ -331,6 +335,9 @@ const buildInventoryCreateStubs = ({
         inventory_item_id: "item-1",
         batch_no: "BATCH-1",
         quantity_available: batchQuantity,
+        source_type: batchSourceType,
+        source_donation_type: batchDonationType,
+        source_donation_event_id: batchDonationEventId,
         expiration_date: null,
         status: "AVAILABLE",
         item_name: "Rice",
@@ -338,6 +345,7 @@ const buildInventoryCreateStubs = ({
     },
     getAvailableInventoryBatchesByItemIdForUpdate: async () => [],
     insertInventoryTransaction: async (transactionData) => {
+      insertedTransactions.push(transactionData);
       events.push(`insert:${transactionData.inventory_transaction_reference_no}`);
       return {
         id: "tx-1",
@@ -554,6 +562,149 @@ test("EE-FIX-04 invalid ITR and ACTIVE insufficient stock remain protected", asy
 
       assert.equal(events.some((entry) => entry.startsWith("insert:")), false);
       assert.equal(events.some((entry) => entry.startsWith("batch-update:")), false);
+    },
+  );
+});
+
+test("manual subtractive movements cannot write off donated relief-pack batches", async () => {
+  const events = [];
+
+  await withStubbedInventoryService(
+    buildInventoryCreateStubs({
+      batchSourceType: "DONATED",
+      batchDonationType: "RELIEF_PACK",
+      events,
+    }),
+    async ({ createInventoryTransaction }) => {
+      for (const [index, transactionType] of [
+        "OUTFLOW",
+        "EXPIRED",
+        "MISSING",
+        "DAMAGED",
+        "SPOILED",
+        "STOLEN",
+        "OTHER",
+      ].entries()) {
+        await assert.rejects(
+          () =>
+            createInventoryTransaction(
+              createInventoryPayload({
+                disaster_event_id: null,
+                transaction_type: transactionType,
+                quantity: 1,
+                other_status: transactionType === "OTHER" ? "Lost" : null,
+                remarks: transactionType === "OTHER" ? "Lost" : null,
+                inventoryTransactionReferenceNo: `ITR-2026-20000${index + 1}`,
+              }),
+            ),
+          (error) => {
+            assert.equal(error.statusCode, 400);
+            assert.equal(error.code, "DONATED_RELIEF_PACK_WRITE_OFF_NOT_ALLOWED");
+            return true;
+          },
+        );
+      }
+
+      assert.equal(events.some((entry) => entry.startsWith("insert:")), false);
+      assert.equal(events.some((entry) => entry.startsWith("batch-update:")), false);
+
+      const distributionResult = await createInventoryTransaction(
+        createInventoryPayload({
+          reference_type: "DISTRIBUTION",
+          reference_id: "distribution-1",
+          inventoryTransactionReferenceNo: "ITR-2026-200008",
+        }),
+      );
+
+      assert.equal(distributionResult.transaction_type, "OUTFLOW");
+      assert.equal(
+        events.some((entry) => entry.startsWith("insert:ITR-2026-200008")),
+        true,
+      );
+    },
+  );
+});
+
+test("donated loose-item write-offs inherit the donation disaster event", async () => {
+  const insertedTransactions = [];
+
+  await withStubbedInventoryService(
+    buildInventoryCreateStubs({
+      batchSourceType: "DONATED",
+      batchDonationType: "LOOSE_ITEM",
+      batchDonationEventId: "event-donation",
+      insertedTransactions,
+    }),
+    async ({ createInventoryTransaction }) => {
+      const result = await createInventoryTransaction(
+        createInventoryPayload({
+          disaster_event_id: null,
+          transaction_type: "DAMAGED",
+          quantity: 1,
+          inventoryTransactionReferenceNo: "ITR-2026-300001",
+        }),
+      );
+
+      assert.equal(result.transaction_type, "DAMAGED");
+      assert.equal(insertedTransactions.length, 1);
+      assert.equal(
+        insertedTransactions[0].disaster_event_id,
+        "event-donation",
+      );
+    },
+  );
+});
+
+test("donated loose-item write-offs reject a conflicting manually supplied event", async () => {
+  const insertedTransactions = [];
+
+  await withStubbedInventoryService(
+    buildInventoryCreateStubs({
+      batchSourceType: "DONATED",
+      batchDonationType: "LOOSE_ITEM",
+      batchDonationEventId: "event-donation",
+      insertedTransactions,
+    }),
+    async ({ createInventoryTransaction }) => {
+      await assert.rejects(
+        () =>
+          createInventoryTransaction(
+            createInventoryPayload({
+              disaster_event_id: "event-other",
+              transaction_type: "SPOILED",
+              quantity: 1,
+              inventoryTransactionReferenceNo: "ITR-2026-300002",
+            }),
+          ),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.equal(error.code, "DONATED_STOCK_EVENT_MISMATCH");
+          return true;
+        },
+      );
+
+      assert.equal(insertedTransactions.length, 0);
+    },
+  );
+});
+
+test("Malvar LGU write-offs remain general when no event is supplied", async () => {
+  const insertedTransactions = [];
+
+  await withStubbedInventoryService(
+    buildInventoryCreateStubs({ insertedTransactions }),
+    async ({ createInventoryTransaction }) => {
+      await createInventoryTransaction(
+        createInventoryPayload({
+          disaster_event_id: null,
+          transaction_type: "MISSING",
+          quantity: 1,
+          inventoryTransactionReferenceNo: "ITR-2026-300003",
+        }),
+      );
+
+      assert.equal(insertedTransactions.length, 1);
+      assert.equal(insertedTransactions[0].disaster_event_id, null);
     },
   );
 });

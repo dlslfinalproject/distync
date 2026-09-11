@@ -60,9 +60,55 @@ const baseSelectQuery = `
   LEFT JOIN users u ON u.id = it.performed_by
 `;
 
+const inflowTransactionTypes = ["INFLOW", "RETURN", "ADJUSTMENT"];
+const outflowTransactionTypes = [
+  "OUTFLOW",
+  "EXPIRED",
+  "DAMAGED",
+  "MISSING",
+  "SPOILED",
+  "STOLEN",
+  "OTHER",
+];
+
+const donationAdjustmentCondition = `(
+  it.reference_type = 'DONATION'
+  AND (
+    it.transaction_type = 'ADJUSTMENT'
+    OR LOWER(COALESCE(it.remarks, '')) LIKE 'adjusted up donation stock%'
+    OR LOWER(COALESCE(it.remarks, '')) LIKE 'adjusted down donation stock%'
+    OR LOWER(COALESCE(it.remarks, '')) LIKE '%donation adjustment%'
+  )
+)`;
+
+const transactionLabelConditions = {
+  "Stock-Up": `(
+    it.transaction_type = ANY($TRANSACTION_TYPES::text[])
+    AND it.reference_type IS DISTINCT FROM 'DONATION'
+  )`,
+  Donated: `(
+    it.transaction_type = ANY($TRANSACTION_TYPES::text[])
+    AND it.reference_type = 'DONATION'
+    AND NOT ${donationAdjustmentCondition}
+  )`,
+  "Donation Adjustment": donationAdjustmentCondition,
+  Distributed: "it.reference_type = 'DISTRIBUTION'",
+  Damaged: "it.transaction_type = 'DAMAGED'",
+  Spoiled: "it.transaction_type = 'SPOILED'",
+  Missing: "it.transaction_type = 'MISSING'",
+  Stolen: "it.transaction_type = 'STOLEN'",
+  Expired: "it.transaction_type = 'EXPIRED'",
+  Other: "it.transaction_type = 'OTHER'",
+};
+
 const getInventoryTransactions = async (filters) => {
   const values = [];
   const conditions = [];
+
+  const addValue = (value) => {
+    values.push(value);
+    return `$${values.length}`;
+  };
 
   if (filters.inventory_batch_id) {
     values.push(filters.inventory_batch_id);
@@ -94,10 +140,65 @@ const getInventoryTransactions = async (filters) => {
     conditions.push(`it.performed_by = $${values.length}`);
   }
 
-  if (filters.search) {
-    values.push(`%${filters.search}%`);
+  if (filters.transaction_label) {
+    const labelCondition = transactionLabelConditions[filters.transaction_label];
+
+    if (labelCondition) {
+      const transactionTypesParameter = labelCondition.includes(
+        "$TRANSACTION_TYPES",
+      )
+        ? addValue(inflowTransactionTypes)
+        : null;
+      conditions.push(
+        labelCondition.replaceAll(
+          "$TRANSACTION_TYPES",
+          transactionTypesParameter || "$UNUSED_TRANSACTION_TYPES",
+        ),
+      );
+    }
+  }
+
+  if (filters.movement === "INFLOW") {
+    const parameter = addValue(inflowTransactionTypes);
+    conditions.push(`it.transaction_type = ANY(${parameter}::text[])`);
+  } else if (filters.movement === "OUTFLOW") {
+    const parameter = addValue(outflowTransactionTypes);
+    conditions.push(`it.transaction_type = ANY(${parameter}::text[])`);
+  }
+
+  if (filters.source === "Donors") {
+    conditions.push("(ib.source_type = 'DONATED' OR it.reference_type = 'DONATION')");
+  } else if (filters.source === "Malvar LGU") {
     conditions.push(
-      `(ib.batch_no ILIKE $${values.length} OR ii.item_name ILIKE $${values.length} OR ii.item_code ILIKE $${values.length} OR it.remarks ILIKE $${values.length} OR it.other_status ILIKE $${values.length} OR it.inventory_transaction_reference_no ILIKE $${values.length})`,
+      "(ib.source_type IS DISTINCT FROM 'DONATED' AND it.reference_type IS DISTINCT FROM 'DONATION')",
+    );
+  }
+
+  if (filters.date_from) {
+    const parameter = addValue(filters.date_from);
+    conditions.push(`it.performed_at::date >= ${parameter}::date`);
+  }
+
+  if (filters.date_to) {
+    const parameter = addValue(filters.date_to);
+    conditions.push(`it.performed_at::date <= ${parameter}::date`);
+  }
+
+  const stockFormPackagings = Array.isArray(filters.stock_form_packaging)
+    ? filters.stock_form_packaging.filter(Boolean)
+    : filters.stock_form_packaging
+      ? [filters.stock_form_packaging]
+      : [];
+
+  if (stockFormPackagings.length > 0) {
+    const parameter = addValue(stockFormPackagings);
+    conditions.push(`stock_forms.packaging = ANY(${parameter}::text[])`);
+  }
+
+  if (filters.search) {
+    const parameter = addValue(`%${filters.search}%`);
+    conditions.push(
+      `(it.id::text ILIKE ${parameter} OR ib.batch_no ILIKE ${parameter} OR ii.item_name ILIKE ${parameter} OR ii.item_code ILIKE ${parameter} OR it.transaction_type ILIKE ${parameter} OR CASE WHEN it.transaction_type = ANY(ARRAY['INFLOW', 'RETURN', 'ADJUSTMENT']) THEN 'INFLOW' ELSE 'OUTFLOW' END ILIKE ${parameter} OR it.remarks ILIKE ${parameter} OR it.other_status ILIKE ${parameter} OR it.inventory_transaction_reference_no ILIKE ${parameter} OR stock_forms.packaging ILIKE ${parameter} OR COALESCE(d.donor_name, source_donation.donor_name, '') ILIKE ${parameter} OR CASE WHEN ib.source_type = 'DONATED' OR it.reference_type = 'DONATION' THEN 'Donors' ELSE 'Malvar LGU' END ILIKE ${parameter})`,
     );
   }
 
@@ -149,6 +250,8 @@ const getInventoryBatchByIdForUpdate = async (id, dbClient) => {
       ib.quantity_available,
       ib.stock_version,
       ib.source_type,
+      source_donation.donation_type AS source_donation_type,
+      source_donation.disaster_event_id AS source_donation_event_id,
       ib.expiration_date,
       ib.status,
       ii.item_code,
@@ -164,6 +267,22 @@ const getInventoryBatchByIdForUpdate = async (id, dbClient) => {
     INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
     LEFT JOIN inventory_item_stock_forms stock_forms
       ON stock_forms.id = ib.inventory_item_stock_form_id
+    LEFT JOIN LATERAL (
+      SELECT CASE
+        WHEN ib.source_type = 'DONATED'
+          AND COALESCE(source_di.remarks, '') ILIKE 'Relief Pack:%'
+          THEN 'RELIEF_PACK'
+        WHEN ib.source_type = 'DONATED' THEN 'LOOSE_ITEM'
+        ELSE NULL
+      END AS donation_type,
+      source_d.disaster_event_id
+      FROM donation_items source_di
+      INNER JOIN donations source_d
+        ON source_d.id = source_di.donation_id
+      WHERE source_di.inventory_batch_id = ib.id
+      ORDER BY source_di.created_at ASC
+      LIMIT 1
+    ) source_donation ON TRUE
     WHERE ib.id = $1
     FOR UPDATE OF ib
   `;

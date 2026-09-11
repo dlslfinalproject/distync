@@ -1041,6 +1041,116 @@ const InventoryTransactionsPage = () => {
     toolbarState.stockForms,
   ]);
 
+  const summaryScopedBatches = useMemo(() => {
+    return inventoryBatchesForDisplay.filter((batch) => {
+      const batchItemId = String(
+        batch.inventory_item_id || batch.inventory_item?.id || "",
+      );
+
+      if (
+        filters.inventory_item_id &&
+        batchItemId !== String(filters.inventory_item_id)
+      ) {
+        return false;
+      }
+
+      if (
+        filters.inventory_batch_id &&
+        String(batch.id || "") !== String(filters.inventory_batch_id)
+      ) {
+        return false;
+      }
+
+      if (filters.source && getBatchSourceLabel(batch) !== filters.source) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [
+    filters.inventory_batch_id,
+    filters.inventory_item_id,
+    filters.source,
+    inventoryBatchesForDisplay,
+  ]);
+
+  const summaryScopedItemIds = useMemo(() => {
+    return new Set(
+      summaryScopedBatches
+        .map((batch) => batch.inventory_item_id || batch.inventory_item?.id)
+        .filter(Boolean)
+        .map((itemId) => String(itemId)),
+    );
+  }, [summaryScopedBatches]);
+
+  const summaryScopedItems = useMemo(() => {
+    const hasBatchOrSourceScope = Boolean(
+      filters.inventory_batch_id || filters.source,
+    );
+
+    return inventoryItems.filter((item) => {
+      const itemId = String(item.id || "");
+
+      if (hasBatchOrSourceScope) {
+        return summaryScopedItemIds.has(itemId);
+      }
+
+      if (filters.inventory_item_id) {
+        return itemId === String(filters.inventory_item_id);
+      }
+
+      return true;
+    });
+  }, [
+    filters.inventory_batch_id,
+    filters.inventory_item_id,
+    filters.source,
+    inventoryItems,
+    summaryScopedItemIds,
+  ]);
+
+  const summaryScopedTransactions = useMemo(() => {
+    return inventoryTransactionsWithSyncStatus.filter((transaction) => {
+      const linkedBatch =
+        batchById.get(transaction.inventory_batch_id) ||
+        transaction.inventory_batch ||
+        null;
+      const transactionItemId = String(
+        transaction.inventory_item?.id ||
+          transaction.inventory_item_id ||
+          linkedBatch?.inventory_item?.id ||
+          "",
+      );
+
+      if (
+        filters.inventory_batch_id &&
+        String(transaction.inventory_batch_id || "") !==
+          String(filters.inventory_batch_id)
+      ) {
+        return false;
+      }
+
+      if (
+        filters.inventory_item_id &&
+        transactionItemId !== String(filters.inventory_item_id)
+      ) {
+        return false;
+      }
+
+      if (filters.source && getSourceLabel(transaction, linkedBatch) !== filters.source) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [
+    batchById,
+    filters.inventory_batch_id,
+    filters.inventory_item_id,
+    filters.source,
+    inventoryTransactionsWithSyncStatus,
+  ]);
+
   const stockFormOptions = useMemo(() => {
     return [...new Set(
       mergedTransactionRows
@@ -1053,32 +1163,32 @@ const InventoryTransactionsPage = () => {
     toolbarState.stockForms.length +
     (toolbarState.sortOrder !== "newest" ? 1 : 0);
 
-  const trackingMap = useMemo(() => {
+  const summaryTrackingMap = useMemo(() => {
     return buildInventoryTrackingMap(
-      inventoryItems,
-      inventoryBatchesForDisplay,
-      inventoryTransactionsWithSyncStatus,
+      summaryScopedItems,
+      summaryScopedBatches,
+      summaryScopedTransactions,
     );
   }, [
-    inventoryBatchesForDisplay,
-    inventoryItems,
-    inventoryTransactionsWithSyncStatus,
+    summaryScopedBatches,
+    summaryScopedItems,
+    summaryScopedTransactions,
   ]);
 
   const summaryMetrics = useMemo(() => {
-    const totalInflow = mergedTransactionRows.reduce((sum, row) => {
+    const totalInflow = displayedRows.reduce((sum, row) => {
       return row.transaction_direction === "INFLOW"
         ? sum + normalizeQuantity(row.quantity)
         : sum;
     }, 0);
 
-    const totalOutflow = mergedTransactionRows.reduce((sum, row) => {
+    const totalOutflow = displayedRows.reduce((sum, row) => {
       return row.transaction_direction === "OUTFLOW"
         ? sum + normalizeQuantity(row.quantity)
         : sum;
     }, 0);
 
-    const totalWriteOff = mergedTransactionRows.reduce((sum, row) => {
+    const totalWriteOff = displayedRows.reduce((sum, row) => {
       return [
         "EXPIRED",
         "DAMAGED",
@@ -1093,12 +1203,12 @@ const InventoryTransactionsPage = () => {
         : sum;
     }, 0);
 
-    const lowStockItems = inventoryItems.filter((item) =>
-      isLowStockItem(item, trackingMap.get(item.id)),
+    const lowStockItems = summaryScopedItems.filter((item) =>
+      isLowStockItem(item, summaryTrackingMap.get(item.id)),
     ).length;
 
-    const nearExpiryItems = inventoryItems.filter((item) => {
-      const trackingStats = trackingMap.get(item.id);
+    const nearExpiryItems = summaryScopedItems.filter((item) => {
+      const trackingStats = summaryTrackingMap.get(item.id);
       const trackedExpirationDate = getTrackedExpirationDate(item, trackingStats);
 
       if (!trackedExpirationDate) {
@@ -1124,8 +1234,8 @@ const InventoryTransactionsPage = () => {
       return daysUntilExpiry <= 30;
     }).length;
 
-    const expiredItems = inventoryItems.filter((item) => {
-      const trackingStats = trackingMap.get(item.id);
+    const expiredItems = summaryScopedItems.filter((item) => {
+      const trackingStats = summaryTrackingMap.get(item.id);
       const trackedExpirationDate = getTrackedExpirationDate(item, trackingStats);
 
       return (
@@ -1144,10 +1254,9 @@ const InventoryTransactionsPage = () => {
       expiredItems,
     };
   }, [
-    inventoryBatchesForDisplay,
-    inventoryItems,
-    mergedTransactionRows,
-    trackingMap,
+    displayedRows,
+    summaryScopedItems,
+    summaryTrackingMap,
   ]);
 
   const handleExport = async (format) => {
@@ -1167,6 +1276,14 @@ const InventoryTransactionsPage = () => {
     try {
       const file = await exportInventoryTransactions(format, {
         inventory_item_id: filters.inventory_item_id,
+        inventory_batch_id: filters.inventory_batch_id,
+        transaction_label: filters.transaction_type,
+        date_from: filters.date_from,
+        date_to: filters.date_to,
+        source: filters.source,
+        search: toolbarState.search,
+        movement: toolbarState.movement,
+        stock_form_packaging: toolbarState.stockForms,
       });
       downloadFile(file);
       setExportFeedback({
@@ -1374,32 +1491,32 @@ const InventoryTransactionsPage = () => {
         <SummaryCard
           label="Total Inflow"
           value={summaryMetrics.totalInflow}
-          helper=""
+          helper="Matches the active table filters"
         />
         <SummaryCard
           label="Total Outflow"
           value={summaryMetrics.totalOutflow}
-          helper=""
+          helper="Matches the active table filters"
         />
         <SummaryCard
           label="Total Write-Off"
           value={summaryMetrics.totalWriteOff}
-          helper=""
+          helper="Matches the active table filters"
         />
         <SummaryCard
           label="Near Expiry"
           value={summaryMetrics.nearExpiryItems}
-          helper=""
+          helper="Current stock; item, batch, and source filters apply"
         />
         <SummaryCard
           label="Expired"
           value={summaryMetrics.expiredItems}
-          helper=""
+          helper="Current stock; item, batch, and source filters apply"
         />
         <SummaryCard
           label="Low Stock Alerts"
           value={summaryMetrics.lowStockItems}
-          helper=""
+          helper="Current stock; item, batch, and source filters apply"
         />
         </div>
       </section>

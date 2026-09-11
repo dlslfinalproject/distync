@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { FiX } from "react-icons/fi";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { formatNumericValue } from "../../features/inventory-items/inventoryItemFormatting";
+import { isDonatedReliefPackBatch } from "../../features/donations/donationType";
 
 const overlayStyles = {
   position: "fixed",
@@ -196,8 +197,11 @@ const inferTrackingMethodLabel = (item, selectedBatch) => {
   return "Count-Based";
 };
 
+const getWritableInventoryBatches = (inventoryBatches = []) =>
+  inventoryBatches.filter((batch) => !isDonatedReliefPackBatch(batch));
+
 const createDefaultForm = (inventoryBatches = []) => ({
-  inventory_batch_id: inventoryBatches[0]?.id || "",
+  inventory_batch_id: getWritableInventoryBatches(inventoryBatches)[0]?.id || "",
   transaction_type: "DAMAGED",
   other_status: "",
   quantity: "",
@@ -258,7 +262,9 @@ const InventoryItemStatusLogModal = ({
   const itemCategory = item?.category || NOT_APPLICABLE_LABEL;
   const itemTrackingMethod = inferTrackingMethodLabel(item, selectedBatch);
   const loggedByLabel = formatLoggedByName(authenticatedUser);
-  const hasAvailableBatch = inventoryBatches.length > 0;
+  const writableInventoryBatches = getWritableInventoryBatches(inventoryBatches);
+  const hasAvailableBatch = writableInventoryBatches.length > 0;
+  const isSelectedBatchReliefPack = isDonatedReliefPackBatch(selectedBatch);
   const isOtherStatus = formValues.transaction_type === "OTHER";
   const selectedBatchAvailableStock = Number(selectedBatch?.quantity_available || 0);
   const selectedBatchPackaging =
@@ -315,6 +321,11 @@ const InventoryItemStatusLogModal = ({
 
     if (!formValues.inventory_batch_id) {
       nextErrors.inventory_batch_id = "Batch number is required.";
+    }
+
+    if (isSelectedBatchReliefPack) {
+      nextErrors.inventory_batch_id =
+        "Donated relief packs can only leave inventory through relief-pack distribution.";
     }
 
     if (!formValues.transaction_type) {
@@ -457,7 +468,7 @@ const InventoryItemStatusLogModal = ({
                     aria-invalid={Boolean(fieldErrors.inventory_batch_id)}
                   >
                     <option value="">Select batch number</option>
-                    {inventoryBatches.map((batch) => (
+                    {writableInventoryBatches.map((batch) => (
                       <option key={batch.id} value={batch.id}>
                         {batch.batch_no} ({formatNumericValue(Number(batch.quantity_available || 0))}{" "}
                         {unitLabel})
@@ -671,7 +682,9 @@ const InventoryItemStatusLogModal = ({
 
           {!hasAvailableBatch ? (
             <div style={errorBoxStyles}>
-              No available stock can be logged for this item right now.
+              {inventoryBatches.some((batch) => isDonatedReliefPackBatch(batch))
+                ? "Donated relief packs are distributed through Relief Pack Distribution and cannot be written off."
+                : "No available stock can be logged for this item right now."}
             </div>
           ) : null}
 

@@ -30,6 +30,24 @@ const subtractiveTransactionTypes = new Set([
   "OTHER",
 ]);
 
+const createDonatedReliefPackWriteOffNotAllowedError = () => {
+  const error = new Error(
+    "Donated relief packs can only leave inventory through relief-pack distribution; manual write-offs are not allowed.",
+  );
+  error.statusCode = 400;
+  error.code = "DONATED_RELIEF_PACK_WRITE_OFF_NOT_ALLOWED";
+  return error;
+};
+
+const createDonatedStockEventMismatchError = () => {
+  const error = new Error(
+    "Donated loose-item write-offs must use the disaster event recorded on the donation.",
+  );
+  error.statusCode = 400;
+  error.code = "DONATED_STOCK_EVENT_MISMATCH";
+  return error;
+};
+
 const isEventSpecificReliefOutflow = (transactionData) =>
   transactionData.transaction_type === "OUTFLOW" &&
   Boolean(transactionData.disaster_event_id);
@@ -523,6 +541,46 @@ const createInventoryTransaction = async (transactionData) => {
       throw error;
     }
 
+    const isDonatedReliefPackBatch =
+      String(inventoryBatch.source_type || "").toUpperCase() === "DONATED" &&
+      String(inventoryBatch.source_donation_type || "").toUpperCase() ===
+        "RELIEF_PACK";
+    const isDonatedLooseItemBatch =
+      String(inventoryBatch.source_type || "").toUpperCase() === "DONATED" &&
+      String(inventoryBatch.source_donation_type || "").toUpperCase() ===
+        "LOOSE_ITEM";
+    const isManualInventoryTransaction =
+      !transactionData.reference_type ||
+      transactionData.reference_type === "MANUAL";
+
+    if (
+      isDonatedLooseItemBatch &&
+      isManualInventoryTransaction &&
+      subtractiveTransactionTypes.has(transactionData.transaction_type) &&
+      inventoryBatch.source_donation_event_id
+    ) {
+      if (
+        transactionData.disaster_event_id &&
+        String(transactionData.disaster_event_id) !==
+          String(inventoryBatch.source_donation_event_id)
+      ) {
+        throw createDonatedStockEventMismatchError();
+      }
+
+      transactionData = {
+        ...transactionData,
+        disaster_event_id: inventoryBatch.source_donation_event_id,
+      };
+    }
+
+    if (
+      isDonatedReliefPackBatch &&
+      isManualInventoryTransaction &&
+      subtractiveTransactionTypes.has(transactionData.transaction_type)
+    ) {
+      throw createDonatedReliefPackWriteOffNotAllowedError();
+    }
+
     let newQuantityAvailable = inventoryBatch.quantity_available;
 
     if (additiveTransactionTypes.has(transactionData.transaction_type)) {
@@ -712,8 +770,22 @@ const exportInventoryTransactions = async (filters, format) => {
     reportTitle: "Inventory Transactions Report",
     metadata: [
       { label: "Search", value: filters.search?.trim() || "None" },
-      { label: "Transaction Type", value: filters.transaction_type || "All" },
+      {
+        label: "Transaction Type",
+        value: filters.transaction_label || filters.transaction_type || "All",
+      },
       { label: "Reference Type", value: filters.reference_type || "All" },
+      { label: "Movement", value: filters.movement || "All" },
+      { label: "Source", value: filters.source || "All" },
+      { label: "Date From", value: filters.date_from || "None" },
+      { label: "Date To", value: filters.date_to || "None" },
+      {
+        label: "Packaging",
+        value:
+          filters.stock_form_packaging?.length > 0
+            ? filters.stock_form_packaging.join(", ")
+            : "All",
+      },
     ],
     columns: [
       { key: "transaction_type", label: "Transaction Type", width: 20, pdfWidth: 95 },

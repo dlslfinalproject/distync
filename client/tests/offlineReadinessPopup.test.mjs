@@ -21,7 +21,8 @@ test("preparation publishes sanitized diagnostics and verifies read-back before 
   const source = await read("offline/offlinePreparation.js");
   assert.match(source, /distync-offline-preparation-updated/);
   assert.match(source, /readBack: true/);
-  assert.match(source, /masterlistReadBackSucceeded/);
+  assert.match(source, /!masterlistReadBack/);
+  assert.doesNotMatch(source, /masterlistReadBackSucceeded/);
   assert.match(source, /recordsByPage/);
   assert.match(source, /previousCompleteCache/);
   assert.doesNotMatch(source, /publishDiagnostics\(\{[^}]*pageRows/);

@@ -285,6 +285,8 @@ const InventoryItemsTable = ({
                   item.name ??
                   item.product_name ??
                   "Unnamed Item";
+                const statusLogUnavailable =
+                  isOffline || typeof onLogStatus !== "function";
 
                 return (
                   <tr className="inventory-items-table-row" key={item.id || index}>
@@ -396,10 +398,10 @@ const InventoryItemsTable = ({
                             label: "Log Status",
                             icon: <FiAlertCircle size={18} />,
                             disabled:
-                              isOffline || typeof onLogStatus !== "function",
+                              statusLogUnavailable || item.can_log_status === false,
                             title: isOffline
                               ? "Status changes require an internet connection."
-                              : "Log Status",
+                              : item.status_log_disabled_reason || "Log Status",
                             onClick: (selectedRow) => onLogStatus?.(selectedRow),
                           },
                         ]}

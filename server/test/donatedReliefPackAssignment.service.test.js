@@ -224,6 +224,7 @@ test("claim plan uses the persisted assignment snapshot and keeps the donated so
   const assignment = {
     id: "assignment-1",
     stub_id: "stub-1",
+    disaster_event_id: "event-1",
     donation_id: "donation-1",
     donor_name: "Donor One",
     pack_name: "Acer at Your Service Pack",
@@ -284,6 +285,7 @@ test("donated relief pack claim allocation uses the locked batch expiration", as
   const assignment = {
     id: "assignment-expiry",
     stub_id: "stub-expiry",
+    disaster_event_id: "event-1",
     donation_id: "donation-1",
     donor_name: "Donor One",
     pack_name: "Acer at Your Service Pack",
@@ -333,6 +335,83 @@ test("donated relief pack claim allocation uses the locked batch expiration", as
       });
 
       assert.equal(plan.allocations[0].expiration_date, null);
+    },
+  );
+});
+
+test("claim plan ignores a donated assignment from another disaster event", async () => {
+  const assignmentLookupOptions = [];
+  const assignment = {
+    id: "assignment-other-event",
+    stub_id: "stub-1",
+    disaster_event_id: "event-2",
+    donation_id: "donation-2",
+    pack_name: "Other Event Pack",
+    pack_size: 1,
+    assignment_status: "RESERVED",
+    items_snapshot: [],
+  };
+
+  await withStubbedAssignmentService(
+    {
+      [dbPath]: {},
+      [distributionTransactionRepositoryPath]: {},
+      [assignmentRepositoryPath]: {
+        getAssignmentsByStubIds: async (_stubIds, _client, options) => {
+          assignmentLookupOptions.push(options);
+          return [assignment];
+        },
+      },
+    },
+    async ({ getDonatedReliefPackClaimPlanForStub }) => {
+      const plan = await getDonatedReliefPackClaimPlanForStub({
+        stubId: "stub-1",
+        disasterEventId: "event-1",
+        client: { query: async () => ({ rows: [] }) },
+      });
+
+      assert.deepEqual(assignmentLookupOptions, [
+        {
+          includeReleased: false,
+          forUpdate: true,
+          disasterEventId: "event-1",
+        },
+      ]);
+      assert.equal(plan.hasPersistedAssignment, false);
+      assert.deepEqual(plan.donatedReliefPacks, []);
+      assert.deepEqual(plan.allocations, []);
+    },
+  );
+});
+
+test("claim completion marks donated assignments for the requested disaster event", async () => {
+  let markArguments = null;
+  const assignmentRepository = {
+    markAssignmentsClaimedForStub: async (...args) => {
+      markArguments = args;
+      return [];
+    },
+  };
+
+  await withStubbedAssignmentService(
+    {
+      [dbPath]: {},
+      [distributionTransactionRepositoryPath]: {},
+      [assignmentRepositoryPath]: assignmentRepository,
+    },
+    async ({ markDonatedReliefPackAssignmentsClaimed }) => {
+      const client = { query: async () => ({ rows: [] }) };
+      await markDonatedReliefPackAssignmentsClaimed(
+        "stub-1",
+        "event-1",
+        client,
+      );
+
+      assert.deepEqual(markArguments, [
+        "stub-1",
+        client,
+        { disasterEventId: "event-1" },
+      ]);
     },
   );
 });

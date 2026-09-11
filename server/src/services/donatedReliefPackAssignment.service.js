@@ -401,10 +401,16 @@ const getDonatedReliefPackClaimPlanForStub = async ({
   const assignments = await assignmentRepository.getAssignmentsByStubIds(
     [stubId],
     client,
-    { includeReleased: false, forUpdate: true },
+    {
+      includeReleased: false,
+      forUpdate: true,
+      disasterEventId,
+    },
   );
   const reservedAssignments = assignments.filter(
-    (assignment) => assignment.assignment_status === "RESERVED",
+    (assignment) =>
+      assignment.assignment_status === "RESERVED" &&
+      assignment.disaster_event_id === disasterEventId,
   );
 
   if (reservedAssignments.length === 0) {
@@ -478,8 +484,16 @@ const getDonatedReliefPackClaimPlanForStub = async ({
   };
 };
 
-const markDonatedReliefPackAssignmentsClaimed = async (stubId, client) =>
-  assignmentRepository.markAssignmentsClaimedForStub(stubId, client);
+const markDonatedReliefPackAssignmentsClaimed = async (
+  stubId,
+  disasterEventId,
+  client,
+) =>
+  assignmentRepository.markAssignmentsClaimedForStub(
+    stubId,
+    client,
+    { disasterEventId },
+  );
 
 const releaseDonatedReliefPackAssignmentsForHousehold = async ({
   householdId,

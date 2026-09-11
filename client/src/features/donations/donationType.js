@@ -11,6 +11,22 @@ export const isReliefPackDonationItemRemark = (remarks) =>
     .toLowerCase()
     .startsWith(RELIEF_PACK_DONATION_REMARK_PREFIX);
 
+export const isDonatedReliefPackBatch = (batch) => {
+  const sourceType = String(batch?.source_type || "")
+    .trim()
+    .toUpperCase();
+  const donationType = String(
+    batch?.source_donation_type || batch?.donation?.donation_type || "",
+  )
+    .trim()
+    .toUpperCase();
+
+  return (
+    sourceType === "DONATED" &&
+    donationType === DONATION_TYPE_KEYS.RELIEF_PACK
+  );
+};
+
 export const getDonationTypeKey = (items) => {
   const normalizedItems = Array.isArray(items) ? items : [];
 

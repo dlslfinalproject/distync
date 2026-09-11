@@ -108,3 +108,41 @@ test("OTHER is included in the inventory transaction schema and migration", () =
   assert.match(migrationSql, /'OTHER'::character varying/i);
   assert.match(migrationSql, /COMMIT;\s*$/i);
 });
+
+test("manual transaction batch lookup classifies donated relief-pack components", () => {
+  const repositorySource = fs.readFileSync(
+    path.resolve(__dirname, "../src/repositories/inventoryTransaction.repository.js"),
+    "utf8",
+  );
+
+  assert.match(
+    repositorySource,
+    /source_donation\.donation_type AS source_donation_type/i,
+  );
+  assert.match(
+    repositorySource,
+    /source_donation\.disaster_event_id AS source_donation_event_id/i,
+  );
+  assert.match(
+    repositorySource,
+    /COALESCE\(source_di\.remarks, ''\) ILIKE 'Relief Pack:%'/i,
+  );
+});
+
+test("write-off event attribution migration backfills only unambiguous donated loose-item records", () => {
+  const migrationSource = fs.readFileSync(
+    path.resolve(
+      __dirname,
+      "../../database/migrations/2026-09-11_backfill_inventory_writeoff_event_attribution.sql",
+    ),
+    "utf8",
+  );
+
+  assert.match(migrationSource, /BEGIN;[\s\S]*COMMIT;/i);
+  assert.match(migrationSource, /it\.disaster_event_id IS NULL/i);
+  assert.match(migrationSource, /it\.transaction_type IN \([\s\S]*'OTHER'/i);
+  assert.match(migrationSource, /ib\.source_type = 'DONATED'/i);
+  assert.match(migrationSource, /NOT ILIKE 'Relief Pack:%'/i);
+  assert.match(migrationSource, /COUNT\(DISTINCT d\.disaster_event_id\) = 1/i);
+  assert.match(migrationSource, /SET disaster_event_id = donation_events\.disaster_event_id/i);
+});

@@ -616,6 +616,7 @@ const recordAutomaticReliefPackClaim = async ({
   if (persistedDonatedClaimPlan.hasPersistedAssignment) {
     await donatedReliefPackAssignmentService.markDonatedReliefPackAssignmentsClaimed(
       stub.id,
+      stub.disaster_event_id,
       client,
     );
   }

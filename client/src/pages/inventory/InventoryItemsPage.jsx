@@ -82,6 +82,33 @@ import {
   downloadExportFile,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
+import { isDonatedReliefPackBatch } from "../../features/donations/donationType";
+
+const RELIEF_PACK_STATUS_LOG_DISABLED_MESSAGE =
+  "Donated relief packs are distributed through Relief Pack Distribution and cannot be written off.";
+
+const getStatusLogBatchEligibility = (batches = []) => {
+  const availableBatches = batches.filter(
+    (batch) =>
+      !batch?.is_local_only && Number(batch?.quantity_available || 0) > 0,
+  );
+  const writableBatches = availableBatches.filter(
+    (batch) => !isDonatedReliefPackBatch(batch),
+  );
+  const hasReliefPackBatches = availableBatches.some((batch) =>
+    isDonatedReliefPackBatch(batch),
+  );
+
+  return {
+    hasWritableBatches: writableBatches.length > 0,
+    disabledReason:
+      writableBatches.length === 0 && hasReliefPackBatches
+        ? RELIEF_PACK_STATUS_LOG_DISABLED_MESSAGE
+        : writableBatches.length === 0
+          ? "No available stock can be logged for this item right now."
+          : null,
+  };
+};
 
 const isLowStockItem = (item, trackingStats) => {
   const reorderLevel = Number(item.reorder_level || 0);
@@ -823,12 +850,15 @@ const InventoryItemsPage = () => {
       const relatedBatches = inventoryBatchesForInventoryManagement.filter((batch) => {
         return String(batch?.inventory_item_id || "") === String(item?.id || "");
       });
+      const statusLogBatchEligibility = getStatusLogBatchEligibility(relatedBatches);
 
       return {
         ...item,
         reorder_level_display: getReorderLevelDisplayValue(item, relatedBatches),
         requires_reorder_level_before_restock:
           requiresReorderLevelBeforeLguHandling(item, relatedBatches),
+        can_log_status: statusLogBatchEligibility.hasWritableBatches,
+        status_log_disabled_reason: statusLogBatchEligibility.disabledReason,
       };
     });
   }, [inventoryBatchesForInventoryManagement, inventoryItemsWithSyncStatus]);
@@ -1700,7 +1730,8 @@ const InventoryItemsPage = () => {
       return (
         !batch.is_local_only &&
         String(batch.inventory_item_id) === String(statusLogItem.id) &&
-        Number(batch.quantity_available || 0) > 0
+        Number(batch.quantity_available || 0) > 0 &&
+        !isDonatedReliefPackBatch(batch)
       );
     });
   }, [inventoryBatchesForInventoryManagement, statusLogItem]);

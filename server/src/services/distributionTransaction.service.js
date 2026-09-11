@@ -16,7 +16,8 @@ const {
   getPrimaryAssignedReliefPackTemplate,
   resolveAssignedReliefPackTemplatesForHousehold,
 } = require("./reliefPackAssignment.service");
-const { logAuditSafely, pickDefined } = require("../utils/systemLog");
+const { pickDefined } = require("../utils/systemLog");
+const { recordDistributionAudit } = require("../utils/distributionAudit");
 const mswdoReportExport = require("../utils/mswdoReportExport");
 const {
   getInventoryBatchStatus,
@@ -1385,23 +1386,6 @@ const buildAssignedTemplateReleasePlan = async ({
   };
 };
 
-const summarizeDistributionTransaction = (transaction) =>
-  pickDefined(transaction, [
-    "id",
-    "disaster_event_id",
-    "household_id",
-    "stub_id",
-    "distribution_status",
-    "claimed_by_name",
-    "verified_by",
-    "qr_reference_value",
-    "receipt_no",
-    "receipt_status",
-    "received_at",
-    "relief_pack_template_id",
-    "remarks",
-  ]);
-
 const createDistributionTransaction = async (requestData) => {
   const externalClient = requestData.dbClient || null;
   const client = externalClient || await pool.connect();
@@ -1753,6 +1737,13 @@ const createDistributionTransaction = async (requestData) => {
       await client.query("COMMIT");
     }
 
+    const recordAudit = () =>
+      recordDistributionAudit({
+        actor: requestData.requester,
+        action: "DISTRIBUTION_RECORD",
+        distributionTransaction,
+      });
+
     if (!externalClient) {
       await notificationService.emitSafely(async () => {
         for (const batchAlertPayload of batchAlertPayloads) {
@@ -1775,14 +1766,9 @@ const createDistributionTransaction = async (requestData) => {
         });
       });
 
-      await logAuditSafely({
-        actor: requestData.requester,
-        action: "DISTRIBUTION_RECORD",
-        entityType: "DISTRIBUTION_TRANSACTION",
-        entityId: distributionTransaction.id,
-        oldValues: {},
-        newValues: summarizeDistributionTransaction(distributionTransaction),
-      });
+      await recordAudit();
+    } else if (typeof requestData.deferDomainSideEffect === "function") {
+      requestData.deferDomainSideEffect(recordAudit);
     }
 
     return {
@@ -1958,6 +1944,13 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       await client.query("COMMIT");
     }
 
+    const recordAudit = () =>
+      recordDistributionAudit({
+        actor: requestData.requester,
+        action: "DISTRIBUTION_QR_CLAIM",
+        distributionTransaction,
+      });
+
     if (!externalClient) {
       await notificationService.emitSafely(() =>
         notificationService.emitDistributionUpdate({
@@ -1973,14 +1966,9 @@ const claimDistributionTransactionFromQr = async (requestData) => {
         }),
       );
 
-      await logAuditSafely({
-        actor: requestData.requester,
-        action: "DISTRIBUTION_QR_CLAIM",
-        entityType: "DISTRIBUTION_TRANSACTION",
-        entityId: distributionTransaction.id,
-        oldValues: {},
-        newValues: summarizeDistributionTransaction(distributionTransaction),
-      });
+      await recordAudit();
+    } else if (typeof requestData.deferDomainSideEffect === "function") {
+      requestData.deferDomainSideEffect(recordAudit);
     }
 
     return {

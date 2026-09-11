@@ -381,6 +381,140 @@ const baseAuth = {
   defaultBarangayId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
 };
 
+test("distribution sync actions defer audit side effects until the sync transaction commits", async () => {
+  const transactionEvents = [];
+  const capturedRequests = {};
+  const auditSideEffects = [];
+  const dbClient = {
+    query: async () => ({ rows: [] }),
+  };
+
+  const captureDeferredAudit = (actionKey, request) => {
+    capturedRequests[actionKey] = request;
+    request.deferDomainSideEffect(async () => {
+      auditSideEffects.push({
+        actionKey,
+        afterCommit: transactionEvents.at(-1) === "COMMIT",
+        requester: request.requester,
+      });
+    });
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          transactionEvents.push("BEGIN");
+          const result = await callback(dbClient);
+          transactionEvents.push("COMMIT");
+          return result;
+        },
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async (request) => {
+          captureDeferredAudit("STUB_CLAIM", request);
+          return { data: { id: "stub-1" } };
+        },
+      },
+      [distributionTransactionServicePath]: {
+        createDistributionTransaction: async (request) => {
+          captureDeferredAudit("DISTRIBUTION_CREATE", request);
+          return { distribution_transaction_id: "distribution-1" };
+        },
+        claimDistributionTransactionFromQr: async (request) => {
+          captureDeferredAudit("DISTRIBUTION_QR_CLAIM", request);
+          return { distribution_transaction_id: "distribution-2" };
+        },
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async () => {},
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "distribution-audit-stub",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-1",
+            device_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              disaster_event_id: "event-1",
+            },
+          },
+          {
+            client_sync_id: "distribution-audit-create",
+            action_key: "DISTRIBUTION_CREATE",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            device_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-08-08T01:01:00.000Z",
+            payload: {
+              stub_id: "stub-2",
+              disaster_event_id: "event-1",
+            },
+          },
+          {
+            client_sync_id: "distribution-audit-qr",
+            action_key: "DISTRIBUTION_QR_CLAIM",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            device_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-08-08T01:02:00.000Z",
+            payload: {
+              stub_id: "stub-3",
+              disaster_event_id: "event-1",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(
+        results.map((result) => result.sync_status),
+        ["SYNCED", "SYNCED", "SYNCED"],
+      );
+    },
+  );
+
+  assert.deepEqual(transactionEvents, [
+    "BEGIN",
+    "COMMIT",
+    "BEGIN",
+    "COMMIT",
+    "BEGIN",
+    "COMMIT",
+  ]);
+  assert.deepEqual(
+    Object.keys(capturedRequests),
+    ["STUB_CLAIM", "DISTRIBUTION_CREATE", "DISTRIBUTION_QR_CLAIM"],
+  );
+  for (const request of Object.values(capturedRequests)) {
+    assert.equal(request.requester.userId, baseAuth.userId);
+    assert.equal(request.requester.roleCode, baseAuth.roleCode);
+    assert.equal(
+      request.requester.deviceId,
+      "99999999-9999-4999-8999-999999999999",
+    );
+    assert.equal(typeof request.deferDomainSideEffect, "function");
+  }
+  assert.deepEqual(
+    auditSideEffects.map(({ actionKey, afterCommit }) => ({ actionKey, afterCommit })),
+    [
+      { actionKey: "STUB_CLAIM", afterCommit: true },
+      { actionKey: "DISTRIBUTION_CREATE", afterCommit: true },
+      { actionKey: "DISTRIBUTION_QR_CLAIM", afterCommit: true },
+    ],
+  );
+});
+
 const buildValidHouseholdRegisterSyncPayload = (overrides = {}) => ({
   disaster_event_id: "11111111-1111-4111-8111-111111111111",
   barangay_id: baseAuth.defaultBarangayId,

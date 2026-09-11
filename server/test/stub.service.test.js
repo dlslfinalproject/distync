@@ -24,6 +24,7 @@ const reliefPackAssignmentServicePath = require.resolve(
 const donatedReliefPackAssignmentServicePath = require.resolve(
   "../src/services/donatedReliefPackAssignment.service",
 );
+const distributionAuditPath = require.resolve("../src/utils/distributionAudit");
 
 const withStubbedStubService = async (stubs, runTest) => {
   const dependencyPaths = Object.keys(stubs);
@@ -105,6 +106,7 @@ const createBaseStubs = ({
   automaticReliefPackClaimOverrides = {},
   donatedReliefPackAssignmentOverrides = {},
   stubRepositoryOverrides = {},
+  distributionAuditOverrides = {},
 }) => ({
   [masterlistRepositoryPath]: {
     BARANGAY_ROLE_CODE: "BARANGAY",
@@ -182,6 +184,10 @@ const createBaseStubs = ({
     ensureDonatedReliefPackAssignmentsForEvent: async () => [],
     getAssignedDonatedReliefPacksByStubIds: async () => new Map(),
     ...donatedReliefPackAssignmentOverrides,
+  },
+  [distributionAuditPath]: {
+    recordDistributionAudit: async () => {},
+    ...distributionAuditOverrides,
   },
 });
 
@@ -615,6 +621,7 @@ test("EE-FIX-03 claimBarangayStub blocks new claims when the event is not ACTIVE
 test("EE-FIX-03 claimBarangayStub allows ACTIVE event claims to reach domain mutation", async () => {
   const events = [];
   let claimHandlerCalled = false;
+  const auditCalls = [];
 
   await withStubbedStubService(
     createBaseStubs({
@@ -645,6 +652,14 @@ test("EE-FIX-03 claimBarangayStub allows ACTIVE event claims to reach domain mut
           donatedLooseItems: [],
         };
       },
+      distributionAuditOverrides: {
+        recordDistributionAudit: async (payload) => {
+          auditCalls.push({
+            ...payload,
+            committed: events.includes("COMMIT"),
+          });
+        },
+      },
     }),
     async ({ claimBarangayStub }) => {
       const result = await claimBarangayStub(baseParams);
@@ -659,6 +674,78 @@ test("EE-FIX-03 claimBarangayStub allows ACTIVE event claims to reach domain mut
 
   assert.equal(claimHandlerCalled, true);
   assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
+  assert.equal(auditCalls.length, 1);
+  assert.equal(auditCalls[0].action, "DISTRIBUTION_RECORD");
+  assert.equal(auditCalls[0].committed, true);
+  assert.equal(
+    auditCalls[0].distributionTransaction.id,
+    "66666666-6666-4666-8666-666666666666",
+  );
+});
+
+test("offline stub claims defer their audit until the outer sync transaction commits", async () => {
+  const deferredSideEffects = [];
+  const auditCalls = [];
+
+  await withStubbedStubService(
+    createBaseStubs({
+      scopedStub: {
+        ...baseStub,
+        status: "ISSUED",
+      },
+      lockedStub: {
+        ...baseStub,
+        status: "ISSUED",
+        disaster_event_status: "ACTIVE",
+      },
+      claimHandler: async () => ({
+        distributionTransaction: {
+          id: "77777777-7777-4777-8777-777777777777",
+          distribution_status: "CLAIMED",
+        },
+        updatedStub: {
+          ...baseStub,
+          status: "CLAIMED",
+        },
+        assignedReliefPackTemplates: [],
+        packQuantity: 1,
+        donatedReliefPacks: [],
+        donatedLooseItems: [],
+      }),
+      distributionAuditOverrides: {
+        recordDistributionAudit: async (payload) => {
+          auditCalls.push(payload);
+        },
+      },
+    }),
+    async ({ claimBarangayStub }) => {
+      await claimBarangayStub({
+        ...baseParams,
+        requester: {
+          userId: baseParams.verified_by,
+          roleCode: "BARANGAY",
+          defaultBarangayId: baseBarangayId,
+          deviceId: "99999999-9999-4999-8999-999999999999",
+        },
+        dbClient: { query: async () => ({ rows: [] }) },
+        deferDomainSideEffect: (sideEffect) => {
+          deferredSideEffects.push(sideEffect);
+        },
+      });
+    },
+  );
+
+  assert.equal(auditCalls.length, 0);
+  assert.equal(deferredSideEffects.length, 1);
+
+  await deferredSideEffects[0]();
+
+  assert.equal(auditCalls.length, 1);
+  assert.equal(auditCalls[0].action, "DISTRIBUTION_RECORD");
+  assert.equal(
+    auditCalls[0].actor.deviceId,
+    "99999999-9999-4999-8999-999999999999",
+  );
 });
 
 test("DEPLOY-MSWDO-RGD-01 production MSWDO dashboard accepts barangay_id without override", async () => {

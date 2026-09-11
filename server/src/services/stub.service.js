@@ -19,6 +19,7 @@ const {
 const {
   isReliefPackClaimHouseholdCurrentlyEligible,
 } = require("../utils/reliefPackEligibility");
+const { recordDistributionAudit } = require("../utils/distributionAudit");
 const { resolveRequesterBarangayId } = require("../utils/requesterScope");
 
 const isOverrideAllowed = process.env.NODE_ENV !== "production";
@@ -822,13 +823,6 @@ const getMunicipalStubDashboard = async ({
     memberSectors,
     "household_id",
   );
-  const municipalUnclaimedStubCount = rowsWithQr.filter(
-    (row) =>
-      row.status === "ISSUED" &&
-      row.is_active === true &&
-      row.latest_attendance_status === "PRESENT" &&
-      row.latest_attendance_time_out === null,
-  ).length;
   const data = await Promise.all(
     rowsWithQr.map(async (row) => {
       const sectorIds = buildSectorIds(
@@ -1061,6 +1055,23 @@ const claimBarangayStub = async (params) => {
 
     if (!externalClient) {
       await client.query("COMMIT");
+    }
+
+    const recordAudit = () =>
+      recordDistributionAudit({
+        actor:
+          params.requester || {
+            userId: params.verified_by || null,
+            deviceId: params.device_id || null,
+          },
+        action: "DISTRIBUTION_RECORD",
+        distributionTransaction,
+      });
+
+    if (!externalClient) {
+      await recordAudit();
+    } else if (typeof params.deferDomainSideEffect === "function") {
+      params.deferDomainSideEffect(recordAudit);
     }
 
     return {

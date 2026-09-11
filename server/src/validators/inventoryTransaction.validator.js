@@ -22,6 +22,43 @@ const allowedReferenceTypes = [
   "SYSTEM",
 ];
 
+const allowedTransactionLabels = [
+  "Stock-Up",
+  "Donated",
+  "Donation Adjustment",
+  "Distributed",
+  "Damaged",
+  "Spoiled",
+  "Missing",
+  "Stolen",
+  "Expired",
+  "Other",
+];
+
+const allowedMovementTypes = ["INFLOW", "OUTFLOW"];
+const allowedSourceLabels = ["Malvar LGU", "Donors"];
+const calendarDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+const normalizeStringList = (value) => {
+  const values = Array.isArray(value) ? value : [value];
+
+  return values
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter(Boolean);
+};
+
+const isValidCalendarDate = (value) => {
+  if (typeof value !== "string" || !calendarDatePattern.test(value)) {
+    return false;
+  }
+
+  const parsedDate = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(parsedDate.getTime()) &&
+    parsedDate.toISOString().slice(0, 10) === value
+  );
+};
+
 const {
   isValidInventoryTransactionReferenceNo,
   normalizeInventoryTransactionReferenceNo,
@@ -63,7 +100,15 @@ const validateGetInventoryTransactions = (req, res, next) => {
       disaster_event_id,
       performed_by,
       search,
+      transaction_label,
+      movement,
+      source,
+      date_from,
+      date_to,
+      stock_form_packaging,
     } = req.query;
+
+    const stockFormPackagings = normalizeStringList(stock_form_packaging);
 
     if (inventory_batch_id !== undefined && !isValidUuid(inventory_batch_id)) {
       return res.status(400).json({
@@ -109,6 +154,45 @@ const validateGetInventoryTransactions = (req, res, next) => {
       });
     }
 
+    if (
+      transaction_label !== undefined &&
+      !allowedTransactionLabels.includes(transaction_label)
+    ) {
+      return res.status(400).json({
+        message: "transaction_label is not a supported inventory transaction filter",
+      });
+    }
+
+    if (movement !== undefined && !allowedMovementTypes.includes(movement)) {
+      return res.status(400).json({
+        message: "movement must be one of: INFLOW, OUTFLOW",
+      });
+    }
+
+    if (source !== undefined && !allowedSourceLabels.includes(source)) {
+      return res.status(400).json({
+        message: "source must be one of: Malvar LGU, Donors",
+      });
+    }
+
+    if (date_from !== undefined && !isValidCalendarDate(date_from)) {
+      return res.status(400).json({
+        message: "date_from must be a valid YYYY-MM-DD date when provided",
+      });
+    }
+
+    if (date_to !== undefined && !isValidCalendarDate(date_to)) {
+      return res.status(400).json({
+        message: "date_to must be a valid YYYY-MM-DD date when provided",
+      });
+    }
+
+    if (date_from && date_to && date_from > date_to) {
+      return res.status(400).json({
+        message: "date_from must be on or before date_to",
+      });
+    }
+
     req.validatedQuery = {
       inventory_batch_id: inventory_batch_id || null,
       inventory_item_id: inventory_item_id || null,
@@ -123,6 +207,12 @@ const validateGetInventoryTransactions = (req, res, next) => {
       disaster_event_id: disaster_event_id || null,
       performed_by: performed_by || null,
       search: typeof search === "string" && search.trim() ? search.trim() : null,
+      transaction_label: transaction_label || null,
+      movement: movement || null,
+      source: source || null,
+      date_from: date_from || null,
+      date_to: date_to || null,
+      stock_form_packaging: stockFormPackagings,
     };
 
     return next();

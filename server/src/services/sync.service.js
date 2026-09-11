@@ -382,7 +382,15 @@ const ACTION_HANDLERS = {
     entityType: "STUB",
     operationType: "CLAIM",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ entityServerId, payload, auth, clientTimestamp, dbClient }) =>
+    execute: async ({
+      entityServerId,
+      payload,
+      auth,
+      clientTimestamp,
+      dbClient,
+      canonicalDeviceId,
+      deferDomainSideEffect,
+    }) =>
       stubService.claimBarangayStub({
         id: entityServerId,
         user_id: auth.roleCode === ROLE_CODES.BARANGAY ? auth.userId : null,
@@ -392,7 +400,9 @@ const ACTION_HANDLERS = {
         claimed_at: clientTimestamp,
         disaster_event_id: payload?.disaster_event_id || null,
         override_barangay_id: null,
+        device_id: canonicalDeviceId || null,
         requester: getRequesterForSync(auth),
+        deferDomainSideEffect,
         dbClient,
       }),
   },
@@ -400,12 +410,19 @@ const ACTION_HANDLERS = {
     entityType: "DISTRIBUTION_TRANSACTION",
     operationType: "CREATE",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth, dbClient, canonicalDeviceId }) =>
+    execute: async ({
+      payload,
+      auth,
+      dbClient,
+      canonicalDeviceId,
+      deferDomainSideEffect,
+    }) =>
       distributionTransactionService.createDistributionTransaction({
         ...payload,
         device_id: canonicalDeviceId || null,
         verified_by: auth.userId,
         requester: getRequesterForSync(auth),
+        deferDomainSideEffect,
         dbClient,
       }),
   },
@@ -413,11 +430,12 @@ const ACTION_HANDLERS = {
     entityType: "DISTRIBUTION_TRANSACTION",
     operationType: "QR_SCAN",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth, dbClient }) =>
+    execute: async ({ payload, auth, dbClient, deferDomainSideEffect }) =>
       distributionTransactionService.claimDistributionTransactionFromQr({
         ...payload,
         verified_by: auth.userId,
         requester: getRequesterForSync(auth),
+        deferDomainSideEffect,
         dbClient,
       }),
   },
