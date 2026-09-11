@@ -4,11 +4,11 @@ import { useAuth } from "../context/AuthContext";
 import { fetchStubDetails, verifyStub } from "../features/stubs/stubService";
 import { ROLE_CODES } from "../utils/roleSession";
 import { extractStubQrValue } from "../utils/stubQr";
+import "./verifyStubPage.css";
 
 const pageStyles = {
   page: {
     minHeight: "100vh",
-    padding: "24px",
     boxSizing: "border-box",
     background:
       "linear-gradient(180deg, #edf4fb 0%, #e5eef7 50%, #dde7f2 100%)",
@@ -18,17 +18,12 @@ const pageStyles = {
     width: "100%",
     maxWidth: "920px",
     margin: "0 auto",
-    display: "grid",
-    gap: "16px",
   },
   section: {
     backgroundColor: "#ffffff",
     border: "1px solid #dbe6f1",
     borderRadius: "14px",
-    padding: "24px",
     boxShadow: "0 8px 18px rgba(76, 101, 132, 0.06)",
-    display: "grid",
-    gap: "14px",
   },
   eyebrow: {
     margin: 0,
@@ -49,12 +44,6 @@ const pageStyles = {
     color: "#5e7288",
     fontSize: "15px",
     lineHeight: 1.6,
-  },
-  verificationLayout: {
-    display: "grid",
-    gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr)",
-    gap: "24px",
-    alignItems: "start",
   },
   statusBanner: {
     borderRadius: "12px",
@@ -86,19 +75,7 @@ const pageStyles = {
     padding: "16px",
     boxSizing: "border-box",
   },
-  photoMeta: {
-    display: "grid",
-    gap: "8px",
-  },
-  detailsList: {
-    display: "grid",
-    gap: "12px",
-  },
   detailRow: {
-    display: "grid",
-    gridTemplateColumns: "180px minmax(0, 1fr)",
-    gap: "12px",
-    alignItems: "start",
     paddingBottom: "12px",
     borderBottom: "1px solid #edf3f8",
   },
@@ -116,12 +93,6 @@ const pageStyles = {
     fontSize: "16px",
     fontWeight: 700,
     lineHeight: 1.45,
-    wordBreak: "break-word",
-  },
-  actions: {
-    display: "flex",
-    gap: "12px",
-    flexWrap: "wrap",
   },
   primaryLink: {
     display: "inline-flex",
@@ -134,7 +105,6 @@ const pageStyles = {
     textDecoration: "none",
     fontSize: "14px",
     fontWeight: 700,
-    width: "fit-content",
   },
   secondaryLink: {
     display: "inline-flex",
@@ -148,7 +118,6 @@ const pageStyles = {
     textDecoration: "none",
     fontSize: "14px",
     fontWeight: 700,
-    width: "fit-content",
   },
   modalOverlay: {
     position: "fixed",
@@ -434,9 +403,9 @@ const VerifyStubPage = () => {
       : getDefaultWorkspaceLink(currentRole);
 
   return (
-    <div style={pageStyles.page}>
-      <div style={pageStyles.content}>
-        <section style={pageStyles.section}>
+    <div className="verify-stub-page" style={pageStyles.page}>
+      <div className="verify-stub-page__content" style={pageStyles.content}>
+        <section className="verify-stub-page__section" style={pageStyles.section}>
           <p style={pageStyles.eyebrow}>DISTYNC Stub Verification</p>
           <h1 style={pageStyles.title}>Scanned Stub Information</h1>
 
@@ -452,6 +421,7 @@ const VerifyStubPage = () => {
           ) : stubDetails ? (
             <>
               <div
+                className="verify-stub-page__status-banner"
                 style={{
                   ...pageStyles.statusBanner,
                   ...getStatusBannerStyles(stubDetails.status),
@@ -466,16 +436,26 @@ const VerifyStubPage = () => {
                 <p style={pageStyles.text}>{verificationMessage}</p>
               ) : null}
 
-              <div style={pageStyles.verificationLayout}>
-                <div style={pageStyles.photoMeta}>
+              <div
+                className="verify-stub-page__verification-layout"
+              >
+                <div
+                  className="verify-stub-page__photo-meta"
+                >
                   {stubDetails.household?.family_head_photo_url ? (
                     <img
+                      className="verify-stub-page__photo"
                       src={stubDetails.household.family_head_photo_url}
                       alt="Registered family head"
                       style={pageStyles.photoPreview}
                     />
                   ) : (
-                    <div style={pageStyles.photoPlaceholder}>No photo available</div>
+                    <div
+                      className="verify-stub-page__photo-placeholder"
+                      style={pageStyles.photoPlaceholder}
+                    >
+                      No photo available
+                    </div>
                   )}
 
                   {stubDetails.household?.photo_captured_at ? (
@@ -492,57 +472,149 @@ const VerifyStubPage = () => {
                   ) : null}
                 </div>
 
-                <div style={pageStyles.detailsList}>
-                  <div style={pageStyles.detailRow}>
-                    <p style={pageStyles.detailLabel}>Stub Number</p>
-                    <p style={pageStyles.detailValue}>
+                <div
+                  className="verify-stub-page__details-list"
+                >
+                  <div
+                    className="verify-stub-page__detail-row"
+                    style={pageStyles.detailRow}
+                  >
+                    <p
+                      className="verify-stub-page__detail-label"
+                      style={pageStyles.detailLabel}
+                    >
+                      Stub Number
+                    </p>
+                    <p
+                      className="verify-stub-page__detail-value"
+                      style={pageStyles.detailValue}
+                    >
                       {stubDetails.display_stub_no || "--"}
                     </p>
                   </div>
 
-                  <div style={pageStyles.detailRow}>
-                    <p style={pageStyles.detailLabel}>Claim Status</p>
-                    <p style={pageStyles.detailValue}>{stubDetails.status || "--"}</p>
+                  <div
+                    className="verify-stub-page__detail-row"
+                    style={pageStyles.detailRow}
+                  >
+                    <p
+                      className="verify-stub-page__detail-label"
+                      style={pageStyles.detailLabel}
+                    >
+                      Claim Status
+                    </p>
+                    <p
+                      className="verify-stub-page__detail-value"
+                      style={pageStyles.detailValue}
+                    >
+                      {stubDetails.status || "--"}
+                    </p>
                   </div>
 
-                  <div style={pageStyles.detailRow}>
-                    <p style={pageStyles.detailLabel}>Family Head Name</p>
-                    <p style={pageStyles.detailValue}>
+                  <div
+                    className="verify-stub-page__detail-row"
+                    style={pageStyles.detailRow}
+                  >
+                    <p
+                      className="verify-stub-page__detail-label"
+                      style={pageStyles.detailLabel}
+                    >
+                      Family Head Name
+                    </p>
+                    <p
+                      className="verify-stub-page__detail-value"
+                      style={pageStyles.detailValue}
+                    >
                       {stubDetails.household?.family_head_name || "--"}
                     </p>
                   </div>
 
-                  <div style={pageStyles.detailRow}>
-                    <p style={pageStyles.detailLabel}>Barangay</p>
-                    <p style={pageStyles.detailValue}>
+                  <div
+                    className="verify-stub-page__detail-row"
+                    style={pageStyles.detailRow}
+                  >
+                    <p
+                      className="verify-stub-page__detail-label"
+                      style={pageStyles.detailLabel}
+                    >
+                      Barangay
+                    </p>
+                    <p
+                      className="verify-stub-page__detail-value"
+                      style={pageStyles.detailValue}
+                    >
                       {stubDetails.barangay?.name || "--"}
                     </p>
                   </div>
 
-                  <div style={pageStyles.detailRow}>
-                    <p style={pageStyles.detailLabel}>Disaster Event</p>
-                    <p style={pageStyles.detailValue}>
+                  <div
+                    className="verify-stub-page__detail-row"
+                    style={pageStyles.detailRow}
+                  >
+                    <p
+                      className="verify-stub-page__detail-label"
+                      style={pageStyles.detailLabel}
+                    >
+                      Disaster Event
+                    </p>
+                    <p
+                      className="verify-stub-page__detail-value"
+                      style={pageStyles.detailValue}
+                    >
                       {getDisasterEventTitle(stubDetails.disaster_event)}
                     </p>
                   </div>
 
-                  <div style={pageStyles.detailRow}>
-                    <p style={pageStyles.detailLabel}>Household Size</p>
-                    <p style={pageStyles.detailValue}>
+                  <div
+                    className="verify-stub-page__detail-row"
+                    style={pageStyles.detailRow}
+                  >
+                    <p
+                      className="verify-stub-page__detail-label"
+                      style={pageStyles.detailLabel}
+                    >
+                      Household Size
+                    </p>
+                    <p
+                      className="verify-stub-page__detail-value"
+                      style={pageStyles.detailValue}
+                    >
                       {stubDetails.household?.household_size ?? "--"}
                     </p>
                   </div>
 
-                  <div style={pageStyles.detailRow}>
-                    <p style={pageStyles.detailLabel}>Relief Pack</p>
-                    <p style={pageStyles.detailValue}>
+                  <div
+                    className="verify-stub-page__detail-row"
+                    style={pageStyles.detailRow}
+                  >
+                    <p
+                      className="verify-stub-page__detail-label"
+                      style={pageStyles.detailLabel}
+                    >
+                      Relief Pack
+                    </p>
+                    <p
+                      className="verify-stub-page__detail-value"
+                      style={pageStyles.detailValue}
+                    >
                       {buildReliefPackText(stubDetails)}
                     </p>
                   </div>
 
-                  <div style={pageStyles.detailRow}>
-                    <p style={pageStyles.detailLabel}>Sectors</p>
-                    <p style={pageStyles.detailValue}>
+                  <div
+                    className="verify-stub-page__detail-row"
+                    style={pageStyles.detailRow}
+                  >
+                    <p
+                      className="verify-stub-page__detail-label"
+                      style={pageStyles.detailLabel}
+                    >
+                      Sectors
+                    </p>
+                    <p
+                      className="verify-stub-page__detail-value"
+                      style={pageStyles.detailValue}
+                    >
                       {buildSectorText(stubDetails)}
                     </p>
                   </div>
@@ -552,7 +624,7 @@ const VerifyStubPage = () => {
           ) : null}
         </section>
 
-        <section style={pageStyles.section}>
+        <section className="verify-stub-page__section" style={pageStyles.section}>
           <p style={pageStyles.eyebrow}>Next Step</p>
 
           {canProceedToValidation ? (
@@ -561,13 +633,18 @@ const VerifyStubPage = () => {
                 You are signed in with an authorized staff role. You can continue to
                 claim or validate this stub in the appropriate DISTYNC workflow.
               </p>
-              <div style={pageStyles.actions}>
-                <Link to={proceedLink} style={pageStyles.primaryLink}>
+              <div className="verify-stub-page__actions">
+                <Link
+                  className="verify-stub-page__action-link"
+                  to={proceedLink}
+                  style={pageStyles.primaryLink}
+                >
                   {currentRole === ROLE_CODES.BARANGAY
                     ? "Proceed to Distribution Validation"
                     : "Open MSWDO Stub Validation"}
                 </Link>
                 <Link
+                  className="verify-stub-page__action-link"
                   to={getDefaultWorkspaceLink(currentRole)}
                   style={pageStyles.secondaryLink}
                 >
@@ -594,8 +671,12 @@ const VerifyStubPage = () => {
                 Sign in with an authorized Barangay or MSWDO account to continue
                 with claim or distribution validation.
               </p>
-              <div style={pageStyles.actions}>
-                <Link to="/access" style={pageStyles.primaryLink}>
+              <div className="verify-stub-page__actions">
+                <Link
+                  className="verify-stub-page__action-link"
+                  to="/access"
+                  style={pageStyles.primaryLink}
+                >
                   Open DISTYNC Sign In
                 </Link>
               </div>
