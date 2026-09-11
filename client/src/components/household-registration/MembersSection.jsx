@@ -10,6 +10,7 @@ import {
   getCanonicalMemberSectorCode,
   isAgeBasedMemberSectorCode,
 } from "../../utils/registrationOptions";
+import { getPossibleMatchPersonKey } from "../../features/household-registration/possibleMatchLookupControl";
 import { FiUserPlus, FiUserMinus } from "react-icons/fi";
 
 const fieldStyles = {
@@ -115,10 +116,12 @@ const MembersSection = ({ form }) => {
                 getCanonicalMemberSectorCode(sector.code),
               ),
           );
-          const memberSuggestionGroups = Array.isArray(form.duplicateSuggestions.groups)
-            ? form.duplicateSuggestions.groups.filter(
-                (group) => group.person_key === `member_${index}`,
-              )
+          const memberSuggestionState =
+            form.duplicateSuggestionStates?.[
+              getPossibleMatchPersonKey(member, index)
+            ];
+          const memberSuggestionGroups = memberSuggestionState?.group
+            ? [memberSuggestionState.group]
             : [];
 
           return (
@@ -423,13 +426,8 @@ const MembersSection = ({ form }) => {
               <div style={{ marginTop: "16px" }}>
                 <DuplicateRegistrationSuggestionsSection
                   groups={memberSuggestionGroups}
-                  isLoading={
-                    form.isLoadingDuplicateSuggestions &&
-                    form.duplicateSuggestionEligibleFields?.includes(
-                      `member_${index}`,
-                    )
-                  }
-                  errorMessage={form.duplicateSuggestionsError}
+                  isLoading={memberSuggestionState?.status === "loading"}
+                  errorMessage={memberSuggestionState?.errorMessage || ""}
                 />
               </div>
             </div>

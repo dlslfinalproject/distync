@@ -47,6 +47,30 @@ const buildFamilyHeadLookupKey = (familyHead, contactNumber) =>
     String(contactNumber || "").replace(/\D/g, ""),
   ].join("|");
 
+const getMemberLookupId = (member, index) =>
+  String(member?.lookup_id || member?.id || `member_${index}`);
+
+export const getPossibleMatchPersonKey = (member, index) =>
+  `member:${getMemberLookupId(member, index)}`;
+
+export const getPossibleMatchRequestKey = (person = {}) =>
+  person?.requestLookupKey || person?.lookupKey || "";
+
+export const getPossibleMatchRequestPeople = ({
+  eligiblePeople = [],
+  currentStates = {},
+} = {}) =>
+  eligiblePeople.filter((person) => {
+    const previousState = currentStates[person.personKey];
+    const requestLookupKey = getPossibleMatchRequestKey(person);
+
+    return (
+      !previousState ||
+      previousState.lookupKey !== requestLookupKey ||
+      previousState.status === "idle"
+    );
+  });
+
 export const buildPossibleMatchLookupState = ({
   householdId = null,
   disasterEventId = "",
@@ -66,31 +90,69 @@ export const buildPossibleMatchLookupState = ({
     };
   }
 
+  const sourceMembers = Array.isArray(members) ? members : [];
   const normalizedFamilyHead = normalizePersonForLookup(familyHead, {
     relationship_to_head: "HEAD",
     age_unit: "YEARS",
   });
-  const normalizedMembers = (Array.isArray(members) ? members : []).map((member) =>
+  const normalizedMembers = sourceMembers.map((member) =>
     normalizePersonForLookup({
       ...member,
       relationship_to_head: resolveMemberRelationship(member),
     }),
   );
   const hasFamilyHeadLookupCandidate = hasComparableName(normalizedFamilyHead);
-  const eligibleMemberIndexes = normalizedMembers
-    .map((member, index) => (hasComparableName(member) ? index : null))
-    .filter((index) => index !== null);
+  const familyHeadLookupKey = hasFamilyHeadLookupCandidate
+    ? buildFamilyHeadLookupKey(
+        normalizedFamilyHead,
+        trimValue(contactNumber) || null,
+      )
+    : "";
+  const normalizedContactNumber = trimValue(contactNumber) || null;
+  const requestContext = {
+    household_id: householdId || null,
+    disaster_event_id: disasterEventId,
+    barangay_id: barangayId,
+    contact_number: normalizedContactNumber,
+  };
+  const people = [
+    {
+      personKey: "family_head",
+      requestPersonKey: "family_head",
+      sourceRole: "FAMILY_HEAD",
+      isEligible: hasFamilyHeadLookupCandidate,
+      lookupKey: familyHeadLookupKey,
+    },
+    ...normalizedMembers.map((member, index) => {
+      const isEligible = hasComparableName(member);
 
-  if (!hasFamilyHeadLookupCandidate && eligibleMemberIndexes.length === 0) {
+      return {
+        personKey: getPossibleMatchPersonKey(sourceMembers[index], index),
+        requestPersonKey: `member_${index}`,
+        sourceRole: "MEMBER",
+        isEligible,
+        lookupKey: isEligible ? buildComparablePersonKey(member) : "",
+      };
+    }),
+  ].map((person) => ({
+    ...person,
+    requestLookupKey: person.isEligible
+      ? JSON.stringify({ ...requestContext, person: person.lookupKey })
+      : "",
+  }));
+  const eligiblePeople = people.filter((person) => person.isEligible);
+
+  if (eligiblePeople.length === 0) {
     return {
       isEligible: false,
       lookupKey: "",
       payload: null,
       eligibleFields: [],
+      people,
+      eligiblePeople,
     };
   }
 
-  const normalizedContactNumber = trimValue(contactNumber) || null;
   const payload = {
     household_id: householdId || null,
     disaster_event_id: disasterEventId,
@@ -104,23 +166,21 @@ export const buildPossibleMatchLookupState = ({
     household_id: payload.household_id,
     disaster_event_id: payload.disaster_event_id,
     barangay_id: payload.barangay_id,
-    family_head: hasFamilyHeadLookupCandidate
-      ? buildFamilyHeadLookupKey(normalizedFamilyHead, normalizedContactNumber)
-      : "",
-    members: normalizedMembers.map((member, index) =>
-      eligibleMemberIndexes.includes(index)
-        ? [`member_${index}`, buildComparablePersonKey(member)].join("|")
-        : "",
-    ),
+    family_head: familyHeadLookupKey,
+    members: people
+      .filter((person) => person.sourceRole === "MEMBER")
+      .map((person) =>
+        person.isEligible
+          ? [person.personKey, person.lookupKey].join("|")
+          : "",
+      ),
   });
-
   return {
     isEligible: true,
     lookupKey,
     payload,
-    eligibleFields: [
-      ...(hasFamilyHeadLookupCandidate ? ["family_head"] : []),
-      ...eligibleMemberIndexes.map((index) => `member_${index}`),
-    ],
+    eligibleFields: eligiblePeople.map((person) => person.requestPersonKey),
+    people,
+    eligiblePeople,
   };
 };

@@ -90,14 +90,14 @@ test("HMR-PM-05 no-match behavior remains quiet", () => {
   );
 });
 
-test("HMR-PM-06 member candidates remain isolated by member index key", () => {
+test("HMR-PM-06 member candidates remain isolated by stable person key", () => {
   assert.match(
     membersSource,
-    /group\.person_key === `member_\$\{index\}`/,
+    /getPossibleMatchPersonKey\(member, index\)/,
   );
   assert.match(
     membersSource,
-    /groups=\{memberSuggestionGroups\}/,
+    /form\.duplicateSuggestionStates\?\./,
   );
 });
 

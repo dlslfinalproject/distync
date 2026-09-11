@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import {
   POSSIBLE_MATCH_LOOKUP_DEBOUNCE_MS,
   buildPossibleMatchLookupState,
+  getPossibleMatchPersonKey,
+  getPossibleMatchRequestKey,
+  getPossibleMatchRequestPeople,
 } from "../src/features/household-registration/possibleMatchLookupControl.js";
 
 const baseInput = {
@@ -173,4 +176,162 @@ test("PM-LC-06 member first and last name make member lookup eligible", () => {
 
 test("PM-LC-07 debounce duration uses controlled request interval", () => {
   assert.equal(POSSIBLE_MATCH_LOOKUP_DEBOUNCE_MS, 700);
+});
+
+test("PM-LC-08 ineligible member typing does not change an eligible household lookup", () => {
+  const withJ = buildPossibleMatchLookupState({
+    ...baseInput,
+    members: [
+      {
+        lookup_id: "member-1",
+        first_name: "J",
+        last_name: "",
+      },
+    ],
+  });
+  const withJu = buildPossibleMatchLookupState({
+    ...baseInput,
+    members: [
+      {
+        lookup_id: "member-1",
+        first_name: "Ju",
+        last_name: "",
+      },
+    ],
+  });
+
+  assert.equal(withJ.lookupKey, withJu.lookupKey);
+  assert.deepEqual(withJ.eligibleFields, ["family_head"]);
+  assert.deepEqual(withJu.eligibleFields, ["family_head"]);
+});
+
+test("PM-LC-09 member lookup identity survives removal and reindexing", () => {
+  const beforeRemoval = buildPossibleMatchLookupState({
+    ...baseInput,
+    familyHead: { ...baseInput.familyHead, first_name: "", last_name: "" },
+    members: [
+      { lookup_id: "member-1", first_name: "Juan", last_name: "Santos" },
+      { lookup_id: "member-2", first_name: "Maria", last_name: "Reyes" },
+    ],
+  });
+  const afterRemoval = buildPossibleMatchLookupState({
+    ...baseInput,
+    familyHead: { ...baseInput.familyHead, first_name: "", last_name: "" },
+    members: [
+      { lookup_id: "member-2", first_name: "Maria", last_name: "Reyes" },
+    ],
+  });
+
+  assert.equal(
+    beforeRemoval.eligiblePeople[1].personKey,
+    getPossibleMatchPersonKey({ lookup_id: "member-2" }, 1),
+  );
+  assert.equal(afterRemoval.eligiblePeople[0].personKey, "member:member-2");
+  assert.equal(afterRemoval.eligiblePeople[0].requestPersonKey, "member_0");
+});
+
+test("PM-LC-10 only a changed or new person is queued when other results are current", () => {
+  const eligiblePeople = [
+    {
+      personKey: "family_head",
+      lookupKey: "family-head-v1",
+    },
+    {
+      personKey: "member:member-1",
+      lookupKey: "member-1-v1",
+    },
+    {
+      personKey: "member:member-2",
+      lookupKey: "member-2-v2",
+    },
+  ];
+  const currentStates = {
+    family_head: {
+      lookupKey: "family-head-v1",
+      status: "success",
+    },
+    "member:member-1": {
+      lookupKey: "member-1-v1",
+      status: "success",
+    },
+    "member:member-2": {
+      lookupKey: "member-2-v1",
+      status: "success",
+    },
+  };
+
+  assert.deepEqual(
+    getPossibleMatchRequestPeople({ eligiblePeople, currentStates }).map(
+      (person) => person.personKey,
+    ),
+    ["member:member-2"],
+  );
+});
+
+test("PM-LC-11 removing a member does not queue the remaining current member again", () => {
+  const eligiblePeople = [
+    {
+      personKey: "member:member-2",
+      lookupKey: "member-2-v1",
+    },
+  ];
+
+  assert.deepEqual(
+    getPossibleMatchRequestPeople({
+      eligiblePeople,
+      currentStates: {
+        "member:member-2": {
+          lookupKey: "member-2-v1",
+          status: "success",
+        },
+      },
+    }),
+    [],
+  );
+});
+
+test("PM-LC-12 match-relevant context changes requeue the eligible member", () => {
+  const currentState = buildPossibleMatchLookupState({
+    ...baseInput,
+    familyHead: { ...baseInput.familyHead, first_name: "", last_name: "" },
+    members: [
+      {
+        lookup_id: "member-1",
+        first_name: "Maria",
+        last_name: "Reyes",
+      },
+    ],
+  });
+  const changedEventState = buildPossibleMatchLookupState({
+    ...baseInput,
+    disasterEventId: "event-2",
+    familyHead: { ...baseInput.familyHead, first_name: "", last_name: "" },
+    members: [
+      {
+        lookup_id: "member-1",
+        first_name: "Maria",
+        last_name: "Reyes",
+      },
+    ],
+  });
+  const currentPerson = currentState.eligiblePeople[0];
+  const changedPerson = changedEventState.eligiblePeople[0];
+
+  assert.equal(currentPerson.lookupKey, changedPerson.lookupKey);
+  assert.notEqual(
+    getPossibleMatchRequestKey(currentPerson),
+    getPossibleMatchRequestKey(changedPerson),
+  );
+  assert.deepEqual(
+    getPossibleMatchRequestPeople({
+      eligiblePeople: [changedPerson],
+      currentStates: {
+        [currentPerson.personKey]: {
+          lookupKey: getPossibleMatchRequestKey(currentPerson),
+          status: "success",
+        },
+      },
+    }).map((person) => person.personKey),
+    ["member:member-1"],
+  );
 });

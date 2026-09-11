@@ -313,10 +313,9 @@ const FamilyHeadSection = ({ form }) => {
     (sector) =>
       !isAgeBasedMemberSectorCode(getCanonicalMemberSectorCode(sector.code)),
   );
-  const familyHeadSuggestionGroups = Array.isArray(form.duplicateSuggestions.groups)
-    ? form.duplicateSuggestions.groups.filter(
-        (group) => group.source_role === "FAMILY_HEAD",
-      )
+  const familyHeadSuggestionState = form.duplicateSuggestionStates?.family_head;
+  const familyHeadSuggestionGroups = familyHeadSuggestionState?.group
+    ? [familyHeadSuggestionState.group]
     : [];
 
   return (
@@ -499,11 +498,8 @@ const FamilyHeadSection = ({ form }) => {
       <div style={{ marginTop: "20px" }}>
         <DuplicateRegistrationSuggestionsSection
           groups={familyHeadSuggestionGroups}
-          isLoading={
-            form.isLoadingDuplicateSuggestions &&
-            form.duplicateSuggestionEligibleFields?.includes("family_head")
-          }
-          errorMessage={form.duplicateSuggestionsError}
+          isLoading={familyHeadSuggestionState?.status === "loading"}
+          errorMessage={familyHeadSuggestionState?.errorMessage || ""}
         />
       </div>
 

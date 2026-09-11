@@ -35,10 +35,20 @@ import { sanitizeHouseholdUpdatePayload } from "./householdEditProtection";
 import {
   POSSIBLE_MATCH_LOOKUP_DEBOUNCE_MS,
   buildPossibleMatchLookupState,
+  getPossibleMatchRequestKey,
+  getPossibleMatchRequestPeople,
 } from "./possibleMatchLookupControl";
+
+let nextLocalMemberLookupId = 0;
+
+const createLocalMemberLookupId = () => {
+  nextLocalMemberLookupId += 1;
+  return `local-${nextLocalMemberLookupId}`;
+};
 
 const createMember = () => ({
   id: null,
+  lookup_id: createLocalMemberLookupId(),
   first_name: "",
   middle_name: "",
   last_name: "",
@@ -193,6 +203,13 @@ const createEmptyDuplicateSuggestions = () => ({
   groups: [],
 });
 
+const createDuplicateSuggestionState = (lookupKey = "") => ({
+  lookupKey,
+  status: "idle",
+  group: null,
+  errorMessage: "",
+});
+
 const RESIDENCY_STATUS = {
   resident: "RESIDENT",
   nonResident: "NON_RESIDENT",
@@ -249,19 +266,28 @@ export const useHouseholdRegistrationForm = ({
   const [errorMessage, setErrorMessage] = useState("");
   const [errorCode, setErrorCode] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-  const [duplicateSuggestions, setDuplicateSuggestions] = useState(
-    createEmptyDuplicateSuggestions(),
-  );
-  const [isLoadingDuplicateSuggestions, setIsLoadingDuplicateSuggestions] =
-    useState(false);
-  const [duplicateSuggestionsError, setDuplicateSuggestionsError] = useState("");
+  const [duplicateSuggestionStates, setDuplicateSuggestionStates] = useState({});
   const [validationErrors, setValidationErrors] = useState(createValidationErrors());
   const [isUsingCachedReferenceData, setIsUsingCachedReferenceData] =
     useState(false);
   const duplicateSuggestionRequestSeqRef = useRef(0);
-  const duplicateSuggestionAbortRef = useRef(null);
+  const duplicateSuggestionAbortRef = useRef(new Map());
   const duplicateSuggestionCacheRef = useRef(new Map());
-  const activeDuplicateSuggestionLookupKeyRef = useRef("");
+  const duplicateSuggestionGenerationRef = useRef(0);
+  const duplicateSuggestionStatesRef = useRef(duplicateSuggestionStates);
+  duplicateSuggestionStatesRef.current = duplicateSuggestionStates;
+
+  const cancelDuplicateSuggestionRequests = () => {
+    duplicateSuggestionAbortRef.current.forEach((abortController) => {
+      abortController.abort();
+    });
+    duplicateSuggestionAbortRef.current.clear();
+  };
+
+  const invalidateDuplicateSuggestionRequests = () => {
+    duplicateSuggestionGenerationRef.current += 1;
+    cancelDuplicateSuggestionRequests();
+  };
 
   const isOffline =
     typeof navigator !== "undefined" ? !navigator.onLine : false;
@@ -604,6 +630,9 @@ export const useHouseholdRegistrationForm = ({
     setMembers(
       additionalMembers.map((member) => ({
         id: isEditMode ? member.id : null,
+        lookup_id:
+          member.lookup_id ||
+          (member.id ? `persisted-${member.id}` : createLocalMemberLookupId()),
         first_name: member.first_name || "",
         middle_name: member.middle_name || "",
         last_name: member.last_name || "",
@@ -675,104 +704,223 @@ export const useHouseholdRegistrationForm = ({
 
   useEffect(() => {
     if (!isOpen) {
-      duplicateSuggestionRequestSeqRef.current += 1;
-      activeDuplicateSuggestionLookupKeyRef.current = "";
-      duplicateSuggestionAbortRef.current?.abort();
-      duplicateSuggestionAbortRef.current = null;
+      invalidateDuplicateSuggestionRequests();
       duplicateSuggestionCacheRef.current.clear();
-      setDuplicateSuggestions(createEmptyDuplicateSuggestions());
-      setIsLoadingDuplicateSuggestions(false);
-      setDuplicateSuggestionsError("");
+      setDuplicateSuggestionStates({});
       return;
     }
 
-    if (!duplicateSuggestionLookupState.isEligible) {
-      duplicateSuggestionRequestSeqRef.current += 1;
-      activeDuplicateSuggestionLookupKeyRef.current = "";
-      duplicateSuggestionAbortRef.current?.abort();
-      duplicateSuggestionAbortRef.current = null;
-      setDuplicateSuggestions(createEmptyDuplicateSuggestions());
-      setIsLoadingDuplicateSuggestions(false);
-      setDuplicateSuggestionsError("");
+    const eligiblePeople = Array.isArray(
+      duplicateSuggestionLookupState.eligiblePeople,
+    )
+      ? duplicateSuggestionLookupState.eligiblePeople
+      : [];
+
+    const reconciledStates = eligiblePeople.reduce((nextStates, person) => {
+      const previousState = duplicateSuggestionStatesRef.current[person.personKey];
+      const requestLookupKey = getPossibleMatchRequestKey(person);
+
+      nextStates[person.personKey] =
+        previousState?.lookupKey === requestLookupKey
+          ? previousState
+          : createDuplicateSuggestionState(requestLookupKey);
+
+      return nextStates;
+    }, {});
+    setDuplicateSuggestionStates(reconciledStates);
+
+    if (eligiblePeople.length === 0) {
+      invalidateDuplicateSuggestionRequests();
+      return;
+    }
+
+    const requestPeople = getPossibleMatchRequestPeople({
+      eligiblePeople,
+      currentStates: duplicateSuggestionStatesRef.current,
+    });
+
+    if (requestPeople.length === 0) {
       return;
     }
 
     const { lookupKey, payload } = duplicateSuggestionLookupState;
-    const previousLookupKey = activeDuplicateSuggestionLookupKeyRef.current;
-    activeDuplicateSuggestionLookupKeyRef.current = lookupKey;
+    const requestSnapshotPeople = eligiblePeople.map((person) => ({ ...person }));
+    const buildGroupForPerson = (suggestions, person) => {
+      const serverGroup = Array.isArray(suggestions?.groups)
+        ? suggestions.groups.find(
+            (group) => group.person_key === person.requestPersonKey,
+          )
+        : null;
 
-    if (previousLookupKey && previousLookupKey !== lookupKey) {
-      setDuplicateSuggestions(createEmptyDuplicateSuggestions());
-    }
+      return serverGroup ? { ...serverGroup, person_key: person.personKey } : null;
+    };
+    const applySuggestions = (suggestions, { allowMissingState = false } = {}) => {
+      setDuplicateSuggestionStates((currentStates) => {
+        const nextStates = { ...currentStates };
+
+        requestSnapshotPeople.forEach((person) => {
+          const currentState = nextStates[person.personKey];
+          const requestLookupKey = getPossibleMatchRequestKey(person);
+
+          if (
+            (!currentState && !allowMissingState) ||
+            (currentState && currentState.lookupKey !== requestLookupKey)
+          ) {
+            return;
+          }
+
+          nextStates[person.personKey] = {
+            ...(currentState || createDuplicateSuggestionState(requestLookupKey)),
+            lookupKey: requestLookupKey,
+            status: "success",
+            group: buildGroupForPerson(suggestions, person),
+            errorMessage: "",
+          };
+        });
+
+        return nextStates;
+      });
+    };
 
     if (duplicateSuggestionCacheRef.current.has(lookupKey)) {
-      setDuplicateSuggestions(
+      applySuggestions(
         duplicateSuggestionCacheRef.current.get(lookupKey) ||
           createEmptyDuplicateSuggestions(),
+        { allowMissingState: true },
       );
-      setIsLoadingDuplicateSuggestions(false);
-      setDuplicateSuggestionsError("");
       return;
     }
 
-    let isActive = true;
-    const requestSeq = duplicateSuggestionRequestSeqRef.current + 1;
-    duplicateSuggestionRequestSeqRef.current = requestSeq;
+    let isTimerCancelled = false;
+    const requestGeneration = duplicateSuggestionGenerationRef.current;
     const timeoutId = window.setTimeout(async () => {
-      duplicateSuggestionAbortRef.current?.abort();
+      if (isTimerCancelled || requestGeneration !== duplicateSuggestionGenerationRef.current) {
+        return;
+      }
+
+      const requestSeq = duplicateSuggestionRequestSeqRef.current + 1;
+      duplicateSuggestionRequestSeqRef.current = requestSeq;
       const abortController = new AbortController();
-      duplicateSuggestionAbortRef.current = abortController;
-      setIsLoadingDuplicateSuggestions(true);
-      setDuplicateSuggestionsError("");
+      duplicateSuggestionAbortRef.current.set(requestSeq, abortController);
+      setDuplicateSuggestionStates((currentStates) => {
+        const nextStates = { ...currentStates };
+
+        requestPeople.forEach((person) => {
+          const currentState = nextStates[person.personKey];
+          const requestLookupKey = getPossibleMatchRequestKey(person);
+
+          if (!currentState || currentState.lookupKey !== requestLookupKey) {
+            return;
+          }
+
+          nextStates[person.personKey] = {
+            ...currentState,
+            status: "loading",
+            errorMessage: "",
+          };
+        });
+
+        return nextStates;
+      });
 
       try {
         const suggestions = await fetchDuplicateRegistrationSuggestions(payload, {
           signal: abortController.signal,
         });
 
-        if (
-          !isActive ||
-          requestSeq !== duplicateSuggestionRequestSeqRef.current ||
-          lookupKey !== activeDuplicateSuggestionLookupKeyRef.current
-        ) {
+        if (requestGeneration !== duplicateSuggestionGenerationRef.current) {
           return;
         }
 
         const nextSuggestions = suggestions || createEmptyDuplicateSuggestions();
         duplicateSuggestionCacheRef.current.set(lookupKey, nextSuggestions);
-        setDuplicateSuggestions(nextSuggestions);
+        applySuggestions(nextSuggestions);
       } catch (error) {
         if (
           error?.name === "AbortError" ||
-          !isActive ||
-          requestSeq !== duplicateSuggestionRequestSeqRef.current ||
-          lookupKey !== activeDuplicateSuggestionLookupKeyRef.current
+          requestGeneration !== duplicateSuggestionGenerationRef.current
         ) {
           return;
         }
 
-        setDuplicateSuggestions(createEmptyDuplicateSuggestions());
-        setDuplicateSuggestionsError("");
+        setDuplicateSuggestionStates((currentStates) => {
+          const nextStates = { ...currentStates };
+
+          requestPeople.forEach((person) => {
+            const currentState = nextStates[person.personKey];
+            const requestLookupKey = getPossibleMatchRequestKey(person);
+
+            if (!currentState || currentState.lookupKey !== requestLookupKey) {
+              return;
+            }
+
+            nextStates[person.personKey] = {
+              ...currentState,
+              status: "error",
+              group: null,
+              errorMessage: "",
+            };
+          });
+
+          return nextStates;
+        });
       } finally {
-        if (
-          isActive &&
-          requestSeq === duplicateSuggestionRequestSeqRef.current &&
-          lookupKey === activeDuplicateSuggestionLookupKeyRef.current
-        ) {
-          setIsLoadingDuplicateSuggestions(false);
-        }
+        duplicateSuggestionAbortRef.current.delete(requestSeq);
       }
     }, POSSIBLE_MATCH_LOOKUP_DEBOUNCE_MS);
 
     return () => {
-      isActive = false;
+      isTimerCancelled = true;
       window.clearTimeout(timeoutId);
-      duplicateSuggestionAbortRef.current?.abort();
     };
   }, [
-    duplicateSuggestionLookupState,
+    duplicateSuggestionLookupState.lookupKey,
     isOpen,
   ]);
+
+  useEffect(
+    () => () => {
+      invalidateDuplicateSuggestionRequests();
+    },
+    [],
+  );
+
+  const duplicateSuggestions = useMemo(() => {
+    const eligiblePeople = Array.isArray(
+      duplicateSuggestionLookupState.eligiblePeople,
+    )
+      ? duplicateSuggestionLookupState.eligiblePeople
+      : [];
+    const groups = eligiblePeople
+      .map((person) => duplicateSuggestionStates[person.personKey]?.group)
+      .filter(Boolean);
+
+    return {
+      total_matches: groups.reduce(
+        (totalMatches, group) =>
+          totalMatches + (Array.isArray(group.matches) ? group.matches.length : 0),
+        0,
+      ),
+      has_strong_matches: groups.some((group) => group.has_strong_matches),
+      groups,
+    };
+  }, [duplicateSuggestionLookupState.eligiblePeople, duplicateSuggestionStates]);
+
+  const isLoadingDuplicateSuggestions = useMemo(
+    () =>
+      (duplicateSuggestionLookupState.eligiblePeople || []).some(
+        (person) => duplicateSuggestionStates[person.personKey]?.status === "loading",
+      ),
+    [duplicateSuggestionLookupState.eligiblePeople, duplicateSuggestionStates],
+  );
+
+  const duplicateSuggestionsError = useMemo(
+    () =>
+      (duplicateSuggestionLookupState.eligiblePeople || [])
+        .map((person) => duplicateSuggestionStates[person.personKey]?.errorMessage)
+        .find(Boolean) || "",
+    [duplicateSuggestionLookupState.eligiblePeople, duplicateSuggestionStates],
+  );
 
   const savedEditEvacuationCenterId = String(
     initialHouseholdDetails?.household?.evacuation_center_id ||
@@ -1107,7 +1255,9 @@ export const useHouseholdRegistrationForm = ({
   };
 
   const addMember = () => {
-    setMembers((currentMembers) => [...currentMembers, createMember()]);
+    const newMember = createMember();
+
+    setMembers((currentMembers) => [...currentMembers, newMember]);
     setValidationErrors((currentValue) => ({
       ...currentValue,
       members: [...currentValue.members, createMemberValidationErrors()],
@@ -1237,10 +1387,7 @@ export const useHouseholdRegistrationForm = ({
   };
 
   const resetForm = () => {
-    duplicateSuggestionRequestSeqRef.current += 1;
-    activeDuplicateSuggestionLookupKeyRef.current = "";
-    duplicateSuggestionAbortRef.current?.abort();
-    duplicateSuggestionAbortRef.current = null;
+    invalidateDuplicateSuggestionRequests();
     duplicateSuggestionCacheRef.current.clear();
     setHousehold(initialHousehold);
     setResidencyStatus(RESIDENCY_STATUS.resident);
@@ -1256,9 +1403,7 @@ export const useHouseholdRegistrationForm = ({
     setErrorMessage("");
     setErrorCode("");
     setSuccessMessage("");
-    setDuplicateSuggestions(createEmptyDuplicateSuggestions());
-    setIsLoadingDuplicateSuggestions(false);
-    setDuplicateSuggestionsError("");
+    setDuplicateSuggestionStates({});
     setValidationErrors(createValidationErrors());
   };
 
@@ -1664,6 +1809,7 @@ export const useHouseholdRegistrationForm = ({
     isLoadingOptions,
     isSubmitting,
     duplicateSuggestions,
+    duplicateSuggestionStates,
     isLoadingDuplicateSuggestions,
     duplicateSuggestionsError,
     duplicateSuggestionEligibleFields:
