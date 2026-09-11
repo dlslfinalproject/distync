@@ -279,3 +279,60 @@ test("claim plan uses the persisted assignment snapshot and keeps the donated so
     },
   );
 });
+
+test("donated relief pack claim allocation uses the locked batch expiration", async () => {
+  const assignment = {
+    id: "assignment-expiry",
+    stub_id: "stub-expiry",
+    donation_id: "donation-1",
+    donor_name: "Donor One",
+    pack_name: "Acer at Your Service Pack",
+    pack_size: 1,
+    assignment_status: "RESERVED",
+    items_snapshot: [
+      {
+        inventory_batch_id: "batch-rice",
+        inventory_item_id: "item-rice",
+        donation_item_id: "donation-item-rice",
+        quantity_reserved: 2,
+        expiration_date: "2099-12-31",
+        item_name: "Rice",
+        category: "Food",
+        unit_of_measure: "kg",
+      },
+    ],
+  };
+
+  await withStubbedAssignmentService(
+    {
+      [dbPath]: {},
+      [distributionTransactionRepositoryPath]: {
+        getInventoryBatchByIdForUpdate: async () => ({
+          id: "batch-rice",
+          inventory_item_id: "item-rice",
+          source_type: "DONATED",
+          quantity_available: 2,
+          status: "AVAILABLE",
+          expiration_date: null,
+          batch_no: "DON-RICE-1",
+          item_code: "RICE",
+          item_name: "Rice",
+          category: "Food",
+          unit_of_measure: "kg",
+        }),
+      },
+      [assignmentRepositoryPath]: {
+        getAssignmentsByStubIds: async () => [assignment],
+      },
+    },
+    async ({ getDonatedReliefPackClaimPlanForStub }) => {
+      const plan = await getDonatedReliefPackClaimPlanForStub({
+        stubId: "stub-expiry",
+        disasterEventId: "event-1",
+        client: { query: async () => ({ rows: [] }) },
+      });
+
+      assert.equal(plan.allocations[0].expiration_date, null);
+    },
+  );
+});

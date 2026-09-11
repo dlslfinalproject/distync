@@ -301,7 +301,6 @@ const summarizeInventoryItem = (item) =>
     "packaging_count",
     "quantity",
     "reorder_level",
-    "expiration_date",
     "barcode",
     "is_perishable",
   ]);
@@ -891,7 +890,6 @@ const buildLocalBarcodeLookupResult = (barcode, item, stockForm = null) => ({
     packaging_count: item.packaging_count,
     quantity: item.quantity,
     reorder_level: item.reorder_level ?? null,
-    expiration_date: item.expiration_date,
     barcode: stockForm?.barcode || item.barcode || barcode,
     is_perishable: item.is_perishable,
     stock_form: stockForm
@@ -1361,6 +1359,7 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
   const externalClient = options.dbClient || null;
   const lookupClient = externalClient || pool;
   const normalizedCategory = normalizeInventoryItemCategory(itemData.category);
+  const openingBatchExpirationDate = itemData.expiration_date || null;
   const inventoryItemToCreate = {
     ...itemData,
     category: normalizedCategory,
@@ -1373,6 +1372,7 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
       itemData.item_code ||
       (await generateInventoryItemCode(itemData.item_name, lookupClient)),
   };
+  delete inventoryItemToCreate.expiration_date;
 
   await ensureUniqueFields(inventoryItemToCreate, null, lookupClient);
   const client = externalClient || await pool.connect();
@@ -1430,12 +1430,12 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
         source_type: "LGU",
         quantity_received: totalInitialQuantity,
         quantity_available: totalInitialQuantity,
-        expiration_date: createdItem.expiration_date || null,
+        expiration_date: openingBatchExpirationDate,
         storage_location: "Mayor's Office Inventory",
         status: getInventoryBatchStatus({
           quantityAvailable: totalInitialQuantity,
           totalQuantityAvailable: totalInitialQuantity,
-          expirationDate: createdItem.expiration_date,
+          expirationDate: openingBatchExpirationDate,
           reorderLevel: createdItem.reorder_level,
         }),
         created_by: actor?.userId || null,
@@ -1568,12 +1568,7 @@ const updateInventoryItem = async (id, itemData, actor = null, options = {}) => 
       inventoryItemToUpdate,
       client,
     );
-    const updatedItem = persistedUpdatedItem
-      ? {
-          ...persistedUpdatedItem,
-          expiration_date: existingItem.expiration_date,
-        }
-      : persistedUpdatedItem;
+    const updatedItem = persistedUpdatedItem;
 
     const existingStockForms =
       await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(

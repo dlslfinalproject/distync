@@ -417,8 +417,20 @@ test("mixed item update persists legitimate fields while ignoring parent expirat
   assert.equal(harness.calls.insertStockForms.length, 0);
   assert.equal(harness.calls.updateStockForms.length, 0);
   assert.equal(harness.calls.audit.length, 1);
-  assert.equal(harness.calls.audit[0].oldValues.expiration_date, "2027-01-01");
-  assert.equal(harness.calls.audit[0].newValues.expiration_date, "2027-01-01");
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      harness.calls.audit[0].oldValues,
+      "expiration_date",
+    ),
+    false,
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      harness.calls.audit[0].newValues,
+      "expiration_date",
+    ),
+    false,
+  );
 });
 
 test("a full legacy item payload with only expiration changed remains a no-op", async () => {

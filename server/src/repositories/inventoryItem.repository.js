@@ -60,7 +60,6 @@ const getInventoryItems = async (filters) => {
       packaging_count,
       quantity,
       ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
-      expiration_date,
       barcode,
       is_perishable,
       created_at,
@@ -93,7 +92,6 @@ const getInventoryItemById = async (id, dbClient = pool) => {
         FROM inventory_batches item_stock
         WHERE item_stock.inventory_item_id = inventory_items.id
       ), 0) AS integer) AS item_total_stock,
-      expiration_date,
       barcode,
       is_perishable,
       created_at,
@@ -120,7 +118,6 @@ const getInventoryItemByIdForUpdate = async (id, dbClient = pool) => {
       packaging_count,
       quantity,
       ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
-      expiration_date,
       barcode,
       is_perishable,
       created_at,
@@ -152,7 +149,6 @@ const getInventoryItemsByIdsForUpdate = async (ids, dbClient = pool) => {
       packaging_count,
       quantity,
       ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
-      expiration_date,
       barcode,
       is_perishable,
       created_at,
@@ -209,7 +205,6 @@ const getInventoryItemByBarcode = async (barcode, dbClient = pool) => {
       packaging_count,
       quantity,
       ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
-      expiration_date,
       barcode,
       is_perishable,
       created_at,
@@ -236,7 +231,6 @@ const insertInventoryItem = async (itemData, dbClient = pool) => {
       packaging_count,
       quantity,
       ${hasReorderLevelColumn ? "reorder_level," : ""}
-      expiration_date,
       barcode,
       is_perishable,
       created_at,
@@ -247,7 +241,6 @@ const insertInventoryItem = async (itemData, dbClient = pool) => {
       ${hasReorderLevelColumn ? "$9," : ""}
       $${hasReorderLevelColumn ? 10 : 9},
       $${hasReorderLevelColumn ? 11 : 10},
-      $${hasReorderLevelColumn ? 12 : 11},
       NOW(), NOW()
     )
     RETURNING
@@ -261,7 +254,6 @@ const insertInventoryItem = async (itemData, dbClient = pool) => {
       packaging_count,
       quantity,
       ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
-      expiration_date,
       barcode,
       is_perishable,
       created_at,
@@ -278,7 +270,6 @@ const insertInventoryItem = async (itemData, dbClient = pool) => {
     itemData.packaging_count,
     itemData.quantity,
     ...(hasReorderLevelColumn ? [itemData.reorder_level] : []),
-    itemData.expiration_date,
     itemData.barcode,
     itemData.is_perishable,
   ];
@@ -315,7 +306,6 @@ const updateInventoryItem = async (id, itemData, dbClient = pool) => {
       packaging_count,
       quantity,
       ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
-      expiration_date,
       barcode,
       is_perishable,
       created_at,
@@ -368,7 +358,6 @@ const updateInventoryItemReorderLevel = async (
       packaging_count,
       quantity,
       reorder_level,
-      expiration_date,
       barcode,
       is_perishable,
       created_at,

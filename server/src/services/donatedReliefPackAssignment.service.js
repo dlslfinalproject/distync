@@ -458,7 +458,7 @@ const getDonatedReliefPackClaimPlanForStub = async ({
         reorder_level: batch.reorder_level || item.reorder_level,
         previous_quantity_available: Number(batch.quantity_available || 0),
         previous_status: batch.status,
-        expiration_date: batch.expiration_date || item.expiration_date || null,
+        expiration_date: batch.expiration_date || null,
         source_type: "DONATED",
         source_relief_type: "DONATED_RELIEF_PACK",
         relief_pack_type_snapshot: "DONATED_RELIEF_PACK",

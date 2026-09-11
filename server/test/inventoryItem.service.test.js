@@ -212,7 +212,10 @@ test("createInventoryItem creates opening stock batch and transaction with Mayor
 
   assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
   assert.equal(calls.insertedItem.barcode, "0748485100081");
-  assert.equal(calls.insertedItem.expiration_date, "2027-08-14");
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(calls.insertedItem, "expiration_date"),
+    false,
+  );
   assert.equal(calls.insertedItem.packaging, "piece");
   assert.equal(calls.insertedItem.packaging_count, "100");
   assert.equal(calls.insertedItem.quantity, "1");
@@ -379,7 +382,10 @@ test("createInventoryItem with skip_opening_stock does not create opening batch 
 
   assert.equal(calls.insertedBatch, null);
   assert.equal(calls.insertedTransaction, null);
-  assert.equal(calls.insertedItem.expiration_date, "2027-08-14");
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(calls.insertedItem, "expiration_date"),
+    false,
+  );
   assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
 });
 

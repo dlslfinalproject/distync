@@ -132,8 +132,7 @@ inserted_items AS (
     quantity,
     packaging_count,
     unit_of_measure_value,
-    reorder_level,
-    expiration_date
+    reorder_level
   )
   SELECT
     item_code,
@@ -146,8 +145,7 @@ inserted_items AS (
     quantity,
     packaging_count,
     unit_of_measure_value,
-    reorder_level,
-    expiration_date
+    reorder_level
   FROM seed_items
   ON CONFLICT (item_name) DO UPDATE
   SET item_code = EXCLUDED.item_code,
@@ -160,7 +158,6 @@ inserted_items AS (
       packaging_count = EXCLUDED.packaging_count,
       unit_of_measure_value = EXCLUDED.unit_of_measure_value,
       reorder_level = EXCLUDED.reorder_level,
-      expiration_date = EXCLUDED.expiration_date,
       updated_at = NOW()
   RETURNING id, item_code, item_name, unit_of_measure, unit_of_measure_value, packaging, quantity
 ),
@@ -303,10 +300,7 @@ inserted_batches AS (
       WHEN ii.item_code = 'INV-START-FOOD-002' AND sf.barcode = '4809990000001' THEN 30
       WHEN ii.item_code = 'INV-START-FOOD-002' AND sf.barcode = '4809990000003' THEN 48
     END AS quantity_available,
-    CASE
-      WHEN ii.item_code = 'INV-START-FOOD-003' THEN DATE '2026-08-12'
-      ELSE NULL
-    END AS expiration_date,
+    si.expiration_date AS expiration_date,
     CASE
       WHEN ii.item_code = 'INV-START-NFI-001' AND sf.packaging = 'piece'
         THEN TIMESTAMP WITH TIME ZONE '2026-07-01 09:00:00+08'
@@ -331,6 +325,8 @@ inserted_batches AS (
     'AVAILABLE' AS status,
     (SELECT id FROM mayor_user) AS created_by
   FROM inserted_items ii
+  INNER JOIN seed_items si
+    ON si.item_code = ii.item_code
   INNER JOIN inserted_stock_forms sf
     ON sf.inventory_item_id = ii.id
   WHERE

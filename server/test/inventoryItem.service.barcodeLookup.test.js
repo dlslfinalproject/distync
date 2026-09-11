@@ -152,7 +152,10 @@ test("lookupInventoryItemByBarcode returns local inventory item before external 
       assert.equal(result.source, "LOCAL_INVENTORY");
       assert.equal(result.item.item_name, "Colgate Toothbrush");
       assert.equal(result.item.barcode, "8850006330449");
-      assert.equal(result.item.expiration_date, sampleItem.expiration_date);
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(result.item, "expiration_date"),
+        false,
+      );
       assert.equal(fetchCalled, false);
     },
   );
