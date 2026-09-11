@@ -376,6 +376,27 @@ const getRequesterBarangayScope = async (requester, resourceName) => {
   return barangayId;
 };
 
+const assertMswdoStubEventScope = async (stub, disasterEventId) => {
+  const eventId = disasterEventId || stub?.disaster_event_id;
+  const affectedBarangays =
+    await disasterEventRepository.getAffectedBarangayScopeByDisasterEventId(eventId);
+  const isInAffectedScope = affectedBarangays.some(
+    (barangay) =>
+      barangay?.is_active === true &&
+      String(barangay.mapped_barangay_id || "") === String(barangay.id || "") &&
+      String(barangay.id || "") === String(stub?.barangay_id || ""),
+  );
+
+  if (!isInAffectedScope) {
+    const error = new Error(
+      "Stub is outside the selected disaster event's affected barangay scope.",
+    );
+    error.statusCode = 404;
+    error.code = "STUB_NOT_FOUND";
+    throw error;
+  }
+};
+
 const getSearchResults = async (filters, requester = null) => {
   const requesterBarangayId = await getRequesterBarangayScope(
     requester,
@@ -919,11 +940,13 @@ const getMunicipalStubDashboard = async ({
 };
 
 const claimBarangayStub = async (params) => {
-  const { effectiveBarangay } = await resolveEffectiveBarangay(params);
-  const scopedStub = await stubRepository.getScopedStubById(
-    params.id,
-    effectiveBarangay.id,
-  );
+  const isMswdoClaim = params.requester?.roleCode === MSWDO_ROLE_CODE;
+  const effectiveBarangay = isMswdoClaim
+    ? null
+    : (await resolveEffectiveBarangay(params)).effectiveBarangay;
+  const scopedStub = isMswdoClaim
+    ? await stubRepository.getStubById(params.id)
+    : await stubRepository.getScopedStubById(params.id, effectiveBarangay.id);
 
   if (!scopedStub) {
     const error = new Error("Stub not found for this barangay");
@@ -933,6 +956,10 @@ const claimBarangayStub = async (params) => {
   }
 
   assertStubMatchesRequestedEvent(scopedStub, params.disaster_event_id);
+
+  if (isMswdoClaim) {
+    await assertMswdoStubEventScope(scopedStub, params.disaster_event_id);
+  }
 
   if (scopedStub.is_active === false) {
     throw buildArchivedHouseholdError(scopedStub);
@@ -966,7 +993,10 @@ const claimBarangayStub = async (params) => {
       client,
     );
 
-    if (!lockedStub || lockedStub.barangay_id !== effectiveBarangay.id) {
+    if (
+      !lockedStub ||
+      (!isMswdoClaim && lockedStub.barangay_id !== effectiveBarangay.id)
+    ) {
       const error = new Error("Stub not found for this barangay");
       error.statusCode = 404;
       error.code = "STUB_NOT_FOUND";
@@ -974,6 +1004,10 @@ const claimBarangayStub = async (params) => {
     }
 
     assertStubMatchesRequestedEvent(lockedStub, params.disaster_event_id);
+
+    if (isMswdoClaim) {
+      await assertMswdoStubEventScope(lockedStub, params.disaster_event_id);
+    }
 
     if (lockedStub.is_active === false) {
       throw buildArchivedHouseholdError(lockedStub);

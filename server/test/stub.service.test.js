@@ -991,6 +991,53 @@ test("DEPLOY-MSWDO-RGD-01 cross-barangay claim remains rejected", async () => {
   );
 });
 
+test("MSWDO municipal claim accepts another affected barangay in the selected event", async () => {
+  const foreignBarangayStub = {
+    ...baseStub,
+    status: "ISSUED",
+    barangay_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  };
+  let claimHandlerCalled = false;
+
+  await withStubbedStubService(
+    createBaseStubs({
+      scopedStub: foreignBarangayStub,
+      lockedStub: foreignBarangayStub,
+      disasterEventOverrides: {
+        getAffectedBarangayScopeByDisasterEventId: async () => [
+          { id: foreignBarangayStub.barangay_id, mapped_barangay_id: foreignBarangayStub.barangay_id, is_active: true },
+        ],
+      },
+      automaticReliefPackClaimOverrides: {
+        recordAutomaticReliefPackClaim: async () => {
+          claimHandlerCalled = true;
+          return {
+            distributionTransaction: { id: "distribution-1" },
+            assignedReliefPackTemplates: [],
+            updatedStub: { id: foreignBarangayStub.id, status: "CLAIMED", claimed_at: null, updated_at: null },
+            packQuantity: 1,
+            donatedReliefPacks: [],
+            donatedLooseItems: [],
+          };
+        },
+      },
+    }),
+    async ({ claimBarangayStub }) => {
+      const result = await claimBarangayStub({
+        id: foreignBarangayStub.id,
+        barangay_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        disaster_event_id: foreignBarangayStub.disaster_event_id,
+        verified_by: "mswdo-user",
+        requester: { roleCode: "MSWDO", userId: "mswdo-user" },
+      });
+
+      assert.equal(result.data.status, "CLAIMED");
+    },
+  );
+
+  assert.equal(claimHandlerCalled, true);
+});
+
 const buildMunicipalDashboardRow = ({
   id,
   householdId,

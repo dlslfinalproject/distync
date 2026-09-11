@@ -392,6 +392,7 @@ const ACTION_HANDLERS = {
         claimed_at: clientTimestamp,
         disaster_event_id: payload?.disaster_event_id || null,
         override_barangay_id: null,
+        requester: getRequesterForSync(auth),
         dbClient,
       }),
   },

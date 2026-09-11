@@ -3632,6 +3632,12 @@ test("DEPLOY-MSWDO-RGD-01 MSWDO STUB_CLAIM sync forwards barangay_id without ove
     "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
   );
   assert.equal(capturedClaimParams.override_barangay_id, null);
+  assert.deepEqual(capturedClaimParams.requester, {
+    userId: baseAuth.userId,
+    roleCode: "MSWDO",
+    defaultBarangayId: null,
+    deviceId: baseAuth.deviceId || null,
+  });
   assert.equal(capturedClaimParams.verified_by, baseAuth.userId);
   assert.equal(
     capturedClaimParams.disaster_event_id,

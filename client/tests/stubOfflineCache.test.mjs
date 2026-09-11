@@ -459,7 +459,8 @@ test("DEPLOY-MSWDO-RGD-01 STUB_CLAIM payload carries barangay_id separately from
   );
   assert.match(source, /entityType:\s*"STUB"/);
   assert.match(source, /entityServerId: stubId/);
-  assert.match(mswdoPageSource, /claimStub\(\{\s*stubId,\s*barangayId: selectedBarangayId,/s);
+  assert.match(mswdoPageSource, /claimStub\(\{\s*stubId,\s*barangayId: row\?\.barangay\?\.id \|\| row\?\.barangay_id \|\| null,/s);
+  assert.match(mswdoPageSource, /barangayId: pendingClaimStubDetails\?\.barangay\?\.id \|\| null/);
   assert.doesNotMatch(mswdoPageSource, /overrideBarangayId: selectedBarangayId/);
   assert.match(barangayPageSource, /overrideBarangayId: allowFallback \? overrideBarangayId : ""/);
 });

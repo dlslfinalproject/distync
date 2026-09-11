@@ -34,7 +34,6 @@ import { STATUS_FILTERS } from "../../features/stubs/stubStatusFilters";
 import {
   QR_SCAN_ERROR_CODES,
   createQrScanError,
-  createWrongBarangayQrScanError,
   createWrongEventQrScanError,
 } from "../../features/stubs/stubQrScanErrors";
 import { readOperationalDisasterEventScope } from "../../features/disaster-events/operationalDisasterEventSelection";
@@ -609,7 +608,7 @@ const StubDistributionPage = () => {
 
             return claimStub({
               stubId,
-              barangayId: selectedBarangayId,
+              barangayId: row?.barangay?.id || row?.barangay_id || null,
               disasterEventId: row?.disaster_event?.id || row?.disaster_event_id || "",
               disasterEventTitle:
                 row?.disaster_event?.title || row?.disaster_event?.name || "",
@@ -641,7 +640,7 @@ const StubDistributionPage = () => {
     try {
       await claimStub({
         stubId: pendingClaimStubId,
-        barangayId: selectedBarangayId,
+        barangayId: pendingClaimStubDetails?.barangay?.id || null,
         disasterEventId:
           pendingClaimStubDetails?.disaster_event?.id ||
           displayedRowsWithSyncStatus.find((row) => row.id === pendingClaimStubId)
@@ -778,16 +777,8 @@ const StubDistributionPage = () => {
 
       const stubDetails = await fetchStubDetails(resolvedStubId, { currentBarangayId: selectedBarangayId });
       const stubEventId = stubDetails?.disaster_event?.id || "";
-      const stubBarangayId = stubDetails?.barangay?.id || "";
-
       if (stubEventId !== selectedDisasterEventId) {
         throw createWrongEventQrScanError({
-          stubNumber: getStubReferenceNumber(stubDetails, verification) || undefined,
-        });
-      }
-
-      if (stubBarangayId !== selectedBarangayId) {
-        throw createWrongBarangayQrScanError({
           stubNumber: getStubReferenceNumber(stubDetails, verification) || undefined,
         });
       }

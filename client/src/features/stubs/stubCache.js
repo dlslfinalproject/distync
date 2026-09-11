@@ -330,24 +330,31 @@ export const getCachedStubSnapshotsForScope = async ({
   if (
     !hasCompleteOfflineStubOwnerContext(ownerContext) ||
     !disasterEventId ||
-    !currentBarangayId
+    (ownerContext.roleCode === ROLE_CODES.BARANGAY && !currentBarangayId)
   ) {
     return [];
   }
 
-  return db.offlineStubCache
-    .where("[accessMode+userId+roleCode+disaster_event_id+barangay_id]")
-    .equals([
-      ownerContext.accessMode,
-      ownerContext.userId,
-      ownerContext.roleCode,
-      trimValue(disasterEventId),
-      trimValue(currentBarangayId),
-    ])
+  const rows = ownerContext.roleCode === ROLE_CODES.MSWDO
+    ? await db.offlineStubCache
+        .where("disaster_event_id")
+        .equals(trimValue(disasterEventId))
+        .toArray()
+    : await db.offlineStubCache
+        .where("[accessMode+userId+roleCode+disaster_event_id+barangay_id]")
+        .equals([
+          ownerContext.accessMode,
+          ownerContext.userId,
+          ownerContext.roleCode,
+          trimValue(disasterEventId),
+          trimValue(currentBarangayId),
+        ])
+        .toArray();
+
+  return rows
     .filter((row) =>
       isOfflineStubVisibleForContext(row, ownerContext, { currentBarangayId }),
     )
-    .toArray();
 };
 
 export const hasCachedStubSnapshotsForScope = async ({
