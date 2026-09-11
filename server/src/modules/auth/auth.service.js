@@ -8,6 +8,59 @@ const GOOGLE_ISSUERS = new Set([
   "https://accounts.google.com",
 ]);
 
+const normalizeGoogleNameClaim = (value) => {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalizedValue = value.trim();
+  return normalizedValue || null;
+};
+
+const deriveGoogleProfileNames = (payload = {}) => {
+  let firstName = normalizeGoogleNameClaim(payload.given_name);
+  let lastName = normalizeGoogleNameClaim(payload.family_name);
+  const fullName = normalizeGoogleNameClaim(payload.name);
+
+  if (!fullName || (firstName && lastName)) {
+    return { firstName, lastName };
+  }
+
+  // Google can legitimately omit one or both structured name claims. Only in
+  // that case do we use the full name claim, preserving all remaining text as
+  // the last name so multi-word surnames are not silently truncated.
+  if (!firstName && !lastName) {
+    const separatorIndex = fullName.search(/\s/);
+
+    if (separatorIndex < 0) {
+      firstName = fullName;
+    } else {
+      firstName = fullName.slice(0, separatorIndex).trim() || null;
+      lastName = fullName.slice(separatorIndex).trim() || null;
+    }
+  } else if (!firstName && lastName) {
+    const familyNameStart = fullName.lastIndexOf(lastName);
+    const prefix =
+      familyNameStart >= 0 ? fullName.slice(0, familyNameStart) : "";
+
+    if (
+      familyNameStart > 0 &&
+      !fullName.slice(familyNameStart + lastName.length).trim() &&
+      /\s$/.test(prefix)
+    ) {
+      firstName = prefix.trim() || null;
+    }
+  } else if (firstName && !lastName) {
+    const suffix = fullName.slice(firstName.length);
+
+    if (fullName.startsWith(firstName) && /^\s/.test(suffix)) {
+      lastName = suffix.trim() || null;
+    }
+  }
+
+  return { firstName, lastName };
+};
+
 const getGoogleClientId = () => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
 
@@ -67,11 +120,13 @@ const verifyGoogleIdToken = async (idToken) => {
     throw error;
   }
 
+  const profileNames = deriveGoogleProfileNames(payload);
+
   return {
     sub: payload.sub,
     email: String(payload.email).toLowerCase(),
-    firstName: payload.given_name || null,
-    lastName: payload.family_name || null,
+    firstName: profileNames.firstName,
+    lastName: profileNames.lastName,
   };
 };
 
@@ -124,10 +179,18 @@ const resolveAuthorizedRoleForUser = async (user) => {
   return role.code;
 };
 
+const isBlankProfileName = (value) =>
+  typeof value !== "string" || !value.trim();
+
+const shouldInitializeProfileName = (user, verifiedIdentity) =>
+  (isBlankProfileName(user.first_name) && Boolean(verifiedIdentity.firstName)) ||
+  (isBlankProfileName(user.last_name) && Boolean(verifiedIdentity.lastName));
+
 const authenticateWithGoogle = async (idToken) => {
   const verifiedIdentity = await verifyGoogleIdToken(idToken);
 
   let user = await authRepository.getUserByGoogleSub(verifiedIdentity.sub);
+  let shouldBindGoogleIdentity = false;
 
   if (!user) {
     const userByEmail = await authRepository.getUserByEmail(verifiedIdentity.email);
@@ -150,15 +213,26 @@ const authenticateWithGoogle = async (idToken) => {
     user = userByEmail;
 
     if (!user.google_sub) {
-      user = await authRepository.updateUserGoogleIdentity(user.id, {
-        googleSub: verifiedIdentity.sub,
-        firstName: verifiedIdentity.firstName,
-        lastName: verifiedIdentity.lastName,
-      });
+      shouldBindGoogleIdentity = true;
     }
   }
 
   const roleCode = await resolveAuthorizedRoleForUser(user);
+
+  if (shouldBindGoogleIdentity) {
+    user =
+      (await authRepository.updateUserGoogleIdentity(user.id, {
+        googleSub: verifiedIdentity.sub,
+        firstName: verifiedIdentity.firstName,
+        lastName: verifiedIdentity.lastName,
+      })) || user;
+  } else if (shouldInitializeProfileName(user, verifiedIdentity)) {
+    user =
+      (await authRepository.initializeUserProfileName(user.id, {
+        firstName: verifiedIdentity.firstName,
+        lastName: verifiedIdentity.lastName,
+      })) || user;
+  }
 
   return buildSessionPayload(user, roleCode);
 };

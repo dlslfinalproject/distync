@@ -43,12 +43,12 @@ const updateUserGoogleIdentity = async (
     SET google_sub = $2,
         first_name = CASE
           WHEN COALESCE(NULLIF(BTRIM(first_name), ''), NULL) IS NULL
-            THEN COALESCE($3, first_name)
+            THEN COALESCE(NULLIF(BTRIM($3), ''), first_name)
           ELSE first_name
         END,
         last_name = CASE
           WHEN COALESCE(NULLIF(BTRIM(last_name), ''), NULL) IS NULL
-            THEN COALESCE($4, last_name)
+            THEN COALESCE(NULLIF(BTRIM($4), ''), last_name)
           ELSE last_name
         END,
         updated_at = NOW()
@@ -65,6 +65,49 @@ const updateUserGoogleIdentity = async (
   `;
 
   const result = await pool.query(query, [userId, googleSub, firstName, lastName]);
+  return result.rows[0] || null;
+};
+
+const initializeUserProfileName = async (userId, { firstName, lastName }) => {
+  const query = `
+    UPDATE users
+    SET first_name = CASE
+          WHEN COALESCE(NULLIF(BTRIM(first_name), ''), NULL) IS NULL
+            AND NULLIF(BTRIM($2), '') IS NOT NULL
+            THEN NULLIF(BTRIM($2), '')
+          ELSE first_name
+        END,
+        last_name = CASE
+          WHEN COALESCE(NULLIF(BTRIM(last_name), ''), NULL) IS NULL
+            AND NULLIF(BTRIM($3), '') IS NOT NULL
+            THEN NULLIF(BTRIM($3), '')
+          ELSE last_name
+        END,
+        updated_at = NOW()
+    WHERE id = $1
+      AND (
+        (
+          COALESCE(NULLIF(BTRIM(first_name), ''), NULL) IS NULL
+          AND NULLIF(BTRIM($2), '') IS NOT NULL
+        )
+        OR (
+          COALESCE(NULLIF(BTRIM(last_name), ''), NULL) IS NULL
+          AND NULLIF(BTRIM($3), '') IS NOT NULL
+        )
+      )
+    RETURNING
+      id,
+      google_sub,
+      email,
+      first_name,
+      middle_name,
+      last_name,
+      default_barangay_id,
+      is_active,
+      last_login_at
+  `;
+
+  const result = await pool.query(query, [userId, firstName, lastName]);
   return result.rows[0] || null;
 };
 
@@ -113,5 +156,6 @@ module.exports = {
   getRoleByUserId,
   getUserByEmail,
   getUserByGoogleSub,
+  initializeUserProfileName,
   updateUserGoogleIdentity,
 };

@@ -5,8 +5,8 @@ import ConfirmationModal from "../shared/ConfirmationModal";
 import ProfileAvatar from "../shared/ProfileAvatar";
 import { useAuth } from "../../context/AuthContext";
 import { ACCESS_MODES } from "../../utils/accessMode";
+import { getStoredUserDisplayName } from "../../utils/profileName.mjs";
 import { ROLE_CODES } from "../../utils/roleSession";
-import { buildDisplayName } from "../../pages/settings/settingsHelpers";
 import { useSettingsUnsavedChangesGuard } from "../../pages/settings/SettingsUnsavedChangesContext";
 import { loadRoleSettingsState } from "../../features/settings/settingsService";
 
@@ -36,13 +36,6 @@ const styles = {
   },
 };
 
-const getUserName = (user = {}) =>
-  buildDisplayName({
-    firstName: user.firstName || user.first_name,
-    middleName: user.middleName || user.middle_name,
-    lastName: user.lastName || user.last_name,
-  }) || user.email || "DISTYNC User";
-
 const SidebarAccountMenu = () => {
   const navigate = useNavigate();
   const { accessMode, authenticatedUser, clearSession, currentRole } = useAuth();
@@ -56,7 +49,11 @@ const SidebarAccountMenu = () => {
   const menuRef = useRef(null);
   const details = roleDetails[currentRole] || {};
   const displayName = useMemo(
-    () => getUserName(authenticatedUser) || buildDisplayName(savedProfile || {}),
+    () =>
+      getStoredUserDisplayName({
+        authenticatedUser,
+        storedProfile: savedProfile || {},
+      }),
     [authenticatedUser, savedProfile],
   );
   const avatarUrl = authenticatedUser?.profilePictureUrl || authenticatedUser?.profile_picture_url || savedProfile?.profilePictureUrl || "";
@@ -125,7 +122,7 @@ const SidebarAccountMenu = () => {
     <div ref={containerRef} style={styles.container}>
       {isOpen ? (
         <div ref={menuRef} role="menu" aria-label="Account menu" style={styles.menu}>
-          <div style={styles.menuIdentity}>
+          <div style={{ ...styles.menuIdentity, minWidth: 0 }}>
             <div style={{ fontSize: "14px", fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName}</div>
             <div style={{ marginTop: "3px", color: "#627990", fontSize: "12px", fontWeight: 700 }}>{details.label || "DISTYNC user"}</div>
           </div>

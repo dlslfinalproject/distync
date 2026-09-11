@@ -59,3 +59,28 @@ test("updateUserGoogleIdentity only fills blank name columns", async () => {
     "Paray",
   ]);
 });
+
+test("initializeUserProfileName only updates missing name fields", async () => {
+  const calls = [];
+
+  await withStubbedRepository(
+    {
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        return { rows: [{ id: params[0] }] };
+      },
+    },
+    async ({ initializeUserProfileName }) => {
+      await initializeUserProfileName("user-2", {
+        firstName: "Juan",
+        lastName: "dela Cruz",
+      });
+    },
+  );
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].sql, /NULLIF\(BTRIM\(\$2\), ''\)/i);
+  assert.match(calls[0].sql, /NULLIF\(BTRIM\(\$3\), ''\)/i);
+  assert.match(calls[0].sql, /WHERE id = \$1/i);
+  assert.deepEqual(calls[0].params, ["user-2", "Juan", "dela Cruz"]);
+});

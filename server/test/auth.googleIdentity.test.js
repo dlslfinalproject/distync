@@ -57,6 +57,7 @@ const withMockedGoogleToken = async (tokenPayload, runTest) => {
           aud: "google-auth-regression-client",
           iss: "https://accounts.google.com",
           email_verified: true,
+          email: "example@domain.com",
           given_name: "Google",
           family_name: "Fixture",
           ...tokenPayload,
@@ -102,6 +103,7 @@ const withGoogleAuthHarness = async (
     googleSubLookups: [],
     emailLookups: [],
     identityUpdates: [],
+    profileNameInitializations: [],
     roleLookups: [],
     tokenPayloads: [],
   };
@@ -116,6 +118,8 @@ const withGoogleAuthHarness = async (
       first_name: update.firstName || "Existing",
       last_name: update.lastName || "Account",
     }));
+  const initializeProfileName =
+    repository.initializeUserProfileName || (async () => null);
   const roleByUserId =
     repository.getRoleByUserId || (async () => ({ code: "MAYOR" }));
 
@@ -134,6 +138,10 @@ const withGoogleAuthHarness = async (
           updateUserGoogleIdentity: async (userId, update) => {
             calls.identityUpdates.push({ userId, update });
             return updateGoogleIdentity(userId, update);
+          },
+          initializeUserProfileName: async (userId, update) => {
+            calls.profileNameInitializations.push({ userId, update });
+            return initializeProfileName(userId, update);
           },
           getRoleByUserId: async (userId) => {
             calls.roleLookups.push(userId);
@@ -196,6 +204,7 @@ test("Google authentication uses google_sub first and preserves role-bearing JWT
       assert.deepEqual(calls.googleSubLookups, ["subject-match"]);
       assert.deepEqual(calls.emailLookups, []);
       assert.deepEqual(calls.identityUpdates, []);
+      assert.deepEqual(calls.profileNameInitializations, []);
       assert.deepEqual(calls.tokenPayloads, [
         {
           userId: user.id,
@@ -212,6 +221,267 @@ test("Google authentication uses google_sub first and preserves role-bearing JWT
       assert.equal(session.user.email, user.email);
       assert.equal(session.user.default_barangay_id, user.default_barangay_id);
       assert.equal(session.user.is_active, true);
+    },
+  );
+});
+
+test("authorized Google login initializes blank names for an existing google_sub account", async () => {
+  const user = buildUser({
+    google_sub: "subject-name-init",
+    first_name: "  ",
+    last_name: "",
+  });
+  const initializedUser = buildUser({
+    ...user,
+    first_name: "Juan",
+    last_name: "dela Cruz",
+  });
+
+  await withGoogleAuthHarness(
+    {
+      tokenPayload: {
+        sub: user.google_sub,
+        given_name: "  Juan ",
+        family_name: " dela Cruz ",
+        name: "Wrong Fallback Name",
+      },
+      repository: {
+        getUserByGoogleSub: async () => user,
+        initializeUserProfileName: async (userId, update) => {
+          assert.equal(userId, user.id);
+          assert.deepEqual(update, {
+            firstName: "Juan",
+            lastName: "dela Cruz",
+          });
+          return initializedUser;
+        },
+        getRoleByUserId: async () => ({ code: "BARANGAY" }),
+      },
+    },
+    async (authService, { calls }) => {
+      const session = await authService.authenticateWithGoogle("mock-token");
+
+      assert.deepEqual(calls.identityUpdates, []);
+      assert.equal(calls.profileNameInitializations.length, 1);
+      assert.equal(session.user.first_name, "Juan");
+      assert.equal(session.user.last_name, "dela Cruz");
+      assert.equal(session.user.role, "BARANGAY");
+    },
+  );
+});
+
+test("Google structured claims preserve a multi-word surname without parsing the name claim", async () => {
+  const user = buildUser({
+    google_sub: "subject-multi-word-surname",
+    first_name: "",
+    last_name: "",
+  });
+  const initializedUser = buildUser({
+    ...user,
+    first_name: "Juan",
+    last_name: "dela Cruz",
+  });
+
+  await withGoogleAuthHarness(
+    {
+      tokenPayload: {
+        sub: user.google_sub,
+        name: "Juan dela Cruz",
+        given_name: "Juan",
+        family_name: "dela Cruz",
+      },
+      repository: {
+        getUserByGoogleSub: async () => user,
+        initializeUserProfileName: async (_userId, update) => {
+          assert.deepEqual(update, {
+            firstName: "Juan",
+            lastName: "dela Cruz",
+          });
+          return initializedUser;
+        },
+      },
+    },
+    async (authService) => {
+      const session = await authService.authenticateWithGoogle("mock-token");
+
+      assert.equal(session.user.first_name, "Juan");
+      assert.equal(session.user.last_name, "dela Cruz");
+    },
+  );
+});
+
+test("stored DISTYNC names are not overwritten on subsequent Google sign-ins", async () => {
+  const user = buildUser({
+    google_sub: "subject-manually-edited",
+    first_name: "Juan Miguel",
+    last_name: "dela Cruz",
+  });
+
+  await withGoogleAuthHarness(
+    {
+      tokenPayload: {
+        sub: user.google_sub,
+        given_name: "Juan",
+        family_name: "Cruz",
+      },
+      repository: {
+        getUserByGoogleSub: async () => user,
+        initializeUserProfileName: async () => {
+          throw new Error("stored names must not be initialized again");
+        },
+      },
+    },
+    async (authService, { calls }) => {
+      const session = await authService.authenticateWithGoogle("mock-token");
+
+      assert.deepEqual(calls.profileNameInitializations, []);
+      assert.equal(session.user.first_name, "Juan Miguel");
+      assert.equal(session.user.last_name, "dela Cruz");
+    },
+  );
+});
+
+test("partial stored names only initialize the missing field", async () => {
+  const user = buildUser({
+    google_sub: "subject-partial-name",
+    first_name: "Existing First",
+    last_name: "   ",
+  });
+  const initializedUser = buildUser({
+    ...user,
+    last_name: "dela Cruz",
+  });
+
+  await withGoogleAuthHarness(
+    {
+      tokenPayload: {
+        sub: user.google_sub,
+        given_name: "Google First",
+        family_name: "dela Cruz",
+      },
+      repository: {
+        getUserByGoogleSub: async () => user,
+        initializeUserProfileName: async (_userId, update) => {
+          assert.deepEqual(update, {
+            firstName: "Google First",
+            lastName: "dela Cruz",
+          });
+          return initializedUser;
+        },
+      },
+    },
+    async (authService) => {
+      const session = await authService.authenticateWithGoogle("mock-token");
+
+      assert.equal(session.user.first_name, "Existing First");
+      assert.equal(session.user.last_name, "dela Cruz");
+    },
+  );
+});
+
+test("missing Google name claims leave the stored profile unchanged", async () => {
+  const user = buildUser({
+    google_sub: "subject-no-name-claims",
+    first_name: "Stored First",
+    last_name: "Stored Last",
+  });
+
+  await withGoogleAuthHarness(
+    {
+      tokenPayload: {
+        sub: user.google_sub,
+        given_name: undefined,
+        family_name: undefined,
+        name: undefined,
+      },
+      repository: {
+        getUserByGoogleSub: async () => user,
+        initializeUserProfileName: async () => {
+          throw new Error("no profile-name update is expected");
+        },
+      },
+    },
+    async (authService, { calls }) => {
+      const session = await authService.authenticateWithGoogle("mock-token");
+
+      assert.deepEqual(calls.profileNameInitializations, []);
+      assert.equal(session.user.first_name, "Stored First");
+      assert.equal(session.user.last_name, "Stored Last");
+    },
+  );
+});
+
+test("full Google name is a conservative fallback only when structured claims are omitted", async () => {
+  const user = buildUser({
+    google_sub: "subject-name-fallback",
+    first_name: "",
+    last_name: "",
+  });
+  const initializedUser = buildUser({
+    ...user,
+    first_name: "Juan",
+    last_name: "dela Cruz",
+  });
+
+  await withGoogleAuthHarness(
+    {
+      tokenPayload: {
+        sub: user.google_sub,
+        name: "Juan dela Cruz",
+        given_name: undefined,
+        family_name: undefined,
+      },
+      repository: {
+        getUserByGoogleSub: async () => user,
+        initializeUserProfileName: async (_userId, update) => {
+          assert.deepEqual(update, {
+            firstName: "Juan",
+            lastName: "dela Cruz",
+          });
+          return initializedUser;
+        },
+      },
+    },
+    async (authService) => {
+      const session = await authService.authenticateWithGoogle("mock-token");
+
+      assert.equal(session.user.first_name, "Juan");
+      assert.equal(session.user.last_name, "dela Cruz");
+    },
+  );
+});
+
+test("an unauthorized email-matched account is denied before any Google identity or name update", async () => {
+  const user = buildUser({
+    google_sub: null,
+    first_name: "",
+    last_name: "",
+  });
+
+  await withGoogleAuthHarness(
+    {
+      tokenPayload: {
+        sub: "subject-unassigned-account",
+        email: user.email,
+      },
+      repository: {
+        getUserByGoogleSub: async () => null,
+        getUserByEmail: async () => user,
+        getRoleByUserId: async () => null,
+        updateUserGoogleIdentity: async () => {
+          throw new Error("unauthorized account must not be bound");
+        },
+        initializeUserProfileName: async () => {
+          throw new Error("unauthorized account must not be updated");
+        },
+      },
+    },
+    async (authService, { calls }) => {
+      await assertAuthorizationError(() =>
+        authService.authenticateWithGoogle("mock-token"),
+      );
+      assert.deepEqual(calls.identityUpdates, []);
+      assert.deepEqual(calls.profileNameInitializations, []);
     },
   );
 });
