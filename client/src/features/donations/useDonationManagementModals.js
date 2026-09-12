@@ -18,6 +18,8 @@ import { isReliefPackDonationItemRemark } from "./donationType";
 import {
   lookupInventoryItemByBarcode,
 } from "../inventory-items/inventoryItemService";
+import { normalizeInventoryBarcode } from "../inventory-items/inventoryBarcode.js";
+import { findInventoryItemBarcodeMatch } from "../inventory-items/inventoryBarcodeLookup.js";
 
 const createDraftKey = (prefix) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -37,7 +39,7 @@ const buildDonationDefinedItemPayload = (draft) => ({
   quantity: Number(draft.units_per_packaging || draft.quantity || 1),
   reorder_level: null,
   expiration_date: draft.expiration_date || null,
-  barcode: draft.barcode || null,
+  barcode: normalizeInventoryBarcode(draft.barcode) || null,
   is_active: true,
   skip_opening_stock: true,
 });
@@ -76,45 +78,6 @@ const findInventoryItemById = (inventoryItems, inventoryItemId) => {
   return (
     inventoryItems.find((item) => String(item?.id) === String(inventoryItemId)) || null
   );
-};
-
-const normalizeBarcodeValue = (value) =>
-  String(value || "").replace(/\s+/g, "").trim();
-
-const findInventoryItemBarcodeMatch = (inventoryItems, barcode) => {
-  const normalizedBarcode = normalizeBarcodeValue(barcode);
-
-  if (!normalizedBarcode) {
-    return null;
-  }
-
-  for (const item of inventoryItems) {
-    if (normalizeBarcodeValue(item?.barcode) === normalizedBarcode) {
-      return {
-        item,
-        stockForm: null,
-      };
-    }
-
-    if (!Array.isArray(item?.stock_forms)) {
-      continue;
-    }
-
-    const matchedStockForm =
-      item.stock_forms.find(
-        (stockForm) =>
-          normalizeBarcodeValue(stockForm?.barcode) === normalizedBarcode,
-      ) || null;
-
-    if (matchedStockForm) {
-      return {
-        item,
-        stockForm: matchedStockForm,
-      };
-    }
-  }
-
-  return null;
 };
 
 const isWeightOrVolumeBased = (trackingMethod) =>
@@ -386,7 +349,7 @@ const buildDonationItemSubmissionPayload = (item, resolvedInventoryItem = null) 
     remarks: item.remarks || null,
     expiration_date: item.expiration_date || null,
     storage_location: null,
-    stock_form_barcode: item.barcode || null,
+    stock_form_barcode: normalizeInventoryBarcode(item.barcode) || null,
     stock_form_packaging: item.packaging || null,
     stock_form_units_per_packaging: isPiecePackaging(item.packaging)
       ? 1
@@ -424,7 +387,7 @@ const buildLooseDonationDraft = (draft) => ({
         ? 1
         : draft.units_per_packaging || 0,
     ),
-  barcode: draft.barcode || null,
+  barcode: normalizeInventoryBarcode(draft.barcode) || null,
   expiration_date: draft.expiration_date || null,
   remarks: null,
 });
@@ -454,9 +417,10 @@ const buildExistingLooseDonationItemPayload = (item) => ({
     null,
   storage_location: null,
   stock_form_barcode:
-    item.inventory_item_stock_form?.barcode ||
-    item.inventory_batch?.inventory_item_stock_form?.barcode ||
-    null,
+    normalizeInventoryBarcode(
+      item.inventory_item_stock_form?.barcode ||
+        item.inventory_batch?.inventory_item_stock_form?.barcode,
+    ) || null,
   stock_form_packaging:
     item.inventory_item_stock_form?.packaging ||
     item.inventory_batch?.inventory_item_stock_form?.packaging ||
@@ -502,7 +466,7 @@ const buildExistingReliefPackDonationItemPayloads = (item) => {
     remarks: reliefPackRemark,
     expiration_date: packItem.expiration_date || null,
     storage_location: null,
-    stock_form_barcode: packItem.barcode || null,
+    stock_form_barcode: normalizeInventoryBarcode(packItem.barcode) || null,
     stock_form_packaging: packItem.packaging || null,
     stock_form_units_per_packaging: isPiecePackaging(packItem.packaging)
       ? 1
@@ -554,7 +518,7 @@ const resolveReliefPackDonationItemPayloads = async ({
         units_per_packaging: packItem.units_per_packaging || null,
         unit_of_measure: packItem.unit_of_measure || null,
         unit_of_measure_value: packItem.unit_of_measure_value ?? null,
-        barcode: packItem.barcode || null,
+        barcode: normalizeInventoryBarcode(packItem.barcode) || null,
       }, resolvedInventoryItem),
     );
   }
@@ -628,9 +592,7 @@ export const useDonationManagementModals = ({
       return;
     }
 
-    const trimmedBarcode = String(donationItemDraft.barcode || "")
-      .replace(/\s+/g, "")
-      .trim();
+    const trimmedBarcode = normalizeInventoryBarcode(donationItemDraft.barcode);
 
     if (!trimmedBarcode) {
       setDonationItemLookupMessage("");
@@ -641,6 +603,11 @@ export const useDonationManagementModals = ({
     const barcodeMatch = findInventoryItemBarcodeMatch(inventoryItems, trimmedBarcode);
     const matchedItem = barcodeMatch?.item || null;
     const matchedStockForm = barcodeMatch?.stockForm || null;
+
+    if (barcodeMatch?.ambiguous || barcodeMatch?.inactive) {
+      setDonationItemLookupMessage("");
+      return;
+    }
 
     if (matchedItem?.id) {
       const alreadyAppliedMatch =
@@ -661,9 +628,7 @@ export const useDonationManagementModals = ({
     }
 
     setDonationItemDraft((currentValues) => {
-      const currentBarcode = String(currentValues.barcode || "")
-        .replace(/\s+/g, "")
-        .trim();
+      const currentBarcode = normalizeInventoryBarcode(currentValues.barcode);
       const hasSelectedExistingItem = Boolean(currentValues.inventory_item_id);
       const hasSelectedStockForm = Boolean(currentValues.inventory_item_stock_form_id);
 
@@ -733,9 +698,7 @@ export const useDonationManagementModals = ({
       return undefined;
     }
 
-    const trimmedBarcode = String(donationItemDraft.barcode || "")
-      .replace(/\s+/g, "")
-      .trim();
+    const trimmedBarcode = normalizeInventoryBarcode(donationItemDraft.barcode);
 
     if (!trimmedBarcode || donationItemDraft.inventory_item_id) {
       return undefined;
@@ -754,9 +717,7 @@ export const useDonationManagementModals = ({
         }
 
         setDonationItemDraft((currentValues) => {
-          const currentBarcode = String(currentValues.barcode || "")
-            .replace(/\s+/g, "")
-            .trim();
+          const currentBarcode = normalizeInventoryBarcode(currentValues.barcode);
 
           if (currentBarcode !== trimmedBarcode || currentValues.inventory_item_id) {
             return currentValues;
@@ -808,26 +769,32 @@ export const useDonationManagementModals = ({
       return;
     }
 
+    const namedInventoryItems = inventoryItems.filter(
+      (item) => normalizeInventoryItemName(item?.item_name) === normalizedItemName,
+    );
+    const normalizedDraftBarcode = normalizeInventoryBarcode(
+      donationItemDraft.barcode,
+    );
+    const barcodeMatch = findInventoryItemBarcodeMatch(
+      namedInventoryItems,
+      normalizedDraftBarcode,
+    );
+
+    if (barcodeMatch?.ambiguous || barcodeMatch?.inactive) {
+      return;
+    }
+
     const matchedInventoryItem =
-      inventoryItems.find(
-        (item) => normalizeInventoryItemName(item?.item_name) === normalizedItemName,
-      ) || null;
+      barcodeMatch?.item ||
+      (namedInventoryItems.length === 1 ? namedInventoryItems[0] : null);
 
     if (!matchedInventoryItem?.id) {
       return;
     }
 
-    const normalizedDraftBarcode = normalizeBarcodeValue(donationItemDraft.barcode);
-    const matchedStockForm =
-      (Array.isArray(matchedInventoryItem.stock_forms)
-        ? matchedInventoryItem.stock_forms.find(
-            (stockForm) =>
-              normalizeBarcodeValue(stockForm?.barcode) === normalizedDraftBarcode,
-          )
-        : null) || null;
+    const matchedStockForm = barcodeMatch?.stockForm || null;
     const shouldUseItemLevelBarcode =
-      !matchedStockForm &&
-      normalizeBarcodeValue(matchedInventoryItem.barcode) === normalizedDraftBarcode;
+      Boolean(barcodeMatch?.item) && !matchedStockForm;
 
     const nextStockFormId = matchedStockForm?.id || "";
     const alreadyAppliedMatch =
@@ -1079,9 +1046,7 @@ export const useDonationManagementModals = ({
   };
 
   const lookupDonationItemBarcode = async () => {
-    const trimmedBarcode = String(donationItemDraft.barcode || "")
-      .replace(/\s+/g, "")
-      .trim();
+    const trimmedBarcode = normalizeInventoryBarcode(donationItemDraft.barcode);
 
     if (!trimmedBarcode) {
       setDonationItemFieldErrors((currentErrors) => ({
@@ -1109,6 +1074,20 @@ export const useDonationManagementModals = ({
           stockForm: barcodeMatch?.stockForm || null,
         });
         setDonationItemLookupMessage("");
+        return;
+      }
+
+      if (barcodeMatch?.ambiguous) {
+        setDonationItemErrorMessage(
+          "This barcode matches multiple local inventory records and requires review.",
+        );
+        return;
+      }
+
+      if (barcodeMatch?.inactive) {
+        setDonationItemErrorMessage(
+          "This barcode belongs to inactive local inventory and cannot be selected.",
+        );
         return;
       }
 
@@ -1603,7 +1582,7 @@ export const useDonationManagementModals = ({
                       : null,
                   packaging: currentDraft.new_item_packaging,
                   units_per_packaging: 1,
-                  barcode: currentDraft.barcode || null,
+                  barcode: normalizeInventoryBarcode(currentDraft.barcode) || null,
                   expiration_date: currentDraft.expiration_date || null,
                   quantity_required: quantityRequired,
                 }
@@ -1626,7 +1605,7 @@ export const useDonationManagementModals = ({
                   : null,
               packaging: currentDraft.new_item_packaging,
               units_per_packaging: 1,
-              barcode: currentDraft.barcode || null,
+              barcode: normalizeInventoryBarcode(currentDraft.barcode) || null,
               expiration_date: currentDraft.expiration_date || null,
               quantity_required: quantityRequired,
             },
@@ -1833,7 +1812,10 @@ export const useDonationManagementModals = ({
               donationItemDraft.inventory_item_stock_form_id ||
               item.inventory_item_stock_form?.id ||
               null,
-            barcode: donationItemDraft.barcode || item.inventory_item_stock_form?.barcode || "",
+            barcode:
+              normalizeInventoryBarcode(
+                donationItemDraft.barcode || item.inventory_item_stock_form?.barcode,
+              ) || "",
             packaging: nextPackaging,
             units_per_packaging: nextUnitsPerPackaging,
           },
@@ -1940,7 +1922,7 @@ export const useDonationManagementModals = ({
             unit_of_measure: donationItemDraft.new_item_unit_of_measure,
             unit_of_measure_value:
               donationItemDraft.new_item_unit_of_measure_value,
-            barcode: donationItemDraft.barcode || null,
+            barcode: normalizeInventoryBarcode(donationItemDraft.barcode) || null,
           }, resolvedInventoryItem),
         });
       }

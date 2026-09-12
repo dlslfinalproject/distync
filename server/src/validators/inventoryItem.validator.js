@@ -149,12 +149,6 @@ const validateInventoryItemBarcodeLookup = (req, res, next) => {
       });
     }
 
-    if (!isValidInventoryBarcode(normalizedBarcode)) {
-      return res.status(400).json({
-        message: "barcode must contain 8 to 18 digits",
-      });
-    }
-
     req.validatedParams = {
       barcode: normalizedBarcode,
     };
@@ -418,7 +412,11 @@ const validateInventoryItemPayload = (req, res, next) => {
 
     const normalizedBarcode = normalizeInventoryBarcode(barcode);
 
-    if (normalizedBarcode && !isValidInventoryBarcode(normalizedBarcode)) {
+    if (
+      req.method !== "PUT" &&
+      normalizedBarcode &&
+      !isValidInventoryBarcode(normalizedBarcode)
+    ) {
       return res.status(400).json({
         message: "barcode must contain 8 to 18 digits",
       });
@@ -444,7 +442,7 @@ const validateInventoryItemPayload = (req, res, next) => {
 
     const normalizedCategory = normalizeCategory(category);
 
-    req.validatedBody = {
+    const validatedBody = {
       item_code:
         typeof item_code === "string" && item_code.trim()
           ? item_code.trim()
@@ -458,8 +456,6 @@ const validateInventoryItemPayload = (req, res, next) => {
       quantity: parsedQuantity,
       reorder_level: parsedReorderLevel,
       expiration_date: parsedExpirationDate,
-      barcode:
-        normalizedBarcode || null,
       is_perishable:
         is_perishable ??
         (normalizedCategory === "Perishable"
@@ -469,6 +465,15 @@ const validateInventoryItemPayload = (req, res, next) => {
             : false),
       skip_opening_stock: skip_opening_stock ?? false,
     };
+
+    if (
+      req.method !== "PUT" ||
+      Object.prototype.hasOwnProperty.call(body, "barcode")
+    ) {
+      validatedBody.barcode = normalizedBarcode || null;
+    }
+
+    req.validatedBody = validatedBody;
 
     return next();
   } catch (error) {

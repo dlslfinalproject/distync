@@ -5,6 +5,7 @@ import {
 } from "../../offline/syncService";
 import { getMayorInventoryCacheSnapshot } from "../../offline/mayorInventoryCache.js";
 import { coalesceInventoryRead } from "../inventory/shared/inventoryReadCoordinator.js";
+import { normalizeInventoryBarcode } from "./inventoryBarcode.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -127,7 +128,7 @@ export const fetchInventoryItemDetail = async (inventoryItemId) => {
 };
 
 export const lookupInventoryItemByBarcode = async (barcode) => {
-  const normalizedBarcode = String(barcode || "").replace(/\s+/g, "").trim();
+  const normalizedBarcode = normalizeInventoryBarcode(barcode);
   const response = await fetch(
     `${API_BASE_URL}/api/v1/inventory-items/lookup/barcode/${encodeURIComponent(normalizedBarcode)}`,
   );
@@ -136,6 +137,16 @@ export const lookupInventoryItemByBarcode = async (barcode) => {
 };
 
 export const createInventoryItem = async (payload) => {
+  if (
+    payload &&
+    Object.prototype.hasOwnProperty.call(payload, "barcode")
+  ) {
+    payload = {
+      ...payload,
+      barcode: normalizeInventoryBarcode(payload.barcode) || null,
+    };
+  }
+
   return performSyncableMutation({
     moduleName: "mayor-inventory",
     actionKey: "INVENTORY_ITEM_CREATE",
@@ -177,7 +188,14 @@ export const buildInventoryItemUpdatePayload = (payload = {}) => {
     ...currentPayload
   } = payload || {};
 
-  return currentPayload;
+  if (!Object.prototype.hasOwnProperty.call(currentPayload, "barcode")) {
+    return currentPayload;
+  }
+
+  return {
+    ...currentPayload,
+    barcode: normalizeInventoryBarcode(currentPayload.barcode) || null,
+  };
 };
 
 export const updateInventoryItem = async (inventoryItemId, payload) => {

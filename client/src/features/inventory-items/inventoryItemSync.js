@@ -95,7 +95,7 @@ export const buildQueuedInventoryItem = (entry) => {
     unit_of_measure: payload.unit_of_measure || "--",
     unit_of_measure_value: payload.unit_of_measure_value || 1,
     packaging,
-    barcode: payload.barcode || null,
+    barcode: normalizeInventoryBarcode(payload.barcode) || null,
     reorder_level: payload.reorder_level ?? null,
     expiration_date: payload.expiration_date || null,
     is_perishable: Boolean(payload.is_perishable),
@@ -103,7 +103,7 @@ export const buildQueuedInventoryItem = (entry) => {
       {
         id: `local-stock-form:${entry.id || localItemId}`,
         inventory_item_id: localItemId,
-        barcode: payload.barcode || null,
+        barcode: normalizeInventoryBarcode(payload.barcode) || null,
         packaging,
         units_per_packaging: unitsPerPackaging || 1,
         unit_of_measure: payload.unit_of_measure || "pc",

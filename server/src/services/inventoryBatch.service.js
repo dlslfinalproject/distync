@@ -506,6 +506,90 @@ const areBatchPackagingDefinitionsEqual = ({
   );
 };
 
+const getInventoryItemsByBarcode = async (barcode, dbClient = pool) => {
+  if (typeof inventoryItemRepository.getInventoryItemsByBarcode === "function") {
+    const matches = await inventoryItemRepository.getInventoryItemsByBarcode(
+      barcode,
+      dbClient,
+    );
+    return Array.isArray(matches) ? matches : [];
+  }
+
+  if (typeof inventoryItemRepository.getInventoryItemByBarcode === "function") {
+    const match = await inventoryItemRepository.getInventoryItemByBarcode(
+      barcode,
+      dbClient,
+    );
+    return match ? [match] : [];
+  }
+
+  return [];
+};
+
+const validateNewBarcodeValue = (barcode) => {
+  if (barcode && !isValidInventoryBarcode(barcode)) {
+    const error = new Error("stock_form_barcode must contain 8 to 18 digits");
+    error.statusCode = 400;
+    throw error;
+  }
+};
+
+const ensureBarcodeOwnerAvailable = async ({
+  barcode,
+  inventoryItem,
+  targetStockForm = null,
+  dbClient,
+}) => {
+  const barcodeOwner =
+    typeof inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode ===
+    "function"
+      ? await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
+          barcode,
+          dbClient || undefined,
+        )
+      : null;
+
+  if (
+    barcodeOwner &&
+    String(barcodeOwner.id) !== String(targetStockForm?.id || "")
+  ) {
+    const existingItem =
+      typeof inventoryItemRepository.getInventoryItemById === "function"
+        ? await inventoryItemRepository.getInventoryItemById(
+            barcodeOwner.inventory_item_id,
+            dbClient || undefined,
+          )
+        : null;
+
+    throw createDuplicateInventoryBarcodeError({
+      existingItem,
+      existingStockForm: barcodeOwner,
+      packagingConflict: true,
+    });
+  }
+
+  if (barcodeOwner) {
+    return barcodeOwner;
+  }
+
+  const legacyItemCandidates = await getInventoryItemsByBarcode(
+    barcode,
+    dbClient,
+  );
+  const conflictingLegacyItems = legacyItemCandidates.filter(
+    (candidate) => String(candidate.id) !== String(inventoryItem.id),
+  );
+
+  if (conflictingLegacyItems.length > 0) {
+    throw createDuplicateInventoryBarcodeError({
+      existingItem:
+        legacyItemCandidates.length === 1 ? conflictingLegacyItems[0] : null,
+    });
+  }
+
+  return null;
+};
+
 const validateBarcodeAssignmentTarget = async ({
   batchData,
   inventoryItem,
@@ -522,6 +606,8 @@ const validateBarcodeAssignmentTarget = async ({
     throw error;
   }
 
+  validateNewBarcodeValue(barcode);
+
   if (String(stockForm.barcode || "").trim()) {
     const error = new Error(
       "This packaging already has a barcode and cannot be reassigned",
@@ -530,46 +616,12 @@ const validateBarcodeAssignmentTarget = async ({
     throw error;
   }
 
-  if (
-    typeof inventoryItemRepository.getInventoryItemByBarcode === "function"
-  ) {
-    const itemBarcodeOwner =
-      await inventoryItemRepository.getInventoryItemByBarcode(
-        barcode,
-        dbClient || undefined,
-      );
-
-    if (
-      itemBarcodeOwner &&
-      String(itemBarcodeOwner.id) !== String(inventoryItem.id)
-    ) {
-      throw createDuplicateInventoryBarcodeError({
-        existingItem: itemBarcodeOwner,
-      });
-    }
-  }
-
-  const barcodeOwner =
-    await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
-      barcode,
-      dbClient || undefined,
-    );
-
-  if (barcodeOwner && String(barcodeOwner.id) !== String(stockForm.id)) {
-    const existingItem =
-      typeof inventoryItemRepository.getInventoryItemById === "function"
-        ? await inventoryItemRepository.getInventoryItemById(
-            barcodeOwner.inventory_item_id,
-            dbClient || undefined,
-          )
-        : null;
-
-    throw createDuplicateInventoryBarcodeError({
-      existingItem,
-      existingStockForm: barcodeOwner,
-      packagingConflict: true,
-    });
-  }
+  await ensureBarcodeOwnerAvailable({
+    barcode,
+    inventoryItem,
+    targetStockForm: stockForm,
+    dbClient,
+  });
 
   const stockFormDefinition = normalizeStockFormDefinition(
     batchData,
@@ -757,35 +809,6 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
   );
 
   if (
-    normalizedStockFormBarcode &&
-    !isValidInventoryBarcode(normalizedStockFormBarcode)
-  ) {
-    const error = new Error("stock_form_barcode must contain 8 to 18 digits");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (
-    normalizedStockFormBarcode &&
-    typeof inventoryItemRepository.getInventoryItemByBarcode === "function"
-  ) {
-    const itemBarcodeOwner =
-      await inventoryItemRepository.getInventoryItemByBarcode(
-        normalizedStockFormBarcode,
-        dbClient || undefined,
-      );
-
-    if (
-      itemBarcodeOwner &&
-      String(itemBarcodeOwner.id) !== String(inventoryItem.id)
-    ) {
-      throw createDuplicateInventoryBarcodeError({
-        existingItem: itemBarcodeOwner,
-      });
-    }
-  }
-
-  if (
     batchData.inventory_item_reorder_level !== undefined &&
     (!Number.isInteger(batchData.inventory_item_reorder_level) ||
       batchData.inventory_item_reorder_level <= 0)
@@ -916,39 +939,6 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
         ) || null
       : null;
 
-    if (
-      stockFormDefinition?.barcode &&
-      typeof inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode ===
-        "function"
-    ) {
-      const barcodeOwner =
-        await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
-          stockFormDefinition.barcode,
-          dbClient || undefined,
-        );
-
-      if (
-        barcodeOwner &&
-        (barcodeOwner.is_active === false ||
-          String(barcodeOwner.inventory_item_id) !== String(inventoryItem.id) ||
-          !areInventoryStockFormDefinitionsEqual(barcodeOwner, stockFormDefinition))
-      ) {
-        const existingItem =
-          typeof inventoryItemRepository.getInventoryItemById === "function"
-            ? await inventoryItemRepository.getInventoryItemById(
-                barcodeOwner.inventory_item_id,
-                dbClient || undefined,
-              )
-            : null;
-
-        throw createDuplicateInventoryBarcodeError({
-          existingItem,
-          existingStockForm: barcodeOwner,
-          packagingConflict: true,
-        });
-      }
-    }
-
     if (stockFormDefinition) {
       if (matchingStockForm) {
         const existingStockFormBarcode = normalizeInventoryBarcode(
@@ -977,6 +967,15 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
           });
         }
       } else {
+        validateNewBarcodeValue(stockFormDefinition.barcode);
+        if (stockFormDefinition.barcode) {
+          await ensureBarcodeOwnerAvailable({
+            barcode: stockFormDefinition.barcode,
+            inventoryItem,
+            dbClient,
+          });
+        }
+
         const createdStockForm =
           await inventoryItemStockFormRepository.insertInventoryItemStockForm(
             stockFormDefinition,
