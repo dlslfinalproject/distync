@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const donationRepository = require("../repositories/donation.repository");
 const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
+const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const inventoryItemStockFormRepository = require("../repositories/inventoryItemStockForm.repository");
 const inventoryItemService = require("./inventoryItem.service");
 const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
@@ -25,6 +26,13 @@ const {
   getDonationTypeKey: resolveDonationTypeKey,
   isReliefPackDonationItemRemark,
 } = require("../utils/donationType");
+const {
+  isValidInventoryBarcode,
+  normalizeInventoryBarcode,
+} = require("../utils/inventoryBarcode");
+const {
+  createDuplicateInventoryBarcodeError,
+} = require("../utils/inventoryItemIdentity");
 
 const buildFullName = (firstName, lastName) => {
   return [firstName, lastName].filter(Boolean).join(" ");
@@ -1187,7 +1195,7 @@ const normalizeDonationStockFormDefinition = (
 
   return {
     inventory_item_id: inventoryItem.id,
-    barcode: donationItemPayload.stock_form_barcode || null,
+    barcode: normalizeInventoryBarcode(donationItemPayload.stock_form_barcode) || null,
     packaging,
     units_per_packaging: unitsPerPackaging,
     unit_of_measure: unitOfMeasure,
@@ -1264,6 +1272,78 @@ const ensureInventoryItemForUpdate = async (inventoryItemId, dbClient) => {
 
 const normalizeDonationInventoryItemName = (itemName) =>
   String(itemName || "").trim().toLowerCase();
+
+const getInventoryItemsByBarcode = async (barcode, dbClient = pool) => {
+  if (typeof inventoryItemRepository.getInventoryItemsByBarcode === "function") {
+    const matches = await inventoryItemRepository.getInventoryItemsByBarcode(
+      barcode,
+      dbClient,
+    );
+    return Array.isArray(matches) ? matches : [];
+  }
+
+  if (typeof inventoryItemRepository.getInventoryItemByBarcode === "function") {
+    const match = await inventoryItemRepository.getInventoryItemByBarcode(
+      barcode,
+      dbClient,
+    );
+    return match ? [match] : [];
+  }
+
+  return [];
+};
+
+const ensureDonationBarcodeOwnerAvailable = async ({
+  barcode,
+  inventoryItem,
+  dbClient,
+}) => {
+  if (!barcode) {
+    return;
+  }
+
+  const canonicalOwner =
+    typeof inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode ===
+    "function"
+      ? await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
+          barcode,
+          dbClient,
+        )
+      : null;
+
+  if (canonicalOwner) {
+    const existingItem =
+      String(canonicalOwner.inventory_item_id) === String(inventoryItem.id)
+        ? inventoryItem
+        : typeof inventoryItemRepository.getInventoryItemById === "function"
+          ? await inventoryItemRepository.getInventoryItemById(
+              canonicalOwner.inventory_item_id,
+              dbClient,
+            )
+          : null;
+
+    throw createDuplicateInventoryBarcodeError({
+      existingItem,
+      existingStockForm: canonicalOwner,
+      packagingConflict: true,
+    });
+  }
+
+  const legacyItemCandidates = await getInventoryItemsByBarcode(
+    barcode,
+    dbClient,
+  );
+  const conflictingLegacyItems = legacyItemCandidates.filter(
+    (candidate) => String(candidate.id) !== String(inventoryItem.id),
+  );
+
+  if (conflictingLegacyItems.length > 0) {
+    throw createDuplicateInventoryBarcodeError({
+      existingItem:
+        legacyItemCandidates.length === 1 ? conflictingLegacyItems[0] : null,
+    });
+  }
+};
 
 const resolveDonationInventoryItem = async ({
   donationItemPayload,
@@ -1427,6 +1507,23 @@ const createOrAttachDonationBatch = async ({
       if (matchedStockForm) {
         resolvedStockFormId = matchedStockForm.id;
       } else {
+        if (
+          stockFormDefinition.barcode &&
+          !isValidInventoryBarcode(stockFormDefinition.barcode)
+        ) {
+          const error = new Error(
+            "stock_form_barcode must contain 8 to 18 digits",
+          );
+          error.statusCode = 400;
+          throw error;
+        }
+
+        await ensureDonationBarcodeOwnerAvailable({
+          barcode: stockFormDefinition.barcode,
+          inventoryItem,
+          dbClient,
+        });
+
         const createdStockForm =
           await inventoryItemStockFormRepository.insertInventoryItemStockForm(
             stockFormDefinition,

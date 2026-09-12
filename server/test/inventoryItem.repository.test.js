@@ -166,3 +166,75 @@ test("all live inventory item projections omit the retired parent expiration col
     assert.doesNotMatch(query, /expiration_date/i);
   }
 });
+
+test("legacy barcode repository lookup returns every candidate and singular lookup refuses ambiguity", async () => {
+  const rows = [
+    { id: "item-a", barcode: "00123456" },
+    { id: "item-b", barcode: "00123456" },
+  ];
+  const dataCalls = [];
+  const dbExports = {
+    query: async (sql) => {
+      if (/information_schema\.columns/i.test(sql)) {
+        return { rows: [{ has_column: true }] };
+      }
+
+      return { rows: [] };
+    },
+  };
+  const dbClient = {
+    query: async (sql, values) => {
+      dataCalls.push({ sql, values });
+      return { rows };
+    },
+  };
+
+  await withStubbedInventoryItemRepository(
+    async ({ getInventoryItemsByBarcode, getInventoryItemByBarcode }) => {
+      assert.deepEqual(
+        await getInventoryItemsByBarcode("00 123 456", dbClient),
+        rows,
+      );
+      assert.equal(
+        await getInventoryItemByBarcode("00 123 456", dbClient),
+        null,
+      );
+    },
+    dbExports,
+  );
+
+  assert.equal(dataCalls.length, 2);
+  assert.deepEqual(dataCalls[0].values, ["00123456"]);
+  assert.match(dataCalls[0].sql, /ORDER BY id ASC/i);
+});
+
+test("inventory item barcode writers normalize whitespace and retain leading zeroes", async () => {
+  let capturedInsertValues = null;
+  const dbExports = {
+    query: async (sql) => {
+      if (/information_schema\.columns/i.test(sql)) {
+        return { rows: [{ has_column: true }] };
+      }
+
+      return { rows: [] };
+    },
+  };
+  const dbClient = {
+    query: async (_sql, values) => {
+      capturedInsertValues = values;
+      return { rows: [{ id: "item-1" }] };
+    },
+  };
+
+  await withStubbedInventoryItemRepository(
+    async ({ insertInventoryItem }) => {
+      await insertInventoryItem(
+        buildInventoryItemData({ barcode: " 0012 3456 " }),
+        dbClient,
+      );
+    },
+    dbExports,
+  );
+
+  assert.equal(capturedInsertValues[9], "00123456");
+});

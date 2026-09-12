@@ -2,6 +2,13 @@ const pool = require("../config/db");
 const {
   areInventoryStockFormDefinitionsEqual,
 } = require("../utils/inventoryStockFormDefinition");
+const {
+  isInventoryStockFormBarcodeUniqueViolation,
+  normalizeInventoryBarcode,
+} = require("../utils/inventoryBarcode");
+const {
+  createDuplicateInventoryBarcodeError,
+} = require("../utils/inventoryItemIdentity");
 
 let hasInventoryItemStockFormIsActiveColumnCache = null;
 
@@ -91,6 +98,12 @@ const getInventoryItemStockFormById = async (id, dbClient = pool) => {
 };
 
 const getInventoryItemStockFormByBarcode = async (barcode, dbClient = pool) => {
+  const normalizedBarcode = normalizeInventoryBarcode(barcode);
+
+  if (!normalizedBarcode) {
+    return null;
+  }
+
   const hasIsActiveColumn = await hasInventoryItemStockFormIsActiveColumn(dbClient);
   const query = `
     SELECT
@@ -99,7 +112,7 @@ const getInventoryItemStockFormByBarcode = async (barcode, dbClient = pool) => {
     WHERE barcode = $1
   `;
 
-  const result = await dbClient.query(query, [barcode]);
+  const result = await dbClient.query(query, [normalizedBarcode]);
   return result.rows[0] || null;
 };
 
@@ -114,6 +127,7 @@ const getInventoryItemStockFormByDefinition = async (
   },
   dbClient = pool,
 ) => {
+  const normalizedBarcode = normalizeInventoryBarcode(barcode);
   const hasIsActiveColumn = await hasInventoryItemStockFormIsActiveColumn(dbClient);
   const query = `
     SELECT
@@ -136,7 +150,7 @@ const getInventoryItemStockFormByDefinition = async (
 
   const result = await dbClient.query(query, [
     inventory_item_id,
-    barcode,
+    normalizedBarcode || null,
     packaging,
     units_per_packaging,
     unit_of_measure,
@@ -175,7 +189,7 @@ const insertInventoryItemStockForm = async (stockFormData, dbClient = pool) => {
   ];
   const values = [
     stockFormData.inventory_item_id,
-    stockFormData.barcode,
+    normalizeInventoryBarcode(stockFormData.barcode) || null,
     stockFormData.packaging,
     stockFormData.units_per_packaging,
     stockFormData.unit_of_measure,
@@ -198,9 +212,16 @@ const insertInventoryItemStockForm = async (stockFormData, dbClient = pool) => {
       ${buildStockFormSelectFields(hasIsActiveColumn)}
   `;
 
-  const result = await dbClient.query(query, values);
+  try {
+    const result = await dbClient.query(query, values);
+    return result.rows[0];
+  } catch (error) {
+    if (isInventoryStockFormBarcodeUniqueViolation(error)) {
+      throw createDuplicateInventoryBarcodeError({ packagingConflict: true });
+    }
 
-  return result.rows[0];
+    throw error;
+  }
 };
 
 const updateInventoryItemStockForm = async (id, stockFormData, dbClient = pool) => {
@@ -227,9 +248,23 @@ const updateInventoryItemStockForm = async (id, stockFormData, dbClient = pool) 
     throw error;
   }
 
+  const normalizedBarcode = normalizeInventoryBarcode(stockFormData.barcode);
+  const normalizedExistingBarcode = normalizeInventoryBarcode(
+    existingStockForm.barcode,
+  );
+  const hasExplicitBarcode = Object.prototype.hasOwnProperty.call(
+    stockFormData,
+    "barcode",
+  );
+  const persistedBarcode = !hasExplicitBarcode
+    ? existingStockForm.barcode
+    : normalizedBarcode && normalizedBarcode === normalizedExistingBarcode
+      ? existingStockForm.barcode
+      : normalizedBarcode || null;
+
   const values = [
     id,
-    stockFormData.barcode,
+    persistedBarcode,
     stockFormData.packaging,
     stockFormData.units_per_packaging,
     stockFormData.unit_of_measure,
@@ -257,9 +292,16 @@ const updateInventoryItemStockForm = async (id, stockFormData, dbClient = pool) 
       ${buildStockFormSelectFields(hasIsActiveColumn)}
   `;
 
-  const result = await dbClient.query(query, values);
+  try {
+    const result = await dbClient.query(query, values);
+    return result.rows[0] || null;
+  } catch (error) {
+    if (isInventoryStockFormBarcodeUniqueViolation(error)) {
+      throw createDuplicateInventoryBarcodeError({ packagingConflict: true });
+    }
 
-  return result.rows[0] || null;
+    throw error;
+  }
 };
 
 module.exports = {

@@ -1,4 +1,5 @@
 const pool = require("../config/db");
+const { normalizeInventoryBarcode } = require("../utils/inventoryBarcode");
 
 let hasInventoryItemReorderLevelColumnCache = null;
 
@@ -191,7 +192,13 @@ const getInventoryItemByName = async (itemName, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
-const getInventoryItemByBarcode = async (barcode, dbClient = pool) => {
+const getInventoryItemsByBarcode = async (barcode, dbClient = pool) => {
+  const normalizedBarcode = normalizeInventoryBarcode(barcode);
+
+  if (!normalizedBarcode) {
+    return [];
+  }
+
   const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn();
   const query = `
     SELECT
@@ -211,11 +218,16 @@ const getInventoryItemByBarcode = async (barcode, dbClient = pool) => {
       updated_at
     FROM inventory_items
     WHERE barcode = $1
-    LIMIT 1
+    ORDER BY id ASC
   `;
 
-  const result = await dbClient.query(query, [barcode]);
-  return result.rows[0] || null;
+  const result = await dbClient.query(query, [normalizedBarcode]);
+  return result.rows;
+};
+
+const getInventoryItemByBarcode = async (barcode, dbClient = pool) => {
+  const matches = await getInventoryItemsByBarcode(barcode, dbClient);
+  return matches.length === 1 ? matches[0] : null;
 };
 
 const insertInventoryItem = async (itemData, dbClient = pool) => {
@@ -270,7 +282,7 @@ const insertInventoryItem = async (itemData, dbClient = pool) => {
     itemData.packaging_count,
     itemData.quantity,
     ...(hasReorderLevelColumn ? [itemData.reorder_level] : []),
-    itemData.barcode,
+    normalizeInventoryBarcode(itemData.barcode) || null,
     itemData.is_perishable,
   ];
 
@@ -323,7 +335,7 @@ const updateInventoryItem = async (id, itemData, dbClient = pool) => {
     itemData.packaging_count,
     itemData.quantity,
     ...(hasReorderLevelColumn ? [itemData.reorder_level] : []),
-    itemData.barcode,
+    normalizeInventoryBarcode(itemData.barcode) || null,
     itemData.is_perishable,
   ];
 
@@ -373,6 +385,7 @@ module.exports = {
   getInventoryItemById,
   getInventoryItemByIdForUpdate,
   getInventoryItemsByIdsForUpdate,
+  getInventoryItemsByBarcode,
   getInventoryItemByBarcode,
   getInventoryItemByCode,
   getInventoryItemByName,

@@ -522,6 +522,85 @@ test("createInventoryBatch creates a new barcode stock form for a new packaging 
   assert.equal(insertedBatchPayload.inventory_item_stock_form_id, "stock-form-barcode");
 });
 
+test("createInventoryBatch rejects a short barcode for a genuinely new stock form", async () => {
+  let insertStockFormCalled = false;
+
+  await withStubbedInventoryBatchService(
+    {
+      ...baseStubs(),
+      [stockFormRepositoryPath]: {
+        ...baseStubs()[stockFormRepositoryPath],
+        getInventoryItemStockFormsByItemId: async () => [],
+        insertInventoryItemStockForm: async () => {
+          insertStockFormCalled = true;
+          return { id: "should-not-create" };
+        },
+      },
+    },
+    async ({ createInventoryBatch }) => {
+      await assert.rejects(
+        createInventoryBatch({
+          inventory_item_id: "item-1",
+          batch_no: "SHORT-BARCODE-001",
+          source_type: "LGU",
+          quantity_received: 1,
+          stock_form_barcode: "00 1234",
+          stock_form_packaging: "box",
+          stock_form_units_per_packaging: 12,
+          stock_form_unit_of_measure: "pc",
+          stock_form_unit_of_measure_value: 1,
+        }),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.equal(error.message, "stock_form_barcode must contain 8 to 18 digits");
+          return true;
+        },
+      );
+    },
+  );
+
+  assert.equal(insertStockFormCalled, false);
+});
+
+test("createInventoryBatch can restock an existing historical short-barcode form unchanged", async () => {
+  const existingStockForm = {
+    id: "stock-form-legacy",
+    inventory_item_id: "item-1",
+    barcode: "001234",
+    packaging: "piece",
+    units_per_packaging: 1,
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    is_active: true,
+  };
+
+  await withStubbedInventoryBatchService(
+    {
+      ...baseStubs(),
+      [stockFormRepositoryPath]: {
+        ...baseStubs()[stockFormRepositoryPath],
+        getInventoryItemStockFormById: async () => existingStockForm,
+      },
+    },
+    async ({ createInventoryBatch }) => {
+      const batch = await createInventoryBatch({
+        inventory_item_id: "item-1",
+        inventory_item_stock_form_id: existingStockForm.id,
+        batch_no: "LEGACY-BARCODE-001",
+        source_type: "LGU",
+        quantity_received: 1,
+        stock_form_barcode: "00 1234",
+        stock_form_packaging: "piece",
+        stock_form_units_per_packaging: 1,
+        stock_form_unit_of_measure: "pc",
+        stock_form_unit_of_measure_value: 1,
+      });
+
+      assert.equal(batch.id, "batch-created");
+    },
+  );
+});
+
 test("createInventoryBatch automatically assigns a scanned barcode to selected matching packaging", async () => {
   const transactionEvents = [];
   const existingStockForm = {

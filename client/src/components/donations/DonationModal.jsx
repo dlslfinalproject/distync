@@ -8,6 +8,7 @@ import {
   modalStyles,
   overlayStyles,
 } from "../../features/donations/donationUi";
+import { normalizeInventoryBarcode } from "../../features/inventory-items/inventoryBarcode.js";
 
 const sectionStyles = {
   border: "1px solid #d7e2ef",
@@ -319,9 +320,6 @@ const autocompleteStyles = {
 const getNormalizedInventoryText = (value) =>
   String(value || "").trim().toLowerCase();
 
-const getNormalizedBarcodeValue = (value) =>
-  String(value || "").replace(/\s+/g, "").trim().toLowerCase();
-
 const isWeightOrVolumeBased = (trackingMethod) =>
   trackingMethod === "Weight/Volume-Based";
 
@@ -569,21 +567,21 @@ const DonationModal = ({
       return false;
     }
 
-    const normalizedDraftBarcode = getNormalizedBarcodeValue(itemDraft.barcode);
+    const normalizedDraftBarcode = normalizeInventoryBarcode(itemDraft.barcode);
 
     if (!normalizedDraftBarcode) {
       return false;
     }
 
     if (
-      getNormalizedBarcodeValue(selectedExistingStockForm?.barcode) ===
+      normalizeInventoryBarcode(selectedExistingStockForm?.barcode) ===
       normalizedDraftBarcode
     ) {
       return true;
     }
 
     return (
-      getNormalizedBarcodeValue(selectedExistingInventoryItem?.barcode) ===
+      normalizeInventoryBarcode(selectedExistingInventoryItem?.barcode) ===
       normalizedDraftBarcode
     );
   }, [
