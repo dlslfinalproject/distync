@@ -274,7 +274,6 @@ const getForecastEventContext = async (disasterEventId, dbClient = pool) => {
       LEFT JOIN (
         SELECT COUNT(*)::integer AS active_inventory_item_count
         FROM inventory_items
-        WHERE is_active = TRUE
       ) AS inventory_summary
         ON TRUE
       LEFT JOIN (
