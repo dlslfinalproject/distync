@@ -123,6 +123,10 @@ test("getForecastEventContext separates total, eligible, claimed, and unclaimed 
   assert.match(sql, /claimed_household_count/);
   assert.match(sql, /unclaimed_eligible_household_count/);
   assert.match(sql, /active_inventory_item_count/);
+  assert.doesNotMatch(
+    sql,
+    /FROM inventory_items\s+WHERE\s+is_active\s*=\s*TRUE/i,
+  );
   assert.match(sql, /dt\.distribution_status = 'CLAIMED'/);
   assert.deepEqual(values, ["event-2"]);
 });
