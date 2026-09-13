@@ -1581,7 +1581,10 @@ const ForecastingPanel = ({
         </div>
 
         <div style={{ display: "grid", alignItems: "stretch" }}>
-          <div style={panelStyles.statGrid}>
+          <div
+            className="mayor-inventory-forecast-stat-grid"
+            style={panelStyles.statGrid}
+          >
             {forecastCards.map((card) => (
               <button
                 key={card.label}

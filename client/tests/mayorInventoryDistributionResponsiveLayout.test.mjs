@@ -50,7 +50,11 @@ test("Mayor inventory distribution page exposes scoped responsive hooks", async 
   );
   assert.match(
     cssSource,
-    /@media \(max-width: 480px\)[\s\S]*?\.inventory-distribution-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+    /@media \(max-width: 480px\)[\s\S]*?\.inventory-distribution-summary-grid \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.inventory-distribution-summary-grid[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
   );
   assert.match(
     cssSource,

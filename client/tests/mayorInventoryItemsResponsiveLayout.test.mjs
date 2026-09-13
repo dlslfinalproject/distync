@@ -36,6 +36,10 @@ test("Mayor inventory items page exposes responsive hooks for toolbar, summary, 
   );
   assert.match(
     cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.inventory-items-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+  );
+  assert.match(
+    cssSource,
     /@media \(max-width: 480px\)[\s\S]*?\.inventory-items-summary-grid > div \{[\s\S]*?height: auto !important;[\s\S]*?padding: 12px 14px !important;/,
   );
   assert.match(

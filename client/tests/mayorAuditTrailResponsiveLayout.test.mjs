@@ -70,5 +70,9 @@ test("Mayor audit trail tables keep horizontal overflow local and paginator outs
     cssSource,
     /@media \(max-width: 480px\)[\s\S]*?\.mayor-audit-trail-filter-card,[\s\S]*?\.mayor-audit-trail-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
   );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.mayor-audit-trail-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+  );
 });
 

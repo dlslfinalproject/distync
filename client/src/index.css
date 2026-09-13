@@ -709,6 +709,13 @@ body {
   }
 
   .inventory-items-summary-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .inventory-distribution-summary-grid,
+  .inventory-tracking-summary-grid,
+  .mayor-donation-management-summary-grid,
+  .mayor-inventory-forecast-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 
@@ -1253,7 +1260,7 @@ body {
   }
 
   .mayor-donation-management-summary-grid {
-    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 12px !important;
   }
 
@@ -1396,7 +1403,7 @@ body {
   }
 
   .inventory-distribution-summary-grid {
-    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 12px !important;
   }
 
@@ -1468,7 +1475,7 @@ body {
   }
 
   .inventory-tracking-summary-grid {
-    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 12px !important;
   }
 
@@ -2813,6 +2820,10 @@ img {
   .mayor-audit-trail-filter-card {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     padding: 16px !important;
+  }
+
+  .mayor-audit-trail-summary-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 
   .mayor-audit-trail-toolbar,
