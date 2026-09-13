@@ -21,10 +21,13 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 const parseJsonResponse = async (response, fallbackMessage) => {
-  const payload = await response.json();
+  const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(payload.message || fallbackMessage);
+    const error = new Error(payload.message || fallbackMessage);
+    error.statusCode = response.status;
+    error.code = payload.code || payload.error || "";
+    throw error;
   }
 
   return payload;

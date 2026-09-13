@@ -36,6 +36,8 @@ export const OFFLINE_CACHE_VERSION = 2;
 const jobs = new Map();
 let lastPreparationDiagnostics = null;
 const PAGE_REQUEST_TIMEOUT_MS = 45_000;
+const PREPARATION_MAX_ATTEMPTS = 3;
+const PREPARATION_RETRY_BACKOFF_MS = 250;
 const isImageDataUrl = (value) =>
   typeof value === "string" && /^data:image\/[a-z0-9.+-]+;base64,/i.test(value);
 
@@ -66,6 +68,48 @@ const fetchOfflinePhotoDataUrl = async (photoUrl, householdId) => {
     throw error;
   }
   return blobToDataUrl(blob);
+};
+
+const isRetryablePreparationError = (error) => {
+  const statusCode = Number(error?.statusCode || error?.status || 0);
+  if ([408, 429].includes(statusCode) || statusCode >= 500) return true;
+  if (error?.code === "OFFLINE_PREPARATION_TIMEOUT") return true;
+  return error instanceof TypeError || /Failed to fetch|NetworkError|Load failed|no-response/i.test(String(error?.message || ""));
+};
+
+const getSafePreparationFailureMessage = (error, previousCompleteCache = false) => {
+  if (isRetryablePreparationError(error)) return "The connection was interrupted while preparing offline data.";
+  if (error?.code === "OFFLINE_PREPARATION_REFERENCE_READ_BACK_FAILED") return "Reference information could not be refreshed.";
+  if (error?.code === "OFFLINE_PREPARATION_HOUSEHOLD_DETAILS_INCOMPLETE") return "Some household information could not be prepared.";
+  if (previousCompleteCache) return "Offline data for the selected disaster event needs to be refreshed.";
+  return "";
+};
+
+const waitBeforePreparationRetry = (attempt, isCurrent) => new Promise((resolve) => {
+  const timer = setTimeout(() => resolve(), PREPARATION_RETRY_BACKOFF_MS * attempt);
+  if (!isCurrent()) {
+    clearTimeout(timer);
+    resolve();
+  }
+});
+
+const withPreparationRetry = async (request, label, isCurrent = () => true) => {
+  let lastError;
+  for (let attempt = 1; attempt <= PREPARATION_MAX_ATTEMPTS; attempt += 1) {
+    if (!isCurrent()) {
+      const error = new Error(`${label} became stale`);
+      error.code = "OFFLINE_PREPARATION_SCOPE_CHANGED";
+      throw error;
+    }
+    try {
+      return await withTimeout(request(), label);
+    } catch (error) {
+      lastError = error;
+      if (attempt === PREPARATION_MAX_ATTEMPTS || !isRetryablePreparationError(error)) throw error;
+      await waitBeforePreparationRetry(attempt, isCurrent);
+    }
+  }
+  throw lastError;
 };
 const normalizeScopeValue = (value) => String(value || "").trim();
 
@@ -182,7 +226,7 @@ const fetchAllPages = async (fetchPage, onPage = () => {}) => {
   return { rows: uniqueRows, pages, expectedCount };
 };
 
-const fetchHouseholdDetailsWithBoundedConcurrency = async (rows, onProgress) => {
+const fetchHouseholdDetailsWithBoundedConcurrency = async (rows, { scope, cachedRows = [], onProgress, onWarning, isCurrent }) => {
   const detailsByHouseholdId = new Map();
   const queue = [...rows];
   const worker = async () => {
@@ -190,16 +234,40 @@ const fetchHouseholdDetailsWithBoundedConcurrency = async (rows, onProgress) => 
       const row = queue.shift();
       const householdId = row?.household_id;
       if (!householdId) continue;
-      const details = await withTimeout(
-        fetchHouseholdDetails(householdId),
-        `Offline household details ${householdId}`,
-      );
-      const photoDataUrl = await fetchOfflinePhotoDataUrl(
-        details?.household?.family_head_photo_url,
-        householdId,
-      );
-      if (!details?.household?.id || !photoDataUrl) {
-        const error = new Error("Offline household detail or required photo is unavailable");
+      let details;
+      try {
+        details = await withPreparationRetry(
+          () => fetchHouseholdDetails(householdId),
+          `Offline household details ${householdId}`,
+          isCurrent,
+        );
+      } catch (error) {
+        const cachedRow = cachedRows.find((cached) => String(cached?.household_id) === String(householdId));
+        const cachedDetails = cachedRow?.offline_household_details;
+        if (!cachedDetails?.household?.id) {
+          error.code = error.code || "OFFLINE_PREPARATION_HOUSEHOLD_DETAILS_INCOMPLETE";
+          throw error;
+        }
+        details = cachedDetails;
+        onWarning?.({ householdId, kind: "HOUSEHOLD_DETAILS_REUSED" });
+      }
+      let photoDataUrl = "";
+      const photoUrl = details?.household?.family_head_photo_url;
+      if (photoUrl) {
+        try {
+          photoDataUrl = await withPreparationRetry(
+            () => fetchOfflinePhotoDataUrl(photoUrl, householdId),
+            `Offline household photo ${householdId}`,
+            isCurrent,
+          );
+        } catch (_error) {
+          const cachedRow = cachedRows.find((cached) => String(cached?.household_id) === String(householdId));
+          photoDataUrl = cachedRow?.offline_household_details?.household?.family_head_photo_data_url || "";
+          onWarning?.({ householdId, kind: photoDataUrl ? "HOUSEHOLD_PHOTO_REUSED" : "HOUSEHOLD_PHOTO_UNAVAILABLE" });
+        }
+      }
+      if (!details?.household?.id) {
+        const error = new Error("Offline household detail is unavailable");
         error.code = "OFFLINE_PREPARATION_HOUSEHOLD_DETAILS_INCOMPLETE";
         throw error;
       }
@@ -212,13 +280,14 @@ const fetchHouseholdDetailsWithBoundedConcurrency = async (rows, onProgress) => 
   return detailsByHouseholdId;
 };
 
-export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, context = {}, targetQrValue = "" }) => {
+export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, context = {}, targetQrValue = "", generation = 0, isCurrent = () => true }) => {
   const scope = { eventId, barangayId, owner: getSyncQueueActorContext() };
   const key = scopeKey(scope);
   if (jobs.has(key)) return jobs.get(key);
   const job = (async () => {
     if (!eventId || !barangayId || !userId || scope.owner.roleCode !== ROLE_CODES.BARANGAY) return null;
     const previousPreparation = await getOfflinePreparation({ eventId, barangayId });
+    const previousMasterlistRows = await getCachedMasterlistRows({ disasterEventId: eventId, barangayId });
     const diagnostics = {
       scope: { barangayId, disasterEventId: eventId, cacheVersion: OFFLINE_CACHE_VERSION },
       status: OFFLINE_PREPARATION_STATUS.PREPARING,
@@ -230,6 +299,12 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
         eventSource: context.eventSource || "selected event",
         eventStatus: context.eventStatus || "",
       },
+      generation,
+      accessMode: scope.owner.accessMode,
+      userId: scope.owner.userId,
+      roleCode: scope.owner.roleCode,
+      disaster_event_id: eventId,
+      barangay_id: barangayId,
       targetQr: targetQrValue ? { normalized: normalizeOfflineStubQrKey(targetQrValue), included: false, page: null } : null,
       datasets: { stubs: { pagesFetched: 0 }, masterlist: { pagesFetched: 0 } },
       stage: "RESOLVING_CONTEXT",
@@ -238,12 +313,14 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
       previousCompleteCache: [OFFLINE_PREPARATION_STATUS.READY, OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH].includes(previousPreparation?.status),
     };
     const startStage = (stage) => {
+      if (!isCurrent()) return;
       diagnostics.stage = stage;
       diagnostics.stages[stage] = { startedAt: new Date().toISOString(), status: "IN_PROGRESS", processed: 0 };
       diagnostics.lastProgressAt = new Date().toISOString();
       publishDiagnostics({ ...diagnostics });
     };
     const completeStage = (stage, processed = 0) => {
+      if (!isCurrent()) return;
       diagnostics.stages[stage] = { ...(diagnostics.stages[stage] || {}), completedAt: new Date().toISOString(), status: "COMPLETED", processed };
       diagnostics.lastProgressAt = new Date().toISOString();
       publishDiagnostics({ ...diagnostics });
@@ -257,7 +334,7 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
       startStage("FETCHING_REGISTRATION_REFERENCES");
       const [stubs, masterlist, registrationReferences] = await Promise.all([
           fetchAllPages(
-          (page, pageSize) => fetchBarangayStubDashboard({ userId, disasterEventId: eventId, barangayId, page, pageSize, status: "all", skipOfflineCache: true }),
+          (page, pageSize) => withPreparationRetry(() => fetchBarangayStubDashboard({ userId, disasterEventId: eventId, barangayId, page, pageSize, status: "all", skipOfflineCache: true }), `Offline stub page ${page}`, isCurrent),
           (pageInfo) => {
             const { pageRows, ...safePageInfo } = pageInfo;
             diagnostics.datasets.stubs = {
@@ -278,7 +355,7 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
           },
         ),
         fetchAllPages(
-          (page, pageSize) => fetchMasterlist({ disasterEventId: eventId, barangayId, recordStatus: "all", page, pageSize }),
+          (page, pageSize) => withPreparationRetry(() => fetchMasterlist({ disasterEventId: eventId, barangayId, recordStatus: "all", page, pageSize }), `Offline masterlist page ${page}`, isCurrent),
           (pageInfo) => {
             const safePageInfo = { ...pageInfo };
             delete safePageInfo.pageRows;
@@ -297,25 +374,40 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
           },
         ),
         Promise.all([
-          fetchActiveDisasterEvents(),
-          fetchBarangays(),
-          fetchSectors(),
-          fetchEvacuationCentersByBarangay(barangayId),
-        ]),
+          ["activeEvents", () => fetchActiveDisasterEvents()],
+          ["barangays", () => fetchBarangays()],
+          ["sectors", () => fetchSectors()],
+          ["evacuationCenters", () => fetchEvacuationCentersByBarangay(barangayId, { throwOnError: true })],
+        ].map(async ([name, request]) => {
+          try {
+            const value = await withPreparationRetry(request, `Offline ${name}`, isCurrent);
+            diagnostics.references = { ...(diagnostics.references || {}), [name]: { status: "SUCCESS", empty: Array.isArray(value?.data || value) && (value?.data || value).length === 0 } };
+            return { name, value };
+          } catch (error) {
+            diagnostics.references = { ...(diagnostics.references || {}), [name]: { status: "FAILED", errorCategory: error?.code || "REFERENCE_FETCH_FAILED" } };
+            if (isCurrent()) publishDiagnostics({ ...diagnostics });
+            if (["activeEvents", "barangays"].includes(name)) throw error;
+            return { name, value: null, error };
+          }
+        })),
       ]);
       completeStage("FETCHING_MASTERLIST", masterlist.rows.length);
+      const referenceResults = registrationReferences;
       const householdDetailsById = await fetchHouseholdDetailsWithBoundedConcurrency(
         masterlist.rows,
-        (processed) => {
+        { scope: { eventId, barangayId }, cachedRows: previousMasterlistRows, isCurrent, onWarning: (warning) => {
+          diagnostics.warnings = [...(diagnostics.warnings || []), warning];
+          if (isCurrent()) publishDiagnostics({ ...diagnostics });
+        }, onProgress: (processed) => {
           diagnostics.stages.FETCHING_HOUSEHOLD_DETAILS.processed = processed;
           diagnostics.lastProgressAt = new Date().toISOString();
           publishDiagnostics({ ...diagnostics });
-        },
+        } },
       );
       completeStage("FETCHING_HOUSEHOLD_DETAILS", householdDetailsById.size);
       completeStage("FETCHING_STUBS", stubs.rows.length);
       completeStage("FETCHING_REGISTRATION_REFERENCES");
-      void registrationReferences;
+      void referenceResults;
       const cachedReferenceData = getCachedRegistrationReferenceData();
       const cachedEvents = Array.isArray(cachedReferenceData.activeDisasterEvents)
         ? cachedReferenceData.activeDisasterEvents
@@ -330,8 +422,7 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
       if (
         !cachedEvents.some((event) => String(event?.id) === String(eventId)) ||
         !cachedBarangays.some((barangay) => String(barangay?.id) === String(barangayId)) ||
-        cachedSectors.length === 0 ||
-        cachedEvacuationCenters.length === 0
+        !cachedEvents.length || !cachedBarangays.length
       ) {
         const error = new Error("Offline registration reference read-back failed");
         error.code = "OFFLINE_PREPARATION_REFERENCE_READ_BACK_FAILED";
@@ -362,7 +453,7 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
       const masterlistReadBack = preparedMasterlistRows.every((row) =>
         masterlistRowsAfterWrite.some((cachedRow) =>
           cachedRow.household_id === row.household_id &&
-          cachedRow.offline_household_details?.household?.family_head_photo_data_url,
+          cachedRow.offline_household_details?.household?.id,
         ),
       );
       if (!qrReadBack.every(Boolean) || !masterlistReadBack || stubRowsAfterWrite.length < persistedStubs.length) {
@@ -372,6 +463,7 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
       startStage("FINALIZING");
       diagnostics.datasets.stubs = { ...diagnostics.datasets.stubs, collected: stubs.rows.length, persisted: persistedStubs.length, qrSearchable: qrReadBack.filter(Boolean).length, readBack: true, complete: stubs.pages > 0 && (!stubs.expectedCount || stubs.rows.length >= stubs.expectedCount) };
       diagnostics.datasets.masterlist = { ...diagnostics.datasets.masterlist, collected: preparedMasterlistRows.length, persisted: preparedMasterlistRows.length, detailsPrepared: householdDetailsById.size, readBack: true, complete: masterlist.pages > 0 && (!masterlist.expectedCount || preparedMasterlistRows.length >= masterlist.expectedCount) };
+      if (!isCurrent()) return null;
       await savePreparation(scope, OFFLINE_PREPARATION_STATUS.READY, {
         stub_count: stubs.rows.length,
         stub_pages: stubs.pages,
@@ -392,15 +484,16 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
           errorCategory: error?.code || "PREPARATION_FAILED",
         };
       }
+      if (!isCurrent()) return null;
       const terminalStatus = diagnostics.previousCompleteCache
         ? OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH
         : OFFLINE_PREPARATION_STATUS.NOT_READY;
       // PARTIAL remains recognized for records written by older releases; new runs always use a terminal status.
       const legacyPartialStatus = OFFLINE_PREPARATION_STATUS.PARTIAL;
       void legacyPartialStatus;
-      const failureDetails = { error_code: error?.code || "PREPARATION_FAILED", datasets: diagnostics.datasets, previous_complete_cache: diagnostics.previousCompleteCache };
+      const failureDetails = { error_code: error?.code || "PREPARATION_FAILED", failure_message: getSafePreparationFailureMessage(error, diagnostics.previousCompleteCache), datasets: diagnostics.datasets, previous_complete_cache: diagnostics.previousCompleteCache };
       await savePreparation(scope, terminalStatus, failureDetails);
-      publishDiagnostics({ ...diagnostics, status: terminalStatus, completedAt: new Date().toISOString(), error: "Preparation could not be completed" });
+      publishDiagnostics({ ...diagnostics, status: terminalStatus, completedAt: new Date().toISOString(), error_code: error?.code || "PREPARATION_FAILED", failure_message: failureDetails.failure_message, error: "Preparation could not be completed" });
       throw error;
     } finally {
       jobs.delete(key);
