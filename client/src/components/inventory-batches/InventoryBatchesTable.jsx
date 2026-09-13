@@ -23,6 +23,9 @@ const tableStyles = {
     borderBottom: "1px solid #e0eaf4",
     whiteSpace: "nowrap",
   },
+  centeredHeaderCell: {
+    textAlign: "center",
+  },
   bodyCell: {
     padding: "16px",
     color: "#21405f",
@@ -31,6 +34,10 @@ const tableStyles = {
     verticalAlign: "top",
     lineHeight: 1.5,
     wordBreak: "break-word",
+  },
+  centeredBodyCell: {
+    textAlign: "center",
+    verticalAlign: "middle",
   },
 };
 
@@ -161,8 +168,22 @@ const InventoryBatchesTable = ({
               <th style={tableStyles.headerCell}>Quantity Received</th>
               <th style={tableStyles.headerCell}>Quantity Available</th>
               <th style={tableStyles.headerCell}>Expiration Date</th>
-              <th style={tableStyles.headerCell}>Status</th>
-              <th style={tableStyles.headerCell}>Sync</th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  ...tableStyles.centeredHeaderCell,
+                }}
+              >
+                Status
+              </th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  ...tableStyles.centeredHeaderCell,
+                }}
+              >
+                Sync
+              </th>
               <th style={tableStyles.headerCell}>Actions</th>
             </tr>
           </thead>
@@ -179,10 +200,20 @@ const InventoryBatchesTable = ({
                 <td style={tableStyles.bodyCell}>
                   {formatDate(row.expiration_date)}
                 </td>
-                <td style={tableStyles.bodyCell}>
+                <td
+                  style={{
+                    ...tableStyles.bodyCell,
+                    ...tableStyles.centeredBodyCell,
+                  }}
+                >
                   <span style={getStatusBadgeStyles(row.status)}>{row.status}</span>
                 </td>
-                <td style={tableStyles.bodyCell}>
+                <td
+                  style={{
+                    ...tableStyles.bodyCell,
+                    ...tableStyles.centeredBodyCell,
+                  }}
+                >
                   <SyncStatusBadge status={row.sync_status} compact />
                 </td>
                 <td style={tableStyles.bodyCell}>
