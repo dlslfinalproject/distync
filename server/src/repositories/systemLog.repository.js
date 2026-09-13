@@ -174,17 +174,6 @@ const getAuditLogs = async (
         AND al.new_values_json->>'transaction_type' = 'ADJUSTMENT'
         AND COALESCE(it_direct.reference_type, '') <> 'DONATION'
       `,
-      donation_adjustment: `
-        al.entity_type = 'INVENTORY_TRANSACTION'
-        AND al.action = 'INVENTORY_TRANSACTION_CREATE'
-        AND it_direct.reference_type = 'DONATION'
-        AND (
-          al.new_values_json->>'transaction_type' = 'ADJUSTMENT'
-          OR LOWER(COALESCE(al.new_values_json->>'remarks', '')) LIKE 'adjusted up donation stock%'
-          OR LOWER(COALESCE(al.new_values_json->>'remarks', '')) LIKE 'adjusted down donation stock%'
-          OR LOWER(COALESCE(al.new_values_json->>'remarks', '')) LIKE '%donation adjustment%'
-        )
-      `,
       written_off: `
         al.entity_type = 'INVENTORY_TRANSACTION'
         AND al.action = 'INVENTORY_TRANSACTION_CREATE'
@@ -273,15 +262,6 @@ const getAuditLogs = async (
           WHEN al.entity_type = 'INVENTORY_BATCH'
             AND al.action IN ('INVENTORY_BATCH_CREATE', 'INVENTORY_BATCH_UPDATE')
             THEN 'stock added batch expiry updated'
-          WHEN al.entity_type = 'INVENTORY_TRANSACTION'
-            AND it_direct.reference_type = 'DONATION'
-            AND (
-              al.new_values_json->>'transaction_type' = 'ADJUSTMENT'
-              OR LOWER(COALESCE(al.new_values_json->>'remarks', '')) LIKE 'adjusted up donation stock%'
-              OR LOWER(COALESCE(al.new_values_json->>'remarks', '')) LIKE 'adjusted down donation stock%'
-              OR LOWER(COALESCE(al.new_values_json->>'remarks', '')) LIKE '%donation adjustment%'
-            )
-            THEN 'donation adjustment'
           WHEN al.entity_type = 'INVENTORY_TRANSACTION'
             AND it_direct.reference_type = 'DONATION'
             AND al.new_values_json->>'transaction_type' = 'INFLOW'
@@ -495,6 +475,7 @@ const getAuditLogs = async (
         al.old_values_json->>'disaster_event_title'
       ) AS donation_disaster_event_title,
       donation_items.items AS donation_items_json,
+      donation_adjustment_details.details AS donation_adjustment_json,
       dt_direct.distribution_date,
       dt_direct.distribution_status,
       dt_direct.verified_by AS distribution_verified_by,
@@ -596,6 +577,46 @@ const getAuditLogs = async (
       )
     ) donation_items ON TRUE
     LEFT JOIN LATERAL (
+      SELECT jsonb_build_object(
+        'id', adjustment_log.id,
+        'old_values_json', adjustment_log.old_values_json,
+        'new_values_json', adjustment_log.new_values_json,
+        'created_at', adjustment_log.created_at
+      ) AS details
+      FROM audit_logs adjustment_log
+      WHERE al.entity_type = 'DONATION_ITEM'
+        AND al.action = 'DONATION_ITEM_UPDATE'
+        AND adjustment_log.entity_type = 'INVENTORY_TRANSACTION'
+        AND adjustment_log.action = 'INVENTORY_TRANSACTION_CREATE'
+        AND COALESCE(
+          adjustment_log.new_values_json->>'reference_type',
+          ''
+        ) = 'DONATION'
+        AND (
+          adjustment_log.id::text = NULLIF(
+            al.new_values_json->>'adjustment_transaction_id',
+            ''
+          )
+          OR (
+            al.new_values_json->>'adjustment_transaction_id' IS NULL
+            AND adjustment_log.new_values_json->>'reference_id' = al.entity_id::text
+            AND (
+              adjustment_log.new_values_json->>'transaction_type' = 'ADJUSTMENT'
+              OR LOWER(COALESCE(adjustment_log.new_values_json->>'remarks', ''))
+                LIKE 'adjusted up donation stock%'
+              OR LOWER(COALESCE(adjustment_log.new_values_json->>'remarks', ''))
+                LIKE 'adjusted down donation stock%'
+              OR LOWER(COALESCE(adjustment_log.new_values_json->>'remarks', ''))
+                LIKE '%donation adjustment%'
+            )
+            AND adjustment_log.created_at >= al.created_at
+            AND adjustment_log.created_at <= al.created_at + INTERVAL '1 minute'
+          )
+        )
+      ORDER BY adjustment_log.created_at ASC
+      LIMIT 1
+    ) donation_adjustment_details ON TRUE
+    LEFT JOIN LATERAL (
       SELECT jsonb_agg(
         jsonb_build_object(
           'item_name', COALESCE(
@@ -634,6 +655,24 @@ const getAuditLogs = async (
         al.entity_type = 'INVENTORY_ITEM_STOCK_FORM'
         AND al.action = 'INVENTORY_ITEM_STOCK_FORM_CREATE'
         AND COALESCE(al.new_values_json->>'is_additional_packaging', 'false') <> 'true'
+      )
+      AND NOT (
+        al.entity_type = 'INVENTORY_TRANSACTION'
+        AND al.action = 'INVENTORY_TRANSACTION_CREATE'
+        AND COALESCE(
+          it_direct.reference_type,
+          al.new_values_json->>'reference_type',
+          ''
+        ) = 'DONATION'
+        AND (
+          al.new_values_json->>'transaction_type' = 'ADJUSTMENT'
+          OR LOWER(COALESCE(al.new_values_json->>'remarks', ''))
+            LIKE 'adjusted up donation stock%'
+          OR LOWER(COALESCE(al.new_values_json->>'remarks', ''))
+            LIKE 'adjusted down donation stock%'
+          OR LOWER(COALESCE(al.new_values_json->>'remarks', ''))
+            LIKE '%donation adjustment%'
+        )
       )
       AND (
         (

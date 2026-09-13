@@ -763,3 +763,96 @@ test("donation entry details group relief pack contents and pack quantity", asyn
     },
   );
 });
+
+test("donation details edited includes the related stock adjustment", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-donation-edit-1",
+          action: "DONATION_ITEM_UPDATE",
+          entity_type: "DONATION_ITEM",
+          entity_id: "donation-item-1",
+          role_code: "MAYOR",
+          old_values_json: {
+            quantity_received: 10,
+            remarks: "Original donation quantity",
+          },
+          new_values_json: {
+            quantity_received: 12,
+            remarks: "Adjusted donation quantity",
+            adjustment_transaction_id: "transaction-adjustment-1",
+          },
+          donation_adjustment_json: {
+            id: "transaction-adjustment-1",
+            new_values_json: {
+              transaction_type: "INFLOW",
+              quantity: 2,
+              performed_at: "2026-08-11T02:10:00.000Z",
+              remarks: "Adjusted up donation stock for Rice from Acer Company",
+            },
+          },
+          created_at: "2026-08-11T02:10:00.000Z",
+          first_name: "Maria",
+          last_name: "Santos",
+          donation_donor_name: "Acer Company",
+          donation_disaster_event_title: "Habagat Flood Response 2026",
+          inventory_item_name: "Rice",
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const [entry] = result.audit_logs;
+
+      assert.equal(entry.action_label, "Donation Details Edited");
+      assert.deepEqual(
+        entry.audit_detail.changes.map(({ field, label, previous_value, new_value }) => ({
+          field,
+          label,
+          previous_value,
+          new_value,
+        })),
+        [
+          {
+            field: "quantity_received",
+            label: "Quantity",
+            previous_value: "10",
+            new_value: "12",
+          },
+          {
+            field: "remarks",
+            label: "Item Remarks",
+            previous_value: "Original donation quantity",
+            new_value: "Adjusted donation quantity",
+          },
+        ],
+      );
+
+      const expectedAdjustedAt = new Intl.DateTimeFormat("en-PH", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(new Date("2026-08-11T02:10:00.000Z"));
+
+      assert.deepEqual(
+        entry.audit_detail.donation_stock_adjustment.map(
+          ({ field, label, new_value }) => ({ field, label, new_value }),
+        ),
+        [
+          { field: "transaction_type", label: "Stock Action", new_value: "Inflow" },
+          { field: "quantity", label: "Quantity Adjusted", new_value: "2" },
+          { field: "performed_at", label: "Adjusted At", new_value: expectedAdjustedAt },
+          {
+            field: "remarks",
+            label: "Remarks",
+            new_value: "Adjusted up donation stock for Rice from Acer Company",
+          },
+        ],
+      );
+    },
+  );
+});

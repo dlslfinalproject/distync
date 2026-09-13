@@ -44,11 +44,6 @@ const AUDIT_ACTION_FILTER_OPTIONS = [
     label: "Stock Adjusted",
     modules: ["Inventory"],
   },
-  {
-    value: "donation_adjustment",
-    label: "Donation Adjustment",
-    modules: ["Donation"],
-  },
   { value: "written_off", label: "Written Off", modules: ["Inventory", "Donation"] },
   {
     value: "relief_pack_template_created",
@@ -544,6 +539,9 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
     entry.action_label === "Packaging Added";
   const isDonationEntryRecord =
     entry.entity_type === "DONATION" && entry.action === "DONATION_CREATE";
+  const isDonationDetailsEditedRecord =
+    entry.action_label === "Donation Details Edited" &&
+    ["DONATION", "DONATION_ITEM"].includes(entry.entity_type);
   const isStockAddedRecord =
     entry.action_label === "Stock Added" &&
     ["INVENTORY_BATCH", "INVENTORY_TRANSACTION"].includes(entry.entity_type);
@@ -552,6 +550,9 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
     : [];
   const donationItems = isDonationEntryRecord
     ? entry.audit_detail?.donation_items || []
+    : [];
+  const donationStockAdjustment = isDonationDetailsEditedRecord
+    ? entry.audit_detail?.donation_stock_adjustment || []
     : [];
   const itemDetails = isItemCreatedRecord || isPackagingAddedRecord
     ? entry.audit_detail?.item_details ?? changes
@@ -601,7 +602,7 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
 
         <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
           <h3 style={{ margin: 0, color: "#17324d" }}>
-            {isDonationEntryRecord
+            {isDonationEntryRecord || isDonationDetailsEditedRecord
               ? "Donation Details"
               : isItemCreatedRecord || isPackagingAddedRecord
               ? "Item Details"
@@ -625,6 +626,23 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
                 Donation Items
               </h4>
               <DonationEntryItemsTable items={donationItems} />
+            </>
+          ) : null}
+          {isDonationDetailsEditedRecord && donationStockAdjustment.length > 0 ? (
+            <>
+              <h4
+                style={{
+                  margin: "24px 0 0",
+                  color: "#17324d",
+                  fontSize: "18px",
+                }}
+              >
+                Related Stock Adjustment
+              </h4>
+              <AuditDetailChangesTable
+                changes={donationStockAdjustment}
+                isCreatedRecord
+              />
             </>
           ) : null}
         </section>

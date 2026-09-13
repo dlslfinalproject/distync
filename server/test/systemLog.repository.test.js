@@ -213,7 +213,7 @@ test("getAuditLogs includes related stock and sync audit records", async () => {
     },
     async ({ getAuditLogs }) => {
       await getAuditLogs({
-        auditAction: "donation_adjustment",
+        auditAction: "donation_details_edited",
         module: "Sync",
         limit: "all",
       });
@@ -224,7 +224,7 @@ test("getAuditLogs includes related stock and sync audit records", async () => {
   assert.match(capturedQuery, /SYNC_CONFLICT/);
   assert.match(capturedQuery, /SYNC_TRANSACTION/);
   assert.match(capturedQuery, /DONATION/);
-  assert.match(capturedQuery, /donation adjustment/);
+  assert.match(capturedQuery, /DONATION_ITEM_UPDATE/);
   assert.match(capturedQuery, /it_direct\.reference_type = 'DONATION'/);
   assert.match(capturedQuery, /COALESCE\(it_direct\.reference_type, ''\) <> 'DONATION'/);
   assert.doesNotMatch(capturedQuery, /rpt_direct\.is_active = TRUE/);

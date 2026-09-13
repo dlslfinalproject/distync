@@ -793,6 +793,52 @@ const createAuditDetailChange = (field, label, value, formatter = null) => ({
   new_value: formatter ? formatter(value) : formatAuditValue(field, value),
 });
 
+const getDonationAdjustmentAudit = (row) => {
+  const rawAdjustment = row.donation_adjustment_json;
+
+  if (!rawAdjustment) {
+    return null;
+  }
+
+  if (typeof rawAdjustment === "string") {
+    try {
+      return JSON.parse(rawAdjustment);
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  return rawAdjustment;
+};
+
+const buildDonationAdjustmentDetails = (row) => {
+  const adjustment = getDonationAdjustmentAudit(row);
+  const values = adjustment?.new_values_json || {};
+
+  if (!Object.keys(values).length) {
+    return [];
+  }
+
+  return [
+    createAuditDetailChange(
+      "transaction_type",
+      "Stock Action",
+      values.transaction_type,
+    ),
+    createAuditDetailChange(
+      "quantity",
+      "Quantity Adjusted",
+      values.quantity,
+    ),
+    createAuditDetailChange(
+      "performed_at",
+      "Adjusted At",
+      values.performed_at,
+    ),
+    createAuditDetailChange("remarks", "Remarks", values.remarks),
+  ];
+};
+
 const buildItemCreatedOpeningStockDetails = (itemRow, batchRow) => {
   const itemValues = itemRow.new_values_json || {};
   const batchValues = batchRow?.new_values_json || {};
@@ -1141,6 +1187,14 @@ const buildDistributionItemDetails = (row) =>
 
 const buildAuditDetail = (row, relatedRows = []) => {
   const changes = buildAuditDetailChanges(row);
+  const detailChanges =
+    row.entity_type === "DONATION_ITEM" &&
+    row.action === "DONATION_ITEM_UPDATE"
+      ? changes.map((change) => ({
+          ...change,
+          label: DONATION_ITEM_FIELD_LABELS[change.field] || change.label,
+        }))
+      : changes;
   const rawDonationItems =
     row.entity_type === "DONATION" && row.action === "DONATION_CREATE"
       ? getDonationItems(row)
@@ -1149,7 +1203,7 @@ const buildAuditDetail = (row, relatedRows = []) => {
     ? buildDonationItemDetails(row)
     : [];
   const detail = {
-    changes,
+    changes: detailChanges,
     item_changes: buildAuditDetailItemChanges(row),
     distributed_items: isDistributionAuditRow(row)
       ? buildDistributionItemDetails(row)
@@ -1163,6 +1217,13 @@ const buildAuditDetail = (row, relatedRows = []) => {
       rawDonationItems,
     );
     detail.donation_items = donationItems;
+  }
+
+  if (
+    row.entity_type === "DONATION_ITEM" &&
+    row.action === "DONATION_ITEM_UPDATE"
+  ) {
+    detail.donation_stock_adjustment = buildDonationAdjustmentDetails(row);
   }
 
   if (isInventoryItemCreatedAudit(row)) {

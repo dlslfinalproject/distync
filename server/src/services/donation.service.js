@@ -2468,7 +2468,12 @@ const updateDonationItem = async (id, payload, performedBy) => {
       entityType: "DONATION_ITEM",
       entityId: id,
       oldValues: previousDonationItemSummary,
-      newValues: nextDonationItemSummary,
+      newValues: {
+        ...nextDonationItemSummary,
+        ...(adjustmentTransactionId
+          ? { adjustment_transaction_id: adjustmentTransactionId }
+          : {}),
+      },
     });
 
     await logAuditSafely({
