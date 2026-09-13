@@ -129,11 +129,12 @@ test("Mayor relief pack template table and detail tables keep overflow local", a
   assert.match(pageSource, /className="mayor-relief-pack-template-table-scroll"/);
   assert.match(pageSource, /className="mayor-relief-pack-template-table"/);
   assert.match(pageSource, /className="mayor-relief-pack-template-name"/);
+  assert.match(pageSource, /reliefPackName: \{[\s\S]*?fontWeight: 700/);
   assert.doesNotMatch(pageSource, /tableStyles\.nameStatus/);
   assert.match(pageSource, /className="mayor-relief-pack-template-item-name"/);
   assert.match(pageSource, /className="mayor-relief-pack-detail-table-scroll"/);
   assert.match(pageSource, /className="mayor-relief-pack-detail-table"/);
-  assert.match(pageSource, />\s*Name\s*</);
+  assert.match(pageSource, />\s*Relief Pack\s*</);
   assert.match(pageSource, />\s*Pack Type\s*</);
   assert.match(pageSource, />\s*Items\s*</);
   assert.match(pageSource, />\s*Qty \/ Item\s*</);

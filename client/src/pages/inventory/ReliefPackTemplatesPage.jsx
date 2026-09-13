@@ -574,6 +574,9 @@ const tableStyles = {
   itemName: {
     fontWeight: 400,
   },
+  reliefPackName: {
+    fontWeight: 700,
+  },
   itemQuantity: {
     color: "#6b8298",
     fontSize: "14px",
@@ -3339,7 +3342,7 @@ const ReliefPackTemplatesPage = () => {
                           ...tableStyles.nameCell,
                         }}
                       >
-                        Name
+                        Relief Pack
                       </th>
                       <th
                         style={{
@@ -3417,7 +3420,10 @@ const ReliefPackTemplatesPage = () => {
                             ...tableStyles.nameCell,
                           }}
                         >
-                          <div className="mayor-relief-pack-template-name">
+                          <div
+                            className="mayor-relief-pack-template-name"
+                            style={tableStyles.reliefPackName}
+                          >
                             {template.name}
                           </div>
                         </td>
