@@ -37,6 +37,20 @@ test("filter popover flips above when bottom space is constrained", () => {
   assert.ok(position.maxHeight >= 280);
 });
 
+test("filter popover chooses the side that can fit the measured panel", () => {
+  const position = calculateFilterPopoverPosition({
+    triggerRect: { top: 300, bottom: 344, left: 720, right: 840 },
+    panelHeight: 380,
+    viewportWidth: 1024,
+    viewportHeight: 600,
+  });
+
+  assert.equal(position.placement, "top");
+  assert.ok(position.top >= 16);
+  assert.ok(position.maxHeight < 380);
+  assert.ok(position.top + position.maxHeight <= 288);
+});
+
 test("filter popover shifts horizontally inside narrow viewports", () => {
   const position = calculateFilterPopoverPosition({
     triggerRect: { top: 100, bottom: 144, left: 300, right: 390 },

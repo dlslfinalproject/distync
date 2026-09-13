@@ -105,9 +105,9 @@ const styles = {
   filterList: {
     display: "grid",
     gap: "10px",
+    maxHeight: "240px",
     overflowY: "auto",
-    flex: "1 1 auto",
-    minHeight: 0,
+    overscrollBehavior: "contain",
     paddingRight: "4px",
   },
   filterOption: {
