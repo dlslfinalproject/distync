@@ -3486,8 +3486,9 @@ const exportDonationTransparencyReport = async (filters = {}, format) => {
       {
         key: "distribution_event_details",
         label: "Distribution Details",
-        width: 32,
-        pdfWidth: 154,
+        width: 30,
+        pdfWidth: 140,
+        pdfMaxChars: 40,
       },
       { key: "item_name", label: "Item Name", width: 28, pdfWidth: 124 },
       { key: "unit_of_measure", label: "Unit", width: 14, pdfWidth: 64 },

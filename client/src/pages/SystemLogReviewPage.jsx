@@ -1,10 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  FiChevronLeft,
-  FiChevronRight,
-  FiEye,
-  FiRefreshCw,
-} from "react-icons/fi";
+import { FiEye, FiRefreshCw } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
 import {
   pageSpacingStyles,
@@ -13,17 +8,21 @@ import {
 import EmptyState from "../components/shared/EmptyState";
 import SearchBar from "../components/shared/SearchBar";
 import DetailsModalShell from "../components/shared/DetailsModalShell";
-import StatusCard from "../components/shared/StatusCard";
+import TablePagination from "../components/shared/TablePagination";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../features/pagination/pagination.mjs";
 import { fetchSystemLogReview } from "../features/system-logs/systemLogService";
 
 const ALL_MODULES_VALUE = "all";
-const AUDIT_PAGE_SIZE = 50;
 const MODULE_FILTER_OPTIONS = [
   { value: ALL_MODULES_VALUE, label: "All" },
   { value: "Inventory", label: "Inventory" },
   { value: "Relief Pack", label: "Relief Pack" },
   { value: "Donation", label: "Donation" },
   { value: "Distribution", label: "Distribution" },
+  { value: "Sync", label: "Sync Center" },
 ];
 const ALL_AUDIT_ACTIONS_VALUE = "all";
 const AUDIT_ACTION_FILTER_OPTIONS = [
@@ -39,7 +38,16 @@ const AUDIT_ACTION_FILTER_OPTIONS = [
     modules: ["Inventory"],
   },
   { value: "stock_added", label: "Stock Added", modules: ["Inventory"] },
-  { value: "stock_adjusted", label: "Stock Adjusted", modules: ["Inventory"] },
+  {
+    value: "stock_adjusted",
+    label: "Stock Adjusted",
+    modules: ["Inventory"],
+  },
+  {
+    value: "donation_adjustment",
+    label: "Donation Adjustment",
+    modules: ["Donation"],
+  },
   { value: "written_off", label: "Written Off", modules: ["Inventory", "Donation"] },
   {
     value: "relief_pack_template_created",
@@ -61,6 +69,11 @@ const AUDIT_ACTION_FILTER_OPTIONS = [
     value: "distributed_items",
     label: "Distributed Items",
     modules: ["Distribution"],
+  },
+  {
+    value: "sync_conflict_resolution",
+    label: "Sync Conflict Resolved",
+    modules: ["Sync"],
   },
 ];
 
@@ -224,14 +237,6 @@ const filterStyles = {
     fontWeight: 700,
     letterSpacing: "0.08em",
     textTransform: "uppercase",
-  },
-};
-
-const auditSummaryStyles = {
-  overviewSection: {
-    display: "grid",
-    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-    gap: "16px",
   },
 };
 
@@ -579,20 +584,14 @@ const SystemLogReviewPage = () => {
   const [auditLogs, setAuditLogs] = useState([]);
   const [pagination, setPagination] = useState({
     page: 1,
-    limit: AUDIT_PAGE_SIZE,
+    limit: DEFAULT_TABLE_PAGE_SIZE,
     total_records: 0,
     total_pages: 1,
     has_previous_page: false,
     has_next_page: false,
     retention_years: 5,
   });
-  const [auditSummary, setAuditSummary] = useState({
-    total_matching_records: 0,
-    inventory_records: 0,
-    relief_pack_records: 0,
-    donation_records: 0,
-    distribution_records: 0,
-  });
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -612,6 +611,7 @@ const SystemLogReviewPage = () => {
     auditAction = selectedAuditAction,
     nextDateFrom = dateFrom,
     nextDateTo = dateTo,
+    nextPageSize = pageSize,
   ) => {
     setIsLoading(true);
     setErrorMessage("");
@@ -622,26 +622,17 @@ const SystemLogReviewPage = () => {
         audit_action: auditAction,
         date_from: nextDateFrom,
         date_to: nextDateTo,
-        limit: AUDIT_PAGE_SIZE,
+        limit: nextPageSize,
         module,
         page,
         search,
       });
 
       setAuditLogs(response.audit_logs || []);
-      setAuditSummary(
-        response.summary?.audit_logs || {
-          total_matching_records: response.audit_logs?.length || 0,
-          inventory_records: 0,
-          relief_pack_records: 0,
-          donation_records: 0,
-          distribution_records: 0,
-        },
-      );
       setPagination(
         response.pagination?.audit_logs || {
           page,
-          limit: AUDIT_PAGE_SIZE,
+          limit: nextPageSize,
           total_records: response.audit_logs?.length || 0,
           total_pages: 1,
           has_previous_page: false,
@@ -672,6 +663,7 @@ const SystemLogReviewPage = () => {
     selectedAuditAction,
     dateFrom,
     dateTo,
+    pageSize,
   ]);
 
   const handleSearchChange = (nextSearchTerm) => {
@@ -714,6 +706,17 @@ const SystemLogReviewPage = () => {
     setSelectedAuditAction(ALL_AUDIT_ACTIONS_VALUE);
     setDateFrom("");
     setDateTo("");
+    setCurrentPage(1);
+  };
+
+  const handlePageSizeChange = (nextPageSize) => {
+    const normalizedPageSize = Number(nextPageSize);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(normalizedPageSize)) {
+      return;
+    }
+
+    setPageSize(normalizedPageSize);
     setCurrentPage(1);
   };
 
@@ -812,35 +815,12 @@ const SystemLogReviewPage = () => {
         ) : null}
       </section>
 
-      <section className="mayor-audit-trail-summary-grid" style={auditSummaryStyles.overviewSection}>
-        <StatusCard
-          label="Matching Records"
-          value={auditSummary.total_matching_records}
-        />
-        <StatusCard
-          label="Inventory Records"
-          value={auditSummary.inventory_records}
-        />
-        <StatusCard
-          label="Relief Pack Records"
-          value={auditSummary.relief_pack_records}
-        />
-        <StatusCard
-          label="Donation Records"
-          value={auditSummary.donation_records}
-        />
-        <StatusCard
-          label="Distribution Records"
-          value={auditSummary.distribution_records}
-        />
-      </section>
-
       <div className="mayor-audit-trail-toolbar" style={filterStyles.toolbar}>
         <div className="mayor-audit-trail-search-wrap" style={filterStyles.searchWrap}>
           <SearchBar
             value={searchTerm}
             onChange={handleSearchChange}
-            placeholder="Search action, module, record, item/barcode, donor, user, or role"
+            placeholder="Search action, item, batch number, donor, relief pack, or user"
           />
         </div>
 
@@ -878,37 +858,22 @@ const SystemLogReviewPage = () => {
 
       <section className="mayor-audit-trail-records-card" style={shellStyles.card}>
         <div className="mayor-audit-trail-records-toolbar" style={pageSpacingStyles.toolbar}>
-          <div>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Activity Records</h3>
-            <p style={{ ...shellStyles.mutedText, marginTop: "6px" }}>
-              Showing {filteredAuditLogs.length} loaded entries from page{" "}
-              {pagination.page} of {pagination.total_pages}.
-            </p>
-          </div>
-
-          <div className="mayor-audit-trail-paginator" style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-              style={pageHeaderStyles.secondaryButton}
-              disabled={isLoading || !pagination.has_previous_page}
-              aria-label="Previous page"
-              title="Previous page"
-            >
-              <FiChevronLeft />
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrentPage((page) => page + 1)}
-              style={pageHeaderStyles.secondaryButton}
-              disabled={isLoading || !pagination.has_next_page}
-              aria-label="Next page"
-              title="Next page"
-            >
-              <FiChevronRight />
-            </button>
-          </div>
+          <h3 style={{ margin: 0, color: "#17324d" }}>Activity Records</h3>
         </div>
+
+        <TablePagination
+          totalItems={pagination.total_records}
+          currentPage={pagination.page}
+          pageSize={pagination.limit || pageSize}
+          pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={handlePageSizeChange}
+          isVisible={!isLoading && !errorMessage && pagination.total_records > 0}
+          disabled={isLoading}
+          ariaLabel="Audit trail pagination"
+          previousAriaLabel="Go to previous audit trail page"
+          nextAriaLabel="Go to next audit trail page"
+        />
 
         {isLoading ? (
           <EmptyState message="Loading audit trail records..." />

@@ -443,10 +443,18 @@ const ACTION_HANDLERS = {
     entityType: "INVENTORY_ITEM",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth, clientTimestamp, dbClient }) =>
+    execute: async ({
+      payload,
+      auth,
+      clientTimestamp,
+      dbClient,
+      entry,
+    }) =>
       inventoryItemService.createInventoryItem(payload, auth, {
         clientTimestamp,
         dbClient,
+        auditActor: auth,
+        auditSourceEventKeyPrefix: `SYNC:${entry.client_sync_id}:INVENTORY_ITEM_CREATE`,
       }),
   },
   INVENTORY_ITEM_UPDATE: {
@@ -464,7 +472,7 @@ const ACTION_HANDLERS = {
     entityType: "INVENTORY_BATCH",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth, clientTimestamp, dbClient }) => {
+    execute: async ({ payload, auth, clientTimestamp, dbClient, entry }) => {
       const resolvedPayload = await resolveMayorInventoryBatchPayload({
         payload,
         auth,
@@ -484,6 +492,8 @@ const ACTION_HANDLERS = {
         // Accepting the same packaging twice is an explicit Conflict Review
         // decision; an offline payload must never bypass that review.
         forceBatchNumberReassignment: false,
+        auditActor: auth,
+        auditSourceEventKeyPrefix: `SYNC:${entry.client_sync_id}:INVENTORY_BATCH_CREATE`,
         dbClient,
       });
     },
@@ -1471,6 +1481,8 @@ const createBatchForDuplicateInventoryItem = async ({
   receivedAt = clientTimestamp,
   existingBatches,
   dbClient,
+  auditActor = null,
+  auditSourceEventKeyPrefix = null,
 }) => {
   const definition = buildInventoryStockFormDefinitionFromItemPayload(
     localPayload,
@@ -1504,6 +1516,8 @@ const createBatchForDuplicateInventoryItem = async ({
     received_at: receivedAt || null,
     allowBatchNumberReassignment: true,
     forceBatchNumberReassignment: false,
+    auditActor,
+    auditSourceEventKeyPrefix,
     dbClient,
   });
 
@@ -1598,6 +1612,8 @@ const tryAutoMergeDuplicateInventoryItem = async ({
       stockForm: plan.stockForm,
       localPayload: entry.payload,
       actorUserId: auth.userId,
+      auditActor: auth,
+      auditSourceEventKeyPrefix: `SYNC:${entry.client_sync_id}:AUTO_MERGE_BATCH`,
       clientTimestamp: entry.client_timestamp,
       // Automatic packaging merges are ordered by server acceptance, not by
       // the offline device clock. Same-packaging Accept Both keeps its
@@ -2929,6 +2945,8 @@ const applyManualInventoryDuplicateResolution = async ({
     userId: conflict.user_id,
     roleCode: ROLE_CODES.MAYOR,
   };
+  const auditSourceEventKeyPrefix =
+    `SYNC_CONFLICT_RESOLUTION:${conflict.id}:${action}`;
 
   if (
     conflict.conflict_type === DUPLICATE_INVENTORY_ITEM &&
@@ -2963,6 +2981,8 @@ const applyManualInventoryDuplicateResolution = async ({
       stockForm: plan.stockForm,
       localPayload,
       actorUserId: conflict.user_id,
+      auditActor: actor,
+      auditSourceEventKeyPrefix,
       clientTimestamp: conflict.client_timestamp,
       existingBatches,
       dbClient,
@@ -3025,6 +3045,8 @@ const applyManualInventoryDuplicateResolution = async ({
       // was recorded earlier, the saved batch was moved first so this entry
       // can keep the requested number.
       forceBatchNumberReassignment: batchResequencing.reordered !== true,
+      auditActor: actor,
+      auditSourceEventKeyPrefix,
       dbClient,
     });
 
@@ -3108,6 +3130,8 @@ const applyManualInventoryDuplicateResolution = async ({
         null,
       allowBatchNumberReassignment: true,
       forceBatchNumberReassignment: false,
+      auditActor: actor,
+      auditSourceEventKeyPrefix,
       dbClient,
     });
 
@@ -3158,6 +3182,8 @@ const applyManualInventoryDuplicateResolution = async ({
         {
           clientTimestamp: conflict.client_timestamp,
           dbClient,
+          auditActor: actor,
+          auditSourceEventKeyPrefix,
         },
       );
       const savedBarcode = normalizeInventoryBarcode(
@@ -3219,6 +3245,8 @@ const applyManualInventoryDuplicateResolution = async ({
           null,
         allowBatchNumberReassignment: true,
         forceBatchNumberReassignment: false,
+        auditActor: actor,
+        auditSourceEventKeyPrefix,
         dbClient,
       });
 

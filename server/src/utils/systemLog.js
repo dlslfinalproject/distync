@@ -59,6 +59,7 @@ const logAuditSafely = async ({
   newValues = {},
   sourceEventKey = null,
   throwOnError = false,
+  dbClient,
 }) => {
   const normalizedActor = normalizeActor(actor);
 
@@ -74,7 +75,7 @@ const logAuditSafely = async ({
       new_values_json: newValues,
       ip_address: normalizedActor.ipAddress,
       source_event_key: sourceEventKey,
-    });
+    }, dbClient);
   } catch (error) {
     if (throwOnError) {
       throw error;

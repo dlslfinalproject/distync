@@ -388,6 +388,73 @@ const summarizeInventoryTransaction = (transaction) =>
     "other_status",
   ]);
 
+const persistInventoryItemCreationAudit = async ({
+  actor,
+  dbClient,
+  sourceEventKeyPrefix,
+  item,
+  stockForm,
+  batch = null,
+  transaction = null,
+}) => {
+  if (!actor || !dbClient) {
+    return;
+  }
+
+  const auditEntries = [
+    {
+      action: "INVENTORY_ITEM_CREATE",
+      entityType: "INVENTORY_ITEM",
+      entityId: item?.id,
+      newValues: summarizeInventoryItem(item),
+      sourceSuffix: "ITEM",
+    },
+    {
+      action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
+      entityType: "INVENTORY_ITEM_STOCK_FORM",
+      entityId: stockForm?.id,
+      newValues: summarizeInventoryItemStockForm(stockForm),
+      sourceSuffix: "STOCK_FORM",
+    },
+  ];
+
+  if (batch) {
+    auditEntries.push({
+      action: "INVENTORY_BATCH_CREATE",
+      entityType: "INVENTORY_BATCH",
+      entityId: batch.id,
+      newValues: summarizeInventoryBatch(batch),
+      sourceSuffix: "BATCH",
+    });
+  }
+
+  if (transaction) {
+    auditEntries.push({
+      action: "INVENTORY_TRANSACTION_CREATE",
+      entityType: "INVENTORY_TRANSACTION",
+      entityId: transaction.id,
+      newValues: summarizeInventoryTransaction(transaction),
+      sourceSuffix: "TRANSACTION",
+    });
+  }
+
+  for (const auditEntry of auditEntries) {
+    await logAuditSafely({
+      actor,
+      action: auditEntry.action,
+      entityType: auditEntry.entityType,
+      entityId: auditEntry.entityId,
+      oldValues: {},
+      newValues: auditEntry.newValues,
+      sourceEventKey: sourceEventKeyPrefix
+        ? `${sourceEventKeyPrefix}:${auditEntry.sourceSuffix}`
+        : null,
+      throwOnError: true,
+      dbClient,
+    });
+  }
+};
+
 const buildOpeningBatchNumber = (itemCode) => {
   const timestamp = Date.now();
   const normalizedItemCode = String(itemCode || "ITEM")
@@ -1475,6 +1542,16 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
       );
 
     if (itemData.skip_opening_stock) {
+      if (externalClient && options.auditActor) {
+        await persistInventoryItemCreationAudit({
+          actor: options.auditActor,
+          dbClient: client,
+          sourceEventKeyPrefix: options.auditSourceEventKeyPrefix,
+          item: createdItem,
+          stockForm: createdStockForm,
+        });
+      }
+
       if (!externalClient) {
         await client.query("COMMIT");
       }
@@ -1551,6 +1628,18 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
       createdItem.id,
       { dbClient: client },
     );
+
+    if (externalClient && options.auditActor) {
+      await persistInventoryItemCreationAudit({
+        actor: options.auditActor,
+        dbClient: client,
+        sourceEventKeyPrefix: options.auditSourceEventKeyPrefix,
+        item: createdItem,
+        stockForm: createdStockForm,
+        batch: createdBatch,
+        transaction: createdTransaction,
+      });
+    }
 
     if (!externalClient) {
       await client.query("COMMIT");

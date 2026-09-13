@@ -511,6 +511,14 @@ const buildWidePdfBuffer = ({ reportTitle, metadata, columns, rows }) => {
     });
   };
 
+  const getPdfWrapLength = (column, columnWidth) =>
+    Math.max(
+      8,
+      Number.isFinite(Number(column.pdfMaxChars))
+        ? Number(column.pdfMaxChars)
+        : Math.floor(columnWidth / 5.8),
+    );
+
   const drawHeader = () => {
     page = reportExport.createPdfBuilder({ width: pageWidth, height: pageHeight });
     page.fillRect(marginX, 742, contentWidth, 76, reportExport.PDF_COLORS.navy);
@@ -611,7 +619,7 @@ const buildWidePdfBuffer = ({ reportTitle, metadata, columns, rows }) => {
 
   rows.forEach((row, rowIndex) => {
     const wrappedCells = columns.map((column, index) =>
-      wrapText(row[column.key], Math.max(8, Math.floor(columnWidths[index] / 5.8))),
+      wrapText(row[column.key], getPdfWrapLength(column, columnWidths[index])),
     );
     const rowHeight =
       Math.max(...wrappedCells.map((lines) => lines.length), 1) * bodyLineHeight + 8;

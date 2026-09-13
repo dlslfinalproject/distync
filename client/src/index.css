@@ -198,7 +198,6 @@ body {
 .mayor-audit-trail-page,
 .mayor-audit-trail-filter-card,
 .mayor-audit-trail-filter-actions,
-.mayor-audit-trail-summary-grid,
 .mayor-audit-trail-toolbar,
 .mayor-audit-trail-search-wrap,
 .mayor-audit-trail-controls-wrap,
@@ -211,10 +210,8 @@ body {
 }
 
 .mayor-audit-trail-filter-card,
-.mayor-audit-trail-summary-grid,
 .mayor-audit-trail-toolbar,
-.mayor-audit-trail-records-toolbar,
-.mayor-audit-trail-paginator {
+.mayor-audit-trail-records-toolbar {
   max-width: 100%;
 }
 
@@ -2871,29 +2868,18 @@ img {
     grid-column: 1 / -1;
   }
 
-  .mayor-audit-trail-summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
-
   .mayor-audit-trail-records-toolbar {
     align-items: flex-start !important;
     flex-wrap: wrap !important;
     gap: 12px !important;
   }
 
-  .mayor-audit-trail-paginator {
-    justify-content: flex-start !important;
-  }
 }
 
 @media (max-width: 768px) {
   .mayor-audit-trail-filter-card {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     padding: 16px !important;
-  }
-
-  .mayor-audit-trail-summary-grid {
-    grid-template-columns: minmax(0, 1fr) !important;
   }
 
   .mayor-audit-trail-toolbar,
@@ -2921,8 +2907,7 @@ img {
 }
 
 @media (max-width: 480px) {
-  .mayor-audit-trail-filter-card,
-  .mayor-audit-trail-summary-grid {
+  .mayor-audit-trail-filter-card {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 
@@ -2935,19 +2920,8 @@ img {
     padding: 16px !important;
   }
 
-  .mayor-audit-trail-records-toolbar > div,
-  .mayor-audit-trail-paginator,
-  .mayor-audit-trail-paginator button {
+  .mayor-audit-trail-records-toolbar > div {
     width: 100%;
-  }
-
-  .mayor-audit-trail-paginator {
-    display: grid !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .mayor-audit-trail-paginator button {
-    justify-content: center;
   }
 
   .mayor-audit-trail-table {

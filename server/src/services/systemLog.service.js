@@ -141,6 +141,15 @@ const AUDIT_DETAIL_ALLOWED_FIELDS = {
     "is_perishable",
     "is_active",
   ],
+  INVENTORY_ITEM_STOCK_FORM: [
+    "inventory_item_id",
+    "barcode",
+    "packaging",
+    "units_per_packaging",
+    "unit_of_measure",
+    "unit_of_measure_value",
+    "is_active",
+  ],
   INVENTORY_BATCH: [
     "batch_no",
     "source_type",
@@ -540,6 +549,13 @@ const buildInventoryAuditActionDetail = (row) => {
   }
 
   if (
+    row.entity_type === "INVENTORY_ITEM" &&
+    row.action === "INVENTORY_ITEM_REORDER_LEVEL_UPDATE"
+  ) {
+    return `Reorder level: ${row.new_values_json?.reorder_level ?? "--"}`;
+  }
+
+  if (
     row.entity_type === "INVENTORY_TRANSACTION" &&
     INVENTORY_WRITE_OFF_TYPES.has(transactionType)
   ) {
@@ -548,7 +564,7 @@ const buildInventoryAuditActionDetail = (row) => {
 
   if (
     row.entity_type === "INVENTORY_TRANSACTION" &&
-    ["INFLOW", "RETURN", "ADJUSTMENT"].includes(transactionType) &&
+    ["INFLOW", "RETURN", "ADJUSTMENT", "OUTFLOW"].includes(transactionType) &&
     quantity !== undefined &&
     quantity !== null
   ) {
@@ -579,6 +595,20 @@ const buildInventoryAuditActionLabel = (row) => {
 
     if (row.action === "INVENTORY_ITEM_UPDATE") {
       return "Item Details Edited";
+    }
+
+    if (row.action === "INVENTORY_ITEM_REORDER_LEVEL_UPDATE") {
+      return "Reorder Level Updated";
+    }
+  }
+
+  if (row.entity_type === "INVENTORY_ITEM_STOCK_FORM") {
+    if (row.action === "INVENTORY_ITEM_STOCK_FORM_CREATE") {
+      return "Packaging Added";
+    }
+
+    if (row.action === "INVENTORY_ITEM_STOCK_FORM_UPDATE") {
+      return "Packaging Updated";
     }
   }
 
@@ -706,20 +736,42 @@ const isDonationAuditRow = (row) => {
     return true;
   }
 
+  return (
+    row.entity_type === "INVENTORY_TRANSACTION" &&
+    row.inventory_transaction_reference_type === "DONATION"
+  );
+};
+
+const isDonationAdjustmentAuditRow = (row) => {
+  if (
+    row.entity_type !== "INVENTORY_TRANSACTION" ||
+    row.inventory_transaction_reference_type !== "DONATION"
+  ) {
+    return false;
+  }
+
   const transactionType = String(
     row.new_values_json?.transaction_type || "",
   ).toUpperCase();
+  const remarks = String(row.new_values_json?.remarks || "")
+    .trim()
+    .toLowerCase();
 
   return (
-    row.entity_type === "INVENTORY_TRANSACTION" &&
-    row.inventory_transaction_reference_type === "DONATION" &&
-    INVENTORY_WRITE_OFF_TYPES.has(transactionType)
+    transactionType === "ADJUSTMENT" ||
+    remarks.startsWith("adjusted up donation stock") ||
+    remarks.startsWith("adjusted down donation stock") ||
+    remarks.includes("donation adjustment")
   );
 };
 
 const buildDonationAuditActionLabel = (row) => {
   if (!isDonationAuditRow(row)) {
     return null;
+  }
+
+  if (isDonationAdjustmentAuditRow(row)) {
+    return "Donation Adjustment";
   }
 
   if (row.entity_type === "DONATION" && row.action === "DONATION_CREATE") {
@@ -751,6 +803,20 @@ const buildDonationAuditActionLabel = (row) => {
     return "Written Off";
   }
 
+  if (
+    row.entity_type === "INVENTORY_TRANSACTION" &&
+    ["INFLOW", "RETURN"].includes(transactionType)
+  ) {
+    return "Donated Stock Added";
+  }
+
+  if (
+    row.entity_type === "INVENTORY_TRANSACTION" &&
+    transactionType === "OUTFLOW"
+  ) {
+    return "Donated Stock Removed";
+  }
+
   return null;
 };
 
@@ -759,6 +825,43 @@ const isDistributionAuditRow = (row) => {
     row.entity_type === "DISTRIBUTION_TRANSACTION" &&
     ["DISTRIBUTION_RECORD", "DISTRIBUTION_QR_CLAIM"].includes(row.action)
   );
+};
+
+const isSyncAuditRow = (row) =>
+  ["SYNC_CONFLICT", "SYNC_TRANSACTION"].includes(row.entity_type);
+
+const buildSyncAuditActionLabel = (row) => {
+  if (!isSyncAuditRow(row)) {
+    return null;
+  }
+
+  if (row.action === "SYNC_CONFLICT_RESOLUTION") {
+    return "Sync Conflict Resolved";
+  }
+
+  if (row.action === "SYNC_CONFLICT_REVIEW") {
+    return "Sync Conflict Reviewed";
+  }
+
+  if (row.action === "SYNC_RETRY_REQUEST") {
+    return "Sync Retry Requested";
+  }
+
+  return "Sync Activity";
+};
+
+const buildSyncRecordLines = (row) => {
+  const conflictType =
+    row.new_values_json?.conflict_type ||
+    row.old_values_json?.conflict_type ||
+    row.new_values_json?.entity_type ||
+    row.entity_type;
+  const resolutionAction = row.new_values_json?.resolution_action;
+
+  return [
+    conflictType,
+    resolutionAction ? `Resolution: ${resolutionAction}` : null,
+  ].filter(Boolean);
 };
 
 const buildDistributionAuditActionLabel = (row) => {
@@ -945,6 +1048,7 @@ const buildDistributionRecordLabel = (row) => {
 const buildAuditActionLabel = (row) => {
   return (
     buildDistributionAuditActionLabel(row) ||
+    buildSyncAuditActionLabel(row) ||
     buildDonationAuditActionLabel(row) ||
     buildInventoryAuditActionLabel(row) ||
     buildReliefPackAuditActionLabel(row) ||
@@ -960,6 +1064,7 @@ const buildRecordLabel = (row) => {
   if (
     [
       "INVENTORY_ITEM",
+      "INVENTORY_ITEM_STOCK_FORM",
       "INVENTORY_BATCH",
       "INVENTORY_TRANSACTION",
     ].includes(row.entity_type)
@@ -975,42 +1080,29 @@ const buildRecordLabel = (row) => {
     return buildDonationRecordLabel(row);
   }
 
+  if (isSyncAuditRow(row)) {
+    return buildSyncRecordLines(row).join(" - ");
+  }
+
   return null;
-};
-
-const isCurrentAuditRow = (row) => {
-  if (isDistributionAuditRow(row)) {
-    return (
-      row.distribution_status ||
-      row.new_values_json?.distribution_status ||
-      ""
-    ) === "CLAIMED";
-  }
-
-  if (row.entity_type === "RELIEF_PACK_TEMPLATE") {
-    return row.relief_pack_template_is_active !== false;
-  }
-
-  if (isDonationAuditRow(row)) {
-    return row.donation_status !== "CANCELLED";
-  }
-
-  return true;
 };
 
 const mapAuditLog = (row) => {
   const isReliefPackTemplate = row.entity_type === "RELIEF_PACK_TEMPLATE";
   const isDonation = isDonationAuditRow(row);
   const isDistribution = isDistributionAuditRow(row);
+  const isSync = isSyncAuditRow(row);
   const recordLines = isDonation
     ? buildDonationRecordLines(row)
     : isDistribution
       ? buildDistributionRecordLines(row)
-      : isReliefPackTemplate
-        ? buildReliefPackRecordLines(row)
-        : buildRecordLabel(row)
-          ? buildInventoryRecordLines(row)
-          : [];
+      : isSync
+        ? buildSyncRecordLines(row)
+        : isReliefPackTemplate
+          ? buildReliefPackRecordLines(row)
+          : buildRecordLabel(row)
+            ? buildInventoryRecordLines(row)
+            : [];
 
   return {
     id: row.id,
@@ -1024,14 +1116,20 @@ const mapAuditLog = (row) => {
         ? row.action === "RELIEF_PACK_TEMPLATE_CREATE"
           ? null
           : buildReliefPackEditDetail(row)
-        : buildInventoryAuditActionDetail(row),
+        : isSync
+          ? row.new_values_json?.resolution_action
+            ? `Resolution: ${row.new_values_json.resolution_action}`
+            : null
+          : buildInventoryAuditActionDetail(row),
     module: isDonation
       ? "Donation"
       : isDistribution
         ? "Distribution"
-        : isReliefPackTemplate
-          ? "Relief Pack"
-          : "Inventory",
+        : isSync
+          ? "Sync Center"
+          : isReliefPackTemplate
+            ? "Relief Pack"
+            : "Inventory",
     performed_by: isDistribution
       ? buildDistributionPerformedByLabel(row)
       : buildPerformedByLabel(row),
@@ -1120,7 +1218,7 @@ const getSystemLogReview = async ({
     shouldLoadErrorLogs ? systemLogRepository.getErrorLogs({ limit }) : [],
   ]);
 
-  const auditLogRows = auditLogs.filter(isCurrentAuditRow);
+  const auditLogRows = auditLogs;
 
   return {
     filters: {

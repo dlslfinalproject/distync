@@ -123,7 +123,7 @@ test("getAuditLogs applies five-year retention and page offset", async () => {
   assert.deepEqual(capturedValues, [50, 100]);
 });
 
-test("getAuditLogs searches audit, user, record, and value fields before paging", async () => {
+test("getAuditLogs searches user-facing audit fields before paging", async () => {
   let capturedQuery = "";
   let capturedValues = [];
 
@@ -138,14 +138,48 @@ test("getAuditLogs searches audit, user, record, and value fields before paging"
     },
   );
 
-  assert.match(capturedQuery, /al\.action ILIKE \$1/);
+  assert.match(capturedQuery, /CASE[\s\S]*THEN 'item created'[\s\S]*END ILIKE \$1/);
   assert.match(capturedQuery, /u\.email ILIKE \$1/);
   assert.match(capturedQuery, /ii_direct\.item_name ILIKE \$1/);
-  assert.match(capturedQuery, /ii_direct\.barcode ILIKE \$1/);
+  assert.match(capturedQuery, /ii_stock_form\.item_name ILIKE \$1/);
+  assert.match(capturedQuery, /ib_direct\.batch_no ILIKE \$1/);
+  assert.match(capturedQuery, /rpt_direct\.name ILIKE \$1/);
   assert.match(capturedQuery, /d_direct\.donor_name ILIKE \$1/);
-  assert.match(capturedQuery, /al\.new_values_json::text ILIKE \$1/);
+  assert.match(capturedQuery, /donated stock added/);
+  assert.match(capturedQuery, /donated stock removed/);
+  assert.doesNotMatch(capturedQuery, /al\.action ILIKE \$1/);
+  assert.doesNotMatch(capturedQuery, /barcode ILIKE \$1/);
+  assert.doesNotMatch(capturedQuery, /al\.new_values_json::text ILIKE \$1/);
   assert.match(capturedQuery, /LIMIT \$2 OFFSET \$3/);
   assert.deepEqual(capturedValues, ["%rice%", 50, 0]);
+});
+
+test("getAuditLogs includes related stock and sync audit records", async () => {
+  let capturedQuery = "";
+
+  await withMockPool(
+    async (query) => {
+      capturedQuery = query;
+      return { rows: [] };
+    },
+    async ({ getAuditLogs }) => {
+      await getAuditLogs({
+        auditAction: "donation_adjustment",
+        module: "Sync",
+        limit: "all",
+      });
+    },
+  );
+
+  assert.match(capturedQuery, /INVENTORY_ITEM_STOCK_FORM/);
+  assert.match(capturedQuery, /SYNC_CONFLICT/);
+  assert.match(capturedQuery, /SYNC_TRANSACTION/);
+  assert.match(capturedQuery, /DONATION/);
+  assert.match(capturedQuery, /donation adjustment/);
+  assert.match(capturedQuery, /it_direct\.reference_type = 'DONATION'/);
+  assert.match(capturedQuery, /COALESCE\(it_direct\.reference_type, ''\) <> 'DONATION'/);
+  assert.doesNotMatch(capturedQuery, /rpt_direct\.is_active = TRUE/);
+  assert.doesNotMatch(capturedQuery, /dt_direct\.distribution_status = 'CLAIMED'/);
 });
 
 test("getAuditLogs applies module filter before paging", async () => {

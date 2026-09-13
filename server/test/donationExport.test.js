@@ -37,8 +37,9 @@ const TRANSPARENCY_COLUMNS = [
   {
     key: "distribution_event_details",
     label: "Distribution Details",
-    width: 32,
-    pdfWidth: 154,
+    width: 30,
+    pdfWidth: 140,
+    pdfMaxChars: 40,
   },
   { key: "item_name", label: "Item Name", width: 28, pdfWidth: 124 },
   { key: "unit_of_measure", label: "Unit", width: 14, pdfWidth: 64 },
@@ -331,6 +332,9 @@ test("donation PDF exports use the inventory-style wide layout for both reports"
       pdfText,
       new RegExp(reportCase.rows[0].donor_name),
     );
+    if (reportCase.worksheetName === "Item Transparency") {
+      assert.match(pdfText, /Typhoon Response Odette: 40pcs/);
+    }
     reportCase.columns.forEach((column) => {
       assert.match(pdfText, new RegExp(column.label));
     });

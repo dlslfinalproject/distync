@@ -132,6 +132,21 @@ const summarizeInventoryBatch = (batch) => {
   return summary;
 };
 
+const summarizeInventoryTransaction = (transaction) =>
+  pickDefined(transaction, [
+    "disaster_event_id",
+    "inventory_batch_id",
+    "transaction_type",
+    "quantity",
+    "reference_type",
+    "reference_id",
+    "inventory_transaction_reference_no",
+    "performed_by",
+    "performed_at",
+    "remarks",
+    "other_status",
+  ]);
+
 const normalizeStockFormDefinition = (batchData, inventoryItem) => {
   const packaging = String(
     batchData.stock_form_packaging || inventoryItem.packaging || "piece",
@@ -742,6 +757,12 @@ const getInventoryBatchDetail = async (id) => {
 };
 
 const emitInventoryBatchCreatedSideEffects = async (mappedBatch, batchData) => {
+  const actor =
+    batchData.auditActor || {
+      userId: batchData.created_by,
+      roleCode: "MAYOR",
+    };
+
   await notificationService.emitSafely(() =>
     notificationService.emitBatchAlerts({
       batch: mappedBatch,
@@ -749,10 +770,7 @@ const emitInventoryBatchCreatedSideEffects = async (mappedBatch, batchData) => {
   );
 
   await logAuditSafely({
-    actor: {
-      userId: batchData.created_by,
-      roleCode: "MAYOR",
-    },
+    actor,
     action: "INVENTORY_BATCH_CREATE",
     entityType: "INVENTORY_BATCH",
     entityId: mappedBatch.id,
@@ -760,12 +778,22 @@ const emitInventoryBatchCreatedSideEffects = async (mappedBatch, batchData) => {
     newValues: summarizeInventoryBatch(mappedBatch),
   });
 
+  if (mappedBatch.__createdInflowTransaction) {
+    await logAuditSafely({
+      actor,
+      action: "INVENTORY_TRANSACTION_CREATE",
+      entityType: "INVENTORY_TRANSACTION",
+      entityId: mappedBatch.__createdInflowTransaction.id,
+      oldValues: {},
+      newValues: summarizeInventoryTransaction(
+        mappedBatch.__createdInflowTransaction,
+      ),
+    });
+  }
+
   if (batchData.inventory_item_reorder_level !== undefined) {
     await logAuditSafely({
-      actor: {
-        userId: batchData.created_by,
-        roleCode: "MAYOR",
-      },
+      actor,
       action: "INVENTORY_ITEM_REORDER_LEVEL_UPDATE",
       entityType: "INVENTORY_ITEM",
       entityId: batchData.inventory_item_id,
@@ -1164,10 +1192,11 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
     inflowTransaction.performed_at = batchData.received_at;
   }
 
-  await inventoryTransactionRepository.insertInventoryTransaction(
-    inflowTransaction,
-    dbClient || undefined,
-  );
+  const createdInflowTransaction =
+    await inventoryTransactionRepository.insertInventoryTransaction(
+      inflowTransaction,
+      dbClient || undefined,
+    );
 
   await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
     batchData.inventory_item_id,
@@ -1184,6 +1213,46 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
   if (batchNumberWasReassigned) {
     mappedBatch.batch_number_was_reassigned = true;
     mappedBatch.requested_batch_no = requestedBatchNo;
+  }
+
+  Object.defineProperty(mappedBatch, "__createdInflowTransaction", {
+    configurable: true,
+    enumerable: false,
+    value: createdInflowTransaction || null,
+  });
+
+  if (batchData.auditActor && dbClient) {
+    const sourceEventKeyPrefix = batchData.auditSourceEventKeyPrefix;
+
+    await logAuditSafely({
+      actor: batchData.auditActor,
+      action: "INVENTORY_BATCH_CREATE",
+      entityType: "INVENTORY_BATCH",
+      entityId: mappedBatch.id,
+      oldValues: {},
+      newValues: summarizeInventoryBatch(mappedBatch),
+      sourceEventKey: sourceEventKeyPrefix
+        ? `${sourceEventKeyPrefix}:BATCH`
+        : null,
+      throwOnError: true,
+      dbClient,
+    });
+
+    if (createdInflowTransaction) {
+      await logAuditSafely({
+        actor: batchData.auditActor,
+        action: "INVENTORY_TRANSACTION_CREATE",
+        entityType: "INVENTORY_TRANSACTION",
+        entityId: createdInflowTransaction.id,
+        oldValues: {},
+        newValues: summarizeInventoryTransaction(createdInflowTransaction),
+        sourceEventKey: sourceEventKeyPrefix
+          ? `${sourceEventKeyPrefix}:TRANSACTION`
+          : null,
+        throwOnError: true,
+        dbClient,
+      });
+    }
   }
 
   if (!dbClient) {
