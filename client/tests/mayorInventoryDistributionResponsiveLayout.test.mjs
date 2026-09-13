@@ -16,6 +16,9 @@ test("Mayor inventory distribution page exposes scoped responsive hooks", async 
 
   assert.match(pageSource, /className="inventory-distribution-page"/);
   assert.match(pageSource, /className="inventory-distribution-tabs"/);
+  assert.match(pageSource, /const scopeCardStyles = \{/);
+  assert.match(pageSource, /padding: 0,[\s\S]*?boxSizing: "border-box"/);
+  assert.match(pageSource, /className="inventory-distribution-filter-content"/);
   assert.match(pageSource, /aria-label="Inventory distribution event scope"/);
   assert.match(pageSource, /role="tab"/);
   assert.match(pageSource, /Disaster Event/);

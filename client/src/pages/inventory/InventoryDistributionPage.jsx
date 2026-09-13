@@ -179,6 +179,12 @@ const layoutStyles = {
   },
 };
 
+const scopeCardStyles = {
+  ...shellStyles.card,
+  padding: 0,
+  boxSizing: "border-box",
+};
+
 const scopeTabListStyles = {
   alignItems: "stretch",
   borderBottom: "1px solid #d6e2ef",
@@ -189,10 +195,14 @@ const scopeTabListStyles = {
   flexWrap: "nowrap",
   gap: "4px",
   overflowX: "auto",
-  padding: "8px 0 0",
-  marginBottom: "24px",
+  padding: "8px clamp(14px, 2vw, 24px) 0",
   minHeight: "56px",
   WebkitOverflowScrolling: "touch",
+};
+
+const scopeFilterContentStyles = {
+  boxSizing: "border-box",
+  padding: "clamp(18px, 2vw, 24px)",
 };
 
 const scopeTabButtonStyles = (isActive) => ({
@@ -674,7 +684,7 @@ const InventoryDistributionPage = () => {
       <PageHeader title="INVENTORY DISTRIBUTION MANAGEMENT" />
 
       <div style={layoutStyles.stack}>
-        <section className="inventory-distribution-scope-card" style={shellStyles.card}>
+        <section className="inventory-distribution-scope-card" style={scopeCardStyles}>
           <div
             className="inventory-distribution-tabs"
             role="tablist"
@@ -702,73 +712,78 @@ const InventoryDistributionPage = () => {
           </div>
 
           <div
-            className="inventory-distribution-filter-grid"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "16px",
-              alignItems: "end",
-            }}
+            className="inventory-distribution-filter-content"
+            style={scopeFilterContentStyles}
           >
-            <div className="inventory-distribution-filter-field">
-              <label
-                htmlFor="inventory-distribution-event"
-                style={filterStyles.label}
-              >
-                Disaster Event
-              </label>
-              <div style={filterStyles.selectWrap}>
-                <select
-                  id="inventory-distribution-event"
-                  value={selectedDisasterEventId}
-                  onChange={(event) =>
-                    setSelectedDisasterEventId(event.target.value)
-                  }
-                  disabled={isLoadingFilters}
-                  style={filterStyles.field}
+            <div
+              className="inventory-distribution-filter-grid"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "16px",
+                alignItems: "end",
+              }}
+            >
+              <div className="inventory-distribution-filter-field">
+                <label
+                  htmlFor="inventory-distribution-event"
+                  style={filterStyles.label}
                 >
-                  <option value="">
-                    {selectedBarangayId && scopedDisasterEvents.length === 0
-                      ? `No ${activeTab === "active" ? "active" : "ended"} events for this barangay`
-                      : `Select ${activeTab === "active" ? "active" : "ended"} disaster event`}
-                  </option>
-                  {scopedDisasterEvents.map((event) => (
-                    <option key={event.id} value={event.id}>
-                      {event.title}
+                  Disaster Event
+                </label>
+                <div style={filterStyles.selectWrap}>
+                  <select
+                    id="inventory-distribution-event"
+                    value={selectedDisasterEventId}
+                    onChange={(event) =>
+                      setSelectedDisasterEventId(event.target.value)
+                    }
+                    disabled={isLoadingFilters}
+                    style={filterStyles.field}
+                  >
+                    <option value="">
+                      {selectedBarangayId && scopedDisasterEvents.length === 0
+                        ? `No ${activeTab === "active" ? "active" : "ended"} events for this barangay`
+                        : `Select ${activeTab === "active" ? "active" : "ended"} disaster event`}
                     </option>
-                  ))}
-                </select>
-                <span style={filterStyles.selectIcon}>
-                  <FiChevronDown size={16} />
-                </span>
+                    {scopedDisasterEvents.map((event) => (
+                      <option key={event.id} value={event.id}>
+                        {event.title}
+                      </option>
+                    ))}
+                  </select>
+                  <span style={filterStyles.selectIcon}>
+                    <FiChevronDown size={16} />
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div className="inventory-distribution-filter-field">
-              <label
-                htmlFor="inventory-distribution-barangay"
-                style={filterStyles.label}
-              >
-                Barangay
-              </label>
-              <div style={filterStyles.selectWrap}>
-                <select
-                  id="inventory-distribution-barangay"
-                  value={selectedBarangayId}
-                  onChange={(event) => setSelectedBarangayId(event.target.value)}
-                  disabled={isLoadingFilters}
-                  style={filterStyles.field}
+              <div className="inventory-distribution-filter-field">
+                <label
+                  htmlFor="inventory-distribution-barangay"
+                  style={filterStyles.label}
                 >
-                  <option value="">All Barangays</option>
-                  {selectableBarangays.map((barangay) => (
-                    <option key={barangay.id} value={barangay.id}>
-                      {barangay.name}
-                    </option>
-                  ))}
-                </select>
-                <span style={filterStyles.selectIcon}>
-                  <FiChevronDown size={16} />
-                </span>
+                  Barangay
+                </label>
+                <div style={filterStyles.selectWrap}>
+                  <select
+                    id="inventory-distribution-barangay"
+                    value={selectedBarangayId}
+                    onChange={(event) => setSelectedBarangayId(event.target.value)}
+                    disabled={isLoadingFilters}
+                    style={filterStyles.field}
+                  >
+                    <option value="">All Barangays</option>
+                    {selectableBarangays.map((barangay) => (
+                      <option key={barangay.id} value={barangay.id}>
+                        {barangay.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span style={filterStyles.selectIcon}>
+                    <FiChevronDown size={16} />
+                  </span>
+                </div>
               </div>
             </div>
           </div>
