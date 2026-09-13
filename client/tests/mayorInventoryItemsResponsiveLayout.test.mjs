@@ -56,6 +56,8 @@ test("Mayor inventory item table keeps overflow local without hiding columns", a
   assert.match(tableSource, /className="inventory-items-table-cell inventory-items-item-cell"/);
   assert.match(tableSource, /className="inventory-items-item-name-text"/);
   assert.match(tableSource, /title=\{itemName\}/);
+  assert.match(tableSource, /header === "Item" \? styles\.leftCell/);
+  assert.match(tableSource, /itemNameText: \{[\s\S]*?fontWeight: 700/);
   assert.match(tableSource, /overflowX:\s*"auto"/);
   assert.doesNotMatch(tableSource, /overflowX:\s*"hidden"/);
   assert.match(tableSource, /"Item(?: Name)?"[\s\S]*?"Category"[\s\S]*?"Total Stock"[\s\S]*?"Stock Forms"[\s\S]*?"Reorder Level"[\s\S]*?"Stock Status"[\s\S]*?"Actions"/);
