@@ -3383,6 +3383,8 @@ const formatDonationEventDetails = (
   unitOfMeasure,
   prefix,
   emptyLabel,
+  separator = "; ",
+  compactUnit = false,
 ) => {
   let normalizedBreakdown = breakdown;
 
@@ -3413,18 +3415,29 @@ const formatDonationEventDetails = (
         eventRow?.event_title || "Unassigned disaster event",
       ).trim();
       const quantity = Number(eventRow?.quantity || 0);
+      const displayUnit =
+        compactUnit && normalizedUnit.toLowerCase() === "pc" && quantity !== 1
+          ? "pcs"
+          : normalizedUnit;
+      const unitSuffix = compactUnit
+        ? displayUnit
+        : displayUnit
+          ? ` ${displayUnit}`
+          : "";
 
-      return `${prefix} ${eventTitle}: ${quantity}${normalizedUnit ? ` ${normalizedUnit}` : ""}`;
+      return `${prefix ? `${prefix} ` : ""}${eventTitle}: ${quantity}${unitSuffix}`;
     })
-    .join("; ");
+    .join(separator);
 };
 
 const formatDistributionEventDetails = (breakdown, unitOfMeasure) =>
   formatDonationEventDetails(
     breakdown,
     unitOfMeasure,
-    "To",
+    "",
     "No distributions recorded",
+    "\n",
+    true,
   );
 
 const formatTransferEventDetails = (breakdown, unitOfMeasure) =>
@@ -3444,10 +3457,6 @@ const exportDonationTransparencyReport = async (filters = {}, format) => {
       ...row,
       distribution_event_details: formatDistributionEventDetails(
         row.distribution_event_breakdown,
-        row.unit_of_measure,
-      ),
-      transfer_event_details: formatTransferEventDetails(
-        row.transfer_event_breakdown,
         row.unit_of_measure,
       ),
       write_off_reasons: row.write_off_reasons || "--",
@@ -3479,12 +3488,6 @@ const exportDonationTransparencyReport = async (filters = {}, format) => {
         label: "Distribution Details",
         width: 32,
         pdfWidth: 154,
-      },
-      {
-        key: "transfer_event_details",
-        label: "Transfer Details",
-        width: 30,
-        pdfWidth: 140,
       },
       { key: "item_name", label: "Item Name", width: 28, pdfWidth: 124 },
       { key: "unit_of_measure", label: "Unit", width: 14, pdfWidth: 64 },

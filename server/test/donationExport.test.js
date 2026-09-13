@@ -3,10 +3,12 @@ const ExcelJS = require("exceljs");
 const test = require("node:test");
 
 const { buildExportFile } = require("../src/utils/mayorReportExport");
+const donationRepository = require("../src/repositories/donation.repository");
+const donationService = require("../src/services/donation.service");
 const {
   formatDistributionEventDetails,
   formatTransferEventDetails,
-} = require("../src/services/donation.service");
+} = donationService;
 
 const RECEIVED_COLUMNS = [
   { key: "donor_name", label: "Donor Name", width: 24, pdfWidth: 94 },
@@ -37,12 +39,6 @@ const TRANSPARENCY_COLUMNS = [
     label: "Distribution Details",
     width: 32,
     pdfWidth: 154,
-  },
-  {
-    key: "transfer_event_details",
-    label: "Transfer Details",
-    width: 30,
-    pdfWidth: 140,
   },
   { key: "item_name", label: "Item Name", width: 28, pdfWidth: 124 },
   { key: "unit_of_measure", label: "Unit", width: 14, pdfWidth: 64 },
@@ -80,7 +76,8 @@ const transparencyRows = [
   {
     donor_name: "DLSL Donations",
     disaster_event: "Typhoon Response Josi",
-    distribution_event_details: "To Typhoon Response Josi: 120 pc; To Typhoon Response Odette: 40 pc",
+    distribution_event_details:
+      "Typhoon Response Josi: 120pcs\nTyphoon Response Odette: 40pcs",
     transfer_event_details: "Transferred to Typhoon Response Odette: 25 pc",
     item_name: "Emergency Water",
     unit_of_measure: "pc",
@@ -202,7 +199,7 @@ test("donation transparency movement details show applicable values or an explic
       ],
       "pc",
     ),
-    "To Typhoon Response Josi: 120 pc; To Typhoon Response Odette: 40 pc",
+    "Typhoon Response Josi: 120pcs\nTyphoon Response Odette: 40pcs",
   );
   assert.equal(
     formatTransferEventDetails(
@@ -224,6 +221,76 @@ test("donation transparency movement details show applicable values or an explic
     formatTransferEventDetails(null, "pc"),
     "No transfers recorded",
   );
+});
+
+test("donation transparency exports omit transfer details and preserve distribution line breaks", async () => {
+  const file = await buildExportFile(
+    buildOptions({
+      worksheetName: "Item Transparency",
+      reportTitle: "Donation Item Transparency Report",
+      columns: TRANSPARENCY_COLUMNS,
+      rows: transparencyRows,
+      format: "csv",
+    }),
+  );
+  const csv = file.buffer.toString("utf8");
+
+  assert.match(
+    csv,
+    /Distribution Details,[\s\S]*Item Name,Unit,Received,Distributed,Written Off/,
+  );
+  assert.doesNotMatch(csv, /Transfer Details/);
+  assert.doesNotMatch(csv, /Transferred to Typhoon Response Odette/);
+  assert.match(
+    csv,
+    /Typhoon Response Josi: 120pcs[\r\n]+Typhoon Response Odette: 40pcs/,
+  );
+});
+
+test("donation transparency service exports the revised movement columns", async () => {
+  const originalGetDonationTransparencyExportRows =
+    donationRepository.getDonationTransparencyExportRows;
+
+  donationRepository.getDonationTransparencyExportRows = async () => [
+    {
+      donor_name: "DLSL Donations",
+      disaster_event: "Typhoon Oddette Response",
+      distribution_event_breakdown: [
+        { event_title: "Typhoon Oddette Response", quantity: 8 },
+        { event_title: "Habagat Flood Response", quantity: 3 },
+      ],
+      transfer_event_breakdown: [
+        { event_title: "Typhoon Oddette Response", quantity: 2 },
+      ],
+      item_name: "Emergency Water",
+      unit_of_measure: "pc",
+      quantity_received: 20,
+      quantity_distributed: 11,
+      quantity_written_off: 0,
+      write_off_reasons: "--",
+      remaining_stock: 9,
+      received_at: "2026-09-10T08:21:00.000Z",
+    },
+  ];
+
+  try {
+    const file = await donationService.exportDonationTransparencyReport(
+      {},
+      "csv",
+    );
+    const csv = file.buffer.toString("utf8");
+
+    assert.match(csv, /Distribution Details/);
+    assert.doesNotMatch(csv, /Transfer Details/);
+    assert.doesNotMatch(csv, /Transferred to Typhoon Oddette Response/);
+    assert.match(
+      csv,
+      /Typhoon Oddette Response: 8pcs[\r\n]+Habagat Flood Response: 3pcs/,
+    );
+  } finally {
+    donationRepository.getDonationTransparencyExportRows =
+      originalGetDonationTransparencyExportRows;
+  }
 });
 
 test("donation PDF exports use the inventory-style wide layout for both reports", async () => {

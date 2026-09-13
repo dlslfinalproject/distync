@@ -293,10 +293,15 @@ const buildExcelBuffer = async ({
 
   rows.forEach((row, rowIndex) => {
     const worksheetRow = worksheet.getRow(headerRowNumber + 1 + rowIndex);
+    let explicitLineCount = 1;
 
     columns.forEach((column, columnIndex) => {
       const cell = worksheetRow.getCell(columnIndex + 1);
       cell.value = row[column.key];
+      explicitLineCount = Math.max(
+        explicitLineCount,
+        String(row[column.key] ?? "").split(/\r?\n/).length,
+      );
       cell.alignment = {
         vertical: "top",
         horizontal: "left",
@@ -312,6 +317,10 @@ const buildExcelBuffer = async ({
         };
       }
     });
+
+    if (explicitLineCount > 1) {
+      worksheetRow.height = Math.min(explicitLineCount * 18, 90);
+    }
   });
 
   worksheet.autoFilter = {
@@ -324,25 +333,32 @@ const buildExcelBuffer = async ({
 };
 
 const wrapText = (value, maxLength) => {
-  const words = String(value ?? "--").split(/\s+/);
   const lines = [];
-  let currentLine = "";
+  const text = String(value ?? "--") || "--";
+  const paragraphs = text.split(/\r?\n/);
 
-  words.forEach((word) => {
-    const nextLine = currentLine ? `${currentLine} ${word}` : word;
+  paragraphs.forEach((paragraph, paragraphIndex) => {
+    const words = paragraph.trim() ? paragraph.trim().split(/\s+/) : [];
+    let currentLine = "";
 
-    if (nextLine.length > maxLength && currentLine) {
+    words.forEach((word) => {
+      const nextLine = currentLine ? `${currentLine} ${word}` : word;
+
+      if (nextLine.length > maxLength && currentLine) {
+        lines.push(currentLine);
+        currentLine = word;
+        return;
+      }
+
+      currentLine = nextLine;
+    });
+
+    if (currentLine) {
       lines.push(currentLine);
-      currentLine = word;
-      return;
+    } else if (paragraphIndex < paragraphs.length - 1) {
+      lines.push("");
     }
-
-    currentLine = nextLine;
   });
-
-  if (currentLine) {
-    lines.push(currentLine);
-  }
 
   return lines.length ? lines : ["--"];
 };
