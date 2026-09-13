@@ -82,7 +82,7 @@ const tableStyles = {
     width: "100%",
     borderCollapse: "collapse",
     tableLayout: "auto",
-    minWidth: "860px",
+    minWidth: "940px",
   },
   th: {
     padding: "12px 14px",
@@ -106,7 +106,8 @@ const tableStyles = {
     width: "148px",
   },
   moduleColumn: {
-    width: "92px",
+    width: "132px",
+    minWidth: "132px",
   },
   recordColumn: {
     minWidth: "220px",
@@ -342,6 +343,21 @@ const formatDateTime = (value) => {
   }).format(new Date(value));
 };
 
+const formatBackendEnumText = (value) => {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  return String(value).replace(
+    /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g,
+    (token) =>
+      token
+        .split("_")
+        .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+        .join(" "),
+  );
+};
+
 const formatEntityLabel = (entry) => {
   if (entry.record_label) {
     return entry.record_label;
@@ -351,11 +367,12 @@ const formatEntityLabel = (entry) => {
 };
 
 const getRecordLines = (entry) => {
-  if (Array.isArray(entry.record_lines) && entry.record_lines.length) {
-    return entry.record_lines.filter(Boolean);
-  }
+  const lines =
+    Array.isArray(entry.record_lines) && entry.record_lines.length
+      ? entry.record_lines.filter(Boolean)
+      : [formatEntityLabel(entry)];
 
-  return [formatEntityLabel(entry)];
+  return lines.map(formatBackendEnumText);
 };
 
 const InfoField = ({ label, value }) => (

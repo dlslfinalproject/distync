@@ -168,3 +168,55 @@ test("getSystemLogReview passes audit pagination and returns metadata", async ()
     },
   );
 });
+
+test("audit item details omit redundant perishable status and trim unit value decimals", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-item-create-1",
+          action: "INVENTORY_ITEM_CREATE",
+          entity_type: "INVENTORY_ITEM",
+          entity_id: "item-1",
+          role_code: "MSWDO",
+          old_values_json: {},
+          new_values_json: {
+            item_code: "INV-MSWDO_TOWEL-001",
+            item_name: "MSWDO Towel",
+            category: "Non-Perishable",
+            unit_of_measure: "pc",
+            unit_of_measure_value: "1.00",
+            is_perishable: false,
+            quantity: 1,
+          },
+          created_at: "2026-08-11T01:30:00.000Z",
+          first_name: "Maria",
+          last_name: "Santos",
+          inventory_item_name: "MSWDO Towel",
+          inventory_item_is_active: true,
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const [entry] = result.audit_logs;
+
+      assert.deepEqual(
+        entry.audit_detail.changes.map(({ field, new_value }) => ({ field, new_value })),
+        [
+          { field: "item_code", new_value: "INV-MSWDO_TOWEL-001" },
+          { field: "item_name", new_value: "MSWDO Towel" },
+          { field: "category", new_value: "Non-Perishable" },
+          { field: "unit_of_measure", new_value: "pc" },
+          { field: "unit_of_measure_value", new_value: "1" },
+          { field: "quantity", new_value: "1" },
+        ],
+      );
+      assert.equal(
+        entry.audit_detail.changes.some(({ field }) => field === "is_perishable"),
+        false,
+      );
+    },
+  );
+});

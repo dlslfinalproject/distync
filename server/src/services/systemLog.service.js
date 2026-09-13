@@ -91,7 +91,6 @@ const AUDIT_DETAIL_FIELD_LABELS = {
   reorder_level: "Reorder Level",
   expiration_date: "Expiration Date",
   barcode: "Barcode",
-  is_perishable: "Perishable",
   is_active: "Status",
   batch_no: "Batch Number",
   source_type: "Source",
@@ -138,7 +137,6 @@ const AUDIT_DETAIL_ALLOWED_FIELDS = {
     "reorder_level",
     "expiration_date",
     "barcode",
-    "is_perishable",
     "is_active",
   ],
   INVENTORY_ITEM_STOCK_FORM: [
@@ -383,6 +381,12 @@ const formatAuditValue = (fieldName, value) => {
 
   if (typeof value === "boolean") {
     return value ? "Yes" : "No";
+  }
+
+  if (fieldName === "unit_of_measure_value") {
+    const numericValue = Number(value);
+
+    return Number.isFinite(numericValue) ? String(numericValue) : String(value);
   }
 
   if (["status", "source_type", "transaction_type", "distribution_status"].includes(fieldName)) {

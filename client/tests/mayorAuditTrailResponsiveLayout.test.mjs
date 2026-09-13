@@ -52,6 +52,8 @@ test("Mayor audit trail tables keep horizontal overflow local and paginator outs
   assert.match(pageSource, />\s*Action\s*</);
   assert.match(pageSource, /actionValue:\s*\{\s*fontWeight: 700,/);
   assert.match(pageSource, /<div style=\{tableStyles\.actionValue\}>[\s\S]*formatActionLabel\(entry\)/);
+  assert.match(pageSource, /const formatBackendEnumText = \(value\) =>/);
+  assert.match(pageSource, /getRecordLines = \(entry\) => \{[\s\S]*?lines\.map\(formatBackendEnumText\)/);
   assert.match(pageSource, /changedValue:\s*\{[\s\S]*?fontWeight: 700,/);
   assert.doesNotMatch(pageSource, /tableStyles\.strong/);
   assert.match(
@@ -64,8 +66,9 @@ test("Mayor audit trail tables keep horizontal overflow local and paginator outs
   );
   assert.match(
     cssSource,
-    /\.mayor-audit-trail-table \{[\s\S]*?table-layout: auto !important;[\s\S]*?min-width: 860px !important;/,
+    /\.mayor-audit-trail-table \{[\s\S]*?table-layout: auto !important;[\s\S]*?min-width: 940px !important;/,
   );
+  assert.match(pageSource, /moduleColumn:\s*\{[\s\S]*?width: "132px"/);
   assert.match(
     cssSource,
     /@media \(max-width: 768px\)[\s\S]*?\.mayor-audit-trail-filter-card \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,

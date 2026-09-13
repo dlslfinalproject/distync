@@ -225,7 +225,7 @@ body {
 
 .mayor-audit-trail-table {
   table-layout: auto !important;
-  min-width: 860px !important;
+  min-width: 940px !important;
 }
 
 .mayor-audit-trail-detail-table {
@@ -2902,7 +2902,7 @@ img {
   }
 
   .mayor-audit-trail-table {
-    min-width: 820px !important;
+    min-width: 920px !important;
   }
 }
 
@@ -2925,7 +2925,7 @@ img {
   }
 
   .mayor-audit-trail-table {
-    min-width: 780px !important;
+    min-width: 900px !important;
   }
 
   .mayor-audit-trail-detail-table {
