@@ -834,7 +834,7 @@ const DonationModal = ({
 
               <div>
                 <label htmlFor="donation_entry_type" style={labelStyles}>
-                  Donation Type
+                  Donation Form
                 </label>
                 <select
                   id="donation_entry_type"

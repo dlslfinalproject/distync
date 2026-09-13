@@ -197,7 +197,7 @@ const DonorTransparencyTab = ({
               </colgroup>
               <thead>
                 <tr>
-                  <th style={tableStyles.headerCell}>Donor Name</th>
+                  <th style={tableStyles.headerCell}>Donor</th>
                   {showDisasterEventColumn ? (
                     <th
                       style={{

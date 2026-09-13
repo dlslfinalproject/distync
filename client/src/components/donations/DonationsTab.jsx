@@ -240,7 +240,7 @@ const DonationsTab = ({
   const headerLabels = showDisasterEventColumn
     ? [
         "Donor",
-        "Donation Type",
+        "Donation Form",
         "Disaster Event",
         "Items",
         "Quantity",
@@ -248,7 +248,7 @@ const DonationsTab = ({
       ]
     : [
         "Donor",
-        "Donation Type",
+        "Donation Form",
         "Items",
         "Quantity",
         "Date",
@@ -293,7 +293,7 @@ const DonationsTab = ({
                             ...tableStyles.headerCell,
                             ...tableStyles.itemsHeaderCell,
                           }
-                        : label === "Donation Type" ||
+                        : label === "Donation Form" ||
                             label === "Disaster Event" ||
                             label === "Quantity" ||
                             label === "Date"

@@ -308,7 +308,7 @@ const DonationFilters = ({
                 className="mayor-donation-management-type-filter"
                 style={toolbarStyles.inlineSelectWrap}
               >
-                <span style={toolbarStyles.inlineSelectLabel}>Type</span>
+                <span style={toolbarStyles.inlineSelectLabel}>Form</span>
                 <select
                   id="donation-type-filter"
                   value={donationTypeFilter}

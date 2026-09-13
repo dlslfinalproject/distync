@@ -82,6 +82,18 @@ test("Mayor inventory tracking table uses compact columns without sync status an
   assert.match(tableSource, /TablePagination/);
   assert.match(tableSource, /paginatedRows\.map\(\(row\) =>/);
   assert.match(tableSource, /tableLayout: "fixed"/);
+  assert.match(
+    tableSource,
+    /itemNameText: \{[\s\S]*?fontWeight: 700[\s\S]*?textOverflow: "ellipsis"[\s\S]*?whiteSpace: "nowrap"/,
+  );
+  assert.match(
+    tableSource,
+    /quantityContent: \{[\s\S]*?justifyContent: "center"[\s\S]*?textAlign: "center"/,
+  );
+  assert.match(
+    tableSource,
+    /<div style=\{tableStyles\.quantityContent\}>\{row\.quantity \?\? 0\}<\/div>/,
+  );
   assert.match(tableSource, /dateColumn: \{[\s\S]*?width: "185px"/);
   assert.match(tableSource, /compactCell: \{[\s\S]*?whiteSpace: "nowrap"/);
   assert.match(cssSource, /\.inventory-tracking-table \{[\s\S]*?min-width: 1280px !important;/);

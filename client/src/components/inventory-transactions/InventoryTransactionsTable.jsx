@@ -64,6 +64,23 @@ const tableStyles = {
     textAlign: "center",
     verticalAlign: "middle",
   },
+  itemNameText: {
+    display: "block",
+    width: "100%",
+    minWidth: 0,
+    fontWeight: 700,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  quantityContent: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    minWidth: 0,
+    textAlign: "center",
+  },
   compactCell: {
     whiteSpace: "nowrap",
   },
@@ -245,7 +262,9 @@ const InventoryTransactionsTable = ({
             <th className="inventory-tracking-table-header-cell" style={tableStyles.headerCell}>Item</th>
             <th className="inventory-tracking-table-header-cell" style={tableStyles.headerCell}>Batch Number</th>
             <th className="inventory-tracking-table-header-cell" style={tableStyles.headerCell}>ITR No.</th>
-            <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Quantity</th>
+            <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>
+              <span style={tableStyles.quantityContent}>Quantity</span>
+            </th>
             <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Movement</th>
             <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Transaction</th>
             <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Date</th>
@@ -257,7 +276,12 @@ const InventoryTransactionsTable = ({
           {paginatedRows.map((row) => (
             <tr key={row.id}>
               <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={tableStyles.bodyCell}>
-                {row.inventory_item?.item_name || "--"}
+                <div
+                  style={tableStyles.itemNameText}
+                  title={row.inventory_item?.item_name || "--"}
+                >
+                  {row.inventory_item?.item_name || "--"}
+                </div>
               </td>
               <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={tableStyles.bodyCell}>{row.batch_no || "--"}</td>
               <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={tableStyles.bodyCell}>
@@ -265,7 +289,7 @@ const InventoryTransactionsTable = ({
                   (row.is_local_only ? "Pending assignment" : "Not applicable")}
               </td>
               <td className="inventory-tracking-table-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell, ...tableStyles.compactCell }}>
-                {row.quantity ?? 0}
+                <div style={tableStyles.quantityContent}>{row.quantity ?? 0}</div>
               </td>
               <td className="inventory-tracking-table-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell, ...tableStyles.compactCell }}>
                 <span

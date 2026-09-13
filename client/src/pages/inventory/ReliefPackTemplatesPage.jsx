@@ -3379,7 +3379,7 @@ const ReliefPackTemplatesPage = () => {
                           ...tableStyles.applicabilityCell,
                         }}
                       >
-                        Applies To
+                        Disaster Type
                       </th>
                       <th
                         className="mayor-relief-pack-template-status-cell"

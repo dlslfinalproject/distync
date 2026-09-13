@@ -87,6 +87,8 @@ test("Mayor donation management records and details keep table overflow local", 
   assert.match(donationsSource, /itemNameText:[\s\S]*?textOverflow: "ellipsis"[\s\S]*?whiteSpace: "nowrap"/);
   assert.match(donationsSource, /title=\{line\}/);
   assert.match(transparencySource, /className="mayor-donation-management-table-scroll"/);
+  assert.match(transparencySource, /<th style=\{tableStyles\.headerCell\}>Donor<\/th>/);
+  assert.doesNotMatch(transparencySource, /<th style=\{tableStyles\.headerCell\}>Donor Name<\/th>/);
   assert.match(detailSource, /panelClassName="mayor-donation-management-detail-modal"/);
   assert.match(detailSource, /className="mayor-donation-management-detail-table-scroll"/);
   assert.match(detailSource, /className="mayor-donation-management-detail-table"/);

@@ -139,7 +139,8 @@ test("Mayor relief pack template table and detail tables keep overflow local", a
   assert.match(pageSource, />\s*Items\s*</);
   assert.match(pageSource, />\s*Qty \/ Item\s*</);
   assert.match(pageSource, />\s*Rule\s*</);
-  assert.match(pageSource, />\s*Applies To\s*</);
+  assert.match(pageSource, />\s*Disaster Type\s*</);
+  assert.doesNotMatch(pageSource, />\s*Applies To\s*</);
   assert.match(
     pageSource,
     /className="mayor-relief-pack-template-status-cell"[\s\S]*?>\s*Status\s*</,
