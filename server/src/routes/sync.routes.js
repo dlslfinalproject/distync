@@ -96,6 +96,17 @@ router.get(
         conflictStatus: req.validatedQuery.conflict_status,
         barangayId: req.validatedQuery.barangay_id,
         limit: req.validatedQuery.limit,
+        ...(req.validatedQuery.page !== undefined
+          ? {
+              page: req.validatedQuery.page,
+              pageSize: req.validatedQuery.page_size,
+              search: req.validatedQuery.search,
+              recordType: req.validatedQuery.record_type,
+              dateFrom: req.validatedQuery.date_from,
+              dateTo: req.validatedQuery.date_to,
+              order: req.validatedQuery.order,
+            }
+          : {}),
       });
 
       return res.status(200).json(payload);

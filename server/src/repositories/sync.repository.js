@@ -842,6 +842,492 @@ const getSyncConflictsByUser = async ({ userId, status = null, limit = 50 }) => 
   return result.rows;
 };
 
+const normalizeSyncHistoryPage = ({ page = 1, pageSize = 50, limit = 50 } = {}) => {
+  const normalizedPage = Number(page) > 0 ? Number(page) : 1;
+  const normalizedPageSize = Number(pageSize || limit) > 0
+    ? Number(pageSize || limit)
+    : 50;
+
+  return {
+    page: Math.floor(normalizedPage),
+    pageSize: Math.min(Math.floor(normalizedPageSize), 200),
+    offset: (Math.floor(normalizedPage) - 1) * Math.min(Math.floor(normalizedPageSize), 200),
+  };
+};
+
+const appendSyncHistoryRecordTypeFilter = (conditions, values, recordType) => {
+  if (!recordType || recordType === "ALL") {
+    return;
+  }
+
+  const actionExpression = `COALESCE(
+    st.payload_json ->> 'action_key',
+    st.payload_json #>> '{payload,action_key}',
+    ''
+  )`;
+
+  if (recordType === "INVENTORY") {
+    conditions.push(
+      "st.entity_type IN ('INVENTORY_ITEM', 'INVENTORY_BATCH', 'INVENTORY_TRANSACTION')",
+    );
+    return;
+  }
+
+  if (recordType === "EVACUEE_MASTERLIST") {
+    conditions.push(`(
+      st.entity_type IN ('HOUSEHOLD', 'EVACUEE', 'EVACUATION_LOG')
+      OR ${actionExpression} ILIKE 'HOUSEHOLD%'
+    )`);
+    return;
+  }
+
+  if (recordType === "RELIEF_GOODS_DISTRIBUTION") {
+    conditions.push(`(
+      st.entity_type IN ('STUB', 'DISTRIBUTION_TRANSACTION')
+      OR ${actionExpression} ILIKE 'STUB%'
+      OR ${actionExpression} ILIKE 'DISTRIBUTION%'
+      OR ${actionExpression} ILIKE '%RELIEF%'
+    )`);
+    return;
+  }
+
+  if (recordType === "DISASTER_EVENT") {
+    conditions.push(`(
+      st.entity_type IN ('DISASTER_EVENT', 'DISASTER_EVENTS')
+      OR ${actionExpression} ILIKE 'DISASTER_EVENT%'
+    )`);
+    return;
+  }
+
+  values.push(recordType);
+  conditions.push(`st.entity_type = $${values.length}`);
+};
+
+const appendSyncHistoryTransactionFilters = (
+  conditions,
+  values,
+  {
+    syncStatus = null,
+    conflictStatus = null,
+    recordType = "ALL",
+    search = "",
+    dateFrom = null,
+    dateTo = null,
+    searchExpression,
+    dateExpression = "COALESCE(st.client_timestamp, st.created_at)",
+  } = {},
+) => {
+  appendSyncScopeFilter(conditions, values, "st.sync_status", syncStatus);
+  appendSyncHistoryRecordTypeFilter(conditions, values, recordType);
+
+  if (conflictStatus) {
+    values.push(conflictStatus);
+    conditions.push(`latest_conflict.status = $${values.length}`);
+  }
+
+  if (search) {
+    values.push(`%${String(search).trim()}%`);
+    conditions.push(`${searchExpression} ILIKE $${values.length}`);
+  }
+
+  if (dateFrom) {
+    values.push(dateFrom);
+    conditions.push(`${dateExpression} >= $${values.length}::date`);
+  }
+
+  if (dateTo) {
+    values.push(dateTo);
+    conditions.push(`${dateExpression} < ($${values.length}::date + INTERVAL '1 day')`);
+  }
+};
+
+const appendSyncHistoryConflictFilters = (
+  conditions,
+  values,
+  {
+    syncStatus = null,
+    conflictStatus = null,
+    recordType = "ALL",
+    search = "",
+    dateFrom = null,
+    dateTo = null,
+    searchExpression,
+    dateExpression = "COALESCE(sc.created_at, st.client_timestamp, st.created_at)",
+  } = {},
+) => {
+  appendSyncScopeFilter(conditions, values, "st.sync_status", syncStatus);
+  appendSyncScopeFilter(conditions, values, "sc.status", conflictStatus);
+  appendSyncHistoryRecordTypeFilter(conditions, values, recordType);
+
+  if (search) {
+    values.push(`%${String(search).trim()}%`);
+    conditions.push(`${searchExpression} ILIKE $${values.length}`);
+  }
+
+  if (dateFrom) {
+    values.push(dateFrom);
+    conditions.push(`${dateExpression} >= $${values.length}::date`);
+  }
+
+  if (dateTo) {
+    values.push(dateTo);
+    conditions.push(`${dateExpression} < ($${values.length}::date + INTERVAL '1 day')`);
+  }
+};
+
+const getSyncHistoryOrderClause = (
+  order = "newest",
+  type = "transactions",
+  includeBarangay = true,
+) => {
+  const isConflict = type === "conflicts";
+  const dateExpression = isConflict
+    ? "COALESCE(sc.created_at, st.client_timestamp, st.created_at)"
+    : "COALESCE(st.client_timestamp, st.created_at)";
+  const barangayExpression = includeBarangay ? "COALESCE(b.name, '')" : "''";
+  const textExpression = isConflict
+    ? `LOWER(CONCAT_WS(' ', sc.entity_type, sc.conflict_type, sc.status, st.operation_type, st.payload_json::text, sc.local_payload_json::text, sc.server_payload_json::text, COALESCE(de.title, ''), ${barangayExpression}))`
+    : `LOWER(CONCAT_WS(' ', st.entity_type, st.operation_type, st.sync_status, st.payload_json::text, st.error_message, COALESCE(de.title, ''), ${barangayExpression}))`;
+  const idExpression = isConflict ? "sc.id" : "st.id";
+
+  if (order === "az") {
+    return `${textExpression} ASC NULLS LAST, ${dateExpression} DESC, ${idExpression} DESC`;
+  }
+
+  if (order === "za") {
+    return `${textExpression} DESC NULLS LAST, ${dateExpression} DESC, ${idExpression} DESC`;
+  }
+
+  if (order === "oldest") {
+    return `${dateExpression} ASC NULLS LAST, ${idExpression} ASC`;
+  }
+
+  return `${dateExpression} DESC NULLS LAST, ${idExpression} DESC`;
+};
+
+const readSyncHistoryPage = async (query, values) => {
+  const result = await pool.query(query, values);
+  const totalRecords = Number(result.rows[0]?.total_count || 0);
+
+  return {
+    rows: result.rows.map(({ total_count: _totalCount, ...row }) => row),
+    totalRecords,
+  };
+};
+
+const selectPagedSyncTransactionFields = `
+  st.*,
+  latest_conflict.status AS sync_conflict_status,
+  latest_conflict.conflict_type AS sync_conflict_type,
+  latest_conflict.resolution_action AS sync_conflict_resolution_action,
+  latest_conflict.resolution_reason AS sync_conflict_resolution_reason,
+  latest_conflict.resolution_strategy AS sync_conflict_resolution_strategy,
+  latest_conflict.resolved_payload_json AS sync_conflict_resolved_payload_json,
+  latest_conflict.resolved_at AS sync_conflict_resolved_at
+`;
+
+const selectPagedAttributedSyncTransactionFields = `
+  ${selectPagedSyncTransactionFields},
+  sba.disaster_event_id AS sync_history_disaster_event_id,
+  sba.barangay_id AS barangay_id,
+  b.name AS barangay_name
+`;
+
+const selectPagedSyncConflictFields = `
+  sc.*,
+  st.user_id,
+  st.entity_local_id,
+  st.sync_status,
+  st.error_message,
+  st.client_timestamp,
+  st.server_timestamp,
+  st.operation_type,
+  st.payload_json,
+  st.created_at AS sync_transaction_created_at,
+  st.updated_at AS sync_transaction_updated_at,
+  sba.disaster_event_id AS sync_history_disaster_event_id,
+  sba.barangay_id AS barangay_id,
+  b.name AS barangay_name
+`;
+
+const getSyncTransactionsByUserPage = async ({
+  userId,
+  syncStatus = null,
+  conflictStatus = null,
+  recordType = "ALL",
+  search = "",
+  dateFrom = null,
+  dateTo = null,
+  order = "newest",
+  page = 1,
+  pageSize = 50,
+  limit = 50,
+}) => {
+  const values = [userId];
+  const conditions = ["st.user_id = $1"];
+  const pageState = normalizeSyncHistoryPage({ page, pageSize, limit });
+  const searchExpression = `LOWER(CONCAT_WS(' ', st.entity_type, st.operation_type, st.sync_status, st.error_message, st.payload_json::text, latest_conflict.status, latest_conflict.conflict_type, latest_conflict.resolution_action, latest_conflict.resolution_reason, latest_conflict.resolution_strategy, COALESCE(de.title, ''))) `;
+
+  appendSyncHistoryTransactionFilters(conditions, values, {
+    syncStatus,
+    conflictStatus,
+    recordType,
+    search,
+    dateFrom,
+    dateTo,
+    searchExpression,
+  });
+
+  values.push(pageState.pageSize, pageState.offset);
+
+  return readSyncHistoryPage(
+    `
+      SELECT
+        ${selectPagedSyncTransactionFields},
+        COUNT(*) OVER()::int AS total_count
+      FROM sync_transactions st
+      LEFT JOIN LATERAL (
+        SELECT
+          sc.status,
+          sc.conflict_type,
+          sc.resolution_action,
+          sc.resolution_reason,
+          sc.resolution_strategy,
+          sc.resolved_payload_json,
+          sc.resolved_at
+        FROM sync_conflicts sc
+        WHERE sc.sync_transaction_id = st.id
+        ORDER BY sc.created_at DESC, sc.id DESC
+        LIMIT 1
+      ) latest_conflict ON TRUE
+      LEFT JOIN disaster_events de
+        ON de.id = CASE
+          WHEN COALESCE(
+            st.payload_json #>> '{payload,disaster_event_id}',
+            st.payload_json ->> 'disaster_event_id'
+          ) ~* '${SYNC_UUID_PATTERN}'
+          THEN COALESCE(
+            st.payload_json #>> '{payload,disaster_event_id}',
+            st.payload_json ->> 'disaster_event_id'
+          )::uuid
+          ELSE NULL
+        END
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY ${getSyncHistoryOrderClause(order, "transactions", false)}
+      LIMIT $${values.length - 1}
+      OFFSET $${values.length}
+    `,
+    values,
+  );
+};
+
+const getSyncConflictsByUserPage = async ({
+  userId,
+  syncStatus = null,
+  conflictStatus = null,
+  recordType = "ALL",
+  search = "",
+  dateFrom = null,
+  dateTo = null,
+  order = "newest",
+  page = 1,
+  pageSize = 50,
+  limit = 50,
+}) => {
+  const values = [userId];
+  const conditions = ["st.user_id = $1"];
+  const pageState = normalizeSyncHistoryPage({ page, pageSize, limit });
+  const searchExpression = `LOWER(CONCAT_WS(' ', sc.entity_type, sc.conflict_type, sc.status, st.operation_type, st.payload_json::text, sc.local_payload_json::text, sc.server_payload_json::text, COALESCE(de.title, ''))) `;
+
+  appendSyncHistoryConflictFilters(conditions, values, {
+    syncStatus,
+    conflictStatus,
+    recordType,
+    search,
+    dateFrom,
+    dateTo,
+    searchExpression,
+  });
+
+  values.push(pageState.pageSize, pageState.offset);
+
+  return readSyncHistoryPage(
+    `
+      SELECT
+        sc.*,
+        st.user_id,
+        st.entity_local_id,
+        st.sync_status,
+        st.error_message,
+        st.client_timestamp,
+        st.server_timestamp,
+        st.operation_type,
+        st.payload_json,
+        st.created_at AS sync_transaction_created_at,
+        st.updated_at AS sync_transaction_updated_at,
+        COUNT(*) OVER()::int AS total_count
+      FROM sync_conflicts sc
+      INNER JOIN sync_transactions st
+        ON st.id = sc.sync_transaction_id
+      LEFT JOIN disaster_events de
+        ON de.id = CASE
+          WHEN COALESCE(
+            st.payload_json #>> '{payload,disaster_event_id}',
+            st.payload_json ->> 'disaster_event_id'
+          ) ~* '${SYNC_UUID_PATTERN}'
+          THEN COALESCE(
+            st.payload_json #>> '{payload,disaster_event_id}',
+            st.payload_json ->> 'disaster_event_id'
+          )::uuid
+          ELSE NULL
+        END
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY ${getSyncHistoryOrderClause(order, "conflicts", false)}
+      LIMIT $${values.length - 1}
+      OFFSET $${values.length}
+    `,
+    values,
+  );
+};
+
+const getSyncTransactionsByMunicipalityPage = async ({
+  syncStatus = null,
+  conflictStatus = null,
+  barangayId = null,
+  recordType = "ALL",
+  search = "",
+  dateFrom = null,
+  dateTo = null,
+  order = "newest",
+  page = 1,
+  pageSize = 50,
+  limit = 50,
+  entityScope = SYNC_MSWDO_ENTITY_SCOPE,
+}) => {
+  const values = [];
+  const conditions = [entityScope];
+  const pageState = normalizeSyncHistoryPage({ page, pageSize, limit });
+  const searchExpression = `LOWER(CONCAT_WS(' ', st.entity_type, st.operation_type, st.sync_status, st.error_message, st.payload_json::text, latest_conflict.status, latest_conflict.conflict_type, latest_conflict.resolution_action, latest_conflict.resolution_reason, latest_conflict.resolution_strategy, COALESCE(de.title, ''), COALESCE(b.name, ''))) `;
+
+  appendSyncHistoryTransactionFilters(conditions, values, {
+    syncStatus,
+    conflictStatus,
+    recordType,
+    search,
+    dateFrom,
+    dateTo,
+    searchExpression,
+  });
+  appendSyncScopeFilter(conditions, values, "sba.barangay_id", barangayId);
+
+  values.push(pageState.pageSize, pageState.offset);
+
+  return readSyncHistoryPage(
+    `
+      ${SYNC_BARANGAY_ATTRIBUTION_CTE}
+      SELECT
+        ${selectPagedAttributedSyncTransactionFields},
+        COUNT(*) OVER()::int AS total_count
+      FROM sync_transactions st
+      LEFT JOIN sync_barangay_attribution sba
+        ON sba.sync_transaction_id = st.id
+      LEFT JOIN barangays b
+        ON b.id = sba.barangay_id
+      LEFT JOIN disaster_events de
+        ON de.id = sba.disaster_event_id
+      LEFT JOIN LATERAL (
+        SELECT
+          sc.status,
+          sc.conflict_type,
+          sc.resolution_action,
+          sc.resolution_reason,
+          sc.resolution_strategy,
+          sc.resolved_payload_json,
+          sc.resolved_at
+        FROM sync_conflicts sc
+        WHERE sc.sync_transaction_id = st.id
+        ORDER BY sc.created_at DESC, sc.id DESC
+        LIMIT 1
+      ) latest_conflict ON TRUE
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY ${getSyncHistoryOrderClause(order)}
+      LIMIT $${values.length - 1}
+      OFFSET $${values.length}
+    `,
+    values,
+  );
+};
+
+const getSyncConflictsByMunicipalityPage = async ({
+  syncStatus = null,
+  conflictStatus = null,
+  barangayId = null,
+  recordType = "ALL",
+  search = "",
+  dateFrom = null,
+  dateTo = null,
+  order = "newest",
+  page = 1,
+  pageSize = 50,
+  limit = 50,
+  entityScope = SYNC_MSWDO_ENTITY_SCOPE,
+}) => {
+  const values = [];
+  const conditions = [entityScope];
+  const pageState = normalizeSyncHistoryPage({ page, pageSize, limit });
+  const searchExpression = `LOWER(CONCAT_WS(' ', sc.entity_type, sc.conflict_type, sc.status, st.operation_type, st.payload_json::text, sc.local_payload_json::text, sc.server_payload_json::text, COALESCE(de.title, ''), COALESCE(b.name, ''))) `;
+
+  appendSyncHistoryConflictFilters(conditions, values, {
+    syncStatus,
+    conflictStatus,
+    recordType,
+    search,
+    dateFrom,
+    dateTo,
+    searchExpression,
+  });
+  appendSyncScopeFilter(conditions, values, "sba.barangay_id", barangayId);
+
+  values.push(pageState.pageSize, pageState.offset);
+
+  return readSyncHistoryPage(
+    `
+      ${SYNC_BARANGAY_ATTRIBUTION_CTE}
+      SELECT
+        ${selectPagedSyncConflictFields},
+        COUNT(*) OVER()::int AS total_count
+      FROM sync_conflicts sc
+      INNER JOIN sync_transactions st
+        ON st.id = sc.sync_transaction_id
+      LEFT JOIN sync_barangay_attribution sba
+        ON sba.sync_transaction_id = st.id
+      LEFT JOIN barangays b
+        ON b.id = sba.barangay_id
+      LEFT JOIN disaster_events de
+        ON de.id = sba.disaster_event_id
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY ${getSyncHistoryOrderClause(order, "conflicts")}
+      LIMIT $${values.length - 1}
+      OFFSET $${values.length}
+    `,
+    values,
+  );
+};
+
+const getSyncTransactionsByMayorPage = async (options = {}) =>
+  getSyncTransactionsByMunicipalityPage({
+    ...options,
+    barangayId: null,
+    entityScope: SYNC_MAYOR_ENTITY_SCOPE,
+  });
+
+const getSyncConflictsByMayorPage = async (options = {}) =>
+  getSyncConflictsByMunicipalityPage({
+    ...options,
+    barangayId: null,
+    entityScope: SYNC_MAYOR_ENTITY_SCOPE,
+  });
+
 const findHouseholdRegistrationSyncTransaction = async ({
   householdId,
   disasterEventId,
@@ -1258,16 +1744,22 @@ module.exports = {
   recordSyncConflictOnly,
   recordSyncFailureAndNotificationIntent,
   getSyncTransactionsByUser,
+  getSyncTransactionsByUserPage,
   getSyncTransactionsByMunicipality,
+  getSyncTransactionsByMunicipalityPage,
   getSyncTransactionsByMayor,
+  getSyncTransactionsByMayorPage,
   getDisasterEventTitlesByIds,
   getSyncConflictsByUser,
+  getSyncConflictsByUserPage,
   findHouseholdRegistrationSyncTransaction,
   findSyncedEntityServerIdByLocalId,
   findHouseholdDepartureSyncTransactions,
   getBarangayNamesByIds,
   getSyncConflictsByMunicipality,
+  getSyncConflictsByMunicipalityPage,
   getSyncConflictsByMayor,
+  getSyncConflictsByMayorPage,
   getReviewableManualInventoryConflicts,
   getSyncConflictByIdForUser,
   getSyncConflictByIdForMunicipality,

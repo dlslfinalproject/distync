@@ -213,6 +213,8 @@ const getMunicipalSyncReadScope = (auth) => {
     return {
       transactions: syncRepository.getSyncTransactionsByMunicipality,
       conflicts: syncRepository.getSyncConflictsByMunicipality,
+      transactionsPage: syncRepository.getSyncTransactionsByMunicipalityPage,
+      conflictsPage: syncRepository.getSyncConflictsByMunicipalityPage,
       conflictById: syncRepository.getSyncConflictByIdForMunicipality,
       countOpenConflicts: syncRepository.countOpenSyncConflictsByMunicipality,
       lastSuccessfulSyncAt: syncRepository.getLastSuccessfulSyncAtForMunicipality,
@@ -224,6 +226,8 @@ const getMunicipalSyncReadScope = (auth) => {
     return {
       transactions: syncRepository.getSyncTransactionsByMayor,
       conflicts: syncRepository.getSyncConflictsByMayor,
+      transactionsPage: syncRepository.getSyncTransactionsByMayorPage,
+      conflictsPage: syncRepository.getSyncConflictsByMayorPage,
       conflictById: syncRepository.getSyncConflictByIdForMayor,
       countOpenConflicts: syncRepository.countOpenSyncConflictsByMayor,
       lastSuccessfulSyncAt: syncRepository.getLastSuccessfulSyncAtForMayor,
@@ -2559,44 +2563,136 @@ const getSyncHistory = async ({
   conflictStatus,
   barangayId = null,
   limit,
+  page,
+  pageSize,
+  search = "",
+  recordType = "ALL",
+  dateFrom = null,
+  dateTo = null,
+  order = "newest",
 }) => {
   const municipalSyncReadScope = getMunicipalSyncReadScope(auth);
   const effectiveLimit = Number(limit) > 0 ? Number(limit) : 50;
 
-  const [rawTransactions, conflicts] = await Promise.all([
-    municipalSyncReadScope
-      ? municipalSyncReadScope.transactions({
-          syncStatus,
-          ...(auth.roleCode === ROLE_CODES.MSWDO
-            ? { barangayId }
-            : {}),
-          limit: effectiveLimit,
-        })
-      : syncRepository.getSyncTransactionsByUser({
-          userId: auth.userId,
-          syncStatus,
-          limit: effectiveLimit,
-        }),
-    municipalSyncReadScope
-      ? municipalSyncReadScope.conflicts({
-          status: conflictStatus,
-          ...(auth.roleCode === ROLE_CODES.MSWDO
-            ? { barangayId }
-            : {}),
-          limit: effectiveLimit,
-        })
-      : syncRepository.getSyncConflictsByUser({
-          userId: auth.userId,
-          status: conflictStatus,
-          limit: effectiveLimit,
-        }),
+  const useServerHistoryPagination =
+    page !== undefined ||
+    pageSize !== undefined ||
+    Boolean(String(search || "").trim()) ||
+    recordType !== "ALL" ||
+    Boolean(dateFrom) ||
+    Boolean(dateTo) ||
+    order !== "newest";
+  const effectivePage = Number(page) > 0 ? Number(page) : 1;
+  const effectivePageSize = Number(pageSize) > 0 ? Number(pageSize) : effectiveLimit;
+  const sharedPageOptions = {
+    syncStatus,
+    conflictStatus,
+    recordType,
+    search: String(search || "").trim(),
+    dateFrom,
+    dateTo,
+    order,
+    page: effectivePage,
+    pageSize: effectivePageSize,
+    limit: effectivePageSize,
+  };
+
+  const normalizePageResult = (result, fallbackLimit) => {
+    if (Array.isArray(result)) {
+      return {
+        rows: result,
+        totalRecords: result.length,
+      };
+    }
+
+    return {
+      rows: Array.isArray(result?.rows) ? result.rows : [],
+      totalRecords: Number.isFinite(Number(result?.totalRecords))
+        ? Number(result.totalRecords)
+        : Array.isArray(result?.rows)
+          ? result.rows.length
+          : fallbackLimit,
+    };
+  };
+
+  const readHistory = async ({ pageReader, legacyReader, pageOptions, legacyOptions }) => {
+    if (useServerHistoryPagination && typeof pageReader === "function") {
+      return normalizePageResult(await pageReader(pageOptions), effectivePageSize);
+    }
+
+    return normalizePageResult(await legacyReader(legacyOptions), effectiveLimit);
+  };
+
+  const transactionPageOptions = municipalSyncReadScope
+    ? {
+        ...sharedPageOptions,
+        ...(auth.roleCode === ROLE_CODES.MSWDO ? { barangayId } : {}),
+      }
+    : { ...sharedPageOptions, userId: auth.userId };
+  const conflictPageOptions = municipalSyncReadScope
+    ? {
+        ...sharedPageOptions,
+        ...(auth.roleCode === ROLE_CODES.MSWDO ? { barangayId } : {}),
+      }
+    : { ...sharedPageOptions, userId: auth.userId };
+
+  const transactionLegacyOptions = municipalSyncReadScope
+    ? {
+        syncStatus,
+        ...(auth.roleCode === ROLE_CODES.MSWDO ? { barangayId } : {}),
+        limit: effectiveLimit,
+      }
+    : {
+        userId: auth.userId,
+        syncStatus,
+        limit: effectiveLimit,
+      };
+  const conflictLegacyOptions = municipalSyncReadScope
+    ? {
+        status: conflictStatus,
+        ...(auth.roleCode === ROLE_CODES.MSWDO ? { barangayId } : {}),
+        limit: effectiveLimit,
+      }
+    : {
+        userId: auth.userId,
+        status: conflictStatus,
+        limit: effectiveLimit,
+      };
+
+  const [transactionPageResult, conflictPageResult] = await Promise.all([
+    readHistory({
+      pageReader: municipalSyncReadScope
+        ? municipalSyncReadScope.transactionsPage
+        : syncRepository.getSyncTransactionsByUserPage,
+      legacyReader: municipalSyncReadScope
+        ? municipalSyncReadScope.transactions
+        : syncRepository.getSyncTransactionsByUser,
+      pageOptions: transactionPageOptions,
+      legacyOptions: transactionLegacyOptions,
+    }),
+    readHistory({
+      pageReader: municipalSyncReadScope
+        ? municipalSyncReadScope.conflictsPage
+        : syncRepository.getSyncConflictsByUserPage,
+      legacyReader: municipalSyncReadScope
+        ? municipalSyncReadScope.conflicts
+        : syncRepository.getSyncConflictsByUser,
+      pageOptions: conflictPageOptions,
+      legacyOptions: conflictLegacyOptions,
+    }),
   ]);
+
+  const rawTransactions = transactionPageResult.rows;
+  const conflicts = conflictPageResult.rows;
   const transactions = await enrichSyncTransactionsWithDisasterEventTitles({
     transactions: rawTransactions,
     auth,
   });
 
-  const sortedConflicts = sortConflictsByCreatedAtDesc(conflicts).reduce(
+  const sortedConflicts = (useServerHistoryPagination
+    ? conflicts
+    : sortConflictsByCreatedAtDesc(conflicts)
+  ).reduce(
     (uniqueConflicts, conflict) => {
       if (
         auth.roleCode === ROLE_CODES.MSWDO &&
@@ -2614,12 +2710,9 @@ const getSyncHistory = async ({
       return uniqueConflicts;
     },
     [],
-  ).slice(
-    0,
-    effectiveLimit,
-  );
+  ).slice(0, useServerHistoryPagination ? effectivePageSize : effectiveLimit);
 
-  return {
+  const response = {
     transactions,
     conflicts: sortedConflicts.map((conflict) => ({
       ...conflict,
@@ -2627,6 +2720,27 @@ const getSyncHistory = async ({
         getResolutionCapability(conflict, auth).availableResolutionActions,
     })),
   };
+
+  if (useServerHistoryPagination) {
+    response.pagination = {
+      page: effectivePage,
+      pageSize: effectivePageSize,
+      transactions: {
+        page: effectivePage,
+        pageSize: effectivePageSize,
+        totalItems: transactionPageResult.totalRecords,
+        totalPages: Math.ceil(transactionPageResult.totalRecords / effectivePageSize),
+      },
+      conflicts: {
+        page: effectivePage,
+        pageSize: effectivePageSize,
+        totalItems: conflictPageResult.totalRecords,
+        totalPages: Math.ceil(conflictPageResult.totalRecords / effectivePageSize),
+      },
+    };
+  }
+
+  return response;
 };
 
 const getSyncStatusSummary = async ({ auth }) => {

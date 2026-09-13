@@ -114,9 +114,10 @@ test("MSWDO Barangay filter reloads the same server result contract", async () =
   const pageSource = await fs.readFile(pageSourcePath, "utf8");
   const serviceSource = await fs.readFile(serviceSourcePath, "utf8");
 
-  assert.match(pageSource, /const historyFilters = \{ limit: 100 \}/);
+  assert.match(pageSource, /page_size: activeServerPagination\.pageSize/);
+  assert.match(pageSource, /record_type: filters\.recordType/);
   assert.match(pageSource, /fetchSyncHistory\(historyFilters\)/);
-  assert.match(pageSource, /\[filters\.barangayId, isMswdoPortal\]/);
+  assert.match(pageSource, /filters\.barangayId/);
   assert.match(serviceSource, /Object\.entries\(filters\)/);
   assert.match(serviceSource, /searchParams\.set\(key, value\)/);
 });

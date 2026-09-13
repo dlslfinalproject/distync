@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { FiAlertCircle, FiFilter, FiRefreshCw, FiSearch } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext";
@@ -637,12 +637,14 @@ const SyncManagementPage = () => {
   const [syncHistory, setSyncHistory] = useState({
     transactions: [],
     conflicts: [],
+    pagination: null,
   });
   const [syncStatusSummary, setSyncStatusSummary] = useState({
     conflictCount: null,
     lastSuccessfulSyncAt: null,
     backendReachable: true,
   });
+  const syncHistoryRequestId = useRef(0);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [isRetrying, setIsRetrying] = useState(false);
@@ -834,22 +836,62 @@ const SyncManagementPage = () => {
 
   const filteredTransactions = useMemo(
     () =>
-      applySyncFilters(
-        displayTransactions,
-        filters,
-        (transaction) => getSyncHistoryStatus(transaction),
-        { includeBarangay: isMswdoPortal },
-      ),
-    [displayTransactions, filters, isMswdoPortal],
+      syncHistory.pagination?.transactions
+        ? displayTransactions
+        : applySyncFilters(
+            displayTransactions,
+            filters,
+            (transaction) => getSyncHistoryStatus(transaction),
+            { includeBarangay: isMswdoPortal },
+          ),
+    [displayTransactions, filters, isMswdoPortal, syncHistory.pagination],
   );
 
   const filteredConflicts = useMemo(
     () =>
-      applySyncFilters(displayConflicts, filters, getConflictFilterStatus, {
-        includeBarangay: isMswdoPortal,
-      }),
-    [displayConflicts, filters, isMswdoPortal],
+      syncHistory.pagination?.conflicts
+        ? displayConflicts
+        : applySyncFilters(displayConflicts, filters, getConflictFilterStatus, {
+            includeBarangay: isMswdoPortal,
+          }),
+    [displayConflicts, filters, isMswdoPortal, syncHistory.pagination],
   );
+
+  const serverHistoryStatusFilters = useMemo(() => {
+    if (activeSyncTab === "CONFLICTS") {
+      return {
+        syncStatus: null,
+        conflictStatus:
+          filters.status === "RESOLVED"
+            ? "RESOLVED"
+            : filters.status === LOCAL_SYNC_STATUS.CONFLICT
+              ? "OPEN"
+              : null,
+      };
+    }
+
+    if (activeSyncTab === "AUDIT") {
+      return {
+        syncStatus:
+          filters.status === "ALL" ||
+          filters.status === LOCAL_SYNC_STATUS.CONFLICT ||
+          filters.status === "RESOLVED"
+            ? null
+            : filters.status,
+        conflictStatus:
+          filters.status === LOCAL_SYNC_STATUS.CONFLICT
+            ? "OPEN"
+            : filters.status === "RESOLVED"
+              ? "RESOLVED"
+              : null,
+      };
+    }
+
+    return {
+      syncStatus: filters.status === "ALL" ? null : filters.status,
+      conflictStatus: null,
+    };
+  }, [activeSyncTab, filters.status]);
 
   useEffect(() => {
     setPaginationByTab((currentPagination) => {
@@ -873,10 +915,13 @@ const SyncManagementPage = () => {
   }, [filters]);
 
   useEffect(() => {
-    const rowsByTab = {
-      QUEUE: filteredQueueEntries,
-      CONFLICTS: filteredConflicts,
-      AUDIT: filteredTransactions,
+    const totalItemsByTab = {
+      QUEUE: filteredQueueEntries.length,
+      CONFLICTS:
+        syncHistory.pagination?.conflicts?.totalItems ?? filteredConflicts.length,
+      AUDIT:
+        syncHistory.pagination?.transactions?.totalItems ??
+        filteredTransactions.length,
     };
 
     setPaginationByTab((currentPagination) => {
@@ -889,7 +934,7 @@ const SyncManagementPage = () => {
           pageSize: DEFAULT_TABLE_PAGE_SIZE,
         };
         const safePagination = getTablePaginationState({
-          totalItems: rowsByTab[tab].length,
+          totalItems: totalItemsByTab[tab],
           currentPage: currentTabPagination.page,
           pageSize: currentTabPagination.pageSize,
         });
@@ -908,7 +953,12 @@ const SyncManagementPage = () => {
 
       return hasChanges ? nextPagination : currentPagination;
     });
-  }, [filteredConflicts, filteredQueueEntries, filteredTransactions]);
+  }, [
+    filteredConflicts,
+    filteredQueueEntries,
+    filteredTransactions,
+    syncHistory.pagination,
+  ]);
 
   const queuePagination = paginationByTab.QUEUE || {
     page: 1,
@@ -933,22 +983,40 @@ const SyncManagementPage = () => {
   );
   const paginatedConflicts = useMemo(
     () =>
-      paginateRows(
-        filteredConflicts,
-        conflictPagination.page,
-        conflictPagination.pageSize,
-      ),
-    [filteredConflicts, conflictPagination.page, conflictPagination.pageSize],
+      syncHistory.pagination?.conflicts
+        ? filteredConflicts
+        : paginateRows(
+            filteredConflicts,
+            conflictPagination.page,
+            conflictPagination.pageSize,
+          ),
+    [
+      filteredConflicts,
+      conflictPagination.page,
+      conflictPagination.pageSize,
+      syncHistory.pagination,
+    ],
   );
   const paginatedTransactions = useMemo(
     () =>
-      paginateRows(
-        filteredTransactions,
-        auditPagination.page,
-        auditPagination.pageSize,
-      ),
-    [filteredTransactions, auditPagination.page, auditPagination.pageSize],
+      syncHistory.pagination?.transactions
+        ? filteredTransactions
+        : paginateRows(
+            filteredTransactions,
+            auditPagination.page,
+            auditPagination.pageSize,
+          ),
+    [
+      filteredTransactions,
+      auditPagination.page,
+      auditPagination.pageSize,
+      syncHistory.pagination,
+    ],
   );
+  const totalConflictItems =
+    syncHistory.pagination?.conflicts?.totalItems ?? filteredConflicts.length;
+  const totalTransactionItems =
+    syncHistory.pagination?.transactions?.totalItems ?? filteredTransactions.length;
 
   const updatePaginationPage = (tab, page) => {
     setPaginationByTab((currentPagination) => ({
@@ -974,11 +1042,13 @@ const SyncManagementPage = () => {
   };
 
   const loadSyncHistory = useCallback(async () => {
+    const requestId = syncHistoryRequestId.current + 1;
+    syncHistoryRequestId.current = requestId;
     setIsLoadingHistory(true);
     setErrorMessage("");
 
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setSyncHistory({ transactions: [], conflicts: [] });
+      setSyncHistory({ transactions: [], conflicts: [], pagination: null });
       setSyncStatusSummary({
         conflictCount: null,
         lastSuccessfulSyncAt: null,
@@ -989,7 +1059,22 @@ const SyncManagementPage = () => {
     }
 
     try {
-      const historyFilters = { limit: 100 };
+      const activeServerPagination =
+        activeSyncTab === "AUDIT"
+          ? auditPagination
+          : activeSyncTab === "CONFLICTS"
+            ? conflictPagination
+            : { page: 1, pageSize: DEFAULT_TABLE_PAGE_SIZE };
+      const historyFilters = {
+        page: activeServerPagination.page,
+        page_size: activeServerPagination.pageSize,
+        order: filters.order,
+        record_type: filters.recordType,
+        search: filters.search.trim(),
+        date_from: filters.dateFrom,
+        date_to: filters.dateTo,
+        ...serverHistoryStatusFilters,
+      };
 
       if (isMswdoPortal && filters.barangayId) {
         historyFilters.barangay_id = filters.barangayId;
@@ -997,6 +1082,9 @@ const SyncManagementPage = () => {
 
       const response = await fetchSyncHistory(historyFilters);
       const summaryResponse = await fetchSyncStatusSummary();
+      if (syncHistoryRequestId.current !== requestId) {
+        return;
+      }
       try {
         await reconcileResolvedSyncEntries(response.conflicts);
       } catch (_cleanupError) {
@@ -1008,6 +1096,7 @@ const SyncManagementPage = () => {
           ? response.transactions
           : [],
         conflicts: Array.isArray(response.conflicts) ? response.conflicts : [],
+        pagination: response.pagination || null,
       });
       setSyncStatusSummary({
         conflictCount: Number.isFinite(summaryResponse.conflictCount)
@@ -1017,13 +1106,32 @@ const SyncManagementPage = () => {
         backendReachable: summaryResponse.backendReachable !== false,
       });
     } catch (error) {
+      if (syncHistoryRequestId.current !== requestId) {
+        return;
+      }
       setErrorMessage(
         getSafeSyncErrorMessage(error, "Failed to load sync history."),
       );
     } finally {
-      setIsLoadingHistory(false);
+      if (syncHistoryRequestId.current === requestId) {
+        setIsLoadingHistory(false);
+      }
     }
-  }, [filters.barangayId, isMswdoPortal]);
+  }, [
+    activeSyncTab,
+    auditPagination.page,
+    auditPagination.pageSize,
+    conflictPagination.page,
+    conflictPagination.pageSize,
+    filters.barangayId,
+    filters.dateFrom,
+    filters.dateTo,
+    filters.order,
+    filters.recordType,
+    filters.search,
+    isMswdoPortal,
+    serverHistoryStatusFilters,
+  ]);
 
   useEffect(() => {
     void loadSyncHistory();
@@ -1964,7 +2072,7 @@ const SyncManagementPage = () => {
         <h2 style={srOnlyStyles}>Sync History</h2>
 
         <TablePagination
-          totalItems={filteredTransactions.length}
+          totalItems={totalTransactionItems}
           currentPage={auditPagination.page}
           pageSize={auditPagination.pageSize}
           onPageChange={(page) => updatePaginationPage("AUDIT", page)}
@@ -1985,7 +2093,7 @@ const SyncManagementPage = () => {
           <p style={{ ...shellStyles.mutedText, color: "#a14d58" }}>
             {errorMessage}
           </p>
-        ) : filteredTransactions.length === 0 ? (
+        ) : totalTransactionItems === 0 ? (
           <p style={shellStyles.mutedText}>
             {syncHistory.transactions.length === 0 ? EMPTY_HISTORY_MESSAGE : EMPTY_MESSAGE}
           </p>
@@ -2071,7 +2179,7 @@ const SyncManagementPage = () => {
         <h2 style={srOnlyStyles}>Conflict Review</h2>
 
         <TablePagination
-          totalItems={filteredConflicts.length}
+          totalItems={totalConflictItems}
           currentPage={conflictPagination.page}
           pageSize={conflictPagination.pageSize}
           onPageChange={(page) => updatePaginationPage("CONFLICTS", page)}
@@ -2088,7 +2196,7 @@ const SyncManagementPage = () => {
 
         {isLoadingHistory ? (
           <p style={shellStyles.mutedText}>Loading conflicts...</p>
-        ) : filteredConflicts.length === 0 ? (
+        ) : totalConflictItems === 0 ? (
           <p style={shellStyles.mutedText}>
             {syncHistory.conflicts.length === 0 ? EMPTY_CONFLICT_MESSAGE : EMPTY_MESSAGE}
           </p>
