@@ -595,7 +595,7 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
               <InfoField label="Summary" value={entry.action_detail} />
             ) : null}
             <InfoField label="Performed By" value={entry.performed_by} />
-            <InfoField label="Date & Time" value={formatDateTime(entry.timestamp)} />
+            <InfoField label="Audit Recorded At" value={formatDateTime(entry.timestamp)} />
           </div>
         </section>
 

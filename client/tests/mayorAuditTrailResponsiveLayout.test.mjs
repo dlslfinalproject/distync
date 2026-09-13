@@ -49,6 +49,7 @@ test("Mayor audit trail tables keep horizontal overflow local and paginator outs
   assert.match(pageSource, />\s*Record\s*</);
   assert.match(pageSource, />\s*Performed By\s*</);
   assert.match(pageSource, />\s*Date & Time\s*</);
+  assert.match(pageSource, /Audit Recorded At/);
   assert.match(pageSource, />\s*Action\s*</);
   assert.match(
     pageSource,
