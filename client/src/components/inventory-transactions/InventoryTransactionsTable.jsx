@@ -1,13 +1,46 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { FiEye } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
-import SyncStatusIcon from "../shared/SyncStatusIcon";
+import TablePagination from "../shared/TablePagination";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
 
 const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    minWidth: "860px",
+    minWidth: "1280px",
+    tableLayout: "fixed",
+  },
+  itemColumn: {
+    width: "190px",
+  },
+  batchColumn: {
+    width: "220px",
+  },
+  itrColumn: {
+    width: "160px",
+  },
+  quantityColumn: {
+    width: "86px",
+  },
+  movementColumn: {
+    width: "118px",
+  },
+  transactionColumn: {
+    width: "170px",
+  },
+  dateColumn: {
+    width: "185px",
+  },
+  performedByColumn: {
+    width: "170px",
+  },
+  actionColumn: {
+    width: "80px",
   },
   headerCell: {
     padding: "14px 16px",
@@ -30,6 +63,12 @@ const tableStyles = {
   centerCell: {
     textAlign: "center",
     verticalAlign: "middle",
+  },
+  compactCell: {
+    whiteSpace: "nowrap",
+  },
+  dateCell: {
+    whiteSpace: "nowrap",
   },
   actionButton: {
     border: "1px solid #c6d8ea",
@@ -98,6 +137,62 @@ const InventoryTransactionsTable = ({
   errorMessage,
   onViewDetails,
 }) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const pagination = getTablePaginationState({
+    totalItems: safeRows.length,
+    currentPage,
+    pageSize,
+    pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+  });
+  const paginatedRows = safeRows.slice(
+    (pagination.currentPage - 1) * pagination.pageSize,
+    pagination.currentPage * pagination.pageSize,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [rows]);
+
+  useEffect(() => {
+    setCurrentPage((previousPage) => {
+      if (pagination.totalPages === 0) {
+        return 1;
+      }
+
+      return Math.min(Math.max(previousPage, 1), pagination.totalPages);
+    });
+  }, [pagination.totalPages]);
+
+  const handlePageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+      return;
+    }
+
+    setPageSize(nextPageSize);
+    setCurrentPage(1);
+  };
+
+  const showPagination =
+    !isLoading && !errorMessage && pagination.totalItems > 0;
+  const paginationBar = (
+    <TablePagination
+      totalItems={pagination.totalItems}
+      currentPage={pagination.currentPage}
+      pageSize={pagination.pageSize}
+      pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+      onPageChange={setCurrentPage}
+      onPageSizeChange={handlePageSizeChange}
+      isVisible={showPagination}
+      ariaLabel="Inventory transactions pagination"
+      previousAriaLabel="Go to previous inventory transactions page"
+      nextAriaLabel="Go to next inventory transactions page"
+    />
+  );
+
   if (isLoading) {
     return (
       <div style={{ marginTop: "8px" }}>
@@ -118,7 +213,7 @@ const InventoryTransactionsTable = ({
     );
   }
 
-  if (rows.length === 0) {
+  if (safeRows.length === 0) {
     return (
       <div style={{ marginTop: "8px" }}>
         <p style={{ ...shellStyles.mutedText, marginTop: 0 }}>
@@ -129,8 +224,22 @@ const InventoryTransactionsTable = ({
   }
 
   return (
-    <div className="inventory-tracking-table-scroll" style={{ overflowX: "auto" }}>
-      <table className="inventory-tracking-table" style={tableStyles.table}>
+    <>
+      {paginationBar}
+
+      <div className="inventory-tracking-table-scroll" style={{ overflowX: "auto" }}>
+        <table className="inventory-tracking-table" style={tableStyles.table}>
+        <colgroup>
+          <col style={tableStyles.itemColumn} />
+          <col style={tableStyles.batchColumn} />
+          <col style={tableStyles.itrColumn} />
+          <col style={tableStyles.quantityColumn} />
+          <col style={tableStyles.movementColumn} />
+          <col style={tableStyles.transactionColumn} />
+          <col style={tableStyles.dateColumn} />
+          <col style={tableStyles.performedByColumn} />
+          <col style={tableStyles.actionColumn} />
+        </colgroup>
         <thead>
           <tr>
             <th className="inventory-tracking-table-header-cell" style={tableStyles.headerCell}>Item Name</th>
@@ -138,37 +247,27 @@ const InventoryTransactionsTable = ({
             <th className="inventory-tracking-table-header-cell" style={tableStyles.headerCell}>ITR No.</th>
             <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Quantity</th>
             <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Movement</th>
-            <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Transaction Type</th>
+            <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Transaction</th>
             <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Date</th>
             <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Performed By</th>
             <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Action</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {paginatedRows.map((row) => (
             <tr key={row.id}>
               <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={tableStyles.bodyCell}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <span>{row.inventory_item?.item_name || "--"}</span>
-                  <SyncStatusIcon status={row.sync_status} />
-                </div>
+                {row.inventory_item?.item_name || "--"}
               </td>
               <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={tableStyles.bodyCell}>{row.batch_no || "--"}</td>
               <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={tableStyles.bodyCell}>
                 {row.inventory_transaction_reference_no ||
                   (row.is_local_only ? "Pending assignment" : "Not applicable")}
               </td>
-              <td className="inventory-tracking-table-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+              <td className="inventory-tracking-table-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell, ...tableStyles.compactCell }}>
                 {row.quantity ?? 0}
               </td>
-              <td className="inventory-tracking-table-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+              <td className="inventory-tracking-table-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell, ...tableStyles.compactCell }}>
                 <span
                   style={{
                     display: "inline-flex",
@@ -183,16 +282,16 @@ const InventoryTransactionsTable = ({
                   {row.transaction_direction || "--"}
                 </span>
               </td>
-              <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+              <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell, ...tableStyles.compactCell }}>
                 {getTransactionTypeDisplay(row)}
               </td>
-              <td className="inventory-tracking-table-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+              <td className="inventory-tracking-table-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell, ...tableStyles.dateCell }}>
                 <div>{formatDateTime(row.performed_at)}</div>
               </td>
               <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
                 <div>{row.performed_by_label || "--"}</div>
               </td>
-              <td className="inventory-tracking-table-cell inventory-tracking-actions-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+              <td className="inventory-tracking-table-cell inventory-tracking-actions-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell, ...tableStyles.compactCell }}>
                 <button
                   className="inventory-tracking-action-button"
                   type="button"
@@ -207,8 +306,9 @@ const InventoryTransactionsTable = ({
             </tr>
           ))}
         </tbody>
-      </table>
-    </div>
+        </table>
+      </div>
+    </>
   );
 };
 

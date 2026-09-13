@@ -336,7 +336,7 @@ body {
 }
 
 .inventory-tracking-table {
-  min-width: 860px !important;
+  min-width: 1280px !important;
 }
 
 .inventory-tracking-text-cell,
@@ -1397,7 +1397,7 @@ body {
   }
 
   .inventory-tracking-table {
-    min-width: 780px !important;
+    min-width: 1100px !important;
   }
 
   .inventory-tracking-table-header-cell {
