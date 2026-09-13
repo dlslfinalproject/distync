@@ -434,6 +434,73 @@ const AuditDetailChangesTable = ({ changes, isCreatedRecord }) => {
   );
 };
 
+const DonationEntryItemsTable = ({ items }) => {
+  if (!items.length) {
+    return (
+      <p style={detailModalStyles.emptyText}>
+        No received donation items are available for this audit record.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mayor-audit-trail-detail-table-scroll" style={detailModalStyles.tableWrap}>
+      <table className="mayor-audit-trail-detail-table" style={detailModalStyles.table}>
+        <thead>
+          <tr>
+            <th style={detailModalStyles.th}>Donation Type</th>
+            <th style={detailModalStyles.th}>Item / Relief Pack</th>
+            <th style={detailModalStyles.th}>Contents</th>
+            <th style={detailModalStyles.th}>Quantity Received</th>
+            <th style={detailModalStyles.th}>Unit</th>
+            <th style={detailModalStyles.th}>Packaging</th>
+            <th style={detailModalStyles.th}>Batch Number</th>
+            <th style={detailModalStyles.th}>Expiration Date</th>
+            <th style={detailModalStyles.th}>Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, index) => {
+            const contents = Array.isArray(item.contents) ? item.contents : [];
+            const isReliefPack = item.donation_type === "Relief Pack";
+
+            return (
+              <tr key={`${item.relief_pack_name || item.item_name}-${index}`}>
+                <td style={detailModalStyles.td}>{item.donation_type}</td>
+                <td style={detailModalStyles.td}>
+                  {item.relief_pack_name || item.item_name || "--"}
+                </td>
+                <td style={detailModalStyles.td}>
+                  {contents.length
+                    ? contents.map((content, contentIndex) => (
+                        <div key={`${content.itemName}-${contentIndex}`}>
+                          {content.itemName} — {content.quantityReceived}{" "}
+                          {content.unitOfMeasure}
+                        </div>
+                      ))
+                    : "--"}
+                </td>
+                <td style={{ ...detailModalStyles.td, ...detailModalStyles.changedValue }}>
+                  {isReliefPack
+                    ? item.relief_pack_quantity
+                    : item.quantity_received}
+                </td>
+                <td style={detailModalStyles.td}>
+                  {isReliefPack ? "pack(s)" : item.unit_of_measure || "--"}
+                </td>
+                <td style={detailModalStyles.td}>{item.packaging || "--"}</td>
+                <td style={detailModalStyles.td}>{item.batch_no || "--"}</td>
+                <td style={detailModalStyles.td}>{item.expiration_date || "--"}</td>
+                <td style={detailModalStyles.td}>{item.remarks || "--"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 const getChangeHeading = (entry) => {
   if (entry?.action?.includes("CREATE") || entry?.action_label?.includes("Created")) {
     return "Recorded Details";
@@ -475,9 +542,17 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
     entry.entity_type === "INVENTORY_ITEM_STOCK_FORM" &&
     entry.action === "INVENTORY_ITEM_STOCK_FORM_CREATE" &&
     entry.action_label === "Packaging Added";
+  const isDonationEntryRecord =
+    entry.entity_type === "DONATION" && entry.action === "DONATION_CREATE";
   const isStockAddedRecord =
     entry.action_label === "Stock Added" &&
     ["INVENTORY_BATCH", "INVENTORY_TRANSACTION"].includes(entry.entity_type);
+  const donationDetails = isDonationEntryRecord
+    ? entry.audit_detail?.donation_details ?? changes
+    : [];
+  const donationItems = isDonationEntryRecord
+    ? entry.audit_detail?.donation_items || []
+    : [];
   const itemDetails = isItemCreatedRecord || isPackagingAddedRecord
     ? entry.audit_detail?.item_details ?? changes
     : isStockAddedRecord
@@ -526,16 +601,32 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
 
         <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
           <h3 style={{ margin: 0, color: "#17324d" }}>
-            {isItemCreatedRecord || isPackagingAddedRecord
+            {isDonationEntryRecord
+              ? "Donation Details"
+              : isItemCreatedRecord || isPackagingAddedRecord
               ? "Item Details"
               : isStockAddedRecord
                 ? "Stock Addition Details"
                 : getChangeHeading(entry)}
           </h3>
           <AuditDetailChangesTable
-            changes={itemDetails}
+            changes={isDonationEntryRecord ? donationDetails : itemDetails}
             isCreatedRecord={isCreatedRecord}
           />
+          {isDonationEntryRecord && donationItems.length > 0 ? (
+            <>
+              <h4
+                style={{
+                  margin: "24px 0 0",
+                  color: "#17324d",
+                  fontSize: "18px",
+                }}
+              >
+                Donation Items
+              </h4>
+              <DonationEntryItemsTable items={donationItems} />
+            </>
+          ) : null}
         </section>
 
         {(isItemCreatedRecord || isPackagingAddedRecord) && openingStockDetails.length > 0 ? (
@@ -568,7 +659,7 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
           </section>
         ) : null}
 
-        {itemChanges.length > 0 ? (
+        {!isDonationEntryRecord && itemChanges.length > 0 ? (
           <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
             <h3 style={{ margin: 0, color: "#17324d" }}>Item Breakdown</h3>
             <div className="mayor-audit-trail-detail-table-scroll" style={detailModalStyles.tableWrap}>

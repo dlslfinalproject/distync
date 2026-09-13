@@ -109,6 +109,8 @@ const AUDIT_DETAIL_FIELD_LABELS = {
   applies_to_all_disasters: "Disaster Coverage",
   disaster_types: "Disaster Types",
   donor_name: "Donor Name",
+  donation_type: "Donation Type",
+  disaster_event_title: "Disaster Event",
   donor_type: "Donor Type",
   donor_type_other: "Other Donor Type",
   contact_information: "Contact Information",
@@ -174,7 +176,9 @@ const AUDIT_DETAIL_ALLOWED_FIELDS = {
     "is_active",
   ],
   DONATION: [
+    "donation_type",
     "donor_name",
+    "disaster_event_title",
     "donor_type",
     "donor_type_other",
     "contact_information",
@@ -481,6 +485,167 @@ const buildAuditDetailItemChanges = (row) => {
       };
     })
     .filter(Boolean);
+};
+
+const parseReliefPackRemarkDetails = (remarks) => {
+  const matchedRemark = String(remarks || "")
+    .trim()
+    .match(/^Relief Pack:\s*(.+?)(?:\s+x\s+(\d+))?$/i);
+
+  if (!matchedRemark?.[1]) {
+    return null;
+  }
+
+  return {
+    packName: matchedRemark[1].trim(),
+    packQuantity: matchedRemark[2] ? Number(matchedRemark[2]) : null,
+  };
+};
+
+const formatDonationType = (value) => {
+  const normalizedValue = String(value || "").trim().toUpperCase();
+
+  if (normalizedValue === "RELIEF_PACK") {
+    return "Relief Pack";
+  }
+
+  if (normalizedValue === "LOOSE_ITEM") {
+    return "Loose Item";
+  }
+
+  return formatAuditStatus(value);
+};
+
+const getDonationEntryType = (row, donationItems = []) => {
+  const explicitType = String(row.new_values_json?.donation_type || "")
+    .trim()
+    .toUpperCase();
+
+  if (["LOOSE_ITEM", "RELIEF_PACK"].includes(explicitType)) {
+    return explicitType;
+  }
+
+  const itemTypes = donationItems.map((item) =>
+    parseReliefPackRemarkDetails(item?.remarks) ? "RELIEF_PACK" : "LOOSE_ITEM",
+  );
+
+  return itemTypes.length > 0 && itemTypes.every((type) => type === "RELIEF_PACK")
+    ? "RELIEF_PACK"
+    : "LOOSE_ITEM";
+};
+
+const buildDonationItemDetails = (row) => {
+  const donationItems = getDonationItems(row);
+  const detailRows = [];
+  const reliefPackRows = new Map();
+
+  donationItems.forEach((item) => {
+    const reliefPack = parseReliefPackRemarkDetails(item?.remarks);
+    const itemDetails = {
+      itemName: item?.item_name || "Donation item",
+      quantityReceived: formatAuditValue(
+        "quantity_received",
+        item?.quantity_received,
+      ),
+      unitOfMeasure: item?.unit_of_measure || "--",
+      packaging: item?.packaging || "--",
+      batchNo: item?.batch_no || "--",
+      expirationDate: item?.expiration_date
+        ? formatAuditValue("expiration_date", item.expiration_date)
+        : "--",
+    };
+
+    if (!reliefPack) {
+      detailRows.push({
+        donation_type: "Loose Item",
+        item_name: itemDetails.itemName,
+        relief_pack_name: null,
+        relief_pack_quantity: null,
+        contents: [],
+        quantity_received: itemDetails.quantityReceived,
+        unit_of_measure: itemDetails.unitOfMeasure,
+        packaging: itemDetails.packaging,
+        batch_no: itemDetails.batchNo,
+        expiration_date: itemDetails.expirationDate,
+        remarks: item?.remarks || "--",
+      });
+      return;
+    }
+
+    const reliefPackKey = `${reliefPack.packName}|${reliefPack.packQuantity || ""}`;
+    let reliefPackRow = reliefPackRows.get(reliefPackKey);
+
+    if (!reliefPackRow) {
+      reliefPackRow = {
+        donation_type: "Relief Pack",
+        item_name: null,
+        relief_pack_name: reliefPack.packName,
+        relief_pack_quantity:
+          reliefPack.packQuantity === null
+            ? "--"
+            : String(reliefPack.packQuantity),
+        contents: [],
+        quantity_received: "--",
+        unit_of_measure: "pack(s)",
+        packaging: "--",
+        batch_no: "--",
+        expiration_date: "--",
+        remarks: "--",
+      };
+      reliefPackRows.set(reliefPackKey, reliefPackRow);
+      detailRows.push(reliefPackRow);
+    }
+
+    reliefPackRow.contents.push(itemDetails);
+  });
+
+  return detailRows;
+};
+
+const buildDonationEntryDetails = (row, changes, donationItems) => {
+  const detailChanges = [...changes];
+  const donationType = getDonationEntryType(row, donationItems);
+  const eventTitle =
+    row.donation_disaster_event_title ||
+    row.new_values_json?.disaster_event_title ||
+    null;
+
+  if (!detailChanges.some((change) => change.field === "donation_type")) {
+    detailChanges.unshift(
+      createAuditDetailChange(
+        "donation_type",
+        "Donation Type",
+        donationType,
+        formatDonationType,
+      ),
+    );
+  }
+
+  if (
+    eventTitle &&
+    !detailChanges.some((change) => change.field === "disaster_event_title")
+  ) {
+    const donationTypeIndex = detailChanges.findIndex(
+      (change) => change.field === "donation_type",
+    );
+    detailChanges.splice(
+      donationTypeIndex + 1,
+      0,
+      createAuditDetailChange(
+        "disaster_event_title",
+        "Disaster Event",
+        eventTitle,
+      ),
+    );
+  }
+
+  detailChanges.forEach((change) => {
+    if (change.field === "donation_type") {
+      change.new_value = formatDonationType(donationType);
+    }
+  });
+
+  return detailChanges;
 };
 
 const isInventoryItemCreatedAudit = (row) =>
@@ -976,6 +1141,13 @@ const buildDistributionItemDetails = (row) =>
 
 const buildAuditDetail = (row, relatedRows = []) => {
   const changes = buildAuditDetailChanges(row);
+  const rawDonationItems =
+    row.entity_type === "DONATION" && row.action === "DONATION_CREATE"
+      ? getDonationItems(row)
+      : [];
+  const donationItems = rawDonationItems.length
+    ? buildDonationItemDetails(row)
+    : [];
   const detail = {
     changes,
     item_changes: buildAuditDetailItemChanges(row),
@@ -983,6 +1155,15 @@ const buildAuditDetail = (row, relatedRows = []) => {
       ? buildDistributionItemDetails(row)
       : [],
   };
+
+  if (row.entity_type === "DONATION" && row.action === "DONATION_CREATE") {
+    detail.donation_details = buildDonationEntryDetails(
+      row,
+      changes,
+      rawDonationItems,
+    );
+    detail.donation_items = donationItems;
+  }
 
   if (isInventoryItemCreatedAudit(row)) {
     const openingRelatedRows = getOpeningRelatedAuditRows(row, relatedRows);

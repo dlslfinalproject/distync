@@ -489,6 +489,11 @@ const getAuditLogs = async (
         al.new_values_json->>'status',
         al.old_values_json->>'status'
       ) AS donation_status,
+      COALESCE(
+        de_donation.title,
+        al.new_values_json->>'disaster_event_title',
+        al.old_values_json->>'disaster_event_title'
+      ) AS donation_disaster_event_title,
       donation_items.items AS donation_items_json,
       dt_direct.distribution_date,
       dt_direct.distribution_status,
@@ -542,6 +547,12 @@ const getAuditLogs = async (
       AND di_transaction.id = it_direct.reference_id
     LEFT JOIN donations d_transaction
       ON d_transaction.id = di_transaction.donation_id
+    LEFT JOIN disaster_events de_donation
+      ON de_donation.id = COALESCE(
+        d_direct.disaster_event_id,
+        d_item.disaster_event_id,
+        d_transaction.disaster_event_id
+      )
     LEFT JOIN distribution_transactions dt_direct
       ON al.entity_type = 'DISTRIBUTION_TRANSACTION'
       AND dt_direct.id = al.entity_id
@@ -557,10 +568,16 @@ const getAuditLogs = async (
     ) distribution_template_names ON TRUE
     LEFT JOIN LATERAL (
       SELECT jsonb_agg(
-        jsonb_build_object(
+          jsonb_build_object(
+          'item_code', ii_donation.item_code,
           'item_name', ii_donation.item_name,
+          'category', ii_donation.category,
           'quantity_received', di_donation.quantity_received,
           'unit_of_measure', ii_donation.unit_of_measure,
+          'packaging', stock_forms_donation.packaging,
+          'units_per_packaging', stock_forms_donation.units_per_packaging,
+          'batch_no', ib_donation.batch_no,
+          'expiration_date', ib_donation.expiration_date,
           'remarks', di_donation.remarks
         )
         ORDER BY di_donation.created_at ASC, ii_donation.item_name ASC
@@ -568,6 +585,10 @@ const getAuditLogs = async (
       FROM donation_items di_donation
       INNER JOIN inventory_items ii_donation
         ON ii_donation.id = di_donation.inventory_item_id
+      LEFT JOIN inventory_batches ib_donation
+        ON ib_donation.id = di_donation.inventory_batch_id
+      LEFT JOIN inventory_item_stock_forms stock_forms_donation
+        ON stock_forms_donation.id = ib_donation.inventory_item_stock_form_id
       WHERE di_donation.donation_id = COALESCE(
         d_direct.id,
         d_item.id,

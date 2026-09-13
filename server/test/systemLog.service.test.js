@@ -562,3 +562,204 @@ test("stock added details focus on the added stock and inflow transaction", asyn
     },
   );
 });
+
+test("donation entry details include loose item donation information", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-donation-loose-1",
+          action: "DONATION_CREATE",
+          entity_type: "DONATION",
+          entity_id: "donation-1",
+          role_code: "MAYOR",
+          old_values_json: {},
+          new_values_json: {
+            donation_type: "LOOSE_ITEM",
+            donor_name: "Acer Company",
+            donor_type: "NGO",
+            disaster_event_title: "Habagat Flood Response 2026",
+            received_at: "2026-08-11T01:50:00.000Z",
+            status: "RECEIVED",
+            item_count: 1,
+            total_quantity_received: 200,
+            items: [
+              {
+                inventory_item_id: "item-4",
+                item_name: "Acer Charger",
+                quantity_received: 200,
+                unit_of_measure: "pc",
+                packaging: "box",
+                batch_no: "DONATION-001",
+                expiration_date: null,
+                remarks: "Opening donation stock",
+              },
+            ],
+          },
+          created_at: "2026-08-11T01:50:00.000Z",
+          first_name: "Maria",
+          last_name: "Santos",
+          donation_donor_name: "Acer Company",
+          donation_disaster_event_title: "Habagat Flood Response 2026",
+          donation_items_json: [
+            {
+              item_name: "Acer Charger",
+              quantity_received: 200,
+              unit_of_measure: "pc",
+              packaging: "box",
+              batch_no: "DONATION-001",
+              expiration_date: null,
+              remarks: "Opening donation stock",
+            },
+          ],
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const [entry] = result.audit_logs;
+
+      assert.equal(entry.action_label, "Donation Entry");
+      assert.deepEqual(
+        entry.audit_detail.donation_details.map(({ field, label, new_value }) => ({
+          field,
+          label,
+          new_value,
+        })),
+        [
+          { field: "donation_type", label: "Donation Type", new_value: "Loose Item" },
+          { field: "donor_name", label: "Donor Name", new_value: "Acer Company" },
+          {
+            field: "disaster_event_title",
+            label: "Disaster Event",
+            new_value: "Habagat Flood Response 2026",
+          },
+          { field: "donor_type", label: "Donor Type", new_value: "NGO" },
+          {
+            field: "received_at",
+            label: "Received At",
+            new_value: "Aug 11, 2026, 9:50 AM",
+          },
+          { field: "status", label: "Status", new_value: "Received" },
+          { field: "item_count", label: "Number of Items", new_value: "1" },
+          {
+            field: "total_quantity_received",
+            label: "Total Quantity Received",
+            new_value: "200",
+          },
+        ],
+      );
+      assert.deepEqual(entry.audit_detail.donation_items, [
+        {
+          donation_type: "Loose Item",
+          item_name: "Acer Charger",
+          relief_pack_name: null,
+          relief_pack_quantity: null,
+          contents: [],
+          quantity_received: "200",
+          unit_of_measure: "pc",
+          packaging: "box",
+          batch_no: "DONATION-001",
+          expiration_date: "--",
+          remarks: "Opening donation stock",
+        },
+      ]);
+    },
+  );
+});
+
+test("donation entry details group relief pack contents and pack quantity", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-donation-pack-1",
+          action: "DONATION_CREATE",
+          entity_type: "DONATION",
+          entity_id: "donation-2",
+          role_code: "MAYOR",
+          old_values_json: {},
+          new_values_json: {
+            donation_type: "RELIEF_PACK",
+            donor_name: "Hybe Corp.",
+            disaster_event_title: "Typhoon Odette Response",
+            items: [
+              {
+                inventory_item_id: "item-rice",
+                item_name: "Rice",
+                quantity_received: 100,
+                unit_of_measure: "kg",
+                packaging: "sack",
+                remarks: "Relief Pack: Family Food Pack x 20",
+              },
+              {
+                inventory_item_id: "item-water",
+                item_name: "Nature Spring Water",
+                quantity_received: 20,
+                unit_of_measure: "pc",
+                packaging: "piece",
+                remarks: "Relief Pack: Family Food Pack x 20",
+              },
+            ],
+          },
+          created_at: "2026-08-11T02:00:00.000Z",
+          first_name: "Maria",
+          last_name: "Santos",
+          donation_donor_name: "Hybe Corp.",
+          donation_disaster_event_title: "Typhoon Odette Response",
+          donation_items_json: [
+            {
+              item_name: "Rice",
+              quantity_received: 100,
+              unit_of_measure: "kg",
+              packaging: "sack",
+              remarks: "Relief Pack: Family Food Pack x 20",
+            },
+            {
+              item_name: "Nature Spring Water",
+              quantity_received: 20,
+              unit_of_measure: "pc",
+              packaging: "piece",
+              remarks: "Relief Pack: Family Food Pack x 20",
+            },
+          ],
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const [entry] = result.audit_logs;
+      const [reliefPack] = entry.audit_detail.donation_items;
+
+      assert.equal(
+        entry.audit_detail.donation_details.find(
+          ({ field }) => field === "donation_type",
+        ).new_value,
+        "Relief Pack",
+      );
+      assert.equal(reliefPack.donation_type, "Relief Pack");
+      assert.equal(reliefPack.relief_pack_name, "Family Food Pack");
+      assert.equal(reliefPack.relief_pack_quantity, "20");
+      assert.deepEqual(reliefPack.contents, [
+        {
+          itemName: "Rice",
+          quantityReceived: "100",
+          unitOfMeasure: "kg",
+          packaging: "sack",
+          batchNo: "--",
+          expirationDate: "--",
+        },
+        {
+          itemName: "Nature Spring Water",
+          quantityReceived: "20",
+          unitOfMeasure: "pc",
+          packaging: "piece",
+          batchNo: "--",
+          expirationDate: "--",
+        },
+      ]);
+    },
+  );
+});

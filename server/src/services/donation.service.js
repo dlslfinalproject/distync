@@ -304,14 +304,32 @@ const summarizeDonation = (donation) =>
 
 const buildDonationAuditValues = (donation) => ({
   ...summarizeDonation(donation),
+  donation_type: resolveDonationTypeKey(donation?.items),
+  disaster_event_title: donation?.disaster_event?.title || null,
   items: [...(Array.isArray(donation?.items) ? donation.items : [])]
-    .map((item) => ({
-      inventory_item_id: item.inventory_item_id,
-      item_name: item.inventory_item?.item_name || item.item_name || null,
-      quantity_received: Number(item.quantity_received || 0),
-      unit_of_measure: item.inventory_item?.unit_of_measure || item.unit_of_measure || null,
-      remarks: item.remarks || null,
-    }))
+    .map((item) => {
+      const stockForm = item.inventory_item_stock_form || {};
+      const batch = item.inventory_batch || {};
+
+      return {
+        inventory_item_id: item.inventory_item_id,
+        item_code: item.inventory_item?.item_code || item.item_code || null,
+        item_name: item.inventory_item?.item_name || item.item_name || null,
+        category: item.inventory_item?.category || item.category || null,
+        quantity_received: Number(item.quantity_received || 0),
+        unit_of_measure:
+          item.inventory_item?.unit_of_measure || item.unit_of_measure || null,
+        packaging:
+          stockForm.packaging || batch.stock_form_packaging || null,
+        units_per_packaging:
+          stockForm.units_per_packaging ||
+          batch.stock_form_units_per_packaging ||
+          null,
+        batch_no: batch.batch_no || null,
+        expiration_date: batch.expiration_date || null,
+        remarks: item.remarks || null,
+      };
+    })
     .filter((item) => item.inventory_item_id || item.item_name)
     .sort((leftItem, rightItem) =>
       String(leftItem.item_name || "").localeCompare(
