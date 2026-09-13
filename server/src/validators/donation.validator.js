@@ -23,6 +23,10 @@ const {
   INVENTORY_BATCH_STORAGE_LOCATION_MAX_LENGTH,
   isInventoryBatchStorageLocationLengthValid,
 } = require("../utils/inventoryBatchStorageLocation");
+const {
+  isValidInventoryBarcode,
+  normalizeInventoryBarcode,
+} = require("../utils/inventoryBarcode");
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -174,6 +178,12 @@ const normalizeDonationInventoryItemDefinition = (definition, index) => {
     throw new Error(`${fieldPrefix}.barcode must be a string or null`);
   }
 
+  const normalizedBarcode = normalizeInventoryBarcode(definition.barcode);
+
+  if (normalizedBarcode && !isValidInventoryBarcode(normalizedBarcode)) {
+    throw new Error(`${fieldPrefix}.barcode must contain 8 to 18 digits`);
+  }
+
   if (
     definition.is_perishable !== undefined &&
     typeof definition.is_perishable !== "boolean"
@@ -197,7 +207,7 @@ const normalizeDonationInventoryItemDefinition = (definition, index) => {
     packaging_count: packagingCount,
     quantity,
     expiration_date: definition.expiration_date ?? null,
-    barcode: definition.barcode?.trim() || null,
+    barcode: normalizedBarcode || null,
     is_perishable:
       definition.is_perishable ?? normalizedCategory === "perishable",
     is_active: true,
@@ -520,6 +530,10 @@ const normalizeDonationItem = (item, index) => {
     throw new Error(`items[${index}].stock_form_barcode must be a string or null`);
   }
 
+  const normalizedStockFormBarcode = normalizeInventoryBarcode(
+    item.stock_form_barcode,
+  );
+
   if (
     item.stock_form_packaging !== undefined &&
     item.stock_form_packaging !== null &&
@@ -573,7 +587,7 @@ const normalizeDonationItem = (item, index) => {
     remarks: item.remarks?.trim() || null,
     expiration_date: item.expiration_date ?? null,
     storage_location: normalizedStorageLocation,
-    stock_form_barcode: item.stock_form_barcode?.trim() || null,
+    stock_form_barcode: normalizedStockFormBarcode || null,
     stock_form_packaging: item.stock_form_packaging?.trim() || null,
     stock_form_units_per_packaging: item.stock_form_units_per_packaging ?? null,
     stock_form_unit_of_measure: item.stock_form_unit_of_measure?.trim() || null,

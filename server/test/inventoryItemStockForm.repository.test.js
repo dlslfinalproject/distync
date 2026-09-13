@@ -332,5 +332,163 @@ test("updateInventoryItemStockForm keeps barcode-only updates separate from defi
   assert.match(calls[2].sql, /UPDATE inventory_item_stock_forms/i);
 });
 
+test("stock-form barcode writers normalize whitespace, preserve leading zeroes, and map the target unique race", async (t) => {
+  await t.test("insert normalizes and maps the barcode constraint", async () => {
+    const calls = [];
+    const dbClient = {
+      query: async (sql, values) => {
+        calls.push({ sql, values });
+
+        if (calls.length === 1) {
+          return { rows: [{ has_column: true }] };
+        }
+
+        const error = new Error("duplicate key value");
+        error.code = "23505";
+        error.constraint = "inventory_item_stock_forms_barcode_key";
+        throw error;
+      },
+    };
+
+    await withFreshStockFormRepository(dbClient, async (repository) => {
+      await assert.rejects(
+        repository.insertInventoryItemStockForm(
+          {
+            inventory_item_id: "item-1",
+            barcode: " 0012 3456 ",
+            packaging: "box",
+            units_per_packaging: 12,
+            unit_of_measure: "pc",
+            unit_of_measure_value: 1,
+          },
+          dbClient,
+        ),
+        (error) => {
+          assert.equal(error.code, "DUPLICATE_INVENTORY_BARCODE");
+          assert.equal(error.statusCode, 409);
+          assert.equal(error.message, "This barcode is already assigned to another packaging");
+          assert.equal(error.entityServerId, null);
+          return true;
+        },
+      );
+    });
+
+    assert.equal(calls[1].values[1], "00123456");
+  });
+
+  await t.test("non-barcode unique violations remain raw database errors", async () => {
+    const dbClient = {
+      query: async (sql) => {
+        if (/information_schema\.columns/i.test(sql)) {
+          return { rows: [{ has_column: true }] };
+        }
+
+        const error = new Error("duplicate definition");
+        error.code = "23505";
+        error.constraint = "inventory_item_stock_forms_unique_definition";
+        throw error;
+      },
+    };
+
+    await withFreshStockFormRepository(dbClient, async (repository) => {
+      await assert.rejects(
+        repository.insertInventoryItemStockForm(
+          {
+            inventory_item_id: "item-1",
+            barcode: "12345678",
+            packaging: "box",
+            units_per_packaging: 12,
+            unit_of_measure: "pc",
+            unit_of_measure_value: 1,
+          },
+          dbClient,
+        ),
+        (error) => {
+          assert.equal(error.code, "23505");
+          assert.equal(error.constraint, "inventory_item_stock_forms_unique_definition");
+          return true;
+        },
+      );
+    });
+  });
+});
+
+test("stock-form update preserves an unchanged historical short barcode and canonicalizes blank input", async (t) => {
+  await t.test("unchanged historical value is not rewritten", async () => {
+    const existingStockForm = {
+      id: "form-historical",
+      inventory_item_id: "item-1",
+      barcode: " 001234 ",
+      packaging: "box",
+      units_per_packaging: 12,
+      unit_of_measure: "pc",
+      unit_of_measure_value: 1,
+      is_active: true,
+    };
+    const calls = [];
+    const dbClient = {
+      query: async (sql, values) => {
+        calls.push({ sql, values });
+
+        if (calls.length === 1) {
+          return { rows: [{ has_column: true }] };
+        }
+
+        if (calls.length === 2) {
+          return { rows: [existingStockForm] };
+        }
+
+        return { rows: [existingStockForm] };
+      },
+    };
+
+    await withFreshStockFormRepository(dbClient, async (repository) => {
+      await repository.updateInventoryItemStockForm(
+        existingStockForm.id,
+        { ...existingStockForm, barcode: "00 1234" },
+        dbClient,
+      );
+    });
+
+    assert.equal(calls[2].values[1], existingStockForm.barcode);
+  });
+
+  await t.test("blank input is stored as null", async () => {
+    const existingStockForm = {
+      id: "form-manual",
+      inventory_item_id: "item-1",
+      barcode: null,
+      packaging: "box",
+      units_per_packaging: 12,
+      unit_of_measure: "pc",
+      unit_of_measure_value: 1,
+      is_active: true,
+    };
+    const calls = [];
+    const dbClient = {
+      query: async (sql, values) => {
+        calls.push({ sql, values });
+        if (calls.length === 1) {
+          return { rows: [{ has_column: true }] };
+        }
+        if (calls.length === 2) {
+          return { rows: [existingStockForm] };
+        }
+        return { rows: [existingStockForm] };
+      },
+    };
+
+    await withFreshStockFormRepository(dbClient, async (repository) => {
+      await repository.updateInventoryItemStockForm(
+        existingStockForm.id,
+        { ...existingStockForm, barcode: " \t " },
+        dbClient,
+      );
+    });
+
+    assert.equal(calls[2].values[1], null);
+  });
+});
+
 const resultContainsInactive = (rows) =>
   rows.some((row) => row.is_active === false);

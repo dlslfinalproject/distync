@@ -2,10 +2,7 @@ const allowedSourceTypes = ["PURCHASED", "DONATED", "DSWD", "LGU", "OTHER"];
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const {
-  isValidInventoryBarcode,
-  normalizeInventoryBarcode,
-} = require("../utils/inventoryBarcode");
+const { normalizeInventoryBarcode } = require("../utils/inventoryBarcode");
 const {
   INVENTORY_BATCH_STORAGE_LOCATION_MAX_LENGTH,
   isInventoryBatchStorageLocationLengthValid,
@@ -197,15 +194,6 @@ const validateCreateInventoryBatch = (req, res, next) => {
     const normalizedStockFormBarcode = normalizeInventoryBarcode(
       stock_form_barcode,
     );
-
-    if (
-      normalizedStockFormBarcode &&
-      !isValidInventoryBarcode(normalizedStockFormBarcode)
-    ) {
-      return res.status(400).json({
-        message: "stock_form_barcode must contain 8 to 18 digits",
-      });
-    }
 
     if (
       stock_form_packaging !== undefined &&

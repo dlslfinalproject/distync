@@ -442,6 +442,119 @@ test("donation creation reuses one staged inventory item for duplicate names", a
   });
 });
 
+test("donation existing-item receipt reuses a historical short-barcode stock form", async () => {
+  await withStubbedDonationService({}, async (service, { calls }) => {
+    const donation = await service.createDonation(
+      buildDonationPayload([
+        {
+          ...buildDonationItemPayload(5),
+          inventory_item_id: "inventory-item-1",
+          new_inventory_item: null,
+          stock_form_barcode: "00 1234",
+        },
+      ]),
+      { userId: "user-1", roleCode: "MAYOR" },
+    );
+
+    assert.equal(donation.id, "donation-1");
+    assert.equal(calls.insertedBatches[0].inventory_item_stock_form_id, "stock-form-1");
+  });
+});
+
+test("donation existing-item receipt validates a new stock-form barcode before insert", async () => {
+  let insertStockFormCalled = false;
+
+  await withStubbedDonationService(
+    {
+      inventoryItemStockFormRepository: {
+        getInventoryItemStockFormByDefinition: async () => null,
+        insertInventoryItemStockForm: async () => {
+          insertStockFormCalled = true;
+          return { id: "should-not-create" };
+        },
+      },
+    },
+    async (service) => {
+      await assert.rejects(
+        service.createDonation(
+          buildDonationPayload([
+            {
+              ...buildDonationItemPayload(5),
+              inventory_item_id: "inventory-item-1",
+              new_inventory_item: null,
+              stock_form_barcode: "00 1234",
+              stock_form_packaging: "box",
+              stock_form_units_per_packaging: 12,
+            },
+          ]),
+          { userId: "user-1", roleCode: "MAYOR" },
+        ),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.equal(error.message, "stock_form_barcode must contain 8 to 18 digits");
+          return true;
+        },
+      );
+    },
+  );
+
+  assert.equal(insertStockFormCalled, false);
+});
+
+test("donation existing-item receipt prechecks canonical barcode ownership before creating a stock form", async () => {
+  let insertStockFormCalled = false;
+
+  await withStubbedDonationService(
+    {
+      inventoryItemStockFormRepository: {
+        getInventoryItemStockFormByDefinition: async () => null,
+        getInventoryItemStockFormByBarcode: async () => ({
+          id: "stock-form-other",
+          inventory_item_id: "inventory-item-other",
+          barcode: "00123456",
+          packaging: "box",
+          units_per_packaging: 12,
+          unit_of_measure: "pc",
+          unit_of_measure_value: 1,
+          is_active: true,
+        }),
+        insertInventoryItemStockForm: async () => {
+          insertStockFormCalled = true;
+          return { id: "should-not-create" };
+        },
+      },
+    },
+    async (service) => {
+      await assert.rejects(
+        service.createDonation(
+          buildDonationPayload([
+            {
+              ...buildDonationItemPayload(5),
+              inventory_item_id: "inventory-item-1",
+              new_inventory_item: null,
+              stock_form_barcode: "00 1234 56",
+              stock_form_packaging: "box",
+              stock_form_units_per_packaging: 12,
+            },
+          ]),
+          { userId: "user-1", roleCode: "MAYOR" },
+        ),
+        (error) => {
+          assert.equal(error.code, "DUPLICATE_INVENTORY_BARCODE");
+          assert.equal(error.statusCode, 409);
+          assert.equal(
+            error.message,
+            "This barcode is already assigned to another packaging",
+          );
+          return true;
+        },
+      );
+    },
+  );
+
+  assert.equal(insertStockFormCalled, false);
+});
+
 test("donor name publication updates only the visibility flag and commits", async () => {
   let visibilityUpdate = null;
 
@@ -594,6 +707,79 @@ test("donation validation accepts and normalizes staged inventory definitions", 
   assert.equal(
     request.validatedBody.items[0].new_inventory_item.skip_opening_stock,
     true,
+  );
+});
+
+test("donation validation normalizes an existing-item legacy stock-form barcode without enforcing new-assignment length", () => {
+  const request = {
+    body: {
+      ...buildDonationPayload([
+        {
+          ...buildDonationItemPayload(5),
+          new_inventory_item: null,
+          inventory_item_id: "00000000-0000-4000-8000-000000000002",
+          stock_form_barcode: "00 1234",
+        },
+      ]),
+      disaster_event_id: "00000000-0000-4000-8000-000000000001",
+    },
+  };
+  let nextCalled = false;
+  let responseStatus = null;
+  const response = {
+    status(statusCode) {
+      responseStatus = statusCode;
+      return this;
+    },
+    json() {
+      return this;
+    },
+  };
+
+  donationValidator.validateDonationPayload(request, response, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(responseStatus, null);
+  assert.equal(request.validatedBody.items[0].stock_form_barcode, "001234");
+});
+
+test("donation validation rejects a short barcode in an unambiguously new inventory item", () => {
+  const request = {
+    body: {
+      ...buildDonationPayload([
+        {
+          ...buildDonationItemPayload(5),
+          new_inventory_item: buildNewInventoryItem({ barcode: "001234" }),
+        },
+      ]),
+      disaster_event_id: "00000000-0000-4000-8000-000000000001",
+    },
+  };
+  let nextCalled = false;
+  let responseStatus = null;
+  let responsePayload = null;
+  const response = {
+    status(statusCode) {
+      responseStatus = statusCode;
+      return this;
+    },
+    json(payload) {
+      responsePayload = payload;
+      return this;
+    },
+  };
+
+  donationValidator.validateDonationPayload(request, response, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(responseStatus, 400);
+  assert.equal(
+    responsePayload.message,
+    "items[0].new_inventory_item.barcode must contain 8 to 18 digits",
   );
 });
 

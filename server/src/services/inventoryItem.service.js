@@ -45,6 +45,42 @@ const INVENTORY_ITEM_UPDATE_FIELDS = [
   "is_perishable",
 ];
 
+const getInventoryItemsByBarcode = async (barcode, dbClient = pool) => {
+  if (typeof inventoryItemRepository.getInventoryItemsByBarcode === "function") {
+    const matches = await inventoryItemRepository.getInventoryItemsByBarcode(
+      barcode,
+      dbClient,
+    );
+    return Array.isArray(matches) ? matches : [];
+  }
+
+  if (typeof inventoryItemRepository.getInventoryItemByBarcode === "function") {
+    const match = await inventoryItemRepository.getInventoryItemByBarcode(
+      barcode,
+      dbClient,
+    );
+    return match ? [match] : [];
+  }
+
+  return [];
+};
+
+const buildAmbiguousInventoryBarcodeLookupResult = (barcode) => ({
+  found: false,
+  barcode,
+  source: "LOCAL_INVENTORY",
+  item: null,
+  message: "This barcode matches multiple local inventory records and requires review.",
+});
+
+const buildInactiveInventoryBarcodeLookupResult = (barcode) => ({
+  found: false,
+  barcode,
+  source: "LOCAL_INVENTORY",
+  item: null,
+  message: "This barcode belongs to inactive local inventory and cannot be selected.",
+});
+
 const buildItemCodeSeed = (itemName) => {
   const normalizedName = itemName
     .toUpperCase()
@@ -143,23 +179,6 @@ const ensureUniqueFields = async (
     return;
   }
 
-  if (typeof inventoryItemRepository.getInventoryItemByBarcode === "function") {
-    const existingItemByBarcode =
-      await inventoryItemRepository.getInventoryItemByBarcode(
-        normalizedBarcode,
-        dbClient,
-      );
-
-    if (
-      existingItemByBarcode &&
-      String(existingItemByBarcode.id) !== String(currentItemId)
-    ) {
-      throw createDuplicateInventoryBarcodeError({
-        existingItem: existingItemByBarcode,
-      });
-    }
-  }
-
   if (
     typeof inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode ===
     "function"
@@ -188,6 +207,27 @@ const ensureUniqueFields = async (
         packagingConflict: true,
       });
     }
+
+    if (existingStockForm) {
+      // A canonical owner for the same item is authoritative. Do not allow a
+      // stale item-level mirror to override it during a uniqueness check.
+      return;
+    }
+  }
+
+  const legacyItemCandidates = await getInventoryItemsByBarcode(
+    normalizedBarcode,
+    dbClient,
+  );
+  const conflictingLegacyItems = legacyItemCandidates.filter(
+    (candidate) => String(candidate.id) !== String(currentItemId),
+  );
+
+  if (conflictingLegacyItems.length > 0) {
+    throw createDuplicateInventoryBarcodeError({
+      existingItem:
+        legacyItemCandidates.length === 1 ? conflictingLegacyItems[0] : null,
+    });
   }
 };
 
@@ -223,7 +263,10 @@ const buildInventoryItemUpdatePayload = (existingItem, itemData = {}) => {
     quantity: getFieldValue("quantity"),
     reorder_level: getFieldValue("reorder_level"),
     barcode: hasField("barcode")
-      ? normalizeAndValidateItemBarcode(itemData.barcode)
+      ? normalizeInventoryBarcode(itemData.barcode) ===
+        normalizeInventoryBarcode(existingItem.barcode)
+        ? existingItem.barcode ?? null
+        : normalizeAndValidateItemBarcode(itemData.barcode)
       : existingItem.barcode ?? null,
     is_perishable: hasField("is_perishable")
       ? resolveInventoryItemPerishability(itemData.is_perishable, category)
@@ -366,7 +409,7 @@ const getUnitsPerPackagingValue = (itemData) => {
 
 const buildStockFormPayloadFromItem = (item, itemData = item, stockForm = null) => ({
   inventory_item_id: item.id,
-  barcode: itemData.barcode || null,
+  barcode: normalizeInventoryBarcode(itemData.barcode) || null,
   packaging: itemData.packaging || "piece",
   units_per_packaging: getUnitsPerPackagingValue(itemData),
   unit_of_measure: itemData.unit_of_measure || item.unit_of_measure,
@@ -452,19 +495,18 @@ const ensureInventoryItemUpdateBarcodeOwner = async ({
   inventoryItem,
   dbClient,
 }) => {
-  if (
-    !barcode ||
-    typeof inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode !==
-      "function"
-  ) {
+  if (!barcode) {
     return;
   }
 
   const barcodeOwner =
-    await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
-      barcode,
-      dbClient,
-    );
+    typeof inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode ===
+    "function"
+      ? await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
+          barcode,
+          dbClient,
+        )
+      : null;
 
   if (barcodeOwner && String(barcodeOwner.id) !== String(targetStockForm?.id)) {
     const existingItem =
@@ -481,6 +523,25 @@ const ensureInventoryItemUpdateBarcodeOwner = async ({
       existingItem,
       existingStockForm: barcodeOwner,
       packagingConflict: true,
+    });
+  }
+
+  if (barcodeOwner) {
+    return;
+  }
+
+  const legacyItemCandidates = await getInventoryItemsByBarcode(
+    barcode,
+    dbClient,
+  );
+  const conflictingLegacyItems = legacyItemCandidates.filter(
+    (candidate) => String(candidate.id) !== String(inventoryItem.id),
+  );
+
+  if (conflictingLegacyItems.length > 0) {
+    throw createDuplicateInventoryBarcodeError({
+      existingItem:
+        legacyItemCandidates.length === 1 ? conflictingLegacyItems[0] : null,
     });
   }
 };
@@ -907,35 +968,57 @@ const buildLocalBarcodeLookupResult = (barcode, item, stockForm = null) => ({
 });
 
 const getLocalInventoryItemByBarcode = async (barcode) => {
-  const itemByBarcode =
-    await inventoryItemRepository.getInventoryItemByBarcode(barcode);
+  const normalizedBarcode = normalizeInventoryBarcode(barcode);
 
-  if (itemByBarcode) {
-    return buildLocalBarcodeLookupResult(barcode, itemByBarcode);
+  if (!normalizedBarcode) {
+    return null;
   }
 
   const stockForm =
     await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
-      barcode,
+      normalizedBarcode,
     );
 
-  if (!stockForm || stockForm.is_active === false) {
-    return null;
+  if (stockForm) {
+    if (stockForm.is_active === false) {
+      return buildInactiveInventoryBarcodeLookupResult(normalizedBarcode);
+    }
+
+    const item = await inventoryItemRepository.getInventoryItemById(
+      stockForm.inventory_item_id,
+    );
+
+    if (!item || item.is_active === false) {
+      return buildInactiveInventoryBarcodeLookupResult(normalizedBarcode);
+    }
+
+    return buildLocalBarcodeLookupResult(normalizedBarcode, item, stockForm);
   }
 
-  const item = await inventoryItemRepository.getInventoryItemById(
-    stockForm.inventory_item_id,
+  const legacyItemCandidates = await getInventoryItemsByBarcode(
+    normalizedBarcode,
   );
 
-  if (!item) {
+  if (legacyItemCandidates.length > 1) {
+    return buildAmbiguousInventoryBarcodeLookupResult(normalizedBarcode);
+  }
+
+  const itemByBarcode = legacyItemCandidates[0] || null;
+
+  if (!itemByBarcode) {
     return null;
   }
 
-  return buildLocalBarcodeLookupResult(barcode, item, stockForm);
+  if (itemByBarcode.is_active === false) {
+    return buildInactiveInventoryBarcodeLookupResult(normalizedBarcode);
+  }
+
+  return buildLocalBarcodeLookupResult(normalizedBarcode, itemByBarcode);
 };
 
 const lookupInventoryItemByBarcode = async (barcode) => {
-  const localInventoryItem = await getLocalInventoryItemByBarcode(barcode);
+  const normalizedBarcode = normalizeInventoryBarcode(barcode);
+  const localInventoryItem = await getLocalInventoryItemByBarcode(normalizedBarcode);
 
   if (localInventoryItem) {
     return localInventoryItem;
@@ -943,7 +1026,7 @@ const lookupInventoryItemByBarcode = async (barcode) => {
 
   // Keep external enrichment for the Donations form; Scan Item uses local matching directly.
   const response = await fetch(
-    `${OPEN_FOOD_FACTS_API_BASE_URL}/api/v3/product/${encodeURIComponent(barcode)}.json`,
+    `${OPEN_FOOD_FACTS_API_BASE_URL}/api/v3/product/${encodeURIComponent(normalizedBarcode)}.json`,
     {
       method: "GET",
       headers: {
@@ -956,7 +1039,7 @@ const lookupInventoryItemByBarcode = async (barcode) => {
   if (!response.ok) {
     return {
       found: false,
-      barcode,
+      barcode: normalizedBarcode,
       source: "OPEN_FOOD_FACTS",
       item: null,
       message: "Barcode was not found locally and online catalog lookup failed.",
@@ -969,7 +1052,7 @@ const lookupInventoryItemByBarcode = async (barcode) => {
   if (!product) {
     return {
       found: false,
-      barcode,
+      barcode: normalizedBarcode,
       source: "OPEN_FOOD_FACTS",
       item: null,
     };
@@ -977,10 +1060,10 @@ const lookupInventoryItemByBarcode = async (barcode) => {
 
   return {
     found: true,
-    barcode,
+    barcode: normalizedBarcode,
     source: "OPEN_FOOD_FACTS",
     item: {
-      barcode,
+      barcode: normalizedBarcode,
       item_name: buildLookupDisplayName(product),
       category: inferCategoryFromLookup(product),
       brand: product.brands || null,
