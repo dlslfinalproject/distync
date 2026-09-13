@@ -73,7 +73,7 @@ const getRegistrationCacheKey = (cacheSegment) =>
   getRegistrationStorageKey(cacheSegment);
 
 const parseJsonResponse = async (response) => {
-  const payload = await response.json();
+  const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
     const error = new Error(payload.message || "Request failed");
@@ -147,7 +147,7 @@ export const fetchEvacuationCenters = async () => {
   }
 };
 
-export const fetchEvacuationCentersByBarangay = async (barangayId) => {
+export const fetchEvacuationCentersByBarangay = async (barangayId, { throwOnError = false } = {}) => {
   if (!barangayId) {
     return [];
   }
@@ -158,6 +158,11 @@ export const fetchEvacuationCentersByBarangay = async (barangayId) => {
     );
 
     if (!response.ok) {
+      if (throwOnError) {
+        const error = new Error("Failed to fetch evacuation centers by barangay");
+        error.statusCode = response.status;
+        throw error;
+      }
       return [];
     }
 
@@ -178,6 +183,7 @@ export const fetchEvacuationCentersByBarangay = async (barangayId) => {
 
     return normalizedPayload;
   } catch (error) {
+    if (throwOnError) throw error;
     return [];
   }
 };
