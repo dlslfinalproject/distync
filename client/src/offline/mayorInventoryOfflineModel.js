@@ -4,6 +4,7 @@ import { findInventoryItemBarcodeMatch } from "../features/inventory-items/inven
 import {
   buildQueuedInventoryItem,
   buildQueuedInventoryStockForm,
+  getInventoryBatchProjectionItemId,
 } from "../features/inventory-items/inventoryItemSync.js";
 
 export const MAYOR_INVENTORY_CACHE_VERSION = 2;
@@ -112,7 +113,7 @@ export const buildMayorInventoryItemDetailFromLocalGraph = ({
 export const buildQueuedInventoryBatch = (entry = {}, inventoryItems = []) => {
   const payload = entry.payload || {};
   const availableItems = Array.isArray(inventoryItems) ? inventoryItems : [];
-  const inventoryItemId = normalizeId(payload.inventory_item_id);
+  const inventoryItemId = getInventoryBatchProjectionItemId(entry);
   const inventoryItem =
     availableItems.find((item) => normalizeId(item?.id) === inventoryItemId) ||
     null;
@@ -232,7 +233,7 @@ export const mergeInventoryBatchesWithSyncStatus = ({
             (value) => normalizeId(value) && normalizeId(value) === normalizeId(batch.id),
           ) ||
             getInventoryBatchIdentity({
-              inventory_item_id: entry.payload?.inventory_item_id,
+              inventory_item_id: getInventoryBatchProjectionItemId(entry),
               batch_no: entry.payload?.batch_no || entry.entityLocalId,
             }) === getInventoryBatchIdentity(batch)),
       );

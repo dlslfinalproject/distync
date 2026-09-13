@@ -2502,12 +2502,36 @@ const processSingleSyncEntry = async (entry, auth) => {
   });
 };
 
-const processSyncEntries = async ({ entries, auth }) => {
-  const results = [];
+const isDeferredInventoryBatchDependencyResult = (entry = {}, result = {}) =>
+  entry.action_key === "INVENTORY_BATCH_CREATE" &&
+  entry.entity_type === "INVENTORY_BATCH" &&
+  result.sync_status === SYNC_STATUS.FAILED &&
+  result.error_code === "INVENTORY_ITEM_PENDING_SYNC" &&
+  Boolean(String(entry.payload?.inventory_item_local_id || "").trim());
 
-  for (const entry of entries) {
+const processSyncEntries = async ({ entries, auth }) => {
+  const originalEntries = Array.isArray(entries) ? entries : [];
+  const results = new Array(originalEntries.length);
+  const deferredEntries = [];
+
+  // Preserve the existing first-pass order and process every entry exactly
+  // once before looking for a dependency recovery opportunity.
+  for (let index = 0; index < originalEntries.length; index += 1) {
+    const entry = originalEntries[index];
     const result = await processSingleSyncEntry(entry, auth);
-    results.push(result);
+    results[index] = result;
+
+    if (isDeferredInventoryBatchDependencyResult(entry, result)) {
+      deferredEntries.push({ entry, index });
+    }
+  }
+
+  // A single bounded second pass lets a child that preceded its parent in the
+  // request observe the parent's committed sync mapping. Reuse the original
+  // entry object, including its client_sync_id and payload, so idempotency and
+  // validation semantics remain unchanged. Never enqueue another retry pass.
+  for (const { entry, index } of deferredEntries) {
+    results[index] = await processSingleSyncEntry(entry, auth);
   }
 
   return results;

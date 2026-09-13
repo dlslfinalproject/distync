@@ -31,6 +31,7 @@ import {
   canUseMayorInventoryCacheAfterError,
   getMayorInventoryCacheSnapshot,
 } from "../../offline/mayorInventoryCache";
+import { getInventoryBatchProjectionItemId } from "../../features/inventory-items/inventoryItemSync";
 import { MAYOR_INVENTORY_PREPARATION_STATUS } from "../../offline/mayorInventoryPreparation";
 import { useMayorInventoryOfflinePreparation } from "../../features/offline/useMayorInventoryOfflinePreparation";
 import { ROLE_CODES } from "../../utils/roleSession";
@@ -91,12 +92,14 @@ const buildPaginationFromTotal = (totalItems, pageSize) => {
 };
 
 const buildQueuedBatch = (entry, inventoryItems) => {
+  const inventoryItemId = getInventoryBatchProjectionItemId(entry);
+
   return {
     id: `local-inventory-batch:${entry.id || entry.entityLocalId}`,
     batch_no: entry.payload?.batch_no || entry.entityLocalId || "Pending batch",
-    inventory_item_id: entry.payload?.inventory_item_id || "",
+    inventory_item_id: inventoryItemId,
     inventory_item:
-      inventoryItems.find((item) => item.id === entry.payload?.inventory_item_id) ||
+      inventoryItems.find((item) => item.id === inventoryItemId) ||
       null,
     source_type: entry.payload?.source_type || "OTHER",
     quantity_received: entry.payload?.quantity_received || 0,
@@ -564,7 +567,7 @@ const InventoryBatchesPage = () => {
           (entry.entityServerId === batch.id ||
             entry.entityLocalId === batch.id ||
             (entry.entityLocalId === batch.batch_no &&
-              String(entry.payload?.inventory_item_id || "") ===
+              getInventoryBatchProjectionItemId(entry) ===
                 String(batch.inventory_item_id || "")))
         );
       });
@@ -587,7 +590,7 @@ const InventoryBatchesPage = () => {
               batch.id === entry.entityLocalId ||
               (batch.batch_no === entry.entityLocalId &&
                 String(batch.inventory_item_id || "") ===
-                  String(entry.payload?.inventory_item_id || "")),
+                getInventoryBatchProjectionItemId(entry)),
           )
         );
       })

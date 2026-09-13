@@ -278,6 +278,80 @@ export const updateSyncEntryStatus = async (entryId, updates) => {
   emitSyncQueueUpdated();
 };
 
+export const persistResolvedInventoryItemProjectionId = async ({
+  parentLocalId,
+  parentServerId,
+} = {}) => {
+  const normalizedParentLocalId = normalizeScopeValue(parentLocalId);
+  const normalizedParentServerId = normalizeScopeValue(parentServerId);
+
+  if (!normalizedParentLocalId || !normalizedParentServerId) {
+    return 0;
+  }
+
+  let queueEntries;
+
+  try {
+    queueEntries = await db.syncQueue.toArray();
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+
+  const dependentEntryIds = queueEntries
+    .filter(
+      (entry) =>
+        isSyncEntryVisibleForContext(entry) &&
+        entry.actionKey === "INVENTORY_BATCH_CREATE" &&
+        entry.entityType === "INVENTORY_BATCH" &&
+        normalizeScopeValue(entry.payload?.inventory_item_local_id) ===
+          normalizedParentLocalId,
+    )
+    .map((entry) => entry.id)
+    .filter(Boolean);
+
+  if (dependentEntryIds.length === 0) {
+    return 0;
+  }
+
+  try {
+    await db.transaction("rw", db.syncQueue, async () => {
+      for (const entryId of dependentEntryIds) {
+        const currentEntry = await db.syncQueue.get(entryId);
+
+        if (!currentEntry) {
+          continue;
+        }
+
+        const currentDisplayContext =
+          currentEntry.queueDisplayContext &&
+          typeof currentEntry.queueDisplayContext === "object" &&
+          !Array.isArray(currentEntry.queueDisplayContext)
+            ? currentEntry.queueDisplayContext
+            : {};
+
+        await db.syncQueue.update(entryId, {
+          queueDisplayContext: {
+            ...currentDisplayContext,
+            resolved_inventory_item_id: normalizedParentServerId,
+          },
+          updatedAt: getIsoNow(),
+        });
+      }
+    });
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+
+  emitSyncQueueUpdated();
+  return dependentEntryIds.length;
+};
+
 export const claimSyncEntries = async (
   entries = [],
   processingOwner,
