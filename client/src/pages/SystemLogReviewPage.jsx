@@ -302,7 +302,7 @@ const detailModalStyles = {
   },
   changedValue: {
     color: "#17324d",
-    fontWeight: 800,
+    fontWeight: 700,
   },
   previousValue: {
     color: "#60738a",
