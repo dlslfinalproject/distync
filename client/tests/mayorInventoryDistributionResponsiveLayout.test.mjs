@@ -16,6 +16,13 @@ test("Mayor inventory distribution page exposes scoped responsive hooks", async 
 
   assert.match(pageSource, /className="inventory-distribution-page"/);
   assert.match(pageSource, /className="inventory-distribution-tabs"/);
+  assert.match(pageSource, /aria-label="Inventory distribution event scope"/);
+  assert.match(pageSource, /role="tab"/);
+  assert.match(pageSource, /Disaster Event/);
+  assert.doesNotMatch(
+    pageSource,
+    /\{activeTab === "active" \? "Active" : "Ended"\} Disaster Event/,
+  );
   assert.match(pageSource, /className="inventory-distribution-filter-grid"/);
   assert.match(pageSource, /className="inventory-distribution-summary-grid"/);
   assert.match(pageSource, /className="inventory-distribution-toolbar"/);
@@ -33,6 +40,14 @@ test("Mayor inventory distribution page exposes scoped responsive hooks", async 
   assert.match(
     cssSource,
     /@media \(max-width: 480px\)[\s\S]*?\.inventory-distribution-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+  );
+  assert.match(
+    cssSource,
+    /\.inventory-distribution-tabs > button:hover:not\(:disabled\)[\s\S]*?\.inventory-distribution-tabs > button:focus-visible/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.inventory-distribution-tabs button \{[\s\S]*?flex: 0 0 auto;[\s\S]*?min-height: 48px;/,
   );
 });
 

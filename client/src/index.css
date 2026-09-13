@@ -113,6 +113,24 @@ body {
   border-radius: 6px 6px 0 0;
 }
 
+.inventory-distribution-tabs {
+  scrollbar-width: thin;
+}
+
+.inventory-distribution-tabs > button {
+  flex: 0 0 auto;
+}
+
+.inventory-distribution-tabs > button:hover:not(:disabled) {
+  color: #17324d !important;
+}
+
+.inventory-distribution-tabs > button:focus-visible {
+  outline: 2px solid rgba(40, 120, 191, 0.34);
+  outline-offset: -2px;
+  border-radius: 6px 6px 0 0;
+}
+
 .mayor-relief-pack-template-table-scroll,
 .mayor-relief-pack-detail-table-scroll {
   max-width: 100%;
@@ -1038,8 +1056,8 @@ body {
   }
 
   .inventory-distribution-tabs button {
-    flex: 1 0 max-content;
-    min-height: 44px;
+    flex: 0 0 auto;
+    min-height: 48px;
   }
 
   .inventory-distribution-event-meta {
@@ -1408,12 +1426,12 @@ body {
   }
 
   .inventory-distribution-tabs button {
-    flex: 1 1 0;
+    flex: 0 0 auto;
     justify-content: center;
-    min-width: 0;
+    min-width: max-content;
     padding-left: 8px !important;
     padding-right: 8px !important;
-    white-space: normal !important;
+    white-space: nowrap !important;
   }
 
   .inventory-distribution-records-card,

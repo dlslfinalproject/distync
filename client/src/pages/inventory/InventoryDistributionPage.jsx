@@ -179,16 +179,41 @@ const layoutStyles = {
   },
 };
 
+const scopeTabListStyles = {
+  alignItems: "stretch",
+  borderBottom: "1px solid #d6e2ef",
+  backgroundColor: "#fbfdff",
+  borderTopLeftRadius: "17px",
+  borderTopRightRadius: "17px",
+  display: "flex",
+  flexWrap: "nowrap",
+  gap: "4px",
+  overflowX: "auto",
+  padding: "8px 0 0",
+  marginBottom: "24px",
+  minHeight: "56px",
+  WebkitOverflowScrolling: "touch",
+};
+
 const scopeTabButtonStyles = (isActive) => ({
-  padding: "12px 24px",
+  alignItems: "center",
+  boxSizing: "border-box",
   border: "none",
-  background: "none",
-  fontSize: "14px",
-  fontWeight: 700,
-  textTransform: "uppercase",
-  color: isActive ? "#17324d" : "#6b8298",
   borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
+  background: "none",
+  color: isActive ? "#17324d" : "#6b8298",
   cursor: "pointer",
+  display: "inline-flex",
+  fontSize: "14px",
+  fontFamily: "inherit",
+  fontWeight: 700,
+  justifyContent: "center",
+  letterSpacing: "0.01em",
+  lineHeight: 1.3,
+  minHeight: "48px",
+  padding: "11px 16px",
+  transition: "color 160ms ease, border-color 160ms ease",
+  whiteSpace: "nowrap",
 });
 
 const distributionStatusOptions = [
@@ -652,16 +677,14 @@ const InventoryDistributionPage = () => {
         <section className="inventory-distribution-scope-card" style={shellStyles.card}>
           <div
             className="inventory-distribution-tabs"
-            style={{
-              display: "flex",
-              borderBottom: "1px solid #d6e2ef",
-              marginBottom: "24px",
-              gap: "8px",
-              flexWrap: "wrap",
-            }}
+            role="tablist"
+            aria-label="Inventory distribution event scope"
+            style={scopeTabListStyles}
           >
             <button
               type="button"
+              role="tab"
+              aria-selected={activeTab === "active"}
               onClick={() => handleEventScopeChange("active")}
               style={scopeTabButtonStyles(activeTab === "active")}
             >
@@ -669,6 +692,8 @@ const InventoryDistributionPage = () => {
             </button>
             <button
               type="button"
+              role="tab"
+              aria-selected={activeTab === "ended"}
               onClick={() => handleEventScopeChange("ended")}
               style={scopeTabButtonStyles(activeTab === "ended")}
             >
@@ -690,7 +715,7 @@ const InventoryDistributionPage = () => {
                 htmlFor="inventory-distribution-event"
                 style={filterStyles.label}
               >
-                {activeTab === "active" ? "Active" : "Ended"} Disaster Event
+                Disaster Event
               </label>
               <div style={filterStyles.selectWrap}>
                 <select
