@@ -161,7 +161,7 @@ const inlineSelectStyles = {
 
 const transactionFilterGridStyles = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
   gap: "16px",
   alignItems: "end",
 };

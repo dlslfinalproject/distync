@@ -1042,6 +1042,10 @@ body {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 
+  .inventory-tracking-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
   .inventory-tracking-toolbar {
     align-items: stretch !important;
     gap: 10px !important;
@@ -3003,5 +3007,11 @@ img {
   .sync-center-toolbar__filter > button,
   .sync-center-toolbar__retry {
     width: 100%;
+  }
+}
+
+@media (max-width: 360px) {
+  .inventory-tracking-filter-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 }
