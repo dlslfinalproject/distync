@@ -43,6 +43,7 @@ test("offline departure modal keeps cached row name when detail snapshot has no 
   assert.match(pageSource, /String\(row\.household_id\) === String\(pendingDepartureHouseholdId\)/);
   assert.match(pageSource, /pendingDepartureDetailsFamilyHeadName \|\| pendingDepartureRow\?\.family_head_name/);
   assert.match(pageSource, /resolveFamilyHeadPhoto\(pendingDepartureRow\?\.offline_household_details/);
+  assert.doesNotMatch(pageSource, /pendingDepartureRow\?\.disaster_event_id \|\| selectedEvent\?\.id/);
 });
 
 test("missing family-head photo does not remove the offline family-head name", () => {
@@ -126,4 +127,45 @@ test("departure overlay matches the exact occurrence and scope", () => {
     }).length,
     1,
   );
+});
+
+test("runtime-shaped persisted departure stays in scope for lifecycle projection", () => {
+  const runtimeQueueEntry = {
+    id: "client-sync-1",
+    client_sync_id: "client-sync-1",
+    actionKey: "HOUSEHOLD_DEPART",
+    entityType: "HOUSEHOLD",
+    entityServerId: "household-1",
+    entityLocalId: "household-1",
+    status: "PENDING",
+    clientTimestamp: "2026-09-13T06:00:00.000Z",
+    barangayId: "barangay-a",
+    payload: {
+      disaster_event_id: "event-a",
+      barangay_id: "barangay-a",
+      remarks: null,
+      recorded_by: null,
+    },
+    queueDisplayContext: { disaster_event_title: "Typhoon Test" },
+  };
+  const active = resolveEffectiveMasterlistRows({
+    rows: [row("household-1")],
+    recordStatus: "active",
+    selectedEventId: "event-a",
+    assignedBarangayId: "barangay-a",
+    syncQueueEntries: [runtimeQueueEntry],
+  });
+  const archived = resolveEffectiveMasterlistRows({
+    rows: [row("household-1")],
+    recordStatus: "archived",
+    selectedEventId: "event-a",
+    assignedBarangayId: "barangay-a",
+    syncQueueEntries: [runtimeQueueEntry],
+  });
+
+  assert.equal(active.length, 0);
+  assert.equal(archived.length, 1);
+  assert.equal(archived[0].household_id, "household-1");
+  assert.equal(archived[0].departure_sync_status, "PENDING");
+  assert.equal(archived[0].departure_time_value, runtimeQueueEntry.clientTimestamp);
 });

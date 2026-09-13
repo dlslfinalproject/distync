@@ -306,7 +306,9 @@ const BarangayMasterlistPage = () => {
     (row) => String(row.household_id) === String(pendingDepartureHouseholdId),
   );
   const getDepartureDisasterEventId = (householdId) => {
-    const row = filteredRows.find((candidate) => candidate.household_id === householdId);
+    const row = filteredRows.find(
+      (candidate) => String(candidate.household_id) === String(householdId),
+    );
     return row?.disaster_event?.id || row?.disaster_event_id || "";
   };
   const pendingDepartureDetailsFamilyHeadName = pendingDepartureHouseholdDetails?.household

@@ -246,6 +246,11 @@ export const mapMasterlistRow = (household, households = [], options = {}) => {
     sector_codes: [...new Set(sectorCodes)],
     current_stay_type: household.current_stay_type || null,
     contact_number: household.contact_number || null,
+    disaster_event_id:
+      household.disaster_event?.id ||
+      household.disaster_event_id ||
+      options.disasterEventId ||
+      null,
     barangay: household.barangay || null,
     local_duplicate_profile: buildLocalDuplicateProfile({
       household,
