@@ -421,6 +421,7 @@ test("donation creation reuses one staged inventory item for duplicate names", a
     );
 
     assert.equal(calls.createdInventoryItems.length, 1);
+    assert.equal(calls.createdInventoryItems[0].payload.is_active, undefined);
     assert.deepEqual(
       calls.insertedDonationItems.map((item) => item.inventory_item_id),
       ["inventory-item-1", "inventory-item-1"],
@@ -439,6 +440,21 @@ test("donation creation reuses one staged inventory item for duplicate names", a
     assert.equal(calls.donatedPackAssignmentCalls[0][1], client);
     assert.ok(events.includes("COMMIT"));
     assert.equal(events.includes("ROLLBACK"), false);
+  });
+});
+
+test("donation creation ignores a legacy false parent item activity value", async () => {
+  await withStubbedDonationService({}, async (service, { calls }) => {
+    const payload = buildDonationPayload([buildDonationItemPayload(5)]);
+    payload.items[0].new_inventory_item.is_active = false;
+
+    await service.createDonation(payload, {
+      userId: "user-1",
+      roleCode: "MAYOR",
+    });
+
+    assert.equal(calls.createdInventoryItems.length, 1);
+    assert.equal(calls.createdInventoryItems[0].payload.is_active, undefined);
   });
 });
 
@@ -708,6 +724,50 @@ test("donation validation accepts and normalizes staged inventory definitions", 
     request.validatedBody.items[0].new_inventory_item.skip_opening_stock,
     true,
   );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      request.validatedBody.items[0].new_inventory_item,
+      "is_active",
+    ),
+    false,
+  );
+});
+
+test("donation validation accepts legacy parent activity values without normalizing them", () => {
+  for (const legacyIsActive of [true, false]) {
+    const request = {
+      body: {
+        ...buildDonationPayload([]),
+        disaster_event_id: "00000000-0000-4000-8000-000000000001",
+        items: [
+          {
+            ...buildDonationItemPayload(5),
+            new_inventory_item: buildNewInventoryItem({
+              is_active: legacyIsActive,
+            }),
+          },
+        ],
+      },
+    };
+    let nextCalled = false;
+    const response = {
+      status: () => response,
+      json: () => response,
+    };
+
+    donationValidator.validateDonationPayload(request, response, () => {
+      nextCalled = true;
+    });
+
+    assert.equal(nextCalled, true);
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(
+        request.validatedBody.items[0].new_inventory_item,
+        "is_active",
+      ),
+      false,
+    );
+  }
 });
 
 test("donation validation normalizes an existing-item legacy stock-form barcode without enforcing new-assignment length", () => {

@@ -124,7 +124,10 @@ test("MAYOR-OFFLINE-02 pending stock-in projects with explicit quantity and stab
 });
 
 test("MAYOR-OFFLINE-08 offline new items project opening stock immediately", async () => {
-  const { mergeInventoryItemsWithSyncStatus } = await import(
+  const {
+    buildQueuedInventoryStockForm,
+    mergeInventoryItemsWithSyncStatus,
+  } = await import(
     "../src/features/inventory-items/inventoryItemSync.js"
   );
   const {
@@ -156,7 +159,12 @@ test("MAYOR-OFFLINE-08 offline new items project opening stock immediately", asy
   const [projectedItem] = mergeInventoryItemsWithSyncStatus([], [entry]);
   assert.equal(projectedItem.id, entry.entityLocalId);
   assert.equal(projectedItem.is_local_only, true);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(projectedItem, "is_active"),
+    false,
+  );
   assert.equal(projectedItem.stock_forms[0].barcode, "12345678");
+  assert.equal(buildQueuedInventoryStockForm(entry, projectedItem).is_active, true);
 
   const openingBatch = buildQueuedInventoryItemOpeningBatch(entry, [projectedItem]);
   assert.equal(openingBatch.quantity_received, 50);

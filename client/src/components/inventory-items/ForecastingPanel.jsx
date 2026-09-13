@@ -614,6 +614,16 @@ const getDashboardFromSources = ({
   );
 };
 
+const resolveInventoryItemCount = (summary = {}) => {
+  const canonicalCount = summary?.inventory_item_count;
+
+  return Number(
+    canonicalCount !== undefined && canonicalCount !== null
+      ? canonicalCount
+      : summary?.active_inventory_item_count || 0,
+  );
+};
+
 const getResultRowsFromSources = ({ forecastRunData, forecastHistoryDetails }) => {
   if (forecastHistoryDetails?.results?.length) {
     return forecastHistoryDetails.results;
@@ -1167,6 +1177,10 @@ const ForecastingPanel = ({
   );
 
   const eventSummary = activeDashboard?.summary || {};
+  const hasInventoryItemCount =
+    eventSummary.inventory_item_count !== undefined ||
+    eventSummary.active_inventory_item_count !== undefined;
+  const inventoryItemCount = resolveInventoryItemCount(eventSummary);
   const eventInfo =
     activeDashboard?.disaster_event || forecastContext?.disaster_event || null;
   const recommendationRows = activeDashboard?.recommendations || [];
@@ -1179,7 +1193,10 @@ const ForecastingPanel = ({
     [];
   const hasReadinessWarning = (code) =>
     readinessWarnings.some((warning) => warning?.code === code);
-  const hasNoForecastTargets = hasReadinessWarning("NO_ACTIVE_INVENTORY_ITEMS");
+  const hasNoForecastTargets =
+    hasReadinessWarning("NO_INVENTORY_ITEMS") ||
+    hasReadinessWarning("NO_ACTIVE_INVENTORY_ITEMS") ||
+    (hasInventoryItemCount && inventoryItemCount <= 0);
   const hasNoUnclaimedEligibleFamilies = hasReadinessWarning(
     "NO_UNCLAIMED_ELIGIBLE_FAMILIES",
   );
@@ -1617,7 +1634,7 @@ const ForecastingPanel = ({
             {!resultRows.length ? (
               <p style={{ ...panelStyles.emptyState, marginTop: "14px" }}>
                 {hasNoForecastTargets
-                  ? "No active inventory items are available to forecast."
+                  ? "No inventory items are available to forecast."
                   : hasNoAssignedPackDemand
                     ? "Eligible families exist, but no assigned relief pack item demand is available."
                     : "Run a forecast to identify the highest-priority stock-up items."}
@@ -1765,7 +1782,7 @@ const ForecastingPanel = ({
             {!donorNeedRows.length ? (
               <p style={{ ...panelStyles.emptyState, marginTop: "14px" }}>
                 {hasNoForecastTargets
-                  ? "No donor requests can be prepared because no active inventory items are available."
+                  ? "No donor requests can be prepared because no inventory items are available."
                   : hasNoAssignedPackDemand
                     ? "No donor requests can be prepared from assigned packs until relief pack item demand is configured."
                     : modelHasResults

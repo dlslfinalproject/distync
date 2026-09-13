@@ -1382,16 +1382,17 @@ const resolveDonationInventoryItem = async ({
     return existingInventoryItem;
   }
 
+  const { is_active: _legacyItemIsActive, ...canonicalItemDefinition } =
+    itemDefinition;
   const category = String(itemDefinition.category || "").trim();
   const createdInventoryItem = await inventoryItemService.createInventoryItem(
     {
-      ...itemDefinition,
+      ...canonicalItemDefinition,
       category,
       is_perishable:
         typeof itemDefinition.is_perishable === "boolean"
           ? itemDefinition.is_perishable
           : category.toLowerCase() === "perishable",
-      is_active: true,
       skip_opening_stock: true,
     },
     { userId: performedBy },
