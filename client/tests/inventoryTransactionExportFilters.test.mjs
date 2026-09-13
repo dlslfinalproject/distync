@@ -123,3 +123,44 @@ test("inventory tracking summaries use filtered movement rows and scoped stock h
   assert.match(summaryBlock, /summaryScopedItems\.filter\(/);
   assert.match(summaryBlock, /summaryTrackingMap\.get\(/);
 });
+
+test("inventory tracking local filters cover batch search, date validation, reset, and labels", async () => {
+  const source = await fs.readFile(
+    path.join(clientRoot, "src/pages/inventory/InventoryTransactionsPage.jsx"),
+    "utf8",
+  );
+  const searchStart = source.indexOf("const searchableFields = [");
+  const labelStart = source.indexOf("const getTransactionTypeLabel = (row) => {");
+
+  assert.notEqual(searchStart, -1);
+  assert.match(source.slice(searchStart, searchStart + 700), /row\.batch_no/);
+  assert.match(source, /const DATE_RANGE_ERROR_MESSAGE =/);
+  assert.match(source, /if \(hasInvalidDateRange\) \{\s*return \[\];/);
+  assert.match(source, /T23:59:59\.999/);
+  assert.match(source, /id="tracking-date-range-error"/);
+  assert.match(source, /setFilters\(\{ \.\.\.EMPTY_TRANSACTION_FILTERS \}\)/);
+  assert.match(source, /onClick=\{handleClearAllFilters\}/);
+  assert.match(source, /\{ value: "Donated", label: "Donated" \}/);
+  assert.doesNotMatch(source, /helper=/);
+
+  assert.notEqual(labelStart, -1);
+  const labelBlock = source.slice(labelStart, labelStart + 750);
+  assert.match(labelBlock, /sourceLabel === "DONORS"/);
+  assert.match(labelBlock, /referenceType === "DONATED"/);
+});
+
+test("inventory tracking stock cards scope current health to active result rows", async () => {
+  const source = await fs.readFile(
+    path.join(clientRoot, "src/pages/inventory/InventoryTransactionsPage.jsx"),
+    "utf8",
+  );
+
+  assert.match(source, /const hasActiveDataFilters = Boolean\(/);
+  assert.match(source, /const summaryResultScope = useMemo\(\(\) => \{/);
+  assert.match(source, /displayedRows\.forEach\(\(row\) => \{/);
+  assert.match(source, /summaryResultScope\.batchIds\.size/);
+  assert.match(source, /return buildInventoryTrackingMap\(/);
+  assert.match(source, /!isDateExpired\(trackedExpirationDate\)/);
+  assert.match(source, /isItemExpiring\(trackedExpirationDate\)/);
+  assert.match(source, /onHand > 0/);
+});

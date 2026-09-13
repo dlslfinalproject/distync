@@ -19,6 +19,7 @@ import { fetchInventoryBatches } from "../../features/inventory-batches/inventor
 import {
   buildInventoryTrackingMap,
   getTrackedExpirationDate,
+  isItemExpiring,
   isDateExpired,
 } from "../../features/inventory-items/inventoryItemStockStatus";
 import db from "../../offline/db.js";
@@ -105,13 +106,6 @@ const summaryValueStyles = {
   fontSize: "34px",
   fontWeight: 800,
   lineHeight: 1,
-};
-
-const summaryHelperStyles = {
-  margin: "12px 0 0",
-  color: "#60738a",
-  fontSize: "14px",
-  lineHeight: 1.6,
 };
 
 const sectionTitleStyles = {
@@ -251,10 +245,28 @@ const outflowTransactionTypes = new Set([
   "OTHER",
 ]);
 
+const EMPTY_TRANSACTION_FILTERS = {
+  inventory_item_id: "",
+  inventory_batch_id: "",
+  transaction_type: "",
+  date_from: "",
+  date_to: "",
+  source: "",
+};
+
+const DEFAULT_TRANSACTION_TOOLBAR_STATE = {
+  search: "",
+  movement: "",
+  sortOrder: "newest",
+  stockForms: [],
+};
+
+const DATE_RANGE_ERROR_MESSAGE = "Date From must be on or before Date To.";
+
 const transactionTypeFilterOptions = [
   { value: "", label: "All transaction types" },
   { value: "Stock-Up", label: "Stock-Up" },
-  { value: "Donated", label: "Donation" },
+  { value: "Donated", label: "Donated" },
   { value: "Donation Adjustment", label: "Donation Adjustment" },
   { value: "Distributed", label: "Distributed" },
   { value: "Damaged", label: "Damaged" },
@@ -414,10 +426,12 @@ const getBatchSourceDetails = (batch, fallback = "--") => {
 };
 
 const getSourceLabel = (transaction, batch) => {
+  const referenceType = String(transaction?.reference_type || "").toUpperCase();
+
   if (
-    transaction.reference_type === "DONATION" ||
+    referenceType === "DONATION" ||
     transaction.donation?.donor_name ||
-    batch?.source_type === "DONATED"
+    String(batch?.source_type || "").toUpperCase() === "DONATED"
   ) {
     return "Donors";
   }
@@ -426,10 +440,12 @@ const getSourceLabel = (transaction, batch) => {
 };
 
 const getSourceDetails = (transaction, batch) => {
+  const referenceType = String(transaction?.reference_type || "").toUpperCase();
+
   if (
-    transaction.reference_type === "DONATION" ||
+    referenceType === "DONATION" ||
     transaction.donation?.donor_name ||
-    batch?.source_type === "DONATED"
+    String(batch?.source_type || "").toUpperCase() === "DONATED"
   ) {
     return (
       transaction.donation?.donor_name ||
@@ -491,7 +507,12 @@ const getTransactionTypeLabel = (row) => {
   }
 
   if (transactionDirection === "INFLOW") {
-    if (sourceLabel === "DONATION" || referenceType === "DONATION") {
+    if (
+      sourceLabel === "DONATION" ||
+      sourceLabel === "DONORS" ||
+      referenceType === "DONATION" ||
+      referenceType === "DONATED"
+    ) {
       return "Donated";
     }
 
@@ -558,7 +579,9 @@ const matchesSearch = (row, searchValue) => {
 
   const searchableFields = [
     row.id,
+    row.batch_no,
     row.transaction_type,
+    row.transaction_type_label,
     row.other_status,
     row.transaction_direction,
     row.inventory_item?.item_name,
@@ -566,6 +589,8 @@ const matchesSearch = (row, searchValue) => {
     row.inventory_transaction_reference_no,
     row.source_label,
     row.source_details,
+    row.stock_form_label,
+    row.performed_by_label,
     row.remarks,
   ];
 
@@ -574,25 +599,17 @@ const matchesSearch = (row, searchValue) => {
   );
 };
 
-const SummaryCard = ({ label, value, helper }) => (
+const SummaryCard = ({ label, value }) => (
   <article style={summaryCardStyles}>
     <p style={summaryEyebrowStyles}>{label}</p>
     <p style={summaryValueStyles}>{value}</p>
-    {helper ? <p style={summaryHelperStyles}>{helper}</p> : null}
   </article>
 );
 
 const InventoryTransactionsPage = () => {
   const { currentRole } = useAuth();
   const isMayorPortal = currentRole === ROLE_CODES.MAYOR;
-  const [filters, setFilters] = useState({
-    inventory_item_id: "",
-    inventory_batch_id: "",
-    transaction_type: "",
-    date_from: "",
-    date_to: "",
-    source: "",
-  });
+  const [filters, setFilters] = useState(() => ({ ...EMPTY_TRANSACTION_FILTERS }));
   const [inventoryTransactions, setInventoryTransactions] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryBatches, setInventoryBatches] = useState([]);
@@ -609,13 +626,16 @@ const InventoryTransactionsPage = () => {
     message: "",
   });
   const [selectedTransactionDetail, setSelectedTransactionDetail] = useState(null);
-  const [toolbarState, setToolbarState] = useState({
-    search: "",
-    movement: "",
-    sortOrder: "newest",
+  const [toolbarState, setToolbarState] = useState(() => ({
+    ...DEFAULT_TRANSACTION_TOOLBAR_STATE,
     stockForms: [],
-  });
+  }));
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const hasInvalidDateRange = Boolean(
+    filters.date_from &&
+      filters.date_to &&
+      filters.date_from > filters.date_to,
+  );
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
   const refreshGateRef = useRef(null);
@@ -930,6 +950,10 @@ const InventoryTransactionsPage = () => {
   ]);
 
   const displayedRows = useMemo(() => {
+    if (hasInvalidDateRange) {
+      return [];
+    }
+
     const filteredRows = mergedTransactionRows.filter((row) => {
       if (
         filters.inventory_item_id &&
@@ -963,7 +987,7 @@ const InventoryTransactionsPage = () => {
 
       if (filters.date_to) {
         const rowDate = new Date(row.performed_at || "");
-        const toDate = new Date(`${filters.date_to}T23:59:59`);
+        const toDate = new Date(`${filters.date_to}T23:59:59.999`);
 
         if (Number.isNaN(rowDate.getTime()) || rowDate > toDate) {
           return false;
@@ -1034,6 +1058,7 @@ const InventoryTransactionsPage = () => {
     filters.inventory_item_id,
     filters.source,
     filters.transaction_type,
+    hasInvalidDateRange,
     mergedTransactionRows,
     toolbarState.movement,
     toolbarState.search,
@@ -1041,75 +1066,91 @@ const InventoryTransactionsPage = () => {
     toolbarState.stockForms,
   ]);
 
+  const hasActiveDataFilters = Boolean(
+    Object.values(filters).some(Boolean) ||
+      toolbarState.search.trim() ||
+      toolbarState.movement ||
+      toolbarState.stockForms.length > 0,
+  );
+
+  const summaryResultScope = useMemo(() => {
+    if (!hasActiveDataFilters) {
+      return null;
+    }
+
+    const itemIds = new Set();
+    const batchIds = new Set();
+
+    displayedRows.forEach((row) => {
+      const linkedBatch = batchById.get(row.inventory_batch_id);
+      const itemId =
+        row.inventory_item?.id ||
+        row.inventory_item_id ||
+        row.inventory_batch?.inventory_item_id ||
+        linkedBatch?.inventory_item?.id;
+      const batchId = row.inventory_batch_id || row.inventory_batch?.id;
+
+      if (itemId) {
+        itemIds.add(String(itemId));
+      }
+
+      if (batchId) {
+        batchIds.add(String(batchId));
+      }
+    });
+
+    return { itemIds, batchIds };
+  }, [batchById, displayedRows, hasActiveDataFilters]);
+
   const summaryScopedBatches = useMemo(() => {
+    if (!summaryResultScope) {
+      return inventoryBatchesForDisplay;
+    }
+
     return inventoryBatchesForDisplay.filter((batch) => {
+      const batchId = String(batch.id || "");
+
+      if (summaryResultScope.batchIds.size > 0) {
+        return summaryResultScope.batchIds.has(batchId);
+      }
+
       const batchItemId = String(
         batch.inventory_item_id || batch.inventory_item?.id || "",
       );
 
-      if (
-        filters.inventory_item_id &&
-        batchItemId !== String(filters.inventory_item_id)
-      ) {
-        return false;
-      }
-
-      if (
-        filters.inventory_batch_id &&
-        String(batch.id || "") !== String(filters.inventory_batch_id)
-      ) {
-        return false;
-      }
-
-      if (filters.source && getBatchSourceLabel(batch) !== filters.source) {
-        return false;
-      }
-
-      return true;
+      return summaryResultScope.itemIds.has(batchItemId);
     });
-  }, [
-    filters.inventory_batch_id,
-    filters.inventory_item_id,
-    filters.source,
-    inventoryBatchesForDisplay,
-  ]);
+  }, [inventoryBatchesForDisplay, summaryResultScope]);
 
   const summaryScopedItemIds = useMemo(() => {
-    return new Set(
-      summaryScopedBatches
+    return new Set([
+      ...(summaryResultScope?.itemIds || []),
+      ...summaryScopedBatches
         .map((batch) => batch.inventory_item_id || batch.inventory_item?.id)
         .filter(Boolean)
         .map((itemId) => String(itemId)),
-    );
-  }, [summaryScopedBatches]);
+    ]);
+  }, [summaryResultScope, summaryScopedBatches]);
 
   const summaryScopedItems = useMemo(() => {
-    const hasBatchOrSourceScope = Boolean(
-      filters.inventory_batch_id || filters.source,
+    if (!summaryResultScope) {
+      return inventoryItems;
+    }
+
+    return inventoryItems.filter((item) =>
+      summaryScopedItemIds.has(String(item.id || "")),
     );
-
-    return inventoryItems.filter((item) => {
-      const itemId = String(item.id || "");
-
-      if (hasBatchOrSourceScope) {
-        return summaryScopedItemIds.has(itemId);
-      }
-
-      if (filters.inventory_item_id) {
-        return itemId === String(filters.inventory_item_id);
-      }
-
-      return true;
-    });
-  }, [
-    filters.inventory_batch_id,
-    filters.inventory_item_id,
-    filters.source,
-    inventoryItems,
-    summaryScopedItemIds,
-  ]);
+  }, [inventoryItems, summaryResultScope, summaryScopedItemIds]);
 
   const summaryScopedTransactions = useMemo(() => {
+    if (!summaryResultScope) {
+      return inventoryTransactionsWithSyncStatus;
+    }
+
+    const scopedBatchIds = new Set(
+      summaryScopedBatches.map((batch) => String(batch.id || "")),
+    );
+
     return inventoryTransactionsWithSyncStatus.filter((transaction) => {
       const linkedBatch =
         batchById.get(transaction.inventory_batch_id) ||
@@ -1122,33 +1163,20 @@ const InventoryTransactionsPage = () => {
           "",
       );
 
-      if (
-        filters.inventory_batch_id &&
-        String(transaction.inventory_batch_id || "") !==
-          String(filters.inventory_batch_id)
-      ) {
-        return false;
+      const transactionBatchId = String(transaction.inventory_batch_id || "");
+
+      if (scopedBatchIds.size > 0 && transactionBatchId) {
+        return scopedBatchIds.has(transactionBatchId);
       }
 
-      if (
-        filters.inventory_item_id &&
-        transactionItemId !== String(filters.inventory_item_id)
-      ) {
-        return false;
-      }
-
-      if (filters.source && getSourceLabel(transaction, linkedBatch) !== filters.source) {
-        return false;
-      }
-
-      return true;
+      return summaryScopedItemIds.has(transactionItemId);
     });
   }, [
     batchById,
-    filters.inventory_batch_id,
-    filters.inventory_item_id,
-    filters.source,
     inventoryTransactionsWithSyncStatus,
+    summaryResultScope,
+    summaryScopedBatches,
+    summaryScopedItemIds,
   ]);
 
   const stockFormOptions = useMemo(() => {
@@ -1159,7 +1187,10 @@ const InventoryTransactionsPage = () => {
     )].sort((left, right) => left.localeCompare(right));
   }, [mergedTransactionRows]);
 
-  const activeToolbarFilterCount =
+  const activeFilterCount =
+    Object.values(filters).filter(Boolean).length +
+    (toolbarState.search.trim() ? 1 : 0) +
+    (toolbarState.movement ? 1 : 0) +
     toolbarState.stockForms.length +
     (toolbarState.sortOrder !== "newest" ? 1 : 0);
 
@@ -1211,37 +1242,22 @@ const InventoryTransactionsPage = () => {
       const trackingStats = summaryTrackingMap.get(item.id);
       const trackedExpirationDate = getTrackedExpirationDate(item, trackingStats);
 
-      if (!trackedExpirationDate) {
-        return false;
-      }
-
-      const expirationDate = new Date(trackedExpirationDate);
-      const today = new Date();
-      const todayDateOnly = new Date(
-        today.getFullYear(),
-        today.getMonth(),
-        today.getDate(),
+      return Boolean(
+        trackedExpirationDate &&
+          !isDateExpired(trackedExpirationDate) &&
+          isItemExpiring(trackedExpirationDate),
       );
-
-      if (Number.isNaN(expirationDate.getTime()) || expirationDate < todayDateOnly) {
-        return false;
-      }
-
-      const daysUntilExpiry =
-        (expirationDate.getTime() - todayDateOnly.getTime()) /
-        (1000 * 60 * 60 * 24);
-
-      return daysUntilExpiry <= 30;
     }).length;
 
     const expiredItems = summaryScopedItems.filter((item) => {
       const trackingStats = summaryTrackingMap.get(item.id);
       const trackedExpirationDate = getTrackedExpirationDate(item, trackingStats);
+      const onHand = normalizeQuantity(trackingStats?.onHand || 0);
 
       return (
-        normalizeQuantity(trackingStats?.expired || 0) > 0 ||
-        normalizeQuantity(trackingStats?.expiredOnHand || 0) > 0 ||
-        isDateExpired(trackedExpirationDate)
+        onHand > 0 &&
+        (normalizeQuantity(trackingStats?.expiredOnHand || 0) > 0 ||
+          isDateExpired(trackedExpirationDate))
       );
     }).length;
 
@@ -1262,6 +1278,14 @@ const InventoryTransactionsPage = () => {
   const handleExport = async (format) => {
     setErrorMessage("");
     setIsExportModalOpen(false);
+
+    if (hasInvalidDateRange) {
+      setExportFeedback({
+        type: "error",
+        message: DATE_RANGE_ERROR_MESSAGE,
+      });
+      return;
+    }
 
     if (displayedRows.length === 0) {
       setExportFeedback({
@@ -1344,12 +1368,13 @@ const InventoryTransactionsPage = () => {
     });
   };
 
-  const handleClearToolbarFilters = () => {
-    setToolbarState((currentValue) => ({
-      ...currentValue,
-      sortOrder: "newest",
+  const handleClearAllFilters = () => {
+    setFilters({ ...EMPTY_TRANSACTION_FILTERS });
+    setToolbarState({
+      ...DEFAULT_TRANSACTION_TOOLBAR_STATE,
       stockForms: [],
-    }));
+    });
+    setIsFilterOpen(false);
   };
 
   return (
@@ -1441,6 +1466,10 @@ const InventoryTransactionsPage = () => {
                 id="tracking-date-from"
                 type="date"
                 value={filters.date_from}
+                aria-invalid={hasInvalidDateRange}
+                aria-describedby={
+                  hasInvalidDateRange ? "tracking-date-range-error" : undefined
+                }
                 onChange={(event) =>
                   handleFilterChange("date_from", event.target.value)
                 }
@@ -1456,6 +1485,10 @@ const InventoryTransactionsPage = () => {
                 id="tracking-date-to"
                 type="date"
                 value={filters.date_to}
+                aria-invalid={hasInvalidDateRange}
+                aria-describedby={
+                  hasInvalidDateRange ? "tracking-date-range-error" : undefined
+                }
                 onChange={(event) =>
                   handleFilterChange("date_to", event.target.value)
                 }
@@ -1481,6 +1514,45 @@ const InventoryTransactionsPage = () => {
               </select>
             </div>
           </div>
+
+          {hasInvalidDateRange ? (
+            <p
+              id="tracking-date-range-error"
+              role="alert"
+              style={{
+                margin: "12px 0 0",
+                padding: "10px 12px",
+                borderRadius: "10px",
+                backgroundColor: "#fff5f5",
+                color: "#b42318",
+                fontSize: "13px",
+                lineHeight: 1.45,
+              }}
+            >
+              {DATE_RANGE_ERROR_MESSAGE}
+            </p>
+          ) : null}
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              marginTop: "16px",
+            }}
+          >
+            <button
+              type="button"
+              onClick={handleClearAllFilters}
+              disabled={activeFilterCount === 0}
+              style={{
+                ...filterPanelStyles.clearAction,
+                opacity: activeFilterCount === 0 ? 0.5 : 1,
+                cursor: activeFilterCount === 0 ? "not-allowed" : "pointer",
+              }}
+            >
+              Clear filters
+            </button>
+          </div>
       </section>
 
       <section
@@ -1491,32 +1563,26 @@ const InventoryTransactionsPage = () => {
         <SummaryCard
           label="Total Inflow"
           value={summaryMetrics.totalInflow}
-          helper="Matches the active table filters"
         />
         <SummaryCard
           label="Total Outflow"
           value={summaryMetrics.totalOutflow}
-          helper="Matches the active table filters"
         />
         <SummaryCard
           label="Total Write-Off"
           value={summaryMetrics.totalWriteOff}
-          helper="Matches the active table filters"
         />
         <SummaryCard
           label="Near Expiry"
           value={summaryMetrics.nearExpiryItems}
-          helper="Current stock; item, batch, and source filters apply"
         />
         <SummaryCard
           label="Expired"
           value={summaryMetrics.expiredItems}
-          helper="Current stock; item, batch, and source filters apply"
         />
         <SummaryCard
           label="Low Stock Alerts"
           value={summaryMetrics.lowStockItems}
-          helper="Current stock; item, batch, and source filters apply"
         />
         </div>
       </section>
@@ -1571,8 +1637,8 @@ const InventoryTransactionsPage = () => {
                   {...triggerProps}
                 >
                   <FiFilter size={16} />
-                  {activeToolbarFilterCount > 0
-                    ? `Filter (${activeToolbarFilterCount})`
+                  {activeFilterCount > 0
+                    ? `Filter (${activeFilterCount})`
                     : "Filter"}
                 </button>
               )}
@@ -1621,10 +1687,10 @@ const InventoryTransactionsPage = () => {
                 <div style={filterPanelStyles.actions}>
                   <button
                     type="button"
-                    onClick={handleClearToolbarFilters}
+                    onClick={handleClearAllFilters}
                     style={filterPanelStyles.clearAction}
                   >
-                    Clear
+                    Clear all filters
                   </button>
                 </div>
             </ResponsiveFilterPopover>

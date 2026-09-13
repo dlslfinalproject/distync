@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { test } = require("node:test");
 
 const validator = require("../src/validators/inventoryTransaction.validator");
@@ -127,9 +129,30 @@ test("inventory transaction repository applies the export filter contract", asyn
   ]);
   assert.match(calls[0].query, /it\.transaction_type = ANY\(\$3::text\[\]\)/);
   assert.match(calls[0].query, /it\.transaction_type = ANY\(\$4::text\[\]\)/);
+  assert.match(
+    calls[0].query,
+    /ib\.source_type = 'DONATED' OR it\.reference_type = 'DONATION'/,
+  );
   assert.match(calls[0].query, /ib\.source_type = 'DONATED'/);
   assert.match(calls[0].query, /it\.performed_at::date >= \$5::date/);
   assert.match(calls[0].query, /it\.performed_at::date <= \$6::date/);
   assert.match(calls[0].query, /stock_forms\.packaging = ANY\(\$7::text\[\]\)/);
+  assert.match(calls[0].query, /CONCAT_WS\(' ', u\.first_name, u\.last_name\)/);
   assert.match(calls[0].query, /it\.id::text ILIKE \$8/);
+});
+
+test("inventory transaction labels keep donated batches out of stock-up", () => {
+  const repositorySource = fs.readFileSync(
+    path.join(__dirname, "../src/repositories/inventoryTransaction.repository.js"),
+    "utf8",
+  );
+
+  assert.match(
+    repositorySource,
+    /"Stock-Up": `\([\s\S]*?ib\.source_type IS DISTINCT FROM 'DONATED'/,
+  );
+  assert.match(
+    repositorySource,
+    /Donated: `\([\s\S]*?ib\.source_type = 'DONATED' OR it\.reference_type = 'DONATION'/,
+  );
 });
