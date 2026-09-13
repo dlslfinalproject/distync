@@ -286,6 +286,7 @@ const DonationFilters = ({
         >
           <div
             className="mayor-donation-management-toolbar"
+            data-toolbar-tab="donations"
             style={toolbarStyles.row}
           >
             <div
@@ -402,6 +403,7 @@ const DonationFilters = ({
                 {canManageDonations ? (
                   <button
                     type="button"
+                    className="mayor-donation-management-add-button"
                     onClick={onOpenDonationModal}
                     style={pageHeaderStyles.primaryButton}
                   >
@@ -438,6 +440,7 @@ const DonationFilters = ({
                 {canManageDonations ? (
                   <button
                     type="button"
+                    className="mayor-donation-management-export-button"
                     onClick={onExportDonations}
                     style={pageHeaderStyles.secondaryButton}
                   >
@@ -459,7 +462,11 @@ const DonationFilters = ({
             gap: "16px",
           }}
         >
-          <div className="mayor-donation-management-toolbar" style={toolbarStyles.row}>
+          <div
+            className="mayor-donation-management-toolbar"
+            data-toolbar-tab="transparency"
+            style={toolbarStyles.row}
+          >
             <div
               className="mayor-donation-management-search-wrap"
               style={toolbarStyles.searchWrap}
@@ -560,6 +567,7 @@ const DonationFilters = ({
                 {canManageDonations ? (
                   <button
                     type="button"
+                    className="mayor-donation-management-export-button"
                     onClick={onOpenTransparencyExport}
                     style={pageHeaderStyles.secondaryButton}
                     disabled={Boolean(isExportingTransparency)}

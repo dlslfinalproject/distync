@@ -3182,3 +3182,230 @@ img {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 }
+
+/* Mayor dashboard toolbar layout: keep primary controls usable on small screens. */
+@media (max-width: 768px) {
+  .inventory-items-page-top-actions .inventory-items-actions-row {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    width: 100% !important;
+  }
+
+  .inventory-items-management-toolbar {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    width: 100% !important;
+  }
+
+  .inventory-items-management-toolbar > .inventory-items-filter-controls,
+  .inventory-items-management-toolbar > .inventory-items-actions-row {
+    display: contents !important;
+  }
+
+  .inventory-items-management-toolbar .inventory-items-search-wrap,
+  .inventory-items-management-toolbar .inventory-items-category-filter {
+    grid-column: 1 / -1;
+    width: 100% !important;
+    min-width: 0;
+  }
+
+  .inventory-items-management-toolbar .inventory-items-filter-button-wrap {
+    grid-column: 1;
+    width: 100% !important;
+    min-width: 0;
+  }
+
+  .inventory-items-management-toolbar > .inventory-items-actions-row button {
+    grid-column: 2;
+    width: 100% !important;
+    min-width: 0;
+    justify-content: center;
+  }
+
+  .mayor-inventory-batches-toolbar,
+  .mayor-relief-pack-toolbar,
+  .mayor-donation-management-toolbar,
+  .inventory-distribution-toolbar,
+  .inventory-tracking-toolbar,
+  .mayor-anomaly-toolbar {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: stretch !important;
+    width: 100% !important;
+  }
+
+  .mayor-inventory-batches-filter-controls,
+  .mayor-relief-pack-toolbar-controls,
+  .mayor-donation-management-toolbar-controls,
+  .inventory-distribution-toolbar-controls,
+  .mayor-anomaly-toolbar-controls {
+    display: contents !important;
+  }
+
+  .mayor-inventory-batches-search-wrap,
+  .mayor-relief-pack-search-wrap,
+  .mayor-donation-management-search-wrap,
+  .inventory-distribution-search-wrap,
+  .inventory-tracking-search-wrap,
+  .mayor-anomaly-toolbar-search,
+  .sync-center-toolbar__search {
+    grid-column: 1 / -1;
+    width: 100% !important;
+    min-width: 0;
+  }
+
+  .mayor-inventory-batches-filter-field,
+  .inventory-distribution-status-filter,
+  .inventory-tracking-movement-filter,
+  .mayor-donation-management-type-filter,
+  .mayor-anomaly-toolbar-controls > div:first-child {
+    grid-column: 1 / -1;
+    width: 100% !important;
+    min-width: 0;
+  }
+
+  .mayor-inventory-batches-filter-field,
+  .inventory-distribution-status-filter,
+  .inventory-tracking-movement-filter,
+  .mayor-donation-management-type-filter,
+  .mayor-anomaly-toolbar-controls > div:first-child {
+    justify-content: space-between;
+  }
+
+  .mayor-inventory-batches-action-group,
+  .mayor-relief-pack-action-group,
+  .mayor-donation-management-action-group {
+    display: contents !important;
+  }
+
+  .mayor-inventory-batches-apply-button,
+  .mayor-inventory-batches-action-group > div,
+  .mayor-relief-pack-filter-button-wrap,
+  .mayor-relief-pack-action-group button,
+  .mayor-donation-management-filter-button-wrap,
+  .mayor-donation-management-export-button,
+  .mayor-donation-management-add-button,
+  .inventory-distribution-filter-button-wrap,
+  .inventory-distribution-export-button,
+  .inventory-tracking-filter-button-wrap,
+  .inventory-tracking-export-button,
+  .mayor-anomaly-toolbar-controls > div:nth-child(2) {
+    width: 100% !important;
+    min-width: 0;
+  }
+
+  .mayor-inventory-batches-apply-button,
+  .mayor-inventory-batches-action-group > div,
+  .inventory-distribution-filter-button-wrap,
+  .inventory-tracking-filter-button-wrap,
+  .mayor-donation-management-filter-button-wrap,
+  .mayor-donation-management-export-button,
+  .mayor-donation-management-add-button,
+  .mayor-relief-pack-filter-button-wrap,
+  .mayor-relief-pack-action-group,
+  .inventory-distribution-export-button,
+  .inventory-tracking-export-button,
+  .mayor-anomaly-toolbar-controls > div:nth-child(2) {
+    justify-content: center;
+  }
+
+  .mayor-inventory-batches-apply-button {
+    grid-column: 1;
+  }
+
+  .mayor-inventory-batches-action-group > div {
+    grid-column: 2;
+  }
+
+  .mayor-relief-pack-filter-button-wrap {
+    grid-column: 1;
+  }
+
+  .mayor-relief-pack-action-group {
+    grid-column: 2;
+  }
+
+  .mayor-relief-pack-toolbar[data-active-tab="relief-packs"]
+    .mayor-relief-pack-action-group button {
+    grid-column: 1 / -1;
+  }
+
+  .mayor-donation-management-toolbar[data-toolbar-tab="transparency"]
+    .mayor-donation-management-filter-button-wrap {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .mayor-donation-management-toolbar[data-toolbar-tab="transparency"]
+    .mayor-donation-management-export-button {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .mayor-donation-management-toolbar[data-toolbar-tab="donations"]
+    .mayor-donation-management-type-filter {
+    grid-row: 2;
+  }
+
+  .mayor-donation-management-toolbar[data-toolbar-tab="donations"]
+    .mayor-donation-management-filter-button-wrap {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .mayor-donation-management-toolbar[data-toolbar-tab="donations"]
+    .mayor-donation-management-export-button {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .mayor-donation-management-toolbar[data-toolbar-tab="donations"]
+    .mayor-donation-management-add-button {
+    grid-column: 1 / -1;
+    grid-row: 4;
+  }
+
+  .mayor-relief-pack-filter-button-wrap button,
+  .mayor-relief-pack-action-group button,
+  .mayor-donation-management-filter-button-wrap button,
+  .mayor-donation-management-action-group button,
+  .inventory-distribution-filter-button-wrap button,
+  .inventory-tracking-filter-button-wrap button,
+  .mayor-anomaly-toolbar-controls > div:nth-child(2) button {
+    width: 100% !important;
+    justify-content: center;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .inventory-distribution-status-filter select,
+  .inventory-tracking-movement-filter select,
+  .mayor-donation-management-type-filter select,
+  .mayor-anomaly-toolbar-controls > div:first-child select {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .mayor-anomaly-toolbar-controls > div:nth-child(2) {
+    grid-column: 1 / -1;
+  }
+
+  .sync-center-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .sync-center-toolbar__filter {
+    grid-column: 1;
+    width: 100%;
+  }
+
+  .sync-center-toolbar__retry {
+    grid-column: 2;
+    width: 100%;
+  }
+
+  .sync-center-toolbar__filter > button {
+    width: 100%;
+    justify-content: center;
+  }
+}

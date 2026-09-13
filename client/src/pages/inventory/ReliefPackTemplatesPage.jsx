@@ -2943,6 +2943,7 @@ const ReliefPackTemplatesPage = () => {
 
       <div
         className="mayor-relief-pack-toolbar"
+        data-active-tab={activeTab}
         style={reliefPackPageStyles.customizationToolbar}
       >
         <div

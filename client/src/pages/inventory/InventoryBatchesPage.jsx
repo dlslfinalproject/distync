@@ -799,8 +799,9 @@ const InventoryBatchesPage = () => {
         ]}
       />
 
-      <section style={shellStyles.card}>
+      <section className="mayor-inventory-batches-filter-card" style={shellStyles.card}>
         <div
+          className="mayor-inventory-batches-toolbar"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -810,6 +811,7 @@ const InventoryBatchesPage = () => {
           }}
         >
           <div
+            className="mayor-inventory-batches-filter-controls"
             style={{
               display: "flex",
               gap: "12px",
@@ -817,13 +819,16 @@ const InventoryBatchesPage = () => {
               flex: "1 1 900px",
             }}
           >
-            <SearchBar
-              value={filters.search}
-              onChange={(value) => handleFilterChange("search", value)}
-              placeholder="Search batch no, storage location, item name, or item code"
-            />
+            <div className="mayor-inventory-batches-search-wrap">
+              <SearchBar
+                value={filters.search}
+                onChange={(value) => handleFilterChange("search", value)}
+                placeholder="Search batch no, storage location, item name, or item code"
+              />
+            </div>
 
             <select
+              className="mayor-inventory-batches-filter-field"
               value={filters.inventory_item_id}
               onChange={(event) =>
                 handleFilterChange("inventory_item_id", event.target.value)
@@ -839,6 +844,7 @@ const InventoryBatchesPage = () => {
             </select>
 
             <select
+              className="mayor-inventory-batches-filter-field"
               value={filters.source_type}
               onChange={(event) =>
                 handleFilterChange("source_type", event.target.value)
@@ -854,6 +860,7 @@ const InventoryBatchesPage = () => {
             </select>
 
             <select
+              className="mayor-inventory-batches-filter-field"
               value={filters.status}
               onChange={(event) => handleFilterChange("status", event.target.value)}
               style={selectStyles}
@@ -867,8 +874,12 @@ const InventoryBatchesPage = () => {
             </select>
           </div>
 
-          <div style={{ display: "flex", gap: "12px", position: "relative" }}>
+          <div
+            className="mayor-inventory-batches-action-group"
+            style={{ display: "flex", gap: "12px", position: "relative" }}
+          >
             <button
+              className="mayor-inventory-batches-apply-button"
               type="button"
               onClick={handleApplyFilters}
               style={{
@@ -888,6 +899,7 @@ const InventoryBatchesPage = () => {
 
             <div style={{ position: "relative" }}>
               <button
+                className="mayor-inventory-batches-export-button"
                 type="button"
                 onClick={() => {
                   setSelectedExportFormat("csv");

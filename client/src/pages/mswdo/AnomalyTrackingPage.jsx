@@ -1570,8 +1570,14 @@ const AnomalyTrackingPage = ({
         ) : null}
       </section>
 
-      <div style={pageSpacingStyles.toolbar}>
-        <div style={{ position: "relative", flex: "1 1 420px", minWidth: "260px" }}>
+      <div
+        className={isMayorScope ? "mayor-anomaly-toolbar" : undefined}
+        style={pageSpacingStyles.toolbar}
+      >
+        <div
+          className={isMayorScope ? "mayor-anomaly-toolbar-search" : undefined}
+          style={{ position: "relative", flex: "1 1 420px", minWidth: "260px" }}
+        >
           <FiSearch
             size={18}
             style={{
@@ -1603,7 +1609,10 @@ const AnomalyTrackingPage = ({
           />
         </div>
 
-        <div style={pageSpacingStyles.actionGroup}>
+        <div
+          className={isMayorScope ? "mayor-anomaly-toolbar-controls" : undefined}
+          style={pageSpacingStyles.actionGroup}
+        >
           <div
             style={{
               display: "flex",
