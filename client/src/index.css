@@ -361,9 +361,19 @@ body {
 .inventory-tracking-export-modal,
 .inventory-tracking-export-section,
 .inventory-tracking-export-grid,
+.inventory-tracking-export-field,
 .inventory-tracking-export-packaging-grid,
+.inventory-tracking-export-selection-actions,
 .inventory-tracking-export-actions {
   min-width: 0;
+}
+
+.inventory-tracking-export-field--half {
+  grid-column: span 3;
+}
+
+.inventory-tracking-export-field--third {
+  grid-column: span 2;
 }
 
 .inventory-tracking-toolbar {
@@ -1253,6 +1263,11 @@ body {
   .inventory-tracking-export-grid,
   .inventory-tracking-export-packaging-grid {
     grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .inventory-tracking-export-field--half,
+  .inventory-tracking-export-field--third {
+    grid-column: 1 / -1 !important;
   }
 
   .inventory-tracking-export-section {

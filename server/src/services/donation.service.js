@@ -3378,7 +3378,12 @@ const exportReceivedDonationsReport = async (filters = {}, format) => {
   });
 };
 
-const formatDonationEventDetails = (breakdown, unitOfMeasure, prefix) => {
+const formatDonationEventDetails = (
+  breakdown,
+  unitOfMeasure,
+  prefix,
+  emptyLabel,
+) => {
   let normalizedBreakdown = breakdown;
 
   if (typeof normalizedBreakdown === "string") {
@@ -3390,12 +3395,19 @@ const formatDonationEventDetails = (breakdown, unitOfMeasure, prefix) => {
   }
 
   if (!Array.isArray(normalizedBreakdown) || normalizedBreakdown.length === 0) {
-    return "--";
+    return emptyLabel;
   }
 
   const normalizedUnit = String(unitOfMeasure || "").trim();
+  const movementRows = normalizedBreakdown.filter(
+    (eventRow) => Number(eventRow?.quantity || 0) > 0,
+  );
 
-  return normalizedBreakdown
+  if (movementRows.length === 0) {
+    return emptyLabel;
+  }
+
+  return movementRows
     .map((eventRow) => {
       const eventTitle = String(
         eventRow?.event_title || "Unassigned disaster event",
@@ -3408,10 +3420,20 @@ const formatDonationEventDetails = (breakdown, unitOfMeasure, prefix) => {
 };
 
 const formatDistributionEventDetails = (breakdown, unitOfMeasure) =>
-  formatDonationEventDetails(breakdown, unitOfMeasure, "To");
+  formatDonationEventDetails(
+    breakdown,
+    unitOfMeasure,
+    "To",
+    "No distributions recorded",
+  );
 
 const formatTransferEventDetails = (breakdown, unitOfMeasure) =>
-  formatDonationEventDetails(breakdown, unitOfMeasure, "Transferred to");
+  formatDonationEventDetails(
+    breakdown,
+    unitOfMeasure,
+    "Transferred to",
+    "No transfers recorded",
+  );
 
 const exportDonationTransparencyReport = async (filters = {}, format) => {
   const rows = await donationRepository.getDonationTransparencyExportRows(
@@ -3509,4 +3531,6 @@ module.exports = {
   getDonationManagementTransparency,
   exportReceivedDonationsReport,
   exportDonationTransparencyReport,
+  formatDistributionEventDetails,
+  formatTransferEventDetails,
 };

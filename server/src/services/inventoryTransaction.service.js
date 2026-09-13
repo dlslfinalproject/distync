@@ -765,19 +765,17 @@ const exportInventoryTransactions = async (filters, format) => {
   }));
 
   return reportExport.buildExportFile({
-    filePrefix: "office-mayor-inventory-transactions",
-    worksheetName: "Inventory Transactions",
-    reportTitle: "Inventory Transactions Report",
+    filePrefix: "office-mayor-inventory-tracking",
+    worksheetName: "Inventory Tracking",
+    reportTitle: "Inventory Tracking Report",
     tableTitle: "Inventory Transactions",
     sourceName: "Office of the Mayor",
     metadata: [
-      { label: "Search", value: filters.search?.trim() || "None" },
       {
         label: "Transaction Type",
         value: filters.transaction_label || filters.transaction_type || "All",
       },
       { label: "Reference Type", value: filters.reference_type || "All" },
-      { label: "Movement", value: filters.movement || "All" },
       { label: "Source", value: filters.source || "All" },
       { label: "Date From", value: filters.date_from || "None" },
       { label: "Date To", value: filters.date_to || "None" },

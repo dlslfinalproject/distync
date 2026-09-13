@@ -79,22 +79,34 @@ const closeButtonStyles = {
   flex: "0 0 auto",
 };
 
-const optionButtonStyles = (isSelected) => ({
-  display: "flex",
+const chipStyles = (isSelected) => ({
+  display: "inline-flex",
   alignItems: "center",
-  gap: "10px",
-  width: "100%",
-  minHeight: "44px",
-  padding: "10px 12px",
+  gap: "8px",
   border: isSelected ? "1px solid #4c86be" : "1px solid #d4dfeb",
-  borderRadius: "14px",
+  borderRadius: "999px",
+  padding: "10px 14px",
   backgroundColor: isSelected ? "#eef5fb" : "#f8fbfe",
-  color: "#21405f",
-  fontSize: "14px",
+  color: isSelected ? "#21405f" : "#385a7b",
+  fontSize: "13px",
   fontWeight: 600,
-  textAlign: "left",
   cursor: "pointer",
-  boxSizing: "border-box",
+});
+
+const toggleActionButtonStyles = (isSelected) => ({
+  border: isSelected ? "none" : "1px solid #c6d8ea",
+  borderRadius: "14px",
+  padding: "10px 16px",
+  background: isSelected
+    ? "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)"
+    : "#f8fbfe",
+  color: isSelected ? "#ffffff" : "#2a4c6f",
+  fontSize: "13px",
+  fontWeight: 700,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "6px",
 });
 
 const defaultTransactionFilters = {
@@ -104,8 +116,6 @@ const defaultTransactionFilters = {
   date_from: "",
   date_to: "",
   source: "",
-  search: "",
-  movement: "",
   stock_form_packaging: [],
 };
 
@@ -121,12 +131,6 @@ const transactionTypeOptions = [
   { value: "Stolen", label: "Stolen" },
   { value: "Expired", label: "Expired" },
   { value: "Other", label: "Other" },
-];
-
-const movementOptions = [
-  { value: "", label: "All movements" },
-  { value: "INFLOW", label: "Inflow" },
-  { value: "OUTFLOW", label: "Outflow" },
 ];
 
 const sourceOptions = [
@@ -147,6 +151,7 @@ const InventoryTransactionExportModal = ({
   errorMessage = "",
   onFilterChange,
   onStockFormToggle,
+  onSelectAllStockForms,
   onClearStockForms,
   onFormatChange,
   onClose,
@@ -169,7 +174,9 @@ const InventoryTransactionExportModal = ({
     .sort((left, right) =>
       String(left.batch_no || "").localeCompare(String(right.batch_no || "")),
     );
-  const allPackagingSelected = selectedStockForms.length === 0;
+  const allPackagingSelected =
+    stockFormOptions.length > 0 &&
+    stockFormOptions.every((packaging) => selectedStockForms.includes(packaging));
 
   const handleSubmit = (event) => {
     event.preventDefault();
@@ -227,12 +234,12 @@ const InventoryTransactionExportModal = ({
             className="inventory-tracking-export-grid"
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
               gap: "18px",
               alignItems: "start",
             }}
           >
-            <div>
+            <div className="inventory-tracking-export-field inventory-tracking-export-field--half">
               <label htmlFor="tracking-export-item" style={labelStyles}>
                 Item
               </label>
@@ -260,7 +267,7 @@ const InventoryTransactionExportModal = ({
               </select>
             </div>
 
-            <div>
+            <div className="inventory-tracking-export-field inventory-tracking-export-field--half">
               <label htmlFor="tracking-export-batch" style={labelStyles}>
                 Batch
               </label>
@@ -284,7 +291,7 @@ const InventoryTransactionExportModal = ({
               </select>
             </div>
 
-            <div>
+            <div className="inventory-tracking-export-field inventory-tracking-export-field--third">
               <label htmlFor="tracking-export-transaction" style={labelStyles}>
                 Transaction
               </label>
@@ -305,28 +312,7 @@ const InventoryTransactionExportModal = ({
               </select>
             </div>
 
-            <div>
-              <label htmlFor="tracking-export-movement" style={labelStyles}>
-                Movement
-              </label>
-              <select
-                id="tracking-export-movement"
-                value={filters.movement || ""}
-                onChange={(event) =>
-                  onFilterChange?.("movement", event.target.value)
-                }
-                style={inputStyles}
-                disabled={isSubmitting}
-              >
-                {movementOptions.map((option) => (
-                  <option key={option.value || "all"} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
+            <div className="inventory-tracking-export-field inventory-tracking-export-field--third">
               <label htmlFor="tracking-export-date-from" style={labelStyles}>
                 Date From
               </label>
@@ -342,7 +328,7 @@ const InventoryTransactionExportModal = ({
               />
             </div>
 
-            <div>
+            <div className="inventory-tracking-export-field inventory-tracking-export-field--third">
               <label htmlFor="tracking-export-date-to" style={labelStyles}>
                 Date To
               </label>
@@ -356,7 +342,7 @@ const InventoryTransactionExportModal = ({
               />
             </div>
 
-            <div>
+            <div className="inventory-tracking-export-field inventory-tracking-export-field--half">
               <label htmlFor="tracking-export-source" style={labelStyles}>
                 Source
               </label>
@@ -375,7 +361,7 @@ const InventoryTransactionExportModal = ({
               </select>
             </div>
 
-            <div>
+            <div className="inventory-tracking-export-field inventory-tracking-export-field--half">
               <label htmlFor="tracking-export-format" style={labelStyles}>
                 Format
               </label>
@@ -394,20 +380,6 @@ const InventoryTransactionExportModal = ({
               </select>
             </div>
 
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label htmlFor="tracking-export-search" style={labelStyles}>
-                Search
-              </label>
-              <input
-                id="tracking-export-search"
-                type="search"
-                value={filters.search || ""}
-                onChange={(event) => onFilterChange?.("search", event.target.value)}
-                placeholder="Search item, batch, transaction, source, or remarks"
-                style={inputStyles}
-                disabled={isSubmitting}
-              />
-            </div>
           </div>
 
           {errorMessage ? <p style={errorTextStyles}>{errorMessage}</p> : null}
@@ -420,48 +392,60 @@ const InventoryTransactionExportModal = ({
           <h4 style={sectionTitleStyles}>Packaging / Stock Form</h4>
 
           {stockFormOptions.length > 0 ? (
-            <div
-              className="inventory-tracking-export-packaging-grid"
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                gap: "12px",
-              }}
-            >
-              <button
-                type="button"
-                onClick={onClearStockForms}
-                disabled={isSubmitting}
-                style={optionButtonStyles(allPackagingSelected)}
+            <>
+              <div
+                className="inventory-tracking-export-selection-actions"
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  marginBottom: "12px",
+                }}
               >
-                {allPackagingSelected ? (
-                  <FiCheckSquare size={16} />
-                ) : (
-                  <FiSquare size={16} />
-                )}
-                All packaging
-              </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    allPackagingSelected
+                      ? onClearStockForms?.()
+                      : onSelectAllStockForms?.()
+                  }
+                  disabled={isSubmitting}
+                  style={toggleActionButtonStyles(allPackagingSelected)}
+                >
+                  {allPackagingSelected ? (
+                    <FiCheckSquare size={14} />
+                  ) : (
+                    <FiSquare size={14} />
+                  )}
+                  {allPackagingSelected ? "Unselect All" : "Select All"}
+                </button>
+              </div>
 
-              {stockFormOptions.map((packaging) => {
-                const isSelected = selectedStockForms.includes(packaging);
+              <div
+                className="inventory-tracking-export-packaging-grid"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "12px",
+                }}
+              >
+                {stockFormOptions.map((packaging) => {
+                  const isSelected = selectedStockForms.includes(packaging);
 
-                return (
-                  <label
-                    key={packaging}
-                    style={optionButtonStyles(isSelected)}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => onStockFormToggle?.(packaging)}
-                      disabled={isSubmitting}
-                      style={{ accentColor: "#2f6499" }}
-                    />
-                    <span>{packaging}</span>
-                  </label>
-                );
-              })}
-            </div>
+                  return (
+                    <label key={packaging} style={chipStyles(isSelected)}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => onStockFormToggle?.(packaging)}
+                        disabled={isSubmitting}
+                        style={{ accentColor: "#2f6499" }}
+                      />
+                      <span>{packaging}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </>
           ) : (
             <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
               No packaging values are available for the current inventory data.

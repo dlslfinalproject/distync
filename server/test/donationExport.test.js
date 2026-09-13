@@ -3,6 +3,10 @@ const ExcelJS = require("exceljs");
 const test = require("node:test");
 
 const { buildExportFile } = require("../src/utils/mayorReportExport");
+const {
+  formatDistributionEventDetails,
+  formatTransferEventDetails,
+} = require("../src/services/donation.service");
 
 const RECEIVED_COLUMNS = [
   { key: "donor_name", label: "Donor Name", width: 24, pdfWidth: 94 },
@@ -181,6 +185,45 @@ test("donation transparency CSV keeps the donor name in its data row", async () 
   );
 
   assert.match(file.buffer.toString("utf8"), /DLSL Donations/);
+});
+
+test("donation transparency movement details show applicable values or an explicit no-movement value", () => {
+  assert.equal(
+    formatDistributionEventDetails(
+      [
+        {
+          event_title: "Typhoon Response Josi",
+          quantity: 120,
+        },
+        {
+          event_title: "Typhoon Response Odette",
+          quantity: 40,
+        },
+      ],
+      "pc",
+    ),
+    "To Typhoon Response Josi: 120 pc; To Typhoon Response Odette: 40 pc",
+  );
+  assert.equal(
+    formatTransferEventDetails(
+      JSON.stringify([
+        {
+          event_title: "Typhoon Response Odette",
+          quantity: 25,
+        },
+      ]),
+      "pc",
+    ),
+    "Transferred to Typhoon Response Odette: 25 pc",
+  );
+  assert.equal(
+    formatDistributionEventDetails([], "pc"),
+    "No distributions recorded",
+  );
+  assert.equal(
+    formatTransferEventDetails(null, "pc"),
+    "No transfers recorded",
+  );
 });
 
 test("donation PDF exports use the inventory-style wide layout for both reports", async () => {

@@ -46,6 +46,10 @@ test("inventory transaction exports use the established branded report builder",
     serviceSource,
     /const reportExport = require\("\.\.\/utils\/mswdoReportExport"\);/,
   );
+  assert.match(serviceSource, /worksheetName: "Inventory Tracking"/);
+  assert.match(serviceSource, /reportTitle: "Inventory Tracking Report"/);
+  assert.doesNotMatch(serviceSource, /label: "Search"/);
+  assert.doesNotMatch(serviceSource, /label: "Movement"/);
   assert.match(serviceSource, /tableTitle: "Inventory Transactions"/);
   assert.match(serviceSource, /sourceName: "Office of the Mayor"/);
   assert.match(

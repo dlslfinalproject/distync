@@ -268,8 +268,6 @@ const EMPTY_TRANSACTION_EXPORT_FILTERS = {
   date_from: "",
   date_to: "",
   source: "",
-  search: "",
-  movement: "",
   stock_form_packaging: [],
 };
 
@@ -1231,6 +1229,10 @@ const InventoryTransactionsPage = () => {
     (toolbarState.movement ? 1 : 0) +
     toolbarState.stockForms.length +
     (toolbarState.sortOrder !== "newest" ? 1 : 0);
+  const hasNoSelectedExportStockForms =
+    stockFormOptions.length > 0 &&
+    (!Array.isArray(exportFilters.stock_form_packaging) ||
+      exportFilters.stock_form_packaging.length === 0);
 
   const summaryTrackingMap = useMemo(() => {
     return buildInventoryTrackingMap(
@@ -1332,6 +1334,7 @@ const InventoryTransactionsPage = () => {
   };
 
   const handleToggleExportStockForm = (packaging) => {
+    setExportDateRangeError("");
     setExportFilters((currentFilters) => {
       const currentValues = Array.isArray(currentFilters.stock_form_packaging)
         ? currentFilters.stock_form_packaging
@@ -1346,6 +1349,22 @@ const InventoryTransactionsPage = () => {
     });
   };
 
+  const handleSelectAllExportStockForms = () => {
+    setExportDateRangeError("");
+    setExportFilters((currentFilters) => ({
+      ...currentFilters,
+      stock_form_packaging: [...stockFormOptions],
+    }));
+  };
+
+  const handleClearExportStockForms = () => {
+    setExportDateRangeError("");
+    setExportFilters((currentFilters) => ({
+      ...currentFilters,
+      stock_form_packaging: [],
+    }));
+  };
+
   const handleOpenExportModal = () => {
     setExportFilters({
       inventory_item_id: filters.inventory_item_id,
@@ -1354,9 +1373,10 @@ const InventoryTransactionsPage = () => {
       date_from: filters.date_from,
       date_to: filters.date_to,
       source: filters.source,
-      search: toolbarState.search,
-      movement: toolbarState.movement,
-      stock_form_packaging: [...toolbarState.stockForms],
+      stock_form_packaging:
+        toolbarState.stockForms.length > 0
+          ? [...toolbarState.stockForms]
+          : [...stockFormOptions],
     });
     setSelectedExportFormat("csv");
     setExportDateRangeError("");
@@ -1369,6 +1389,13 @@ const InventoryTransactionsPage = () => {
 
     if (hasInvalidExportDateRange) {
       setExportDateRangeError(DATE_RANGE_ERROR_MESSAGE);
+      return;
+    }
+
+    if (hasNoSelectedExportStockForms) {
+      setExportDateRangeError(
+        "Select at least one packaging / stock form before exporting.",
+      );
       return;
     }
 
@@ -1393,8 +1420,6 @@ const InventoryTransactionsPage = () => {
         date_from: exportFilters.date_from,
         date_to: exportFilters.date_to,
         source: exportFilters.source,
-        search: exportFilters.search,
-        movement: exportFilters.movement,
         stock_form_packaging: exportFilters.stock_form_packaging,
       });
       downloadFile(file);
@@ -1825,12 +1850,8 @@ const InventoryTransactionsPage = () => {
         errorMessage={exportDateRangeError}
         onFilterChange={handleExportFilterChange}
         onStockFormToggle={handleToggleExportStockForm}
-        onClearStockForms={() =>
-          setExportFilters((currentFilters) => ({
-            ...currentFilters,
-            stock_form_packaging: [],
-          }))
-        }
+        onSelectAllStockForms={handleSelectAllExportStockForms}
+        onClearStockForms={handleClearExportStockForms}
         onFormatChange={setSelectedExportFormat}
         onClose={() => {
           if (!isExporting) {

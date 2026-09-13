@@ -111,26 +111,47 @@ test("inventory tracking page seeds and submits the report filters", async () =>
   assert.match(openModalBlock, /date_from: filters\.date_from/);
   assert.match(openModalBlock, /date_to: filters\.date_to/);
   assert.match(openModalBlock, /source: filters\.source/);
-  assert.match(openModalBlock, /search: toolbarState\.search/);
-  assert.match(openModalBlock, /movement: toolbarState\.movement/);
-  assert.match(openModalBlock, /stock_form_packaging: \[\.\.\.toolbarState\.stockForms\]/);
+  assert.match(openModalBlock, /stock_form_packaging:/);
+  assert.match(openModalBlock, /toolbarState\.stockForms/);
   assert.match(exportBlock, /inventory_item_id: exportFilters\.inventory_item_id/);
   assert.match(exportBlock, /inventory_batch_id: exportFilters\.inventory_batch_id/);
   assert.match(exportBlock, /transaction_label: exportFilters\.transaction_label/);
   assert.match(exportBlock, /date_from: exportFilters\.date_from/);
   assert.match(exportBlock, /date_to: exportFilters\.date_to/);
   assert.match(exportBlock, /source: exportFilters\.source/);
-  assert.match(exportBlock, /search: exportFilters\.search/);
-  assert.match(exportBlock, /movement: exportFilters\.movement/);
   assert.match(exportBlock, /stock_form_packaging: exportFilters\.stock_form_packaging/);
   assert.match(source, /<InventoryTransactionExportModal/);
   assert.match(modalSource, /<h4 style=\{sectionTitleStyles\}>Export Details<\/h4>/);
   assert.match(modalSource, /Inventory Tracking Report/);
+  assert.match(modalSource, /gridTemplateColumns: "repeat\(6, minmax\(0, 1fr\)\)"/);
+  assert.match(modalSource, /inventory-tracking-export-field--half/);
+  assert.match(modalSource, /inventory-tracking-export-field--third/);
   assert.match(modalSource, /id="tracking-export-format"/);
   assert.match(modalSource, /id="tracking-export-date-from"/);
   assert.match(modalSource, /id="tracking-export-date-to"/);
   assert.match(modalSource, /id="tracking-export-source"/);
+  assert.doesNotMatch(modalSource, /id="tracking-export-movement"/);
+  assert.doesNotMatch(modalSource, /id="tracking-export-search"/);
+  assert.match(modalSource, /onSelectAllStockForms/);
+  assert.match(modalSource, /Select All/);
+  assert.match(modalSource, /Unselect All/);
+  assert.match(modalSource, /chipStyles/);
   assert.match(modalSource, /Packaging \/ Stock Form/);
+
+  const itemIndex = modalSource.indexOf('id="tracking-export-item"');
+  const batchIndex = modalSource.indexOf('id="tracking-export-batch"');
+  const transactionIndex = modalSource.indexOf('id="tracking-export-transaction"');
+  const dateFromIndex = modalSource.indexOf('id="tracking-export-date-from"');
+  const dateToIndex = modalSource.indexOf('id="tracking-export-date-to"');
+  const sourceIndex = modalSource.indexOf('id="tracking-export-source"');
+  const formatIndex = modalSource.indexOf('id="tracking-export-format"');
+
+  assert.ok(itemIndex < batchIndex);
+  assert.ok(batchIndex < transactionIndex);
+  assert.ok(transactionIndex < dateFromIndex);
+  assert.ok(dateFromIndex < dateToIndex);
+  assert.ok(dateToIndex < sourceIndex);
+  assert.ok(sourceIndex < formatIndex);
 });
 
 test("inventory tracking summaries use filtered movement rows and scoped stock health", async () => {
