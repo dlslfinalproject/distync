@@ -210,7 +210,6 @@ const normalizeDonationInventoryItemDefinition = (definition, index) => {
     barcode: normalizedBarcode || null,
     is_perishable:
       definition.is_perishable ?? normalizedCategory === "perishable",
-    is_active: true,
     skip_opening_stock: true,
   };
 };

@@ -108,7 +108,6 @@ export const buildQueuedInventoryItem = (entry) => {
         units_per_packaging: unitsPerPackaging || 1,
         unit_of_measure: payload.unit_of_measure || "pc",
         unit_of_measure_value: payload.unit_of_measure_value || 1,
-        is_active: true,
         is_local_only: true,
       },
     ],

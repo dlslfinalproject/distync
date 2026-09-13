@@ -187,7 +187,7 @@ const getForecastEventContext = async (disasterEventId, dbClient = pool) => {
         COALESCE(eligibility_summary.unclaimed_eligible_household_count, 0) AS unclaimed_eligible_household_count,
         COALESCE(distribution_summary.distribution_transaction_count, 0) AS distribution_transaction_count,
         COALESCE(distribution_summary.total_released_quantity, 0) AS total_released_quantity,
-        COALESCE(inventory_summary.active_inventory_item_count, 0) AS active_inventory_item_count,
+        COALESCE(inventory_summary.inventory_item_count, 0) AS inventory_item_count,
         COALESCE(template_summary.active_standard_pack_count, 0) AS active_standard_pack_count
       FROM disaster_events de
       LEFT JOIN (
@@ -272,7 +272,7 @@ const getForecastEventContext = async (disasterEventId, dbClient = pool) => {
       ) AS distribution_summary
         ON distribution_summary.disaster_event_id = de.id
       LEFT JOIN (
-        SELECT COUNT(*)::integer AS active_inventory_item_count
+        SELECT COUNT(*)::integer AS inventory_item_count
         FROM inventory_items
       ) AS inventory_summary
         ON TRUE

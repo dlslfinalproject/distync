@@ -106,7 +106,11 @@ test("getLatestInventoryForecastOverall maps the newest forecast run without req
           run_by: "user-1",
           run_at: "2026-08-16T08:00:00.000Z",
           model_name: "MOVING_AVERAGE",
-          parameters_json: {},
+          parameters_json: {
+            event_context: {
+              active_inventory_item_count: 39,
+            },
+          },
         }),
         getForecastResultsByRunId: async (runId) => {
           assert.equal(runId, "forecast-run-1");
@@ -136,6 +140,11 @@ test("getLatestInventoryForecastOverall maps the newest forecast run without req
       assert.equal(latestForecast.results.length, 1);
       assert.equal(latestForecast.results[0].item_name, "Rice");
       assert.equal(latestForecast.results[0].risk_level, "HIGH");
+      assert.equal(latestForecast.dashboard.summary.inventory_item_count, 39);
+      assert.equal(
+        latestForecast.dashboard.summary.active_inventory_item_count,
+        39,
+      );
     },
   );
 });
@@ -280,7 +289,7 @@ test("runInventoryForecast sends eligible LGU and donated stock to analytics and
             unclaimed_eligible_household_count: 1,
             distribution_transaction_count: 0,
             total_released_quantity: 0,
-            active_inventory_item_count: 1,
+            inventory_item_count: 1,
             active_standard_pack_count: 1,
           }),
           getReliefPackDemandByEvent: async () => [],
@@ -319,6 +328,18 @@ test("runInventoryForecast sends eligible LGU and donated stock to analytics and
 
   assert.equal(calls.forecastItemEventId, "event-1");
   assert.equal(calls.analyticsPayload.items[0].current_available_stock, 25);
+  assert.equal(
+    calls.runPayload.parameters_json.event_context.inventory_item_count,
+    1,
+  );
+  assert.equal(
+    calls.runPayload.parameters_json.event_context.active_inventory_item_count,
+    1,
+  );
+  assert.equal(
+    calls.runPayload.parameters_json.event_context.inventory_item_count,
+    calls.runPayload.parameters_json.event_context.active_inventory_item_count,
+  );
   assert.deepEqual(calls.runPayload.parameters_json.inventory_stock_basis, {
     included_source_types: ["LGU", "DONATED"],
     included_batch_statuses: ["AVAILABLE", "LOW_STOCK"],

@@ -100,7 +100,7 @@ test("getForecastEventContext separates total, eligible, claimed, and unclaimed 
   const dbClient = createCapturingDbClient([
     {
       household_count: 4,
-      active_inventory_item_count: 3,
+      inventory_item_count: 3,
       eligible_household_count: 2,
       claimed_household_count: 1,
       unclaimed_eligible_household_count: 1,
@@ -113,7 +113,7 @@ test("getForecastEventContext separates total, eligible, claimed, and unclaimed 
   );
 
   assert.equal(context.eligible_household_count, 2);
-  assert.equal(context.active_inventory_item_count, 3);
+  assert.equal(context.inventory_item_count, 3);
   assert.equal(context.claimed_household_count, 1);
   assert.equal(context.unclaimed_eligible_household_count, 1);
 
@@ -122,7 +122,8 @@ test("getForecastEventContext separates total, eligible, claimed, and unclaimed 
   assert.match(sql, /eligible_household_count/);
   assert.match(sql, /claimed_household_count/);
   assert.match(sql, /unclaimed_eligible_household_count/);
-  assert.match(sql, /active_inventory_item_count/);
+  assert.match(sql, /inventory_item_count/);
+  assert.doesNotMatch(sql, /active_inventory_item_count/);
   assert.doesNotMatch(
     sql,
     /FROM inventory_items\s+WHERE\s+is_active\s*=\s*TRUE/i,

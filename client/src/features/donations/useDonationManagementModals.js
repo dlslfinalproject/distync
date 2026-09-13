@@ -40,7 +40,6 @@ const buildDonationDefinedItemPayload = (draft) => ({
   reorder_level: null,
   expiration_date: draft.expiration_date || null,
   barcode: normalizeInventoryBarcode(draft.barcode) || null,
-  is_active: true,
   skip_opening_stock: true,
 });
 
