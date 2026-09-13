@@ -1443,9 +1443,13 @@ const ForecastingPanel = ({
 
       </section>
 
-      <div style={panelStyles.forecastActionRow}>
+      <div
+        className="mayor-inventory-forecast-action-row"
+        style={panelStyles.forecastActionRow}
+      >
         <button
           type="button"
+          className="mayor-inventory-forecast-run-button"
           onClick={onRunForecast}
           disabled={isRunningForecast || !selectedForecastEventId}
           style={{
@@ -1464,6 +1468,7 @@ const ForecastingPanel = ({
         </button>
         <button
           type="button"
+          className="mayor-inventory-forecast-export-button"
           onClick={onOpenExportModal}
           disabled={!selectedForecastEventId || isForecastLoading || isRunningForecast}
           style={{

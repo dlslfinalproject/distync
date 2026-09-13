@@ -3321,13 +3321,31 @@ img {
     grid-column: 1;
   }
 
-  .mayor-relief-pack-action-group {
+  .mayor-relief-pack-toolbar[data-active-tab="customization"]
+    .mayor-relief-pack-filter-button-wrap {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .mayor-relief-pack-toolbar[data-active-tab="customization"]
+    .mayor-relief-pack-action-group button {
     grid-column: 2;
+    grid-row: 2;
   }
 
   .mayor-relief-pack-toolbar[data-active-tab="relief-packs"]
     .mayor-relief-pack-action-group button {
     grid-column: 1 / -1;
+  }
+
+  .inventory-distribution-filter-button-wrap {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .inventory-distribution-export-button {
+    grid-column: 2;
+    grid-row: 3;
   }
 
   .mayor-donation-management-toolbar[data-toolbar-tab="transparency"]
@@ -3354,13 +3372,13 @@ img {
   }
 
   .mayor-donation-management-toolbar[data-toolbar-tab="donations"]
-    .mayor-donation-management-export-button {
+    .mayor-donation-management-add-button {
     grid-column: 2;
     grid-row: 3;
   }
 
   .mayor-donation-management-toolbar[data-toolbar-tab="donations"]
-    .mayor-donation-management-add-button {
+    .mayor-donation-management-export-button {
     grid-column: 1 / -1;
     grid-row: 4;
   }
@@ -3408,4 +3426,22 @@ img {
     width: 100%;
     justify-content: center;
   }
+
+  .mayor-inventory-forecast-action-row {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+    width: 100% !important;
+  }
+
+  .mayor-inventory-forecast-action-row > button {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    justify-content: center;
+  }
+}
+
+.mayor-inventory-forecast-export-button {
+  min-width: 0 !important;
 }
