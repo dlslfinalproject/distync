@@ -53,6 +53,7 @@ const validateGetSystemLogReview = (req, res, next) => {
       ![
         "all",
         "item_created",
+        "packaging_added",
         "item_details_edited",
         "stock_added",
         "stock_adjusted",
