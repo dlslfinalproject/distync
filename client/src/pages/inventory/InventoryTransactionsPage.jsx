@@ -1073,10 +1073,7 @@ const InventoryTransactionsPage = () => {
       toolbarState.stockForms.length > 0,
   );
 
-  const hasActiveTrackingFilters = Boolean(
-    hasActiveDataFilters ||
-      toolbarState.sortOrder !== DEFAULT_TRANSACTION_TOOLBAR_STATE.sortOrder,
-  );
+  const hasActiveTrackingFilters = Object.values(filters).some(Boolean);
 
   const summaryResultScope = useMemo(() => {
     if (!hasActiveDataFilters) {
@@ -1373,11 +1370,6 @@ const InventoryTransactionsPage = () => {
 
   const handleClearAllFilters = () => {
     setFilters({ ...EMPTY_TRANSACTION_FILTERS });
-    setToolbarState({
-      ...DEFAULT_TRANSACTION_TOOLBAR_STATE,
-      stockForms: [],
-    });
-    setIsFilterOpen(false);
   };
 
   const handleClearPopoverFilters = () => {

@@ -1359,31 +1359,32 @@ const AnomalyTrackingPage = ({
     }
   }, [page, pageSize, pagination.pageSize, pagination.totalItems]);
 
-  const hasActiveFilters = Boolean(
+  const hasActiveMainFilters = Boolean(
     filters.disaster_event_id ||
       (filters.barangay_id && !isBarangayScope) ||
       filters.date_from ||
       filters.date_to ||
+      viewState.anomaly_type !== "all"
+  );
+  const hasActiveFilters = Boolean(
+    hasActiveMainFilters ||
       viewState.search.trim() ||
-      viewState.anomaly_type !== "all" ||
       viewState.status !== "all" ||
       viewState.order !== "newest",
   );
   const handleClearAllFilters = () => {
-    setFilters({
+    setFilters((currentFilters) => ({
+      ...currentFilters,
       disaster_event_id: "",
       barangay_id: isBarangayScope ? resolvedAssignedBarangay?.id || "" : "",
       date_from: "",
       date_to: "",
-    });
-    setViewState({
-      search: "",
+    }));
+    updateViewState((currentValue) => ({
+      ...currentValue,
       anomaly_type: "all",
-      status: "all",
-      order: "newest",
-    });
+    }));
     setPage(1);
-    setIsFilterOpen(false);
   };
 
   const handleClearPopoverFilters = () => {
@@ -1537,7 +1538,7 @@ const AnomalyTrackingPage = ({
           </div>
         </div>
 
-        {hasActiveFilters ? (
+        {hasActiveMainFilters ? (
           <div className="mayor-anomaly-filter-actions">
             <button
               className="mayor-anomaly-clear-filters"

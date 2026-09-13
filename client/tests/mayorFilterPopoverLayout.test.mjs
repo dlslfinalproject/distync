@@ -61,6 +61,30 @@ test("Mayor filter popovers share responsive behavior and expand short lists bef
   assert.match(syncSource, /const handleClearPopoverFilters = \(\) =>/);
   assert.match(syncSource, /updateFilter\("order", DEFAULT_SYNC_FILTERS\.order\)/);
 
+  const reliefMainClearState = reliefPackSource.match(
+    /const hasActiveReliefPackFilters = Boolean\([\s\S]*?\);/,
+  )?.[0] || "";
+  assert.match(reliefMainClearState, /filters\.packType/);
+  assert.doesNotMatch(
+    reliefMainClearState,
+    /filters\.search|selectedAvailabilityFilters|selectedDisasterTypeFilters|selectedSortOrder/,
+  );
+
+  assert.match(
+    transactionSource,
+    /const hasActiveTrackingFilters = Object\.values\(filters\)\.some\(Boolean\);/,
+  );
+  assert.match(
+    syncSource,
+    /const hasActiveSyncFilters = Boolean\([\s\S]*?filters\.recordType[\s\S]*?filters\.status/,
+  );
+  assert.doesNotMatch(
+    syncSource.match(/const hasActiveSyncFilters = Boolean\([\s\S]*?\);/)?.[0] || "",
+    /filters\.order|filters\.search/,
+  );
+  assert.match(anomalySource, /const hasActiveMainFilters = Boolean\(/);
+  assert.match(anomalySource, /\{hasActiveMainFilters \? \(/);
+
   for (const source of [
     transactionSource,
     distributionSource,

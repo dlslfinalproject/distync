@@ -1149,19 +1149,23 @@ const SyncManagementPage = () => {
   };
 
   const hasActiveSyncFilters = Boolean(
-    filters.barangayId ||
-      filters.dateFrom ||
+    filters.dateFrom ||
       filters.dateTo ||
-      filters.order !== DEFAULT_SYNC_FILTERS.order ||
       filters.recordType !== DEFAULT_SYNC_FILTERS.recordType ||
-      filters.search.trim() ||
-      filters.status !== DEFAULT_SYNC_FILTERS.status,
+      filters.status !== DEFAULT_SYNC_FILTERS.status ||
+      (isMswdoPortal && filters.barangayId),
   );
 
   const handleClearAllFilters = () => {
-    setFilters({ ...DEFAULT_SYNC_FILTERS });
+    setFilters((currentFilters) => ({
+      ...currentFilters,
+      ...(isMswdoPortal ? { barangayId: "" } : {}),
+      dateFrom: "",
+      dateTo: "",
+      recordType: DEFAULT_SYNC_FILTERS.recordType,
+      status: DEFAULT_SYNC_FILTERS.status,
+    }));
     setPaginationByTab(createSyncPaginationState());
-    setIsFilterOpen(false);
   };
 
   const handleClearPopoverFilters = () => {

@@ -2019,14 +2019,10 @@ const ReliefPackTemplatesPage = () => {
     selectedAdvancedFilters.length +
     (selectedSortOrder !== "oldest" ? 1 : 0);
   const hasActiveReliefPackFilters = Boolean(
-    filters.search.trim() ||
-      filters.packType !== "All" ||
+    filters.packType !== "All" ||
       selectedStatusFilter !== "all" ||
-      selectedAvailabilityFilters.length > 0 ||
-      selectedDisasterTypeFilters.length > 0 ||
-      selectedSortOrder !== "oldest" ||
-      selectedDisasterEventId ||
-      selectedBarangayId,
+      (activeTab === "relief-packs" &&
+        (selectedDisasterEventId || selectedBarangayId)),
   );
 
   const loadReliefPackPage = async ({
@@ -2705,19 +2701,17 @@ const ReliefPackTemplatesPage = () => {
   };
 
   const handleClearAllFilters = () => {
-    setFilters({
-      search: "",
+    setFilters((currentFilters) => ({
+      ...currentFilters,
       packType: "All",
       status: "all",
-      availability: [],
-      disasterTypes: [],
-      sortOrder: "oldest",
-    });
-    setSelectedDisasterEventId("");
-    setSelectedBarangayId("");
+    }));
+    if (activeTab === "relief-packs") {
+      setSelectedDisasterEventId("");
+      setSelectedBarangayId("");
+    }
     setReliefPackCurrentPage(1);
     setCustomizationCurrentPage(1);
-    setIsFilterOpen(false);
   };
 
   const handleClearPopoverFilters = () => {
