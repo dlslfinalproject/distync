@@ -50,6 +50,9 @@ test("Mayor audit trail tables keep horizontal overflow local and paginator outs
   assert.match(pageSource, />\s*Performed By\s*</);
   assert.match(pageSource, />\s*Date & Time\s*</);
   assert.match(pageSource, />\s*Action\s*</);
+  assert.match(pageSource, /actionValue:\s*\{\s*fontWeight: 700,/);
+  assert.match(pageSource, /<div style=\{tableStyles\.actionValue\}>[\s\S]*formatActionLabel\(entry\)/);
+  assert.doesNotMatch(pageSource, /tableStyles\.strong/);
   assert.match(
     pageSource,
     /className="mayor-audit-trail-records-toolbar"[\s\S]*?<TablePagination[\s\S]*?className="mayor-audit-trail-table-scroll"/,

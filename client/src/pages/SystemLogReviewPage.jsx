@@ -141,9 +141,8 @@ const tableStyles = {
     overflowWrap: "anywhere",
     wordBreak: "break-word",
   },
-  strong: {
-    color: "#17324d",
-    fontWeight: 800,
+  actionValue: {
+    fontWeight: 700,
   },
   muted: {
     color: "#60738a",
@@ -357,14 +356,6 @@ const getRecordLines = (entry) => {
   }
 
   return [formatEntityLabel(entry)];
-};
-
-const getRecordLineStyle = (entry, index) => {
-  if (entry.module === "Distribution") {
-    return tableStyles.strong;
-  }
-
-  return index === 0 ? tableStyles.strong : tableStyles.muted;
 };
 
 const InfoField = ({ label, value }) => (
@@ -897,7 +888,7 @@ const SystemLogReviewPage = () => {
                   return (
                     <tr key={entry.id}>
                       <td style={{ ...tableStyles.td, ...tableStyles.actionColumn, ...tableStyles.wrapCell }}>
-                        <div style={tableStyles.strong}>
+                        <div style={tableStyles.actionValue}>
                           {formatActionLabel(entry)}
                         </div>
                         {entry.action_detail ? (
@@ -909,16 +900,11 @@ const SystemLogReviewPage = () => {
                       <td style={{ ...tableStyles.td, ...tableStyles.moduleColumn, ...tableStyles.wrapCell }}>{entry.module}</td>
                       <td style={{ ...tableStyles.td, ...tableStyles.recordColumn, ...tableStyles.wrapCell }}>
                         {getRecordLines(entry).map((line, index) => (
-                          <div
-                            key={`${entry.id}-record-${index}`}
-                            style={getRecordLineStyle(entry, index)}
-                          >
-                            {line}
-                          </div>
+                          <div key={`${entry.id}-record-${index}`}>{line}</div>
                         ))}
                       </td>
                       <td style={{ ...tableStyles.td, ...tableStyles.performedByColumn, ...tableStyles.wrapCell }}>
-                        <div style={tableStyles.strong}>{entry.performed_by}</div>
+                        {entry.performed_by}
                       </td>
                       <td style={{ ...tableStyles.td, ...tableStyles.dateColumn, ...tableStyles.centeredColumn }}>
                         {formatDateTime(entry.timestamp)}
