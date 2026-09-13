@@ -10,6 +10,27 @@ const OUTSTANDING_SYNC_STATUSES = new Set([
 
 const normalizeId = (value) => String(value || "").trim();
 
+export const getInventoryBatchProjectionItemId = (entry = {}) =>
+  normalizeId(
+    entry?.queueDisplayContext?.resolved_inventory_item_id ||
+      entry?.payload?.inventory_item_id ||
+      entry?.payload?.inventory_item_local_id,
+  );
+
+const getInventoryBatchProjectionItemIds = (entry = {}) => {
+  const resolvedServerId = normalizeId(
+    entry?.queueDisplayContext?.resolved_inventory_item_id,
+  );
+
+  if (resolvedServerId) {
+    return [resolvedServerId];
+  }
+
+  return [entry?.payload?.inventory_item_id, entry?.payload?.inventory_item_local_id]
+    .map(normalizeId)
+    .filter(Boolean);
+};
+
 const getPositiveNumber = (value) => {
   const normalizedValue = Number(value);
   return Number.isFinite(normalizedValue) && normalizedValue > 0
@@ -24,14 +45,19 @@ const isOutstandingBatchCreateEntry = (entry = {}) =>
 
 const isInventoryBatchEntryForItem = (entry = {}, item = null) =>
   isOutstandingBatchCreateEntry(entry) &&
-  normalizeId(entry.payload?.inventory_item_id) === normalizeId(item?.id);
+  getInventoryBatchProjectionItemIds(entry).includes(normalizeId(item?.id));
 
 const getItemStockForms = (item) =>
   Array.isArray(item?.stock_forms) ? item.stock_forms : [];
 
 export const buildQueuedInventoryStockForm = (entry = {}, item = null) => {
   const payload = entry.payload || {};
-  const inventoryItemId = normalizeId(payload.inventory_item_id || item?.id);
+  const inventoryItemId = normalizeId(
+    item?.id ||
+      entry?.queueDisplayContext?.resolved_inventory_item_id ||
+      payload.inventory_item_id ||
+      payload.inventory_item_local_id,
+  );
   const stockFormId = normalizeId(payload.inventory_item_stock_form_id);
   const existingStockForm = getItemStockForms(item).find(
     (stockForm) => stockFormId && normalizeId(stockForm?.id) === stockFormId,

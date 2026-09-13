@@ -2501,6 +2501,671 @@ test("MAYOR-OFFLINE-ITEM-02 restock queued for a local item resolves after item 
   assert.equal(receivedPayload.stock_form_packaging, "sack");
 });
 
+test("MAYOR-OFFLINE-03 child-first item and batch entries recover in one bounded second pass", async () => {
+  const parentLocalId = "Offline Rice";
+  const parentServerId = "33333333-3333-4333-8333-333333333333";
+  const claimPayloads = [];
+  const batchPayloads = [];
+  let itemIsSynced = false;
+  let itemMappingLookups = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => {
+          claimPayloads.push(payload);
+          return {
+            decision: "CLAIMED_NEW",
+            transaction: {
+              id: `sync-${claimPayloads.length}`,
+              ...payload,
+            },
+          };
+        },
+        findSyncedEntityServerIdByLocalId: async ({ entityLocalId }) => {
+          itemMappingLookups += 1;
+          return itemIsSynced && entityLocalId === parentLocalId
+            ? { entity_server_id: parentServerId }
+            : null;
+        },
+      }),
+      [inventoryItemServicePath]: {
+        createInventoryItem: async () => {
+          itemIsSynced = true;
+          return { id: parentServerId };
+        },
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          batchPayloads.push(payload);
+          return { id: "batch-1" };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const entries = [
+        {
+          client_sync_id: "mayor-offline-item-restock-child-first",
+          action_key: "INVENTORY_BATCH_CREATE",
+          entity_type: "INVENTORY_BATCH",
+          entity_local_id: "Offline Rice-BATCH-002",
+          entity_server_id: null,
+          client_timestamp: "2026-09-07T01:05:00.000Z",
+          payload: {
+            inventory_item_id: parentLocalId,
+            inventory_item_local_id: parentLocalId,
+            batch_no: "RICE-BATCH-002",
+            quantity_received: 25,
+            source_type: "LGU",
+          },
+        },
+        {
+          client_sync_id: "mayor-offline-item-create-parent-later",
+          action_key: "INVENTORY_ITEM_CREATE",
+          entity_type: "INVENTORY_ITEM",
+          entity_local_id: parentLocalId,
+          entity_server_id: null,
+          client_timestamp: "2026-09-07T01:00:00.000Z",
+          payload: {
+            item_name: parentLocalId,
+            category: "non-perishable",
+            unit_of_measure: "pc",
+            packaging: "piece",
+            quantity: 1,
+          },
+        },
+      ];
+      const results = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries,
+      });
+
+      assert.deepEqual(
+        results.map(({ client_sync_id, sync_status }) => ({
+          client_sync_id,
+          sync_status,
+        })),
+        [
+          {
+            client_sync_id: entries[0].client_sync_id,
+            sync_status: "SYNCED",
+          },
+          {
+            client_sync_id: entries[1].client_sync_id,
+            sync_status: "SYNCED",
+          },
+        ],
+      );
+    },
+  );
+
+  assert.equal(itemMappingLookups, 2);
+  assert.equal(batchPayloads.length, 1);
+  assert.equal(batchPayloads[0].inventory_item_id, parentServerId);
+  assert.equal(claimPayloads.length, 3);
+  assert.deepEqual(
+    claimPayloads[0].payload_json.payload,
+    claimPayloads[2].payload_json.payload,
+  );
+  assert.equal(claimPayloads[0].client_sync_id, claimPayloads[2].client_sync_id);
+});
+
+test("auto-resolved duplicate parent is SYNCED and unblocks its deferred child", async () => {
+  const parentServerId = "77777777-7777-4777-8777-777777777777";
+  let parentMappingAvailable = false;
+  let mappingLookups = 0;
+  const batchPayloads = [];
+  const existingItem = {
+    id: parentServerId,
+    item_code: "RICE",
+    item_name: "Rice",
+    category: "non-perishable",
+    is_perishable: false,
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    packaging: "sack",
+    quantity: 25,
+    barcode: null,
+  };
+  const existingStockForm = {
+    id: "77777777-7777-4777-8777-777777777778",
+    inventory_item_id: parentServerId,
+    packaging: "sack",
+    units_per_packaging: 25,
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    barcode: null,
+    is_active: true,
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        findSyncedEntityServerIdByLocalId: async () => {
+          mappingLookups += 1;
+          return parentMappingAvailable
+            ? { entity_server_id: parentServerId }
+            : null;
+        },
+        recordConflictAndUpdateSyncTransaction: async ({
+          syncTransactionId,
+          conflictPayload,
+          transactionPayload,
+        }) => {
+          if (
+            conflictPayload.conflict_type === "DUPLICATE_INVENTORY_ITEM" &&
+            transactionPayload.sync_status === "SYNCED"
+          ) {
+            parentMappingAvailable = true;
+          }
+
+          return {
+            syncTransaction: {
+              id: syncTransactionId,
+              ...transactionPayload,
+            },
+            conflictRecord: {
+              id: "sync-conflict-auto-merge",
+              ...conflictPayload,
+            },
+          };
+        },
+      }),
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemById: async () => existingItem,
+      },
+      [inventoryItemStockFormRepositoryPath]: {
+        getInventoryItemStockFormsByItemId: async () => [existingStockForm],
+      },
+      [inventoryBatchRepositoryPath]: {
+        getInventoryBatchesByItemIdForUpdate: async () => [
+          { batch_no: "RICE-BATCH-001" },
+        ],
+      },
+      [inventoryItemServicePath]: {
+        createInventoryItem: async () => {
+          const error = new Error("The item already exists.");
+          error.code = "DUPLICATE_INVENTORY_ITEM";
+          error.entityServerId = parentServerId;
+          error.serverPayload = existingItem;
+          throw error;
+        },
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          batchPayloads.push(payload);
+          return {
+            id: `batch-auto-${batchPayloads.length}`,
+            batch_no: payload.batch_no,
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "child-after-auto-merge-parent",
+            action_key: "INVENTORY_BATCH_CREATE",
+            entity_type: "INVENTORY_BATCH",
+            entity_local_id: "Rice-BATCH-002",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T01:05:00.000Z",
+            payload: {
+              inventory_item_id: "local-rice-auto",
+              inventory_item_local_id: "local-rice-auto",
+              batch_no: "RICE-BATCH-002",
+              quantity_received: 12,
+            },
+          },
+          {
+            client_sync_id: "auto-merge-parent-create",
+            action_key: "INVENTORY_ITEM_CREATE",
+            entity_type: "INVENTORY_ITEM",
+            entity_local_id: "local-rice-auto",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T01:00:00.000Z",
+            payload: {
+              item_name: "Rice",
+              category: "non-perishable",
+              is_perishable: false,
+              unit_of_measure: "pc",
+              unit_of_measure_value: 1,
+              packaging: "box",
+              quantity: 12,
+              packaging_count: 1,
+              barcode: null,
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(results.map((result) => result.sync_status), ["SYNCED", "SYNCED"]);
+      assert.equal(results[1].data.inventory_item.id, parentServerId);
+    },
+  );
+
+  assert.equal(mappingLookups, 2);
+  assert.equal(batchPayloads.length, 2);
+  assert.equal(batchPayloads[1].inventory_item_id, parentServerId);
+});
+
+test("same-cycle dependency retry processes parent-first children once without a third pass", async () => {
+  const parentLocalId = "Offline Beans";
+  const parentServerId = "44444444-4444-4444-8444-444444444444";
+  let itemIsSynced = false;
+  let itemMappingLookups = 0;
+  let batchCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        findSyncedEntityServerIdByLocalId: async ({ entityLocalId }) => {
+          itemMappingLookups += 1;
+          return itemIsSynced && entityLocalId === parentLocalId
+            ? { entity_server_id: parentServerId }
+            : null;
+        },
+      }),
+      [inventoryItemServicePath]: {
+        createInventoryItem: async () => {
+          itemIsSynced = true;
+          return { id: parentServerId };
+        },
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async () => {
+          batchCalls += 1;
+          return { id: "batch-beans-1" };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "mayor-offline-item-create-beans",
+            action_key: "INVENTORY_ITEM_CREATE",
+            entity_type: "INVENTORY_ITEM",
+            entity_local_id: parentLocalId,
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T02:00:00.000Z",
+            payload: { item_name: parentLocalId, packaging: "piece", quantity: 1 },
+          },
+          {
+            client_sync_id: "mayor-offline-batch-create-beans",
+            action_key: "INVENTORY_BATCH_CREATE",
+            entity_type: "INVENTORY_BATCH",
+            entity_local_id: "Offline Beans-BATCH-001",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T02:05:00.000Z",
+            payload: {
+              inventory_item_id: parentLocalId,
+              inventory_item_local_id: parentLocalId,
+              batch_no: "BEANS-BATCH-001",
+              quantity_received: 10,
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(results.map((result) => result.sync_status), ["SYNCED", "SYNCED"]);
+    },
+  );
+
+  assert.equal(itemMappingLookups, 1);
+  assert.equal(batchCalls, 1);
+});
+
+test("three child-first batches each retry once after one parent succeeds", async () => {
+  const parentLocalId = "Offline Flour";
+  const parentServerId = "88888888-8888-4888-8888-888888888888";
+  let parentIsSynced = false;
+  let mappingLookups = 0;
+  const batchPayloads = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        findSyncedEntityServerIdByLocalId: async () => {
+          mappingLookups += 1;
+          return parentIsSynced ? { entity_server_id: parentServerId } : null;
+        },
+      }),
+      [inventoryItemServicePath]: {
+        createInventoryItem: async () => {
+          parentIsSynced = true;
+          return { id: parentServerId };
+        },
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          batchPayloads.push(payload);
+          return { id: `flour-batch-${batchPayloads.length}` };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const childEntries = [1, 2, 3].map((sequence) => ({
+        client_sync_id: `flour-child-${sequence}`,
+        action_key: "INVENTORY_BATCH_CREATE",
+        entity_type: "INVENTORY_BATCH",
+        entity_local_id: `${parentLocalId}-BATCH-00${sequence}`,
+        entity_server_id: null,
+        client_timestamp: `2026-09-07T01:0${sequence}:00.000Z`,
+        payload: {
+          inventory_item_id: parentLocalId,
+          inventory_item_local_id: parentLocalId,
+          batch_no: `FLOUR-BATCH-00${sequence}`,
+          quantity_received: sequence,
+        },
+      }));
+      const parentEntry = {
+        client_sync_id: "flour-parent-later",
+        action_key: "INVENTORY_ITEM_CREATE",
+        entity_type: "INVENTORY_ITEM",
+        entity_local_id: parentLocalId,
+        entity_server_id: null,
+        client_timestamp: "2026-09-07T01:00:00.000Z",
+        payload: { item_name: parentLocalId, packaging: "piece", quantity: 1 },
+      };
+      const results = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [...childEntries, parentEntry],
+      });
+
+      assert.deepEqual(results.map((result) => result.sync_status), [
+        "SYNCED",
+        "SYNCED",
+        "SYNCED",
+        "SYNCED",
+      ]);
+      assert.deepEqual(
+        results.map((result) => result.client_sync_id),
+        [...childEntries, parentEntry].map((entry) => entry.client_sync_id),
+      );
+    },
+  );
+
+  assert.equal(mappingLookups, 6);
+  assert.equal(batchPayloads.length, 3);
+  assert.deepEqual(
+    batchPayloads.map((payload) => payload.inventory_item_id),
+    [parentServerId, parentServerId, parentServerId],
+  );
+});
+
+test("missing parent leaves the child failed after exactly one dependency retry", async () => {
+  let itemMappingLookups = 0;
+  let claimCalls = 0;
+  let batchCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => {
+          claimCalls += 1;
+          return {
+            decision: "CLAIMED_NEW",
+            transaction: { id: `sync-missing-${claimCalls}`, ...payload },
+          };
+        },
+        findSyncedEntityServerIdByLocalId: async () => {
+          itemMappingLookups += 1;
+          return null;
+        },
+      }),
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async () => {
+          batchCalls += 1;
+          return { id: "never-created" };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "mayor-offline-batch-missing-parent",
+            action_key: "INVENTORY_BATCH_CREATE",
+            entity_type: "INVENTORY_BATCH",
+            entity_local_id: "Missing Parent-BATCH-001",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T03:00:00.000Z",
+            payload: {
+              inventory_item_id: "missing-parent",
+              inventory_item_local_id: "missing-parent",
+              batch_no: "MISSING-BATCH-001",
+              quantity_received: 10,
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.error_code, "INVENTORY_ITEM_PENDING_SYNC");
+    },
+  );
+
+  assert.equal(itemMappingLookups, 2);
+  assert.equal(claimCalls, 2);
+  assert.equal(batchCalls, 0);
+});
+
+test("parent failure or conflict never makes a dependent child eligible beyond its bounded retry", async () => {
+  const runScenario = async ({ parentError, expectedParentStatus }) => {
+    let itemMappingLookups = 0;
+    let batchCalls = 0;
+
+    await withStubbedSyncService(
+      {
+        [syncRepositoryPath]: createBaseSyncRepositoryStub({
+          findSyncedEntityServerIdByLocalId: async () => {
+            itemMappingLookups += 1;
+            return null;
+          },
+        }),
+        [inventoryItemServicePath]: {
+          createInventoryItem: async () => {
+            throw parentError;
+          },
+        },
+        [inventoryBatchServicePath]: {
+          createInventoryBatch: async () => {
+            batchCalls += 1;
+            return { id: "should-not-create" };
+          },
+        },
+        [systemLogPath]: {
+          logAuditSafely: async () => {},
+          logErrorSafely: async () => {},
+          pickDefined: () => ({}),
+        },
+      },
+      async ({ processSyncEntries }) => {
+        const [childResult, parentResult] = await processSyncEntries({
+          auth: { ...baseAuth, roleCode: "MAYOR" },
+          entries: [
+            {
+              client_sync_id: `child-for-${expectedParentStatus}`,
+              action_key: "INVENTORY_BATCH_CREATE",
+              entity_type: "INVENTORY_BATCH",
+              entity_local_id: "Blocked Parent-BATCH-001",
+              entity_server_id: null,
+              client_timestamp: "2026-09-07T04:05:00.000Z",
+              payload: {
+                inventory_item_id: "blocked-parent",
+                inventory_item_local_id: "blocked-parent",
+                batch_no: "BLOCKED-BATCH-001",
+                quantity_received: 5,
+              },
+            },
+            {
+              client_sync_id: `parent-${expectedParentStatus}`,
+              action_key: "INVENTORY_ITEM_CREATE",
+              entity_type: "INVENTORY_ITEM",
+              entity_local_id: "blocked-parent",
+              entity_server_id: null,
+              client_timestamp: "2026-09-07T04:00:00.000Z",
+              payload: { item_name: "Blocked Parent", packaging: "piece", quantity: 1 },
+            },
+          ],
+        });
+
+        assert.equal(childResult.sync_status, "FAILED");
+        assert.equal(parentResult.sync_status, expectedParentStatus);
+        if (expectedParentStatus === "CONFLICT") {
+          assert.equal(parentResult.error_code, undefined);
+        }
+      },
+    );
+
+    assert.equal(itemMappingLookups, 2);
+    assert.equal(batchCalls, 0);
+  };
+
+  const validationError = new Error("The item payload is invalid.");
+  validationError.code = "INVENTORY_ITEM_VALIDATION";
+  await runScenario({ parentError: validationError, expectedParentStatus: "FAILED" });
+
+  const conflictError = new Error("The item barcode is already registered.");
+  conflictError.code = "DUPLICATE_INVENTORY_BARCODE";
+  conflictError.entityServerId = "55555555-5555-4555-8555-555555555555";
+  conflictError.serverPayload = { id: conflictError.entityServerId };
+  await runScenario({ parentError: conflictError, expectedParentStatus: "CONFLICT" });
+});
+
+test("non-dependency failures and idempotency mismatches never enter dependency retry", async () => {
+  let itemMappingLookups = 0;
+  let batchCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        findSyncedEntityServerIdByLocalId: async () => {
+          itemMappingLookups += 1;
+          return { entity_server_id: "66666666-6666-4666-8666-666666666666" };
+        },
+      }),
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async () => {
+          batchCalls += 1;
+          const error = new Error("Batch validation rejected the request.");
+          error.code = "INVENTORY_BATCH_VALIDATION";
+          error.statusCode = 409;
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "mayor-offline-batch-generic-409",
+            action_key: "INVENTORY_BATCH_CREATE",
+            entity_type: "INVENTORY_BATCH",
+            entity_local_id: "Generic-409-BATCH-001",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T05:00:00.000Z",
+            payload: {
+              inventory_item_id: "existing-parent",
+              inventory_item_local_id: "existing-parent",
+              batch_no: "GENERIC-409-BATCH-001",
+              quantity_received: 5,
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.error_code, "INVENTORY_BATCH_VALIDATION");
+    },
+  );
+
+  assert.equal(itemMappingLookups, 1);
+  assert.equal(batchCalls, 1);
+
+  let mismatchClaims = 0;
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => {
+          mismatchClaims += 1;
+          return {
+            decision: "REUSE_MISMATCH",
+            transaction: { id: "sync-mismatch" },
+          };
+        },
+      }),
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      await assert.rejects(
+        processSyncEntries({
+          auth: { ...baseAuth, roleCode: "MAYOR" },
+          entries: [
+            {
+              client_sync_id: "mayor-offline-batch-idempotency-mismatch",
+              action_key: "INVENTORY_BATCH_CREATE",
+              entity_type: "INVENTORY_BATCH",
+              entity_local_id: "Mismatch-BATCH-001",
+              entity_server_id: null,
+              client_timestamp: "2026-09-07T06:00:00.000Z",
+              payload: {
+                inventory_item_id: "mismatch-parent",
+                inventory_item_local_id: "mismatch-parent",
+                batch_no: "MISMATCH-BATCH-001",
+                quantity_received: 1,
+              },
+            },
+          ],
+        }),
+        (error) => error.code === "IDEMPOTENCY_KEY_REUSE_MISMATCH",
+      );
+    },
+  );
+
+  assert.equal(mismatchClaims, 1);
+});
+
 test("M02-18 H-05 duplicate QR claim conflict carries SYNC_CONFLICT notification intent", async () => {
   const processedIntentIds = [];
 
