@@ -3,7 +3,7 @@ const inventoryTransactionRepository = require("../repositories/inventoryTransac
 const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
-const mayorReportExport = require("../utils/mayorReportExport");
+const reportExport = require("../utils/mswdoReportExport");
 const notificationService = require("../modules/notifications/notification.service");
 const {
   logAuditSafely,
@@ -759,15 +759,17 @@ const exportInventoryTransactions = async (filters, format) => {
       transaction.inventory_transaction_reference_no || "--",
     reference_type: transaction.reference_type || "--",
     performed_by: transaction.performer?.full_name || "--",
-    performed_at: mayorReportExport.formatDateTime(transaction.performed_at),
+    performed_at: reportExport.formatDateTime(transaction.performed_at),
     other_status: transaction.other_status || "--",
     remarks: transaction.remarks || "--",
   }));
 
-  return mayorReportExport.buildExportFile({
+  return reportExport.buildExportFile({
     filePrefix: "office-mayor-inventory-transactions",
     worksheetName: "Inventory Transactions",
     reportTitle: "Inventory Transactions Report",
+    tableTitle: "Inventory Transactions",
+    sourceName: "Office of the Mayor",
     metadata: [
       { label: "Search", value: filters.search?.trim() || "None" },
       {
