@@ -355,6 +355,14 @@ const InventoryDistributionPage = () => {
     return selectedSectorIds.length + (selectedSortOrder !== "oldest" ? 1 : 0);
   }, [selectedSectorIds.length, selectedSortOrder]);
 
+  const hasActiveDistributionFilters = Boolean(
+    selectedDisasterEventId ||
+      selectedBarangayId ||
+      selectedStatus ||
+      searchTerm.trim() ||
+      activeFilterCount > 0,
+  );
+
   const handleClearAllFilters = () => {
     resetAllDistributionFilters();
     setIsFilterOpen(false);
@@ -788,26 +796,28 @@ const InventoryDistributionPage = () => {
             </div>
           </div>
 
-          <div className="inventory-distribution-filter-actions">
-            <button
-              className="inventory-distribution-clear-filters"
-              type="button"
-              onClick={handleClearAllFilters}
-              style={{
-                border: "none",
-                background: "transparent",
-                color: "#55718b",
-                padding: "2px 0",
-                fontSize: "13px",
-                fontWeight: 700,
-                cursor: "pointer",
-                textDecoration: "underline",
-                textUnderlineOffset: "3px",
-              }}
-            >
-              Clear filters
-            </button>
-          </div>
+          {hasActiveDistributionFilters ? (
+            <div className="inventory-distribution-filter-actions">
+              <button
+                className="inventory-distribution-clear-filters"
+                type="button"
+                onClick={handleClearAllFilters}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  color: "#55718b",
+                  padding: "2px 0",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                  textUnderlineOffset: "3px",
+                }}
+              >
+                Clear filters
+              </button>
+            </div>
+          ) : null}
         </section>
 
         {selectedDisasterEvent ? (

@@ -19,6 +19,11 @@ test("Mayor inventory distribution page exposes scoped responsive hooks", async 
   assert.match(pageSource, /const scopeCardStyles = \{/);
   assert.match(pageSource, /padding: 0,[\s\S]*?boxSizing: "border-box"/);
   assert.match(pageSource, /className="inventory-distribution-filter-content"/);
+  assert.match(pageSource, /const hasActiveDistributionFilters = Boolean\(/);
+  assert.match(
+    pageSource,
+    /hasActiveDistributionFilters \? \([\s\S]*?className="inventory-distribution-filter-actions"/,
+  );
   assert.match(pageSource, /aria-label="Inventory distribution event scope"/);
   assert.match(pageSource, /role="tab"/);
   assert.match(pageSource, /Disaster Event/);
@@ -51,6 +56,10 @@ test("Mayor inventory distribution page exposes scoped responsive hooks", async 
   assert.match(
     cssSource,
     /@media \(max-width: 768px\)[\s\S]*?\.inventory-distribution-tabs button \{[\s\S]*?flex: 0 0 auto;[\s\S]*?min-height: 48px;/,
+  );
+  assert.match(
+    cssSource,
+    /\.inventory-distribution-filter-actions \{[\s\S]*?bottom: clamp\(16px, 2vw, 24px\);[\s\S]*?top: auto;/,
   );
 });
 

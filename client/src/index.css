@@ -499,6 +499,11 @@ body {
   z-index: 1;
 }
 
+.inventory-distribution-filter-actions {
+  bottom: clamp(16px, 2vw, 24px);
+  top: auto;
+}
+
 .mayor-audit-trail-filter-actions {
   grid-column: auto;
 }
