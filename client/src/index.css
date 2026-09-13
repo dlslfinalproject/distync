@@ -455,6 +455,46 @@ body {
   width: 100%;
 }
 
+.mayor-relief-pack-scope-card,
+.inventory-distribution-scope-card,
+.mayor-inventory-forecast-filter-card,
+.mayor-audit-trail-filter-card,
+.sync-center-filter-card,
+.mayor-anomaly-filter-card {
+  position: relative;
+}
+
+.mayor-relief-pack-filter-actions,
+.inventory-distribution-filter-actions,
+.mayor-inventory-forecast-filter-actions,
+.mayor-audit-trail-filter-actions,
+.sync-center-filter-actions,
+.mayor-anomaly-filter-actions {
+  position: absolute;
+  right: clamp(16px, 2vw, 24px);
+  bottom: 2px;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0;
+  width: auto;
+  z-index: 1;
+}
+
+.mayor-audit-trail-filter-actions {
+  grid-column: auto;
+}
+
+.mayor-relief-pack-clear-filters,
+.inventory-distribution-clear-filters,
+.mayor-inventory-forecast-filter-actions button,
+.mayor-audit-trail-clear-filters,
+.sync-center-clear-filters,
+.mayor-anomaly-clear-filters {
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+  padding: 0 !important;
+}
+
 .mayor-donation-management-tabs {
   scrollbar-width: thin;
 }
