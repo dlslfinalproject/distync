@@ -9,15 +9,25 @@ const readSource = (relativePath) =>
   fs.readFile(sourcePath(...relativePath), "utf8");
 
 test("Mayor small-screen toolbars keep searches full-width and pair actions", async () => {
-  const [itemsPage, batchesPage, reliefPackPage, donationFilters, anomalyPage, css] =
-    await Promise.all([
-      readSource(["pages", "inventory", "InventoryItemsPage.jsx"]),
-      readSource(["pages", "inventory", "InventoryBatchesPage.jsx"]),
-      readSource(["pages", "inventory", "ReliefPackTemplatesPage.jsx"]),
-      readSource(["components", "donations", "DonationFilters.jsx"]),
-      readSource(["pages", "mswdo", "AnomalyTrackingPage.jsx"]),
-      readSource(["index.css"]),
-    ]);
+  const [
+    itemsPage,
+    batchesPage,
+    reliefPackPage,
+    donationFilters,
+    anomalyPage,
+    forecastingPanel,
+    distributionPage,
+    css,
+  ] = await Promise.all([
+    readSource(["pages", "inventory", "InventoryItemsPage.jsx"]),
+    readSource(["pages", "inventory", "InventoryBatchesPage.jsx"]),
+    readSource(["pages", "inventory", "ReliefPackTemplatesPage.jsx"]),
+    readSource(["components", "donations", "DonationFilters.jsx"]),
+    readSource(["pages", "mswdo", "AnomalyTrackingPage.jsx"]),
+    readSource(["components", "inventory-items", "ForecastingPanel.jsx"]),
+    readSource(["pages", "inventory", "InventoryDistributionPage.jsx"]),
+    readSource(["index.css"]),
+  ]);
 
   assert.match(itemsPage, /className="inventory-items-management-toolbar"/);
   assert.match(batchesPage, /className="mayor-inventory-batches-toolbar"/);
@@ -25,6 +35,12 @@ test("Mayor small-screen toolbars keep searches full-width and pair actions", as
   assert.match(donationFilters, /data-toolbar-tab="donations"/);
   assert.match(donationFilters, /data-toolbar-tab="transparency"/);
   assert.match(anomalyPage, /"mayor-anomaly-toolbar"/);
+  assert.match(forecastingPanel, /className="mayor-inventory-forecast-action-row"/);
+  assert.match(
+    forecastingPanel,
+    /className="mayor-inventory-forecast-export-button"/,
+  );
+  assert.match(distributionPage, /className="inventory-distribution-export-button"/);
 
   const toolbarCss = css.split("/* Mayor dashboard toolbar layout:")[1] || "";
 
@@ -51,6 +67,30 @@ test("Mayor small-screen toolbars keep searches full-width and pair actions", as
   assert.match(
     toolbarCss,
     /\.mayor-relief-pack-toolbar\[data-active-tab="relief-packs"\][\s\S]*?\.mayor-relief-pack-action-group button\s*\{[\s\S]*?grid-column: 1 \/ -1;/,
+  );
+  assert.match(
+    toolbarCss,
+    /\.mayor-relief-pack-toolbar\[data-active-tab="customization"\][\s\S]*?\.mayor-relief-pack-action-group button\s*\{[\s\S]*?grid-column: 2;[\s\S]*?grid-row: 2;/,
+  );
+  assert.match(
+    toolbarCss,
+    /\.inventory-distribution-filter-button-wrap\s*\{[\s\S]*?grid-column: 1;[\s\S]*?grid-row: 3;/,
+  );
+  assert.match(
+    toolbarCss,
+    /\.inventory-distribution-export-button\s*\{[\s\S]*?grid-column: 2;[\s\S]*?grid-row: 3;/,
+  );
+  assert.match(
+    toolbarCss,
+    /\.mayor-donation-management-toolbar\[data-toolbar-tab="donations"\][\s\S]*?\.mayor-donation-management-add-button\s*\{[\s\S]*?grid-column: 2;[\s\S]*?grid-row: 3;/,
+  );
+  assert.match(
+    toolbarCss,
+    /\.mayor-donation-management-toolbar\[data-toolbar-tab="donations"\][\s\S]*?\.mayor-donation-management-export-button\s*\{[\s\S]*?grid-column: 1 \/ -1;[\s\S]*?grid-row: 4;/,
+  );
+  assert.match(
+    toolbarCss,
+    /\.mayor-inventory-forecast-action-row\s*\{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
   );
   assert.match(
     toolbarCss,

@@ -4,11 +4,11 @@ import { useAuth } from "../../context/AuthContext";
 import { FiFileText, FiFilter } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { pageSpacingStyles, shellStyles } from "../../components/layout/BarangayLayout";
-import ExportModal from "../../components/shared/ExportModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import SearchBar from "../../components/shared/SearchBar";
 import ResponsiveFilterPopover from "../../components/shared/ResponsiveFilterPopover";
 import InventoryTransactionDetailModal from "../../components/inventory-transactions/InventoryTransactionDetailModal";
+import InventoryTransactionExportModal from "../../components/inventory-transactions/InventoryTransactionExportModal";
 import InventoryTransactionsTable from "../../components/inventory-transactions/InventoryTransactionsTable";
 import {
   exportInventoryTransactions,
@@ -259,6 +259,18 @@ const DEFAULT_TRANSACTION_TOOLBAR_STATE = {
   movement: "",
   sortOrder: "newest",
   stockForms: [],
+};
+
+const EMPTY_TRANSACTION_EXPORT_FILTERS = {
+  inventory_item_id: "",
+  inventory_batch_id: "",
+  transaction_label: "",
+  date_from: "",
+  date_to: "",
+  source: "",
+  search: "",
+  movement: "",
+  stock_form_packaging: [],
 };
 
 const DATE_RANGE_ERROR_MESSAGE = "Date From must be on or before Date To.";
@@ -621,6 +633,11 @@ const InventoryTransactionsPage = () => {
   const [isExporting, setIsExporting] = useState("");
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
+  const [exportFilters, setExportFilters] = useState(() => ({
+    ...EMPTY_TRANSACTION_EXPORT_FILTERS,
+    stock_form_packaging: [],
+  }));
+  const [exportDateRangeError, setExportDateRangeError] = useState("");
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
     message: "",
@@ -635,6 +652,11 @@ const InventoryTransactionsPage = () => {
     filters.date_from &&
       filters.date_to &&
       filters.date_from > filters.date_to,
+  );
+  const hasInvalidExportDateRange = Boolean(
+    exportFilters.date_from &&
+      exportFilters.date_to &&
+      exportFilters.date_from > exportFilters.date_to,
   );
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
@@ -795,6 +817,22 @@ const InventoryTransactionsPage = () => {
       )
       .sort((left, right) => String(left.batch_no || "").localeCompare(String(right.batch_no || "")));
   }, [filters.inventory_item_id, inventoryBatchesForDisplay]);
+
+  const exportBatchOptions = useMemo(() => {
+    if (!exportFilters.inventory_item_id) {
+      return [];
+    }
+
+    return inventoryBatchesForDisplay
+      .filter(
+        (batch) =>
+          String(batch.inventory_item_id || batch.inventory_item?.id || "") ===
+          String(exportFilters.inventory_item_id),
+      )
+      .sort((left, right) =>
+        String(left.batch_no || "").localeCompare(String(right.batch_no || "")),
+      );
+  }, [exportFilters.inventory_item_id, inventoryBatchesForDisplay]);
 
   const batchById = useMemo(() => {
     return new Map(
@@ -1275,19 +1313,69 @@ const InventoryTransactionsPage = () => {
     summaryTrackingMap,
   ]);
 
+  const handleExportFilterChange = (fieldName, value) => {
+    setExportDateRangeError("");
+    setExportFilters((currentFilters) => {
+      if (fieldName === "inventory_item_id") {
+        return {
+          ...currentFilters,
+          inventory_item_id: value,
+          inventory_batch_id: "",
+        };
+      }
+
+      return {
+        ...currentFilters,
+        [fieldName]: value,
+      };
+    });
+  };
+
+  const handleToggleExportStockForm = (packaging) => {
+    setExportFilters((currentFilters) => {
+      const currentValues = Array.isArray(currentFilters.stock_form_packaging)
+        ? currentFilters.stock_form_packaging
+        : [];
+
+      return {
+        ...currentFilters,
+        stock_form_packaging: currentValues.includes(packaging)
+          ? currentValues.filter((value) => value !== packaging)
+          : [...currentValues, packaging],
+      };
+    });
+  };
+
+  const handleOpenExportModal = () => {
+    setExportFilters({
+      inventory_item_id: filters.inventory_item_id,
+      inventory_batch_id: filters.inventory_batch_id,
+      transaction_label: filters.transaction_type,
+      date_from: filters.date_from,
+      date_to: filters.date_to,
+      source: filters.source,
+      search: toolbarState.search,
+      movement: toolbarState.movement,
+      stock_form_packaging: [...toolbarState.stockForms],
+    });
+    setSelectedExportFormat("csv");
+    setExportDateRangeError("");
+    setExportFeedback({ type: "", message: "" });
+    setIsExportModalOpen(true);
+  };
+
   const handleExport = async (format) => {
     setErrorMessage("");
-    setIsExportModalOpen(false);
 
-    if (hasInvalidDateRange) {
-      setExportFeedback({
-        type: "error",
-        message: DATE_RANGE_ERROR_MESSAGE,
-      });
+    if (hasInvalidExportDateRange) {
+      setExportDateRangeError(DATE_RANGE_ERROR_MESSAGE);
       return;
     }
 
-    if (displayedRows.length === 0) {
+    setExportDateRangeError("");
+    setIsExportModalOpen(false);
+
+    if (mergedTransactionRows.length === 0) {
       setExportFeedback({
         type: "error",
         message: NO_EXPORT_DATA_MESSAGE,
@@ -1299,27 +1387,27 @@ const InventoryTransactionsPage = () => {
 
     try {
       const file = await exportInventoryTransactions(format, {
-        inventory_item_id: filters.inventory_item_id,
-        inventory_batch_id: filters.inventory_batch_id,
-        transaction_label: filters.transaction_type,
-        date_from: filters.date_from,
-        date_to: filters.date_to,
-        source: filters.source,
-        search: toolbarState.search,
-        movement: toolbarState.movement,
-        stock_form_packaging: toolbarState.stockForms,
+        inventory_item_id: exportFilters.inventory_item_id,
+        inventory_batch_id: exportFilters.inventory_batch_id,
+        transaction_label: exportFilters.transaction_label,
+        date_from: exportFilters.date_from,
+        date_to: exportFilters.date_to,
+        source: exportFilters.source,
+        search: exportFilters.search,
+        movement: exportFilters.movement,
+        stock_form_packaging: exportFilters.stock_form_packaging,
       });
       downloadFile(file);
       setExportFeedback({
         type: "success",
-        message: buildExportSuccessMessage("Inventory transactions report"),
+        message: buildExportSuccessMessage("Inventory tracking report"),
       });
     } catch (error) {
       setExportFeedback({
         type: "error",
         message: resolveExportErrorMessage(
           error,
-          "Failed to export inventory transactions.",
+          "Failed to export inventory tracking report.",
         ),
       });
     } finally {
@@ -1696,11 +1784,7 @@ const InventoryTransactionsPage = () => {
           <button
             className="inventory-tracking-export-button"
             type="button"
-            onClick={() => {
-              setSelectedExportFormat("csv");
-              setExportFeedback({ type: "", message: "" });
-              setIsExportModalOpen(true);
-            }}
+            onClick={handleOpenExportModal}
             disabled={Boolean(isExporting)}
             style={{
               ...pageHeaderStyles.secondaryButton,
@@ -1729,21 +1813,24 @@ const InventoryTransactionsPage = () => {
         />
       </section>
 
-      <ExportModal
+      <InventoryTransactionExportModal
         isOpen={isExportModalOpen}
-        title="Export Inventory Report"
-        description="Select the export format."
-        reportOptions={[
-          {
-            value: "INVENTORY_TRANSACTIONS",
-            label: "Inventory Transactions Report",
-          },
-        ]}
-        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
-        selectedReportType="INVENTORY_TRANSACTIONS"
-        selectedFormat={selectedExportFormat}
         isSubmitting={Boolean(isExporting)}
-        onReportTypeChange={() => {}}
+        inventoryItems={inventoryItemOptions}
+        inventoryBatches={exportBatchOptions}
+        stockFormOptions={stockFormOptions}
+        filters={exportFilters}
+        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
+        selectedFormat={selectedExportFormat}
+        errorMessage={exportDateRangeError}
+        onFilterChange={handleExportFilterChange}
+        onStockFormToggle={handleToggleExportStockForm}
+        onClearStockForms={() =>
+          setExportFilters((currentFilters) => ({
+            ...currentFilters,
+            stock_form_packaging: [],
+          }))
+        }
         onFormatChange={setSelectedExportFormat}
         onClose={() => {
           if (!isExporting) {

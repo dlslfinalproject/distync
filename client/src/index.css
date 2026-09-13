@@ -338,6 +338,12 @@ body {
   box-sizing: border-box;
 }
 
+.inventory-tracking-export-modal,
+.inventory-tracking-export-modal * {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
 .inventory-tracking-filter-card,
 .inventory-tracking-filter-grid,
 .inventory-tracking-filter-actions,
@@ -351,7 +357,12 @@ body {
 .inventory-tracking-table,
 .inventory-tracking-detail-stack,
 .inventory-tracking-detail-section,
-.inventory-tracking-detail-grid {
+.inventory-tracking-detail-grid,
+.inventory-tracking-export-modal,
+.inventory-tracking-export-section,
+.inventory-tracking-export-grid,
+.inventory-tracking-export-packaging-grid,
+.inventory-tracking-export-actions {
   min-width: 0;
 }
 
@@ -1220,6 +1231,46 @@ body {
   .inventory-tracking-detail-section {
     padding: 16px !important;
   }
+
+  .inventory-tracking-export-modal-backdrop {
+    align-items: stretch !important;
+    padding: 12px !important;
+  }
+
+  .inventory-tracking-export-modal {
+    width: 100% !important;
+    max-height: calc(100vh - 24px) !important;
+    border-radius: 18px !important;
+    padding: 16px !important;
+  }
+
+  .inventory-tracking-export-modal-topbar {
+    align-items: flex-start !important;
+    flex-wrap: nowrap !important;
+    gap: 12px !important;
+  }
+
+  .inventory-tracking-export-grid,
+  .inventory-tracking-export-packaging-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .inventory-tracking-export-section {
+    padding: 16px !important;
+  }
+
+  .inventory-tracking-export-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch !important;
+  }
+
+  .inventory-tracking-export-actions button {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    white-space: normal;
+  }
 }
 
 @media (max-width: 480px) {
@@ -1537,6 +1588,10 @@ body {
 
   .inventory-tracking-detail-modal > div:first-child h3 {
     font-size: 22px !important;
+  }
+
+  .inventory-tracking-export-actions {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -3321,13 +3376,31 @@ img {
     grid-column: 1;
   }
 
-  .mayor-relief-pack-action-group {
+  .mayor-relief-pack-toolbar[data-active-tab="customization"]
+    .mayor-relief-pack-filter-button-wrap {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .mayor-relief-pack-toolbar[data-active-tab="customization"]
+    .mayor-relief-pack-action-group button {
     grid-column: 2;
+    grid-row: 2;
   }
 
   .mayor-relief-pack-toolbar[data-active-tab="relief-packs"]
     .mayor-relief-pack-action-group button {
     grid-column: 1 / -1;
+  }
+
+  .inventory-distribution-filter-button-wrap {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .inventory-distribution-export-button {
+    grid-column: 2;
+    grid-row: 3;
   }
 
   .mayor-donation-management-toolbar[data-toolbar-tab="transparency"]
@@ -3354,13 +3427,13 @@ img {
   }
 
   .mayor-donation-management-toolbar[data-toolbar-tab="donations"]
-    .mayor-donation-management-export-button {
+    .mayor-donation-management-add-button {
     grid-column: 2;
     grid-row: 3;
   }
 
   .mayor-donation-management-toolbar[data-toolbar-tab="donations"]
-    .mayor-donation-management-add-button {
+    .mayor-donation-management-export-button {
     grid-column: 1 / -1;
     grid-row: 4;
   }
@@ -3408,4 +3481,22 @@ img {
     width: 100%;
     justify-content: center;
   }
+
+  .mayor-inventory-forecast-action-row {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+    width: 100% !important;
+  }
+
+  .mayor-inventory-forecast-action-row > button {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    justify-content: center;
+  }
+}
+
+.mayor-inventory-forecast-export-button {
+  min-width: 0 !important;
 }
