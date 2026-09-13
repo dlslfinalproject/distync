@@ -258,6 +258,7 @@ const InventoryDistributionPage = () => {
     errorMessage,
     hasActiveEvents,
     handleEventScopeChange,
+    resetAllDistributionFilters,
     setSearchTerm,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
@@ -318,6 +319,11 @@ const InventoryDistributionPage = () => {
   const activeFilterCount = useMemo(() => {
     return selectedSectorIds.length + (selectedSortOrder !== "oldest" ? 1 : 0);
   }, [selectedSectorIds.length, selectedSortOrder]);
+
+  const handleClearAllFilters = () => {
+    resetAllDistributionFilters();
+    setIsFilterOpen(false);
+  };
 
   const summaryCards = useMemo(() => {
     const issuedLabel =
@@ -741,6 +747,27 @@ const InventoryDistributionPage = () => {
               </div>
             </div>
           </div>
+
+          <div className="inventory-distribution-filter-actions">
+            <button
+              className="inventory-distribution-clear-filters"
+              type="button"
+              onClick={handleClearAllFilters}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: "#55718b",
+                padding: "2px 0",
+                fontSize: "13px",
+                fontWeight: 700,
+                cursor: "pointer",
+                textDecoration: "underline",
+                textUnderlineOffset: "3px",
+              }}
+            >
+              Clear filters
+            </button>
+          </div>
         </section>
 
         {selectedDisasterEvent ? (
@@ -904,13 +931,10 @@ const InventoryDistributionPage = () => {
                   <div style={filterPanelStyles.actions}>
                     <button
                       type="button"
-                      onClick={() => {
-                        setSelectedSectorIds([]);
-                        setSelectedSortOrder("oldest");
-                      }}
+                      onClick={handleClearAllFilters}
                       style={filterPanelStyles.clearAction}
                     >
-                      Clear
+                      Clear all filters
                     </button>
                   </div>
               </ResponsiveFilterPopover>

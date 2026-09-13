@@ -446,6 +446,15 @@ export const useInventoryDistribution = () => {
     setSelectedSortOrder("oldest");
   };
 
+  const resetAllDistributionFilters = () => {
+    resetDistributionFilters();
+    setSelectedBarangayId("");
+    setSelectedDisasterEventIdsByTab({
+      active: "",
+      ended: "",
+    });
+  };
+
   const isLoadingTemplate = isLoadingTemplateList;
 
   useEffect(() => {
@@ -925,6 +934,7 @@ export const useInventoryDistribution = () => {
     errorMessage,
     hasActiveEvents: disasterEvents.length > 0,
     handleEventScopeChange,
+    resetAllDistributionFilters,
     setSearchTerm,
     setSelectedDisasterEventId,
     setSelectedBarangayId,

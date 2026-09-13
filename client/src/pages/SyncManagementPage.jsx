@@ -128,6 +128,15 @@ const SYNC_TAB_IDS = {
   CONFLICTS: "sync-center-conflict-review-tab",
 };
 const SYNC_PAGINATION_TABS = ["QUEUE", "CONFLICTS", "AUDIT"];
+const DEFAULT_SYNC_FILTERS = {
+  barangayId: "",
+  dateFrom: "",
+  dateTo: "",
+  order: "newest",
+  recordType: "ALL",
+  search: "",
+  status: "ALL",
+};
 const createSyncPaginationState = () =>
   Object.fromEntries(
     SYNC_PAGINATION_TABS.map((tab) => [
@@ -652,15 +661,7 @@ const SyncManagementPage = () => {
   const [barangayOptions, setBarangayOptions] = useState([]);
   const [isLoadingBarangayOptions, setIsLoadingBarangayOptions] = useState(false);
   const [barangayOptionsError, setBarangayOptionsError] = useState("");
-  const [filters, setFilters] = useState({
-    barangayId: "",
-    dateFrom: "",
-    dateTo: "",
-    order: "newest",
-    recordType: "ALL",
-    search: "",
-    status: "ALL",
-  });
+  const [filters, setFilters] = useState({ ...DEFAULT_SYNC_FILTERS });
   const [feedback, setFeedback] = useState({
     type: "",
     title: "",
@@ -1145,6 +1146,22 @@ const SyncManagementPage = () => {
       ...currentFilters,
       [key]: value,
     }));
+  };
+
+  const hasActiveSyncFilters = Boolean(
+    filters.barangayId ||
+      filters.dateFrom ||
+      filters.dateTo ||
+      filters.order !== DEFAULT_SYNC_FILTERS.order ||
+      filters.recordType !== DEFAULT_SYNC_FILTERS.recordType ||
+      filters.search.trim() ||
+      filters.status !== DEFAULT_SYNC_FILTERS.status,
+  );
+
+  const handleClearAllFilters = () => {
+    setFilters({ ...DEFAULT_SYNC_FILTERS });
+    setPaginationByTab(createSyncPaginationState());
+    setIsFilterOpen(false);
   };
 
   const handleRetrySync = async (entryIds = null) => {
@@ -1676,6 +1693,29 @@ const SyncManagementPage = () => {
             />
           </label>
         </div>
+
+        <div className="sync-center-filter-actions">
+          <button
+            className="sync-center-clear-filters"
+            type="button"
+            onClick={handleClearAllFilters}
+            disabled={!hasActiveSyncFilters}
+            style={{
+              border: "none",
+              background: "transparent",
+              color: "#55718b",
+              padding: "2px 0",
+              fontSize: "13px",
+              fontWeight: 700,
+              cursor: hasActiveSyncFilters ? "pointer" : "not-allowed",
+              opacity: hasActiveSyncFilters ? 1 : 0.5,
+              textDecoration: "underline",
+              textUnderlineOffset: "3px",
+            }}
+          >
+            Clear filters
+          </button>
+        </div>
       </section>
 
       <div
@@ -1743,6 +1783,25 @@ const SyncManagementPage = () => {
                   ))}
                 </select>
               </label>
+              <div className="sync-center-filter-popover-actions">
+                <button
+                  type="button"
+                  onClick={handleClearAllFilters}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: "#55718b",
+                    padding: "2px 0",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                    textUnderlineOffset: "3px",
+                  }}
+                >
+                  Clear all filters
+                </button>
+              </div>
           </ResponsiveFilterPopover>
         </div>
 

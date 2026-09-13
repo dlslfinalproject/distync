@@ -195,7 +195,7 @@ const filterStyles = {
   card: {
     ...shellStyles.card,
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
     gap: "16px",
     alignItems: "end",
   },
@@ -700,6 +700,23 @@ const SystemLogReviewPage = () => {
     setCurrentPage(1);
   };
 
+  const hasActiveAuditFilters = Boolean(
+    searchTerm.trim() ||
+      selectedModule !== ALL_MODULES_VALUE ||
+      selectedAuditAction !== ALL_AUDIT_ACTIONS_VALUE ||
+      dateFrom ||
+      dateTo,
+  );
+
+  const handleClearAllFilters = () => {
+    setSearchTerm("");
+    setSelectedModule(ALL_MODULES_VALUE);
+    setSelectedAuditAction(ALL_AUDIT_ACTIONS_VALUE);
+    setDateFrom("");
+    setDateTo("");
+    setCurrentPage(1);
+  };
+
   const auditActionOptions = useMemo(
     () => getAuditActionOptions(selectedModule),
     [selectedModule],
@@ -770,6 +787,29 @@ const SystemLogReviewPage = () => {
             min={dateFrom || undefined}
           />
         </label>
+
+        <div className="mayor-audit-trail-filter-actions">
+          <button
+            className="mayor-audit-trail-clear-filters"
+            type="button"
+            onClick={handleClearAllFilters}
+            disabled={!hasActiveAuditFilters}
+            style={{
+              border: "none",
+              background: "transparent",
+              color: "#55718b",
+              padding: "2px 0",
+              fontSize: "13px",
+              fontWeight: 700,
+              cursor: hasActiveAuditFilters ? "pointer" : "not-allowed",
+              opacity: hasActiveAuditFilters ? 1 : 0.5,
+              textDecoration: "underline",
+              textUnderlineOffset: "3px",
+            }}
+          >
+            Clear filters
+          </button>
+        </div>
       </section>
 
       <section className="mayor-audit-trail-summary-grid" style={auditSummaryStyles.overviewSection}>

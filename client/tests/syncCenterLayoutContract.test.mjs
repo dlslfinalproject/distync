@@ -32,7 +32,11 @@ test("Sync Center filter CSS balances desktop, medium, and narrow layouts", asyn
   );
   assert.match(
     styles,
-    /@media \(max-width: 1180px\)[\s\S]*\.sync-center-filter-grid\[data-filter-count="5"\][\s\S]*repeat\(3, minmax\(0, 1fr\)\)[\s\S]*\.sync-center-filter-grid\[data-filter-count="4"\][\s\S]*repeat\(2, minmax\(0, 1fr\)\)/,
+    /\.sync-center-filter-grid\[data-filter-count="5"\]\s*\{[\s\S]*grid-template-columns: repeat\(6, minmax\(0, 1fr\)\)[\s\S]*\.sync-center-filter-grid\[data-filter-count="5"\] \.sync-center-filter-field:nth-child\(-n \+ 3\)[\s\S]*grid-column: span 2[\s\S]*\.sync-center-filter-grid\[data-filter-count="5"\] \.sync-center-filter-field:nth-child\(n \+ 4\)[\s\S]*grid-column: span 3/,
+  );
+  assert.match(
+    styles,
+    /@media \(max-width: 1180px\)[\s\S]*\.sync-center-filter-grid\[data-filter-count="4"\][\s\S]*repeat\(2, minmax\(0, 1fr\)\)/,
   );
   assert.match(
     styles,

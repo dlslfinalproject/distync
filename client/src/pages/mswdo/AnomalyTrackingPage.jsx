@@ -1366,8 +1366,25 @@ const AnomalyTrackingPage = ({
       filters.date_to ||
       viewState.search.trim() ||
       viewState.anomaly_type !== "all" ||
-      viewState.status !== "all",
+      viewState.status !== "all" ||
+      viewState.order !== "newest",
   );
+  const handleClearAllFilters = () => {
+    setFilters({
+      disaster_event_id: "",
+      barangay_id: isBarangayScope ? resolvedAssignedBarangay?.id || "" : "",
+      date_from: "",
+      date_to: "",
+    });
+    setViewState({
+      search: "",
+      anomaly_type: "all",
+      status: "all",
+      order: "newest",
+    });
+    setPage(1);
+    setIsFilterOpen(false);
+  };
   const totalItems = pagination.totalItems || 0;
   const shouldShowPaginationControls = totalItems > 0;
   const openAnomalyDetails = useCallback((row, event) => {
@@ -1385,8 +1402,15 @@ const AnomalyTrackingPage = ({
         actions={[]}
       />
 
-      <section style={shellStyles.card}>
-        <div style={pageSpacingStyles.filterGrid}>
+      <section
+        className="mayor-anomaly-filter-card"
+        style={shellStyles.card}
+      >
+        <div
+          className="mayor-anomaly-filter-grid"
+          data-filter-count={isBarangayScope ? "4" : "5"}
+          style={pageSpacingStyles.filterGrid}
+        >
           <div>
             <label htmlFor="anomaly-event" style={labelStyles}>
               Disaster Event
@@ -1473,6 +1497,7 @@ const AnomalyTrackingPage = ({
               id="anomaly-date-from"
               type="date"
               value={filters.date_from}
+              max={filters.date_to || undefined}
               onChange={(event) =>
                 updateFilters((currentValue) => ({
                   ...currentValue,
@@ -1491,6 +1516,7 @@ const AnomalyTrackingPage = ({
               id="anomaly-date-to"
               type="date"
               value={filters.date_to}
+              min={filters.date_from || undefined}
               onChange={(event) =>
                 updateFilters((currentValue) => ({
                   ...currentValue,
@@ -1500,6 +1526,29 @@ const AnomalyTrackingPage = ({
               style={inputStyles}
             />
           </div>
+        </div>
+
+        <div className="mayor-anomaly-filter-actions">
+          <button
+            className="mayor-anomaly-clear-filters"
+            type="button"
+            onClick={handleClearAllFilters}
+            disabled={!hasActiveFilters}
+            style={{
+              border: "none",
+              background: "transparent",
+              color: "#55718b",
+              padding: "2px 0",
+              fontSize: "13px",
+              fontWeight: 700,
+              cursor: hasActiveFilters ? "pointer" : "not-allowed",
+              opacity: hasActiveFilters ? 1 : 0.5,
+              textDecoration: "underline",
+              textUnderlineOffset: "3px",
+            }}
+          >
+            Clear filters
+          </button>
         </div>
       </section>
 
@@ -1623,6 +1672,25 @@ const AnomalyTrackingPage = ({
                     </option>
                   ))}
                 </select>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
+                  <button
+                    type="button"
+                    onClick={handleClearAllFilters}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: "#55718b",
+                      padding: "2px 0",
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                      textUnderlineOffset: "3px",
+                    }}
+                  >
+                    Clear all filters
+                  </button>
+                </div>
             </ResponsiveFilterPopover>
           </div>
         </div>

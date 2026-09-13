@@ -72,6 +72,7 @@ body {
 .mayor-relief-pack-toolbar-controls,
 .mayor-relief-pack-search-wrap,
 .mayor-relief-pack-action-group,
+.mayor-relief-pack-filter-actions,
 .mayor-relief-pack-card-grid,
 .mayor-relief-pack-tabs-module,
 .mayor-relief-pack-tabs,
@@ -85,6 +86,13 @@ body {
 .mayor-relief-pack-chip-grid,
 .mayor-relief-pack-item-preview {
   min-width: 0;
+}
+
+.mayor-relief-pack-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+  width: 100%;
 }
 
 .mayor-relief-pack-tabs {
@@ -171,6 +179,7 @@ body {
 
 .mayor-audit-trail-page,
 .mayor-audit-trail-filter-card,
+.mayor-audit-trail-filter-actions,
 .mayor-audit-trail-summary-grid,
 .mayor-audit-trail-toolbar,
 .mayor-audit-trail-search-wrap,
@@ -228,6 +237,7 @@ body {
 .inventory-distribution-scope-card,
 .inventory-distribution-filter-grid,
 .inventory-distribution-filter-field,
+.inventory-distribution-filter-actions,
 .inventory-distribution-event-card,
 .inventory-distribution-event-panel,
 .inventory-distribution-summary-grid,
@@ -246,6 +256,13 @@ body {
 .inventory-distribution-export-grid,
 .inventory-distribution-export-chip-grid {
   min-width: 0;
+}
+
+.inventory-distribution-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+  width: 100%;
 }
 
 .inventory-distribution-tabs,
@@ -396,6 +413,46 @@ body {
 .mayor-donation-management-toolbar,
 .mayor-donation-management-toolbar-controls {
   max-width: 100%;
+}
+
+.mayor-audit-trail-filter-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  margin-top: 0;
+  width: 100%;
+}
+
+.mayor-anomaly-filter-card,
+.mayor-anomaly-filter-grid,
+.mayor-anomaly-filter-actions {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mayor-anomaly-filter-grid[data-filter-count="5"] {
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  gap: 16px;
+}
+
+.mayor-anomaly-filter-grid[data-filter-count="5"] > div:nth-child(-n + 3) {
+  grid-column: span 2;
+}
+
+.mayor-anomaly-filter-grid[data-filter-count="5"] > div:nth-child(n + 4) {
+  grid-column: span 3;
+}
+
+.mayor-anomaly-filter-grid[data-filter-count="4"] {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 16px;
+}
+
+.mayor-anomaly-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+  width: 100%;
 }
 
 .mayor-donation-management-tabs {
@@ -2670,6 +2727,24 @@ img {
 }
 
 @media (max-width: 1024px) {
+  .mayor-audit-trail-filter-card {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .mayor-anomaly-filter-grid[data-filter-count="5"],
+  .mayor-anomaly-filter-grid[data-filter-count="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .mayor-anomaly-filter-grid[data-filter-count="5"] > div,
+  .mayor-anomaly-filter-grid[data-filter-count="4"] > div {
+    grid-column: auto;
+  }
+
+  .mayor-anomaly-filter-grid[data-filter-count="5"] > div:nth-child(5) {
+    grid-column: 1 / -1;
+  }
+
   .mayor-audit-trail-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
@@ -2718,6 +2793,11 @@ img {
 @media (max-width: 480px) {
   .mayor-audit-trail-filter-card,
   .mayor-audit-trail-summary-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .mayor-anomaly-filter-grid[data-filter-count="5"],
+  .mayor-anomaly-filter-grid[data-filter-count="4"] {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 
@@ -2854,6 +2934,8 @@ img {
 .sync-center-page *,
 .sync-center-filter-card,
 .sync-center-filter-grid,
+.sync-center-filter-actions,
+.sync-center-filter-popover-actions,
 .sync-center-toolbar,
 .sync-center-tabs-module,
 .sync-center-tablist,
@@ -2873,8 +2955,28 @@ img {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.sync-center-filter-grid[data-filter-count="5"] {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.sync-center-filter-grid[data-filter-count="5"] .sync-center-filter-field:nth-child(-n + 3) {
+  grid-column: span 2;
+}
+
+.sync-center-filter-grid[data-filter-count="5"] .sync-center-filter-field:nth-child(n + 4) {
+  grid-column: span 3;
+}
+
 .sync-center-filter-field {
   min-width: 0;
+}
+
+.sync-center-filter-actions,
+.sync-center-filter-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+  width: 100%;
 }
 
 .sync-center-filter-field select,
@@ -2960,9 +3062,8 @@ img {
 }
 
 @media (max-width: 1180px) {
-  .sync-center-filter-grid,
   .sync-center-filter-grid[data-filter-count="5"] {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .sync-center-filter-grid[data-filter-count="4"] {
@@ -2975,6 +3076,11 @@ img {
   .sync-center-filter-grid[data-filter-count="5"],
   .sync-center-filter-grid[data-filter-count="4"] {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sync-center-filter-grid[data-filter-count="5"] .sync-center-filter-field:nth-child(-n + 3),
+  .sync-center-filter-grid[data-filter-count="5"] .sync-center-filter-field:nth-child(n + 4) {
+    grid-column: auto;
   }
 
   .sync-center-toolbar {

@@ -2015,6 +2015,16 @@ const ReliefPackTemplatesPage = () => {
   const activeFilterCount =
     selectedAdvancedFilters.length +
     (selectedSortOrder !== "oldest" ? 1 : 0);
+  const hasActiveReliefPackFilters = Boolean(
+    filters.search.trim() ||
+      filters.packType !== "All" ||
+      selectedStatusFilter !== "all" ||
+      selectedAvailabilityFilters.length > 0 ||
+      selectedDisasterTypeFilters.length > 0 ||
+      selectedSortOrder !== "oldest" ||
+      selectedDisasterEventId ||
+      selectedBarangayId,
+  );
 
   const loadReliefPackPage = async ({
     silent = false,
@@ -2691,13 +2701,20 @@ const ReliefPackTemplatesPage = () => {
     handleFilterChange("disasterTypes", nextDisasterTypeFilters);
   };
 
-  const handleClearAdvancedFilters = () => {
-    setFilters((currentFilters) => ({
-      ...currentFilters,
+  const handleClearAllFilters = () => {
+    setFilters({
+      search: "",
+      packType: "All",
+      status: "all",
       availability: [],
       disasterTypes: [],
       sortOrder: "oldest",
-    }));
+    });
+    setSelectedDisasterEventId("");
+    setSelectedBarangayId("");
+    setReliefPackCurrentPage(1);
+    setCustomizationCurrentPage(1);
+    setIsFilterOpen(false);
   };
 
   const handleOpenDetailModal = (template, viewContext = "relief-packs") => {
@@ -2901,6 +2918,22 @@ const ReliefPackTemplatesPage = () => {
             </div>
           </div>
         </div>
+
+        <div className="mayor-relief-pack-filter-actions">
+          <button
+            className="mayor-relief-pack-clear-filters"
+            type="button"
+            onClick={handleClearAllFilters}
+            disabled={!hasActiveReliefPackFilters}
+            style={{
+              ...reliefPackPageStyles.clearAction,
+              opacity: hasActiveReliefPackFilters ? 1 : 0.5,
+              cursor: hasActiveReliefPackFilters ? "pointer" : "not-allowed",
+            }}
+          >
+            Clear filters
+          </button>
+        </div>
       </section>
 
       <div
@@ -3022,10 +3055,10 @@ const ReliefPackTemplatesPage = () => {
                 <div style={reliefPackPageStyles.filterActions}>
                   <button
                     type="button"
-                    onClick={handleClearAdvancedFilters}
+                    onClick={handleClearAllFilters}
                     style={reliefPackPageStyles.clearAction}
                   >
-                    Clear
+                    Clear all filters
                   </button>
                 </div>
               </ResponsiveFilterPopover>
