@@ -490,7 +490,7 @@ body {
 .mayor-anomaly-filter-actions {
   position: absolute;
   right: clamp(16px, 2vw, 24px);
-  bottom: 2px;
+  top: clamp(16px, 2vw, 24px);
   display: flex;
   justify-content: flex-end;
   margin-top: 0;
