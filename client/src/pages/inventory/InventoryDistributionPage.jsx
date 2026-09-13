@@ -10,7 +10,6 @@ import InventoryDistributionDetailModal from "../../components/inventory-distrib
 import MswdoExportModal from "../../components/mswdo-masterlist/MswdoExportModal";
 import SearchBar from "../../components/shared/SearchBar";
 import StatusCard from "../../components/shared/StatusCard";
-import StatusPill from "../../components/shared/StatusPill";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import ResponsiveFilterPopover from "../../components/shared/ResponsiveFilterPopover";
 import { useInventoryDistribution } from "../../features/inventory-distribution/useInventoryDistribution";
@@ -804,7 +803,6 @@ const InventoryDistributionPage = () => {
 
               <div className="inventory-distribution-event-meta" style={layoutStyles.eventInfoRow}>
                 <span>Period: {formatReliefPeriod(selectedDisasterEvent)}</span>
-                <StatusPill status={selectedDisasterEvent.status} />
               </div>
             </div>
           </section>

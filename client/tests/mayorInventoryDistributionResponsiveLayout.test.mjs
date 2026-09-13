@@ -34,6 +34,11 @@ test("Mayor inventory distribution page exposes scoped responsive hooks", async 
   assert.match(pageSource, /className="inventory-distribution-toolbar"/);
   assert.match(pageSource, /className="inventory-distribution-search-wrap"/);
   assert.match(pageSource, /className="inventory-distribution-toolbar-controls"/);
+  assert.match(pageSource, /Period: \{formatReliefPeriod\(selectedDisasterEvent\)\}/);
+  assert.doesNotMatch(
+    pageSource,
+    /<StatusPill status=\{selectedDisasterEvent\.status\} \/>/,
+  );
   assert.doesNotMatch(pageSource, /overflowX:\s*"hidden"/);
   assert.match(
     cssSource,
@@ -75,6 +80,7 @@ test("Mayor inventory distribution table keeps overflow local and preserves colu
     tableSource,
     /Family Head[\s\S]*?Sectors[\s\S]*?Relief Pack[\s\S]*?Status[\s\S]*?Authorized By[\s\S]*?Action/,
   );
+  assert.match(tableSource, /<div style=\{\{ fontWeight: 700 \}\}>\{row\.family_head_name\}<\/div>/);
   assert.match(tableSource, /reliefPackColumn: \{\s*width: "260px"/);
   assert.match(tableSource, /reliefPackColumnWide: \{\s*width: "260px"/);
   assert.match(tableSource, /statusColumn: \{\s*width: "170px"/);
