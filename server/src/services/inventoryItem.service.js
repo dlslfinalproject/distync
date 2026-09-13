@@ -409,13 +409,6 @@ const persistInventoryItemCreationAudit = async ({
       newValues: summarizeInventoryItem(item),
       sourceSuffix: "ITEM",
     },
-    {
-      action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
-      entityType: "INVENTORY_ITEM_STOCK_FORM",
-      entityId: stockForm?.id,
-      newValues: summarizeInventoryItemStockForm(stockForm),
-      sourceSuffix: "STOCK_FORM",
-    },
   ];
 
   if (batch) {
@@ -1565,15 +1558,6 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
           oldValues: {},
           newValues: summarizeInventoryItem(createdItem),
         });
-
-        await logAuditSafely({
-          actor,
-          action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
-          entityType: "INVENTORY_ITEM_STOCK_FORM",
-          entityId: createdStockForm.id,
-          oldValues: {},
-          newValues: summarizeInventoryItemStockForm(createdStockForm),
-        });
       }
 
       return createdItem;
@@ -1662,15 +1646,6 @@ const createInventoryItem = async (itemData, actor = null, options = {}) => {
         entityId: createdBatch.id,
         oldValues: {},
         newValues: summarizeInventoryBatch(createdBatch),
-      });
-
-      await logAuditSafely({
-        actor,
-        action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
-        entityType: "INVENTORY_ITEM_STOCK_FORM",
-        entityId: createdStockForm.id,
-        oldValues: {},
-        newValues: summarizeInventoryItemStockForm(createdStockForm),
       });
 
       await logAuditSafely({

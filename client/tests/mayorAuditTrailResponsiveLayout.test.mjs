@@ -50,6 +50,16 @@ test("Mayor audit trail tables keep horizontal overflow local and paginator outs
   assert.match(pageSource, />\s*Performed By\s*</);
   assert.match(pageSource, />\s*Date & Time\s*</);
   assert.match(pageSource, />\s*Action\s*</);
+  assert.match(
+    pageSource,
+    /isItemCreatedRecord\s*\|\|\s*isPackagingAddedRecord[\s\S]*?\?\s*"Item Details"/,
+  );
+  assert.match(pageSource, /Packaging Added/);
+  assert.match(pageSource, />\s*Opening Stock Details\s*</);
+  assert.match(pageSource, />\s*Opening Transaction Details\s*</);
+  assert.match(pageSource, /Stock Addition Details/);
+  assert.match(pageSource, />\s*Stock Transaction Details\s*</);
+  assert.doesNotMatch(pageSource, />\s*Record Information\s*</);
   assert.match(pageSource, /actionValue:\s*\{\s*fontWeight: 700,/);
   assert.match(pageSource, /<div style=\{tableStyles\.actionValue\}>[\s\S]*formatActionLabel\(entry\)/);
   assert.match(pageSource, /const formatBackendEnumText = \(value\) =>/);

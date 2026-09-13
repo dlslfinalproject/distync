@@ -123,6 +123,55 @@ test("getAuditLogs applies five-year retention and page offset", async () => {
   assert.deepEqual(capturedValues, [50, 100]);
 });
 
+test("getInventoryItemCreationRelatedAuditLogs loads opening stock records", async () => {
+  let capturedQuery = "";
+  let capturedValues = [];
+
+  await withMockPool(
+    async (query, values) => {
+      capturedQuery = query;
+      capturedValues = values;
+      return { rows: [] };
+    },
+    async ({ getInventoryItemCreationRelatedAuditLogs }) => {
+      await getInventoryItemCreationRelatedAuditLogs({
+        itemIds: ["item-1", "item-1"],
+      });
+    },
+  );
+
+  assert.match(capturedQuery, /INVENTORY_ITEM_STOCK_FORM_CREATE/);
+  assert.match(capturedQuery, /INVENTORY_BATCH_CREATE/);
+  assert.match(capturedQuery, /INVENTORY_TRANSACTION_CREATE/);
+  assert.match(capturedQuery, /related_inventory_item_id/);
+  assert.match(capturedQuery, /COALESCE\([\s\S]*<> 'DONATION'/);
+  assert.deepEqual(capturedValues, [["item-1"]]);
+});
+
+test("getInventoryPackagingAddedRelatedAuditLogs loads the new packaging opening stock", async () => {
+  let capturedQuery = "";
+  let capturedValues = [];
+
+  await withMockPool(
+    async (query, values) => {
+      capturedQuery = query;
+      capturedValues = values;
+      return { rows: [] };
+    },
+    async ({ getInventoryPackagingAddedRelatedAuditLogs }) => {
+      await getInventoryPackagingAddedRelatedAuditLogs({
+        stockFormIds: ["stock-form-1", "stock-form-1"],
+      });
+    },
+  );
+
+  assert.match(capturedQuery, /INVENTORY_BATCH_CREATE/);
+  assert.match(capturedQuery, /INVENTORY_TRANSACTION_CREATE/);
+  assert.match(capturedQuery, /related_inventory_item_stock_form_id/);
+  assert.match(capturedQuery, /transaction_type.*= 'INFLOW'/);
+  assert.deepEqual(capturedValues, [["stock-form-1"]]);
+});
+
 test("getAuditLogs searches user-facing audit fields before paging", async () => {
   let capturedQuery = "";
   let capturedValues = [];
@@ -226,6 +275,31 @@ test("getAuditLogs applies audit action filter before paging", async () => {
   assert.match(capturedQuery, /RELIEF_PACK_TEMPLATE_UPDATED/);
   assert.match(capturedQuery, /RELIEF_PACK_TEMPLATE_ITEMS_UPDATED/);
   assert.match(capturedQuery, /LIMIT \$1 OFFSET \$2/);
+  assert.deepEqual(capturedValues, [50, 0]);
+});
+
+test("getAuditLogs filters Packaging Added to additional packaging records", async () => {
+  let capturedQuery = "";
+  let capturedValues = [];
+
+  await withMockPool(
+    async (query, values) => {
+      capturedQuery = query;
+      capturedValues = values;
+      return { rows: [] };
+    },
+    async ({ getAuditLogs }) => {
+      await getAuditLogs({
+        auditAction: "packaging_added",
+        limit: 50,
+        page: 1,
+      });
+    },
+  );
+
+  assert.match(capturedQuery, /INVENTORY_ITEM_STOCK_FORM_CREATE/);
+  assert.match(capturedQuery, /is_additional_packaging.*'true'/);
+  assert.match(capturedQuery, /NOT \([\s\S]*is_additional_packaging/);
   assert.deepEqual(capturedValues, [50, 0]);
 });
 

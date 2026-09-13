@@ -97,7 +97,6 @@ const AUDIT_DETAIL_FIELD_LABELS = {
   quantity_received: "Quantity Received",
   quantity_available: "Quantity Available",
   received_at: "Received Date",
-  storage_location: "Storage Location",
   transaction_type: "Stock Action",
   other_status: "Other Status",
   performed_at: "Performed At",
@@ -155,7 +154,6 @@ const AUDIT_DETAIL_ALLOWED_FIELDS = {
     "quantity_available",
     "expiration_date",
     "received_at",
-    "storage_location",
     "status",
   ],
   INVENTORY_TRANSACTION: [
@@ -206,6 +204,21 @@ const AUDIT_DETAIL_ALLOWED_FIELDS = {
     "remarks",
   ],
 };
+
+const ITEM_CREATED_ITEM_FIELDS = new Set([
+  "item_code",
+  "item_name",
+  "category",
+  "unit_of_measure",
+  "unit_of_measure_value",
+  "packaging",
+  "barcode",
+  "reorder_level",
+]);
+
+const OPENING_STOCK_REMARK =
+  "Opening stock recorded during inventory item creation";
+const STOCK_ADDED_REMARK = "Stock received during inventory batch creation";
 
 const DATE_DETAIL_FIELDS = new Set([
   "expiration_date",
@@ -470,6 +483,484 @@ const buildAuditDetailItemChanges = (row) => {
     .filter(Boolean);
 };
 
+const isInventoryItemCreatedAudit = (row) =>
+  row?.entity_type === "INVENTORY_ITEM" &&
+  row?.action === "INVENTORY_ITEM_CREATE";
+
+const isInventoryPackagingAddedAudit = (row) =>
+  row?.entity_type === "INVENTORY_ITEM_STOCK_FORM" &&
+  row?.action === "INVENTORY_ITEM_STOCK_FORM_CREATE" &&
+  String(row?.new_values_json?.is_additional_packaging || "").toLowerCase() ===
+    "true";
+
+const isInventoryStockAddedAudit = (row) => {
+  if (
+    row?.entity_type === "INVENTORY_BATCH" &&
+    row?.action === "INVENTORY_BATCH_CREATE"
+  ) {
+    return true;
+  }
+
+  return (
+    row?.entity_type === "INVENTORY_TRANSACTION" &&
+    row?.action === "INVENTORY_TRANSACTION_CREATE" &&
+    String(row?.new_values_json?.transaction_type || "").toUpperCase() ===
+      "INFLOW" &&
+    String(
+      row?.inventory_transaction_reference_type ||
+        row?.new_values_json?.reference_type ||
+        "",
+    ).toUpperCase() !== "DONATION"
+  );
+};
+
+const getRelatedInventoryItemId = (row) =>
+  String(
+    row?.related_inventory_item_id ||
+      row?.new_values_json?.inventory_item_id ||
+      "",
+  ).trim();
+
+const getRelatedInventoryStockFormId = (row) =>
+  String(
+    row?.related_inventory_item_stock_form_id ||
+      row?.new_values_json?.inventory_item_stock_form_id ||
+      "",
+  ).trim();
+
+const getAuditTimestamp = (row) => {
+  const timestamp = new Date(row?.created_at || "").getTime();
+
+  return Number.isFinite(timestamp) ? timestamp : null;
+};
+
+const getOpeningRelatedAuditRows = (itemRow, relatedRows = []) => {
+  const itemId = String(itemRow?.entity_id || "").trim();
+  const itemTimestamp = getAuditTimestamp(itemRow);
+
+  return relatedRows
+    .filter((row) => {
+      if (getRelatedInventoryItemId(row) !== itemId) {
+        return false;
+      }
+
+      const relatedTimestamp = getAuditTimestamp(row);
+
+      return (
+        itemTimestamp === null ||
+        relatedTimestamp === null ||
+        relatedTimestamp >= itemTimestamp
+      );
+    })
+    .sort((left, right) => {
+      const leftTimestamp = getAuditTimestamp(left) ?? Number.POSITIVE_INFINITY;
+      const rightTimestamp = getAuditTimestamp(right) ?? Number.POSITIVE_INFINITY;
+
+      return leftTimestamp - rightTimestamp || String(left.id).localeCompare(String(right.id));
+    });
+};
+
+const getOpeningPackagingRelatedAuditRows = (stockFormRow, relatedRows = []) => {
+  const stockFormId = String(stockFormRow?.entity_id || "").trim();
+
+  return relatedRows
+    .filter((row) => getRelatedInventoryStockFormId(row) === stockFormId)
+    .sort((left, right) => {
+      const leftTimestamp = getAuditTimestamp(left) ?? Number.POSITIVE_INFINITY;
+      const rightTimestamp = getAuditTimestamp(right) ?? Number.POSITIVE_INFINITY;
+
+      return leftTimestamp - rightTimestamp || String(left.id).localeCompare(String(right.id));
+    });
+};
+
+const findOpeningBatchAudit = (relatedRows) =>
+  relatedRows.find(
+    (row) =>
+      row.entity_type === "INVENTORY_BATCH" &&
+      row.action === "INVENTORY_BATCH_CREATE",
+  ) || null;
+
+const findOpeningTransactionAudit = (itemRow, relatedRows, batchRow) => {
+  const transactionRows = relatedRows.filter(
+    (row) =>
+      row.entity_type === "INVENTORY_TRANSACTION" &&
+      row.action === "INVENTORY_TRANSACTION_CREATE" &&
+      String(row.new_values_json?.transaction_type || "").toUpperCase() ===
+        "INFLOW",
+  );
+
+  if (!transactionRows.length) {
+    return null;
+  }
+
+  const batchId = String(batchRow?.entity_id || "").trim();
+  const transactionForBatch = transactionRows.find(
+    (row) => String(row.new_values_json?.inventory_batch_id || "").trim() === batchId,
+  );
+
+  if (transactionForBatch) {
+    return transactionForBatch;
+  }
+
+  const transactionForItem = transactionRows.find(
+    (row) => String(row.new_values_json?.reference_id || "").trim() === String(itemRow?.entity_id || "").trim(),
+  );
+
+  return transactionForItem || transactionRows[0];
+};
+
+const formatAuditSource = (value) => {
+  const normalizedValue = String(value || "").trim();
+
+  if (!normalizedValue) {
+    return "--";
+  }
+
+  return normalizedValue.toUpperCase() === "LGU"
+    ? "LGU"
+    : formatAuditStatus(normalizedValue);
+};
+
+const createAuditDetailChange = (field, label, value, formatter = null) => ({
+  field,
+  label,
+  previous_value: "--",
+  new_value: formatter ? formatter(value) : formatAuditValue(field, value),
+});
+
+const buildItemCreatedOpeningStockDetails = (itemRow, batchRow) => {
+  const itemValues = itemRow.new_values_json || {};
+  const batchValues = batchRow?.new_values_json || {};
+  const changes = [];
+
+  if (itemValues.packaging_count !== undefined && itemValues.packaging_count !== null) {
+    changes.push(
+      createAuditDetailChange(
+        "packaging_count",
+        "Quantity on Hand",
+        itemValues.packaging_count,
+      ),
+    );
+  }
+
+  if (itemValues.quantity !== undefined && itemValues.quantity !== null) {
+    changes.push(
+      createAuditDetailChange(
+        "quantity",
+        "Units per Packaging",
+        itemValues.quantity,
+      ),
+    );
+  }
+
+  if (batchValues.batch_no !== undefined && batchValues.batch_no !== null) {
+    changes.push(
+      createAuditDetailChange("batch_no", "Batch Number", batchValues.batch_no),
+    );
+  }
+
+  if (
+    batchValues.quantity_received !== undefined &&
+    batchValues.quantity_received !== null
+  ) {
+    const formattedQuantity = formatAuditValue(
+      "quantity_received",
+      batchValues.quantity_received,
+    );
+    const unit = itemValues.unit_of_measure || "";
+
+    changes.push({
+      field: "quantity_received",
+      label: "Total Opening Stock",
+      previous_value: "--",
+      new_value: unit ? `${formattedQuantity} ${unit}` : formattedQuantity,
+    });
+  }
+
+  if (batchValues.source_type !== undefined && batchValues.source_type !== null) {
+    changes.push(
+      createAuditDetailChange(
+        "source_type",
+        "Source",
+        batchValues.source_type,
+        formatAuditSource,
+      ),
+    );
+  }
+
+  if (
+    batchValues.expiration_date !== undefined &&
+    batchValues.expiration_date !== null
+  ) {
+    changes.push(
+      createAuditDetailChange(
+        "expiration_date",
+        "Expiration Date",
+        batchValues.expiration_date,
+      ),
+    );
+  }
+
+  return changes;
+};
+
+const buildOpeningTransactionDetails = (
+  transactionRow,
+  fallbackRemark = STOCK_ADDED_REMARK,
+) => {
+  if (!transactionRow) {
+    return [];
+  }
+
+  const values = transactionRow.new_values_json || {};
+  const changes = [];
+
+  if (values.transaction_type !== undefined && values.transaction_type !== null) {
+    changes.push(
+      createAuditDetailChange(
+        "transaction_type",
+        "Transaction Type",
+        values.transaction_type,
+      ),
+    );
+  }
+
+  if (values.performed_at !== undefined && values.performed_at !== null) {
+    changes.push(
+      createAuditDetailChange(
+        "performed_at",
+        "Received/Performed At",
+        values.performed_at,
+      ),
+    );
+  }
+
+  const remarks = values.remarks || fallbackRemark;
+
+  changes.push(createAuditDetailChange("remarks", "Remarks", remarks));
+
+  return changes;
+};
+
+const buildItemCreatedOpeningTransactionDetails = (transactionRow) =>
+  buildOpeningTransactionDetails(transactionRow, OPENING_STOCK_REMARK);
+
+const addAuditDetailChangeIfPresent = (
+  changes,
+  field,
+  label,
+  value,
+  formatter = null,
+) => {
+  if (value === undefined || value === null || value === "") {
+    return;
+  }
+
+  changes.push(createAuditDetailChange(field, label, value, formatter));
+};
+
+const buildPackagingAddedItemDetails = (row) => {
+  const values = row.new_values_json || {};
+  const changes = [];
+
+  addAuditDetailChangeIfPresent(
+    changes,
+    "item_code",
+    "Item Code",
+    row.inventory_item_code,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "item_name",
+    "Item Name",
+    row.inventory_item_name,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "category",
+    "Category",
+    row.inventory_item_category,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "unit_of_measure",
+    "Unit",
+    values.unit_of_measure ||
+      row.inventory_packaging_unit_of_measure ||
+      row.inventory_item_unit_of_measure,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "unit_of_measure_value",
+    "Unit Value",
+    values.unit_of_measure_value ?? row.inventory_item_unit_of_measure_value,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "packaging",
+    "Packaging",
+    values.packaging || row.inventory_packaging,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "barcode",
+    "Barcode",
+    values.barcode || row.inventory_barcode,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "reorder_level",
+    "Reorder Level",
+    row.inventory_item_reorder_level,
+  );
+
+  return changes;
+};
+
+const buildPackagingAddedOpeningStockDetails = (row, batchRow) => {
+  const stockFormValues = row.new_values_json || {};
+  const batchValues = batchRow?.new_values_json || {};
+  const changes = [];
+  const unit =
+    stockFormValues.unit_of_measure ||
+    row.inventory_packaging_unit_of_measure ||
+    row.inventory_item_unit_of_measure ||
+    "";
+
+  addAuditDetailChangeIfPresent(
+    changes,
+    "units_per_packaging",
+    "Units per Packaging",
+    stockFormValues.units_per_packaging ?? row.inventory_units_per_packaging,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "batch_no",
+    "Batch Number",
+    batchValues.batch_no || row.inventory_batch_no,
+  );
+
+  const totalOpeningStock =
+    batchValues.quantity_received ??
+    (batchRow ? null : row.new_values_json?.quantity_received);
+
+  if (totalOpeningStock !== undefined && totalOpeningStock !== null) {
+    const formattedQuantity = formatAuditValue(
+      "quantity_received",
+      totalOpeningStock,
+    );
+
+    changes.push({
+      field: "quantity_received",
+      label: "Total Opening Stock",
+      previous_value: "--",
+      new_value: unit ? `${formattedQuantity} ${unit}` : formattedQuantity,
+    });
+  }
+
+  addAuditDetailChangeIfPresent(
+    changes,
+    "source_type",
+    "Source",
+    batchValues.source_type || row.inventory_source_type,
+    formatAuditSource,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "expiration_date",
+    "Expiration Date",
+    batchValues.expiration_date ?? row.inventory_expiration_date,
+  );
+
+  return changes;
+};
+
+const buildStockAdditionDetails = (row) => {
+  const values = row.new_values_json || {};
+  const isBatch = row.entity_type === "INVENTORY_BATCH";
+  const changes = [];
+
+  addAuditDetailChangeIfPresent(
+    changes,
+    "item_name",
+    "Item",
+    row.inventory_item_name || values.item_name,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "packaging",
+    "Packaging",
+    row.inventory_packaging || values.packaging,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "batch_no",
+    "Batch Number",
+    (isBatch ? values.batch_no : row.inventory_batch_no) ||
+      row.inventory_batch_no,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "quantity_received",
+    "Quantity Added",
+    isBatch ? values.quantity_received : values.quantity,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "unit_of_measure",
+    "Unit",
+    row.inventory_item_unit_of_measure ||
+      row.inventory_packaging_unit_of_measure ||
+      values.unit_of_measure,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "source_type",
+    "Source",
+    (isBatch ? values.source_type : row.inventory_source_type) ||
+      row.inventory_source_type,
+    formatAuditSource,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "expiration_date",
+    "Expiration Date",
+    (isBatch ? values.expiration_date : row.inventory_expiration_date) ??
+      row.inventory_expiration_date,
+  );
+
+  return changes;
+};
+
+const buildStockTransactionDetails = (row) => {
+  const values = row.new_values_json || {};
+  const isTransaction = row.entity_type === "INVENTORY_TRANSACTION";
+  const changes = [];
+
+  addAuditDetailChangeIfPresent(
+    changes,
+    "transaction_type",
+    "Stock Action",
+    isTransaction ? values.transaction_type : "INFLOW",
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "performed_at",
+    "Received/Performed At",
+    isTransaction
+      ? values.performed_at
+      : values.received_at || row.inventory_received_at || row.created_at,
+  );
+  addAuditDetailChangeIfPresent(
+    changes,
+    "remarks",
+    "Remarks",
+    isTransaction ? values.remarks : STOCK_ADDED_REMARK,
+  );
+
+  return changes;
+};
+
 const buildDistributionItemDetails = (row) =>
   getDistributionItems(row).map((item) => ({
     item_name: item.item_name || "Item",
@@ -483,14 +974,65 @@ const buildDistributionItemDetails = (row) =>
       "--",
   }));
 
-const buildAuditDetail = (row) => {
-  return {
-    changes: buildAuditDetailChanges(row),
+const buildAuditDetail = (row, relatedRows = []) => {
+  const changes = buildAuditDetailChanges(row);
+  const detail = {
+    changes,
     item_changes: buildAuditDetailItemChanges(row),
     distributed_items: isDistributionAuditRow(row)
       ? buildDistributionItemDetails(row)
       : [],
   };
+
+  if (isInventoryItemCreatedAudit(row)) {
+    const openingRelatedRows = getOpeningRelatedAuditRows(row, relatedRows);
+    const openingBatchRow = findOpeningBatchAudit(openingRelatedRows);
+    const openingTransactionRow = findOpeningTransactionAudit(
+      row,
+      openingRelatedRows,
+      openingBatchRow,
+    );
+
+    detail.item_details = changes.filter((change) =>
+      ITEM_CREATED_ITEM_FIELDS.has(change.field),
+    );
+    detail.opening_stock = buildItemCreatedOpeningStockDetails(
+      row,
+      openingBatchRow,
+    );
+    detail.opening_transaction = buildItemCreatedOpeningTransactionDetails(
+      openingTransactionRow,
+    );
+  }
+
+  if (isInventoryPackagingAddedAudit(row)) {
+    const openingRelatedRows = getOpeningPackagingRelatedAuditRows(
+      row,
+      relatedRows,
+    );
+    const openingBatchRow = findOpeningBatchAudit(openingRelatedRows);
+    const openingTransactionRow = findOpeningTransactionAudit(
+      row,
+      openingRelatedRows,
+      openingBatchRow,
+    );
+
+    detail.item_details = buildPackagingAddedItemDetails(row);
+    detail.opening_stock = buildPackagingAddedOpeningStockDetails(
+      row,
+      openingBatchRow,
+    );
+    detail.opening_transaction = buildOpeningTransactionDetails(
+      openingTransactionRow,
+    );
+  }
+
+  if (isInventoryStockAddedAudit(row)) {
+    detail.stock_addition = buildStockAdditionDetails(row);
+    detail.stock_transaction = buildStockTransactionDetails(row);
+  }
+
+  return detail;
 };
 
 const buildInventoryItemEditDetail = (row) => {
@@ -568,7 +1110,7 @@ const buildInventoryAuditActionDetail = (row) => {
 
   if (
     row.entity_type === "INVENTORY_TRANSACTION" &&
-    ["INFLOW", "RETURN", "ADJUSTMENT", "OUTFLOW"].includes(transactionType) &&
+    ["INFLOW", "ADJUSTMENT", "OUTFLOW"].includes(transactionType) &&
     quantity !== undefined &&
     quantity !== null
   ) {
@@ -607,7 +1149,7 @@ const buildInventoryAuditActionLabel = (row) => {
   }
 
   if (row.entity_type === "INVENTORY_ITEM_STOCK_FORM") {
-    if (row.action === "INVENTORY_ITEM_STOCK_FORM_CREATE") {
+    if (isInventoryPackagingAddedAudit(row)) {
       return "Packaging Added";
     }
 
@@ -644,7 +1186,7 @@ const buildInventoryAuditActionLabel = (row) => {
       return "Stock Adjusted";
     }
 
-    if (transactionType === "INFLOW" || transactionType === "RETURN") {
+    if (transactionType === "INFLOW") {
       return "Stock Added";
     }
   }
@@ -809,7 +1351,7 @@ const buildDonationAuditActionLabel = (row) => {
 
   if (
     row.entity_type === "INVENTORY_TRANSACTION" &&
-    ["INFLOW", "RETURN"].includes(transactionType)
+    transactionType === "INFLOW"
   ) {
     return "Donated Stock Added";
   }
@@ -1091,7 +1633,7 @@ const buildRecordLabel = (row) => {
   return null;
 };
 
-const mapAuditLog = (row) => {
+const mapAuditLog = (row, relatedRows = []) => {
   const isReliefPackTemplate = row.entity_type === "RELIEF_PACK_TEMPLATE";
   const isDonation = isDonationAuditRow(row);
   const isDistribution = isDistributionAuditRow(row);
@@ -1148,7 +1690,7 @@ const mapAuditLog = (row) => {
       changed_fields: buildValueSummary(row.new_values_json),
       previous_fields: buildValueSummary(row.old_values_json),
     },
-    audit_detail: buildAuditDetail(row),
+    audit_detail: buildAuditDetail(row, relatedRows),
   };
 };
 
@@ -1223,6 +1765,49 @@ const getSystemLogReview = async ({
   ]);
 
   const auditLogRows = auditLogs;
+  const itemCreationRows = auditLogRows.filter(isInventoryItemCreatedAudit);
+  const packagingAddedRows = auditLogRows.filter(isInventoryPackagingAddedAudit);
+  const relatedItemCreationAuditRows =
+    itemCreationRows.length &&
+    typeof systemLogRepository.getInventoryItemCreationRelatedAuditLogs === "function"
+      ? await systemLogRepository.getInventoryItemCreationRelatedAuditLogs({
+          itemIds: itemCreationRows.map((row) => row.entity_id),
+        })
+      : [];
+  const relatedPackagingAddedAuditRows =
+    packagingAddedRows.length &&
+    typeof systemLogRepository.getInventoryPackagingAddedRelatedAuditLogs ===
+      "function"
+      ? await systemLogRepository.getInventoryPackagingAddedRelatedAuditLogs({
+          stockFormIds: packagingAddedRows.map((row) => row.entity_id),
+        })
+      : [];
+  const relatedRowsByItemId = new Map();
+  const relatedRowsByStockFormId = new Map();
+
+  relatedItemCreationAuditRows.forEach((row) => {
+    const itemId = getRelatedInventoryItemId(row);
+
+    if (!itemId) {
+      return;
+    }
+
+    const rows = relatedRowsByItemId.get(itemId) || [];
+    rows.push(row);
+    relatedRowsByItemId.set(itemId, rows);
+  });
+
+  relatedPackagingAddedAuditRows.forEach((row) => {
+    const stockFormId = getRelatedInventoryStockFormId(row);
+
+    if (!stockFormId) {
+      return;
+    }
+
+    const rows = relatedRowsByStockFormId.get(stockFormId) || [];
+    rows.push(row);
+    relatedRowsByStockFormId.set(stockFormId, rows);
+  });
 
   return {
     filters: {
@@ -1241,7 +1826,14 @@ const getSystemLogReview = async ({
     summary: {
       audit_logs: getAuditLogSummary(auditLogs),
     },
-    audit_logs: auditLogRows.map(mapAuditLog),
+    audit_logs: auditLogRows.map((row) =>
+      mapAuditLog(
+        row,
+        relatedRowsByItemId.get(String(row.entity_id || "").trim()) ||
+          relatedRowsByStockFormId.get(String(row.entity_id || "").trim()) ||
+          [],
+      ),
+    ),
     error_logs: errorLogs.map((row) => ({
       id: row.id,
       action: row.error_code || "SYSTEM_ERROR",

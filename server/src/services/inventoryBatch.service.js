@@ -147,6 +147,17 @@ const summarizeInventoryTransaction = (transaction) =>
     "other_status",
   ]);
 
+const summarizeInventoryItemStockForm = (stockForm) =>
+  pickDefined(stockForm, [
+    "inventory_item_id",
+    "barcode",
+    "packaging",
+    "units_per_packaging",
+    "unit_of_measure",
+    "unit_of_measure_value",
+    "is_active",
+  ]);
+
 const normalizeStockFormDefinition = (batchData, inventoryItem) => {
   const packaging = String(
     batchData.stock_form_packaging || inventoryItem.packaging || "piece",
@@ -756,7 +767,11 @@ const getInventoryBatchDetail = async (id) => {
   };
 };
 
-const emitInventoryBatchCreatedSideEffects = async (mappedBatch, batchData) => {
+const emitInventoryBatchCreatedSideEffects = async (
+  mappedBatch,
+  batchData,
+  createdStockForm = null,
+) => {
   const actor =
     batchData.auditActor || {
       userId: batchData.created_by,
@@ -768,6 +783,20 @@ const emitInventoryBatchCreatedSideEffects = async (mappedBatch, batchData) => {
       batch: mappedBatch,
     }),
   );
+
+  if (createdStockForm) {
+    await logAuditSafely({
+      actor,
+      action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
+      entityType: "INVENTORY_ITEM_STOCK_FORM",
+      entityId: createdStockForm.id,
+      oldValues: {},
+      newValues: {
+        ...summarizeInventoryItemStockForm(createdStockForm),
+        is_additional_packaging: true,
+      },
+    });
+  }
 
   await logAuditSafely({
     actor,
@@ -850,6 +879,7 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
 
   let resolvedStockFormId = batchData.inventory_item_stock_form_id || null;
   let barcodeAssignmentTarget = null;
+  let createdStockForm = null;
 
   if (resolvedStockFormId) {
     const stockForm =
@@ -1004,7 +1034,7 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
           });
         }
 
-        const createdStockForm =
+        createdStockForm =
           await inventoryItemStockFormRepository.insertInventoryItemStockForm(
             stockFormDefinition,
             dbClient || undefined,
@@ -1220,9 +1250,33 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
     enumerable: false,
     value: createdInflowTransaction || null,
   });
+  Object.defineProperty(mappedBatch, "__createdStockForm", {
+    configurable: true,
+    enumerable: false,
+    value: createdStockForm || null,
+  });
 
   if (batchData.auditActor && dbClient) {
     const sourceEventKeyPrefix = batchData.auditSourceEventKeyPrefix;
+
+    if (createdStockForm) {
+      await logAuditSafely({
+        actor: batchData.auditActor,
+        action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
+        entityType: "INVENTORY_ITEM_STOCK_FORM",
+        entityId: createdStockForm.id,
+        oldValues: {},
+        newValues: {
+          ...summarizeInventoryItemStockForm(createdStockForm),
+          is_additional_packaging: true,
+        },
+        sourceEventKey: sourceEventKeyPrefix
+          ? `${sourceEventKeyPrefix}:STOCK_FORM`
+          : null,
+        throwOnError: true,
+        dbClient,
+      });
+    }
 
     await logAuditSafely({
       actor: batchData.auditActor,
@@ -1256,7 +1310,11 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
   }
 
   if (!dbClient) {
-    await emitInventoryBatchCreatedSideEffects(mappedBatch, batchData);
+    await emitInventoryBatchCreatedSideEffects(
+      mappedBatch,
+      batchData,
+      createdStockForm,
+    );
   }
 
   return mappedBatch;
@@ -1308,7 +1366,11 @@ const createInventoryBatch = async (batchData) => {
     client.release();
   }
 
-  await emitInventoryBatchCreatedSideEffects(mappedBatch, batchData);
+  await emitInventoryBatchCreatedSideEffects(
+    mappedBatch,
+    batchData,
+    mappedBatch.__createdStockForm,
+  );
   return mappedBatch;
 };
 

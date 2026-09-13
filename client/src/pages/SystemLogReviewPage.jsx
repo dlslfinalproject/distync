@@ -32,6 +32,7 @@ const AUDIT_ACTION_FILTER_OPTIONS = [
     modules: [ALL_MODULES_VALUE, "Inventory", "Relief Pack", "Donation", "Distribution"],
   },
   { value: "item_created", label: "Item Created", modules: ["Inventory"] },
+  { value: "packaging_added", label: "Packaging Added", modules: ["Inventory"] },
   {
     value: "item_details_edited",
     label: "Item Details Edited",
@@ -382,6 +383,57 @@ const InfoField = ({ label, value }) => (
   </div>
 );
 
+const AuditDetailChangesTable = ({ changes, isCreatedRecord }) => {
+  if (!changes.length) {
+    return (
+      <p style={detailModalStyles.emptyText}>
+        No recorded details are available for this audit record.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mayor-audit-trail-detail-table-scroll" style={detailModalStyles.tableWrap}>
+      <table className="mayor-audit-trail-detail-table" style={detailModalStyles.table}>
+        <thead>
+          <tr>
+            <th style={detailModalStyles.th}>Field</th>
+            {isCreatedRecord ? (
+              <th style={detailModalStyles.th}>Created Value</th>
+            ) : (
+              <>
+                <th style={detailModalStyles.th}>Before</th>
+                <th style={detailModalStyles.th}>After</th>
+              </>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {changes.map((change) => (
+            <tr key={change.field}>
+              <td style={detailModalStyles.td}>{change.label}</td>
+              {isCreatedRecord ? (
+                <td style={{ ...detailModalStyles.td, ...detailModalStyles.changedValue }}>
+                  {change.new_value}
+                </td>
+              ) : (
+                <>
+                  <td style={{ ...detailModalStyles.td, ...detailModalStyles.previousValue }}>
+                    {change.previous_value}
+                  </td>
+                  <td style={{ ...detailModalStyles.td, ...detailModalStyles.changedValue }}>
+                    {change.new_value}
+                  </td>
+                </>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 const getChangeHeading = (entry) => {
   if (entry?.action?.includes("CREATE") || entry?.action_label?.includes("Created")) {
     return "Recorded Details";
@@ -416,6 +468,30 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
   const distributedItems = entry.audit_detail?.distributed_items || [];
   const recordLines = getRecordLines(entry);
   const isCreatedRecord = isCreateAuditAction(entry);
+  const isItemCreatedRecord =
+    entry.entity_type === "INVENTORY_ITEM" &&
+    entry.action === "INVENTORY_ITEM_CREATE";
+  const isPackagingAddedRecord =
+    entry.entity_type === "INVENTORY_ITEM_STOCK_FORM" &&
+    entry.action === "INVENTORY_ITEM_STOCK_FORM_CREATE" &&
+    entry.action_label === "Packaging Added";
+  const isStockAddedRecord =
+    entry.action_label === "Stock Added" &&
+    ["INVENTORY_BATCH", "INVENTORY_TRANSACTION"].includes(entry.entity_type);
+  const itemDetails = isItemCreatedRecord || isPackagingAddedRecord
+    ? entry.audit_detail?.item_details ?? changes
+    : isStockAddedRecord
+      ? entry.audit_detail?.stock_addition || []
+      : changes;
+  const openingStockDetails = isItemCreatedRecord || isPackagingAddedRecord
+    ? entry.audit_detail?.opening_stock || []
+    : [];
+  const openingTransactionDetails = isItemCreatedRecord || isPackagingAddedRecord
+    ? entry.audit_detail?.opening_transaction || []
+    : [];
+  const stockTransactionDetails = isStockAddedRecord
+    ? entry.audit_detail?.stock_transaction || []
+    : [];
 
   return (
     <DetailsModalShell
@@ -433,17 +509,9 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
           <div style={{ ...detailModalStyles.grid, marginTop: "16px" }}>
             <InfoField label="Audit Action" value={formatActionLabel(entry)} />
             <InfoField label="Module" value={entry.module} />
-            <InfoField label="Performed By" value={entry.performed_by} />
-            <InfoField label="Date & Time" value={formatDateTime(entry.timestamp)} />
-          </div>
-        </section>
-
-        <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
-          <h3 style={{ margin: 0, color: "#17324d" }}>Record Information</h3>
-          <div style={{ ...detailModalStyles.grid, marginTop: "16px" }}>
             {recordLines.map((line, index) => (
               <InfoField
-                key={`${entry.id}-detail-record-${index}`}
+                key={`${entry.id}-summary-record-${index}`}
                 label={index === 0 ? "Record" : "Related Detail"}
                 value={line}
               />
@@ -451,56 +519,54 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
             {entry.action_detail ? (
               <InfoField label="Summary" value={entry.action_detail} />
             ) : null}
+            <InfoField label="Performed By" value={entry.performed_by} />
+            <InfoField label="Date & Time" value={formatDateTime(entry.timestamp)} />
           </div>
         </section>
 
         <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
-          <h3 style={{ margin: 0, color: "#17324d" }}>{getChangeHeading(entry)}</h3>
-          {changes.length === 0 ? (
-            <p style={detailModalStyles.emptyText}>
-              No field-level changes are available for this audit record.
-            </p>
-          ) : (
-            <div className="mayor-audit-trail-detail-table-scroll" style={detailModalStyles.tableWrap}>
-              <table className="mayor-audit-trail-detail-table" style={detailModalStyles.table}>
-                <thead>
-                  <tr>
-                    <th style={detailModalStyles.th}>Field</th>
-                    {isCreatedRecord ? (
-                      <th style={detailModalStyles.th}>Created Value</th>
-                    ) : (
-                      <>
-                        <th style={detailModalStyles.th}>Before</th>
-                        <th style={detailModalStyles.th}>After</th>
-                      </>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {changes.map((change) => (
-                    <tr key={change.field}>
-                      <td style={detailModalStyles.td}>{change.label}</td>
-                      {isCreatedRecord ? (
-                        <td style={{ ...detailModalStyles.td, ...detailModalStyles.changedValue }}>
-                          {change.new_value}
-                        </td>
-                      ) : (
-                        <>
-                          <td style={{ ...detailModalStyles.td, ...detailModalStyles.previousValue }}>
-                            {change.previous_value}
-                          </td>
-                          <td style={{ ...detailModalStyles.td, ...detailModalStyles.changedValue }}>
-                            {change.new_value}
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <h3 style={{ margin: 0, color: "#17324d" }}>
+            {isItemCreatedRecord || isPackagingAddedRecord
+              ? "Item Details"
+              : isStockAddedRecord
+                ? "Stock Addition Details"
+                : getChangeHeading(entry)}
+          </h3>
+          <AuditDetailChangesTable
+            changes={itemDetails}
+            isCreatedRecord={isCreatedRecord}
+          />
         </section>
+
+        {(isItemCreatedRecord || isPackagingAddedRecord) && openingStockDetails.length > 0 ? (
+          <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
+            <h3 style={{ margin: 0, color: "#17324d" }}>Opening Stock Details</h3>
+            <AuditDetailChangesTable
+              changes={openingStockDetails}
+              isCreatedRecord
+            />
+          </section>
+        ) : null}
+
+        {(isItemCreatedRecord || isPackagingAddedRecord) && openingTransactionDetails.length > 0 ? (
+          <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
+            <h3 style={{ margin: 0, color: "#17324d" }}>Opening Transaction Details</h3>
+            <AuditDetailChangesTable
+              changes={openingTransactionDetails}
+              isCreatedRecord
+            />
+          </section>
+        ) : null}
+
+        {isStockAddedRecord && stockTransactionDetails.length > 0 ? (
+          <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
+            <h3 style={{ margin: 0, color: "#17324d" }}>Stock Transaction Details</h3>
+            <AuditDetailChangesTable
+              changes={stockTransactionDetails}
+              isCreatedRecord
+            />
+          </section>
+        ) : null}
 
         {itemChanges.length > 0 ? (
           <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
