@@ -303,13 +303,13 @@ const BarangayMasterlistPage = () => {
   });
 
   const pendingDepartureRow = filteredRows.find(
-    (row) => row.household_id === pendingDepartureHouseholdId,
+    (row) => String(row.household_id) === String(pendingDepartureHouseholdId),
   );
   const getDepartureDisasterEventId = (householdId) => {
     const row = filteredRows.find((candidate) => candidate.household_id === householdId);
     return row?.disaster_event?.id || row?.disaster_event_id || "";
   };
-  const pendingDepartureFamilyHeadName = pendingDepartureHouseholdDetails?.household
+  const pendingDepartureDetailsFamilyHeadName = pendingDepartureHouseholdDetails?.household
     ? [
         pendingDepartureHouseholdDetails.household.family_head_first_name,
         pendingDepartureHouseholdDetails.household.family_head_middle_name,
@@ -318,7 +318,10 @@ const BarangayMasterlistPage = () => {
       ]
         .filter(Boolean)
         .join(" ")
-    : pendingDepartureRow?.family_head_name || "";
+        .trim()
+    : "";
+  const pendingDepartureFamilyHeadName =
+    pendingDepartureDetailsFamilyHeadName || pendingDepartureRow?.family_head_name || "";
   const pendingDepartureFamilyHeadPhotoUrl =
     resolveFamilyHeadPhoto(pendingDepartureHouseholdDetails, {
       isOffline,
