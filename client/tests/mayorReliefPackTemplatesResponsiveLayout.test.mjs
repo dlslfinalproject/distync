@@ -153,10 +153,10 @@ test("Mayor relief pack template table and detail tables keep overflow local", a
   );
   assert.match(
     cssSource,
-    /\.mayor-relief-pack-template-table \{[\s\S]*?table-layout: auto !important;[\s\S]*?min-width: 920px !important;/,
+    /\.mayor-relief-pack-template-table \{[\s\S]*?table-layout: fixed !important;[\s\S]*?min-width: 1280px !important;/,
   );
-  assert.match(cssSource, /\.mayor-relief-pack-template-rule-cell \{[\s\S]*?min-width: 130px;/);
-  assert.match(cssSource, /\.mayor-relief-pack-template-applies-cell \{[\s\S]*?min-width: 140px;/);
+  assert.match(cssSource, /\.mayor-relief-pack-template-rule-cell \{[\s\S]*?width: 180px;[\s\S]*?min-width: 180px;/);
+  assert.match(cssSource, /\.mayor-relief-pack-template-applies-cell \{[\s\S]*?width: 180px;[\s\S]*?min-width: 180px;/);
   assert.match(cssSource, /\.mayor-relief-pack-template-status-cell \{[\s\S]*?min-width: 88px;[\s\S]*?white-space: nowrap;/);
   assert.match(cssSource, /\.mayor-relief-pack-template-actions-cell \{[\s\S]*?min-width: 76px;[\s\S]*?white-space: nowrap;/);
   assert.match(

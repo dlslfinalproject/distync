@@ -114,16 +114,18 @@ body {
 }
 
 .mayor-relief-pack-template-table {
-  table-layout: auto !important;
-  min-width: 920px !important;
+  table-layout: fixed !important;
+  min-width: 1280px !important;
 }
 
 .mayor-relief-pack-template-rule-cell {
-  min-width: 130px;
+  width: 180px;
+  min-width: 180px;
 }
 
 .mayor-relief-pack-template-applies-cell {
-  min-width: 140px;
+  width: 180px;
+  min-width: 180px;
 }
 
 .mayor-relief-pack-template-status-cell {

@@ -604,10 +604,10 @@ const tableStyles = {
     width: "12%",
   },
   ruleCell: {
-    width: "130px",
+    width: "180px",
   },
   applicabilityCell: {
-    width: "140px",
+    width: "180px",
   },
   statusCell: {
     width: "88px",
