@@ -116,7 +116,7 @@ test("Mayor relief pack templates page exposes scoped responsive hooks", async (
   );
   assert.match(
     cssSource,
-    /\.inventory-tracking-filter-actions,[\s\S]*?\.mayor-relief-pack-filter-actions,[\s\S]*?\.mayor-anomaly-filter-actions \{[\s\S]*?position: absolute;[\s\S]*?right: clamp\(16px, 2vw, 24px\);[\s\S]*?bottom: clamp\(16px, 2vw, 24px\);/,
+    /\.inventory-tracking-filter-actions,[\s\S]*?\.mayor-relief-pack-filter-actions,[\s\S]*?\.mayor-anomaly-filter-actions \{[\s\S]*?position: absolute;[\s\S]*?right: clamp\(16px, 2vw, 24px\);[\s\S]*?bottom: clamp\(8px, 1vw, 12px\);/,
   );
 });
 
