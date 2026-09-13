@@ -17,6 +17,7 @@ test("Mayor table pill columns keep headers and values centered", async () => {
     forecastPanel,
     syncPage,
     distributionHistoryPage,
+    anomalyPage,
   ] = await Promise.all([
     readSource("components", "inventory-batches", "InventoryBatchesTable.jsx"),
     readSource("components", "inventory-items", "InventoryItemDetailModal.jsx"),
@@ -35,6 +36,7 @@ test("Mayor table pill columns keep headers and values centered", async () => {
     readSource("components", "inventory-items", "ForecastingPanel.jsx"),
     readSource("pages", "SyncManagementPage.jsx"),
     readSource("pages", "DistributionHistoryPage.jsx"),
+    readSource("pages", "mswdo", "AnomalyTrackingPage.jsx"),
   ]);
 
   assert.match(batchTable, /centeredHeaderCell: \{[\s\S]*?textAlign: "center"/);
@@ -46,6 +48,7 @@ test("Mayor table pill columns keep headers and values centered", async () => {
 
   assert.match(itemDetail, /centeredHeaderCell: \{[\s\S]*?textAlign: "center"/);
   assert.match(itemDetail, /Status[\s\S]*?centeredHeaderCell/);
+  assert.match(itemDetail, /centeredHeaderCell[\s\S]*?Action\s*<\/th>/);
   assert.match(itemDetail, /centeredBodyCell: \{[\s\S]*?textAlign: "center"/);
   assert.match(itemDetail, /getBatchStatusStyle\(batchStatus\)/);
 
@@ -70,6 +73,12 @@ test("Mayor table pill columns keep headers and values centered", async () => {
   assert.match(syncPage, /syncStatusHeaderStyles = \{[\s\S]*?textAlign: "center"/);
   assert.match(syncPage, /syncStatusCellStyles = \{[\s\S]*?textAlign: "center"/);
   assert.match(syncPage, /<SyncStatusBadge/);
+
+  assert.match(
+    anomalyPage,
+    /reviewStatus: \{[\s\S]*?textAlign: "center"[\s\S]*?\}/,
+  );
+  assert.match(anomalyPage, /reviewStatus[\s\S]*?<StatusPill row=\{row\}/);
 
   assert.match(
     distributionHistoryPage,

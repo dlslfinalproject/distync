@@ -39,6 +39,11 @@ const tableStyles = {
     textAlign: "center",
     verticalAlign: "middle",
   },
+  actionCell: {
+    textAlign: "center",
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+  },
 };
 
 const getStatusBadgeStyles = (status) => {
@@ -184,7 +189,14 @@ const InventoryBatchesTable = ({
               >
                 Sync
               </th>
-              <th style={tableStyles.headerCell}>Actions</th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  ...tableStyles.actionCell,
+                }}
+              >
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -216,7 +228,12 @@ const InventoryBatchesTable = ({
                 >
                   <SyncStatusBadge status={row.sync_status} compact />
                 </td>
-                <td style={tableStyles.bodyCell}>
+                <td
+                  style={{
+                    ...tableStyles.bodyCell,
+                    ...tableStyles.actionCell,
+                  }}
+                >
                   <button
                     type="button"
                     onClick={() => onViewDetails?.(row.id)}

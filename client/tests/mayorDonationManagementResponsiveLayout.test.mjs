@@ -81,7 +81,27 @@ test("Mayor donation management records and details keep table overflow local", 
   assert.match(donationsSource, /className="mayor-donation-management-table"/);
   assert.match(donationsSource, /disasterEventBodyCell/);
   assert.match(donationsSource, /whiteSpace: "normal"/);
+  assert.match(
+    donationsSource,
+    /donationFormHeaderCell: \{[\s\S]*?width: "130px"[\s\S]*?minWidth: "130px"/,
+  );
+  assert.match(
+    donationsSource,
+    /donationFormBodyCell: \{[\s\S]*?width: "130px"[\s\S]*?minWidth: "130px"/,
+  );
   assert.match(donationsSource, /itemsHeaderCell:[\s\S]*?width: "21%"[\s\S]*?minWidth: "210px"/);
+  assert.match(
+    donationsSource,
+    /donationTypeLabel[\s\S]*?donationFormBodyCell/,
+  );
+  assert.match(
+    donationsSource,
+    /quantityBodyCell[\s\S]*?itemDetails\.quantityLines/,
+  );
+  assert.match(
+    donationsSource,
+    /dateBodyCell[\s\S]*?formatDonationDateTime/,
+  );
   assert.match(donationsSource, /dateBodyCell:[\s\S]*?width: "154px"[\s\S]*?padding: "16px 8px"/);
   assert.match(donationsSource, /actionBodyCell:[\s\S]*?width: "86px"[\s\S]*?padding: "16px 8px"/);
   assert.match(donationsSource, /itemNameText:[\s\S]*?textOverflow: "ellipsis"[\s\S]*?whiteSpace: "nowrap"/);
@@ -89,6 +109,18 @@ test("Mayor donation management records and details keep table overflow local", 
   assert.match(transparencySource, /className="mayor-donation-management-table-scroll"/);
   assert.match(transparencySource, /<th style=\{tableStyles\.headerCell\}>Donor<\/th>/);
   assert.doesNotMatch(transparencySource, /<th style=\{tableStyles\.headerCell\}>Donor Name<\/th>/);
+  assert.match(
+    transparencySource,
+    /disasterEventBodyCell: \{[\s\S]*?textAlign: "left"/,
+  );
+  assert.match(
+    transparencySource,
+    /disasterEventHeaderCell: \{[\s\S]*?textAlign: "left"/,
+  );
+  assert.match(
+    transparencySource,
+    /disasterEventHeaderCell[\s\S]*?Disaster Event/,
+  );
   assert.match(detailSource, /panelClassName="mayor-donation-management-detail-modal"/);
   assert.match(detailSource, /className="mayor-donation-management-detail-table-scroll"/);
   assert.match(detailSource, /className="mayor-donation-management-detail-table"/);

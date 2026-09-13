@@ -23,7 +23,7 @@ const getTabSection = (source, tabValue, nextTabValue) => {
 const getHeaders = (section) =>
   [
     ...section.matchAll(
-      /<th style=\{(?:tableStyles\.th|syncStatusHeaderStyles)\}>([\s\S]*?)<\/th>/g,
+      /<th style=\{(?:tableStyles\.th|syncStatusHeaderStyles|syncActionHeaderStyles)\}>([\s\S]*?)<\/th>/g,
     ),
   ].map(
     ([, label]) =>

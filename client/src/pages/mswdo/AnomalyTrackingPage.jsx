@@ -95,7 +95,11 @@ const barangayAnomalyColumnStyles = {
   affectedRecord: { width: "16%", minWidth: "170px" },
   disasterEvent: { width: "16%", minWidth: "180px" },
   whyFlagged: { width: "25%", minWidth: "300px" },
-  reviewStatus: { width: "13%", minWidth: "150px" },
+  reviewStatus: {
+    width: "13%",
+    minWidth: "150px",
+    textAlign: "center",
+  },
   detectedAt: { width: "10%", minWidth: "150px" },
   action: { width: "10%", minWidth: "136px", textAlign: "center", whiteSpace: "nowrap" },
 };
@@ -106,7 +110,11 @@ const mswdoAnomalyColumnStyles = {
   affectedRecord: { width: "16%", minWidth: "185px" },
   disasterEvent: { width: "14%", minWidth: "170px" },
   whyFlagged: { width: "26%", minWidth: "320px" },
-  reviewStatus: { width: "14%", minWidth: "160px" },
+  reviewStatus: {
+    width: "14%",
+    minWidth: "160px",
+    textAlign: "center",
+  },
   detectedAt: { width: "12%", minWidth: "150px" },
   action: { width: "7%", minWidth: "88px", textAlign: "center", whiteSpace: "nowrap" },
 };

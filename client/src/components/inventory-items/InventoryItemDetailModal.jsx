@@ -393,7 +393,14 @@ const InventoryItemDetailModal = ({
                       >
                         Status
                       </th>
-                      <th style={modalStyles.th}>Action</th>
+                      <th
+                        style={{
+                          ...modalStyles.th,
+                          ...modalStyles.centeredHeaderCell,
+                        }}
+                      >
+                        Action
+                      </th>
                     </tr>
                   </thead>
                   <tbody>

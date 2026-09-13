@@ -467,6 +467,17 @@ const syncStatusCellStyles = {
   textAlign: "center",
 };
 
+const syncActionHeaderStyles = {
+  ...tableStyles.th,
+  textAlign: "center",
+};
+
+const syncActionCellStyles = {
+  ...tableStyles.td,
+  textAlign: "center",
+  verticalAlign: "middle",
+};
+
 const detailTextStyles = {
   color: "#60738a",
   fontSize: "12px",
@@ -1999,7 +2010,7 @@ const SyncManagementPage = () => {
                   {isMswdoPortal ? (
                     <th style={tableStyles.th}>{BARANGAY_COLUMN_LABEL}</th>
                   ) : null}
-                  <th style={tableStyles.th}>Action</th>
+                  <th style={syncActionHeaderStyles}>Action</th>
                   <th style={tableStyles.th}>Affected Record</th>
                   <th style={syncStatusHeaderStyles}>Status</th>
                   <th style={tableStyles.th}>Queued At</th>
@@ -2094,7 +2105,7 @@ const SyncManagementPage = () => {
                   <th style={tableStyles.th}>Conflict Reason</th>
                   <th style={syncStatusHeaderStyles}>Status</th>
                   <th style={tableStyles.th}>Resolved At</th>
-                  <th style={tableStyles.th}>Action</th>
+                  <th style={syncActionHeaderStyles}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -2118,7 +2129,7 @@ const SyncManagementPage = () => {
                       <td style={tableStyles.td}>
                         {formatSyncHistoryDateTime(conflict.resolved_at)}
                       </td>
-                      <td style={tableStyles.td}>
+                      <td style={syncActionCellStyles}>
                         <button
                           type="button"
                           onClick={() => handleOpenConflictDetail(conflict.id)}
