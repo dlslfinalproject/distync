@@ -81,26 +81,56 @@ test("inventory transaction export serializes every active filter", async () => 
   );
 });
 
-test("inventory tracking page passes screen filters into export", async () => {
-  const source = await fs.readFile(
+test("inventory tracking page seeds and submits the report filters", async () => {
+  const [source, modalSource] = await Promise.all([
+    fs.readFile(
     path.join(clientRoot, "src/pages/inventory/InventoryTransactionsPage.jsx"),
-    "utf8",
-  );
+      "utf8",
+    ),
+    fs.readFile(
+      path.join(
+        clientRoot,
+        "src/components/inventory-transactions/InventoryTransactionExportModal.jsx",
+      ),
+      "utf8",
+    ),
+  ]);
+
   const exportStart = source.indexOf(
     "const file = await exportInventoryTransactions(format, {",
   );
-  const exportBlock = source.slice(exportStart, exportStart + 700);
+  const exportBlock = source.slice(exportStart, exportStart + 900);
+  const openModalStart = source.indexOf("const handleOpenExportModal = () => {");
+  const openModalBlock = source.slice(openModalStart, openModalStart + 900);
 
   assert.notEqual(exportStart, -1);
-  assert.match(exportBlock, /inventory_item_id: filters\.inventory_item_id/);
-  assert.match(exportBlock, /inventory_batch_id: filters\.inventory_batch_id/);
-  assert.match(exportBlock, /transaction_label: filters\.transaction_type/);
-  assert.match(exportBlock, /date_from: filters\.date_from/);
-  assert.match(exportBlock, /date_to: filters\.date_to/);
-  assert.match(exportBlock, /source: filters\.source/);
-  assert.match(exportBlock, /search: toolbarState\.search/);
-  assert.match(exportBlock, /movement: toolbarState\.movement/);
-  assert.match(exportBlock, /stock_form_packaging: toolbarState\.stockForms/);
+  assert.notEqual(openModalStart, -1);
+  assert.match(openModalBlock, /inventory_item_id: filters\.inventory_item_id/);
+  assert.match(openModalBlock, /inventory_batch_id: filters\.inventory_batch_id/);
+  assert.match(openModalBlock, /transaction_label: filters\.transaction_type/);
+  assert.match(openModalBlock, /date_from: filters\.date_from/);
+  assert.match(openModalBlock, /date_to: filters\.date_to/);
+  assert.match(openModalBlock, /source: filters\.source/);
+  assert.match(openModalBlock, /search: toolbarState\.search/);
+  assert.match(openModalBlock, /movement: toolbarState\.movement/);
+  assert.match(openModalBlock, /stock_form_packaging: \[\.\.\.toolbarState\.stockForms\]/);
+  assert.match(exportBlock, /inventory_item_id: exportFilters\.inventory_item_id/);
+  assert.match(exportBlock, /inventory_batch_id: exportFilters\.inventory_batch_id/);
+  assert.match(exportBlock, /transaction_label: exportFilters\.transaction_label/);
+  assert.match(exportBlock, /date_from: exportFilters\.date_from/);
+  assert.match(exportBlock, /date_to: exportFilters\.date_to/);
+  assert.match(exportBlock, /source: exportFilters\.source/);
+  assert.match(exportBlock, /search: exportFilters\.search/);
+  assert.match(exportBlock, /movement: exportFilters\.movement/);
+  assert.match(exportBlock, /stock_form_packaging: exportFilters\.stock_form_packaging/);
+  assert.match(source, /<InventoryTransactionExportModal/);
+  assert.match(modalSource, /<h4 style=\{sectionTitleStyles\}>Export Details<\/h4>/);
+  assert.match(modalSource, /Inventory Tracking Report/);
+  assert.match(modalSource, /id="tracking-export-format"/);
+  assert.match(modalSource, /id="tracking-export-date-from"/);
+  assert.match(modalSource, /id="tracking-export-date-to"/);
+  assert.match(modalSource, /id="tracking-export-source"/);
+  assert.match(modalSource, /Packaging \/ Stock Form/);
 });
 
 test("inventory tracking summaries use filtered movement rows and scoped stock health", async () => {
