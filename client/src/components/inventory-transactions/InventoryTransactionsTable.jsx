@@ -242,7 +242,7 @@ const InventoryTransactionsTable = ({
         </colgroup>
         <thead>
           <tr>
-            <th className="inventory-tracking-table-header-cell" style={tableStyles.headerCell}>Item Name</th>
+            <th className="inventory-tracking-table-header-cell" style={tableStyles.headerCell}>Item</th>
             <th className="inventory-tracking-table-header-cell" style={tableStyles.headerCell}>Batch Number</th>
             <th className="inventory-tracking-table-header-cell" style={tableStyles.headerCell}>ITR No.</th>
             <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Quantity</th>

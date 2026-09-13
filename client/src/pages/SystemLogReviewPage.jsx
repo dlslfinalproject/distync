@@ -788,28 +788,28 @@ const SystemLogReviewPage = () => {
           />
         </label>
 
-        <div className="mayor-audit-trail-filter-actions">
-          <button
-            className="mayor-audit-trail-clear-filters"
-            type="button"
-            onClick={handleClearAllFilters}
-            disabled={!hasActiveAuditFilters}
-            style={{
-              border: "none",
-              background: "transparent",
-              color: "#55718b",
-              padding: "2px 0",
-              fontSize: "13px",
-              fontWeight: 700,
-              cursor: hasActiveAuditFilters ? "pointer" : "not-allowed",
-              opacity: hasActiveAuditFilters ? 1 : 0.5,
-              textDecoration: "underline",
-              textUnderlineOffset: "3px",
-            }}
-          >
-            Clear filters
-          </button>
-        </div>
+        {hasActiveAuditFilters ? (
+          <div className="mayor-audit-trail-filter-actions">
+            <button
+              className="mayor-audit-trail-clear-filters"
+              type="button"
+              onClick={handleClearAllFilters}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: "#55718b",
+                padding: "2px 0",
+                fontSize: "13px",
+                fontWeight: 700,
+                cursor: "pointer",
+                textDecoration: "underline",
+                textUnderlineOffset: "3px",
+              }}
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className="mayor-audit-trail-summary-grid" style={auditSummaryStyles.overviewSection}>

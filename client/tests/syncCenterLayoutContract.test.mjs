@@ -10,6 +10,10 @@ test("Sync Center keeps shared role-aware layout hooks for both portals", async 
 
   assert.match(source, /className="sync-center-page"/);
   assert.match(source, /className="sync-center-filter-card"/);
+  assert.match(
+    source,
+    /hasActiveSyncFilters \? \([\s\S]*?className="sync-center-filter-actions"/,
+  );
   assert.match(source, /data-filter-count=\{isMswdoPortal \? "5" : "4"\}/);
   assert.match(source, /className="sync-center-filter-grid"/);
   assert.match(source, /className="sync-center-toolbar"/);

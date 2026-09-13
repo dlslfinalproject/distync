@@ -1164,6 +1164,11 @@ const SyncManagementPage = () => {
     setIsFilterOpen(false);
   };
 
+  const handleClearPopoverFilters = () => {
+    updateFilter("order", DEFAULT_SYNC_FILTERS.order);
+    setIsFilterOpen(false);
+  };
+
   const handleRetrySync = async (entryIds = null) => {
     if (!isOnline) {
       return;
@@ -1694,28 +1699,28 @@ const SyncManagementPage = () => {
           </label>
         </div>
 
-        <div className="sync-center-filter-actions">
-          <button
-            className="sync-center-clear-filters"
-            type="button"
-            onClick={handleClearAllFilters}
-            disabled={!hasActiveSyncFilters}
-            style={{
-              border: "none",
-              background: "transparent",
-              color: "#55718b",
-              padding: "2px 0",
-              fontSize: "13px",
-              fontWeight: 700,
-              cursor: hasActiveSyncFilters ? "pointer" : "not-allowed",
-              opacity: hasActiveSyncFilters ? 1 : 0.5,
-              textDecoration: "underline",
-              textUnderlineOffset: "3px",
-            }}
-          >
-            Clear filters
-          </button>
-        </div>
+        {hasActiveSyncFilters ? (
+          <div className="sync-center-filter-actions">
+            <button
+              className="sync-center-clear-filters"
+              type="button"
+              onClick={handleClearAllFilters}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: "#55718b",
+                padding: "2px 0",
+                fontSize: "13px",
+                fontWeight: 700,
+                cursor: "pointer",
+                textDecoration: "underline",
+                textUnderlineOffset: "3px",
+              }}
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <div
@@ -1786,7 +1791,7 @@ const SyncManagementPage = () => {
               <div className="sync-center-filter-popover-actions">
                 <button
                   type="button"
-                  onClick={handleClearAllFilters}
+                  onClick={handleClearPopoverFilters}
                   style={{
                     border: "none",
                     background: "transparent",
@@ -1799,7 +1804,7 @@ const SyncManagementPage = () => {
                     textUnderlineOffset: "3px",
                   }}
                 >
-                  Clear all filters
+                  Clear
                 </button>
               </div>
           </ResponsiveFilterPopover>

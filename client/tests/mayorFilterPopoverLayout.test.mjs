@@ -47,6 +47,31 @@ test("Mayor filter popovers share responsive behavior and expand short lists bef
 
   assert.match(mayorAnomalySource, /<AnomalyTrackingPage scope="mayor" \/>/);
 
+  assert.match(itemSource, /onFilterChange\("category", "All"\)/);
+  assert.match(distributionSource, /const handleClearPopoverFilters = \(\) =>/);
+  assert.match(distributionSource, /onClick=\{handleClearPopoverFilters\}[\s\S]*?Clear/);
+  assert.match(transactionSource, /const handleClearPopoverFilters = \(\) =>/);
+  assert.match(transactionSource, /movement: ""/);
+  assert.match(transactionSource, /onClick=\{handleClearPopoverFilters\}[\s\S]*?Clear/);
+  assert.match(reliefPackSource, /const handleClearPopoverFilters = \(\) =>/);
+  assert.match(reliefPackSource, /onClick=\{handleClearPopoverFilters\}[\s\S]*?Clear/);
+  assert.match(donationSource, /onDonationTypeFilterChange\?\.\(""\)/);
+  assert.match(anomalySource, /const handleClearPopoverFilters = \(\) =>/);
+  assert.match(anomalySource, /status: "all"[\s\S]*?order: "newest"/);
+  assert.match(syncSource, /const handleClearPopoverFilters = \(\) =>/);
+  assert.match(syncSource, /updateFilter\("order", DEFAULT_SYNC_FILTERS\.order\)/);
+
+  for (const source of [
+    transactionSource,
+    distributionSource,
+    reliefPackSource,
+    donationSource,
+    anomalySource,
+    syncSource,
+  ]) {
+    assert.doesNotMatch(source, /Clear all filters/);
+  }
+
   for (const source of [
     transactionSource,
     itemSource,

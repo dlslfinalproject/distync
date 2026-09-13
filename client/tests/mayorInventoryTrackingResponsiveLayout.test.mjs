@@ -16,6 +16,11 @@ test("Mayor inventory tracking page exposes scoped responsive hooks", async () =
 
   assert.match(pageSource, /className="inventory-tracking-page"/);
   assert.match(pageSource, /className="inventory-tracking-filter-grid"/);
+  assert.match(
+    pageSource,
+    /hasActiveTrackingFilters \? \([\s\S]*?className="inventory-tracking-filter-actions"/,
+  );
+  assert.match(pageSource, /className="inventory-tracking-clear-filters"/);
   assert.match(pageSource, /className="inventory-tracking-summary-grid"/);
   assert.match(pageSource, /className="inventory-tracking-toolbar"/);
   assert.match(pageSource, /className="inventory-tracking-search-wrap"/);
@@ -53,7 +58,7 @@ test("Mayor inventory tracking table keeps overflow local and preserves columns"
   assert.doesNotMatch(tableSource, /overflowX:\s*"hidden"/);
   assert.match(
     tableSource,
-    /Item Name[\s\S]*?Batch Number[\s\S]*?ITR No\.[\s\S]*?Quantity[\s\S]*?Movement[\s\S]*?Transaction<\/th>[\s\S]*?Date[\s\S]*?Performed By[\s\S]*?Action/,
+    /Item(?: Name)?[\s\S]*?Batch Number[\s\S]*?ITR No\.[\s\S]*?Quantity[\s\S]*?Movement[\s\S]*?Transaction<\/th>[\s\S]*?Date[\s\S]*?Performed By[\s\S]*?Action/,
   );
   assert.match(
     cssSource,

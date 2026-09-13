@@ -1073,6 +1073,11 @@ const InventoryTransactionsPage = () => {
       toolbarState.stockForms.length > 0,
   );
 
+  const hasActiveTrackingFilters = Boolean(
+    hasActiveDataFilters ||
+      toolbarState.sortOrder !== DEFAULT_TRANSACTION_TOOLBAR_STATE.sortOrder,
+  );
+
   const summaryResultScope = useMemo(() => {
     if (!hasActiveDataFilters) {
       return null;
@@ -1188,8 +1193,6 @@ const InventoryTransactionsPage = () => {
   }, [mergedTransactionRows]);
 
   const activeFilterCount =
-    Object.values(filters).filter(Boolean).length +
-    (toolbarState.search.trim() ? 1 : 0) +
     (toolbarState.movement ? 1 : 0) +
     toolbarState.stockForms.length +
     (toolbarState.sortOrder !== "newest" ? 1 : 0);
@@ -1377,6 +1380,16 @@ const InventoryTransactionsPage = () => {
     setIsFilterOpen(false);
   };
 
+  const handleClearPopoverFilters = () => {
+    setToolbarState((currentValue) => ({
+      ...currentValue,
+      movement: "",
+      sortOrder: DEFAULT_TRANSACTION_TOOLBAR_STATE.sortOrder,
+      stockForms: [],
+    }));
+    setIsFilterOpen(false);
+  };
+
   return (
     <div className="inventory-tracking-page" style={pageStackStyles}>
       <PageHeader title="INVENTORY TRACKING MANAGEMENT" />
@@ -1533,26 +1546,18 @@ const InventoryTransactionsPage = () => {
             </p>
           ) : null}
 
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              marginTop: "16px",
-            }}
-          >
-            <button
-              type="button"
-              onClick={handleClearAllFilters}
-              disabled={activeFilterCount === 0}
-              style={{
-                ...filterPanelStyles.clearAction,
-                opacity: activeFilterCount === 0 ? 0.5 : 1,
-                cursor: activeFilterCount === 0 ? "not-allowed" : "pointer",
-              }}
-            >
-              Clear filters
-            </button>
-          </div>
+          {hasActiveTrackingFilters ? (
+            <div className="inventory-tracking-filter-actions">
+              <button
+                className="inventory-tracking-clear-filters"
+                type="button"
+                onClick={handleClearAllFilters}
+                style={filterPanelStyles.clearAction}
+              >
+                Clear filters
+              </button>
+            </div>
+          ) : null}
       </section>
 
       <section
@@ -1687,10 +1692,10 @@ const InventoryTransactionsPage = () => {
                 <div style={filterPanelStyles.actions}>
                   <button
                     type="button"
-                    onClick={handleClearAllFilters}
+                    onClick={handleClearPopoverFilters}
                     style={filterPanelStyles.clearAction}
                   >
-                    Clear all filters
+                    Clear
                   </button>
                 </div>
             </ResponsiveFilterPopover>

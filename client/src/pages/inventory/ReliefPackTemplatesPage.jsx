@@ -2717,6 +2717,17 @@ const ReliefPackTemplatesPage = () => {
     setIsFilterOpen(false);
   };
 
+  const handleClearPopoverFilters = () => {
+    setFilters((currentFilters) => ({
+      ...currentFilters,
+      sortOrder: "oldest",
+      ...(activeTab === "customization"
+        ? { disasterTypes: [] }
+        : { availability: [] }),
+    }));
+    setIsFilterOpen(false);
+  };
+
   const handleOpenDetailModal = (template, viewContext = "relief-packs") => {
     setDetailTemplateId(template?.id || null);
     setDetailViewContext(viewContext);
@@ -2919,21 +2930,18 @@ const ReliefPackTemplatesPage = () => {
           </div>
         </div>
 
-        <div className="mayor-relief-pack-filter-actions">
-          <button
-            className="mayor-relief-pack-clear-filters"
-            type="button"
-            onClick={handleClearAllFilters}
-            disabled={!hasActiveReliefPackFilters}
-            style={{
-              ...reliefPackPageStyles.clearAction,
-              opacity: hasActiveReliefPackFilters ? 1 : 0.5,
-              cursor: hasActiveReliefPackFilters ? "pointer" : "not-allowed",
-            }}
-          >
-            Clear filters
-          </button>
-        </div>
+        {hasActiveReliefPackFilters ? (
+          <div className="mayor-relief-pack-filter-actions">
+            <button
+              className="mayor-relief-pack-clear-filters"
+              type="button"
+              onClick={handleClearAllFilters}
+              style={reliefPackPageStyles.clearAction}
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <div
@@ -3055,10 +3063,10 @@ const ReliefPackTemplatesPage = () => {
                 <div style={reliefPackPageStyles.filterActions}>
                   <button
                     type="button"
-                    onClick={handleClearAllFilters}
+                    onClick={handleClearPopoverFilters}
                     style={reliefPackPageStyles.clearAction}
                   >
-                    Clear all filters
+                    Clear
                   </button>
                 </div>
               </ResponsiveFilterPopover>

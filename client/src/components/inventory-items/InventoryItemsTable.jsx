@@ -114,7 +114,7 @@ const styles = {
 };
 
 const tableHeaders = [
-  "Item Name",
+  "Item",
   "Category",
   "Total Stock",
   "Stock Forms",

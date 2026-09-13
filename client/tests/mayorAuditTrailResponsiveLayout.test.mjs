@@ -21,6 +21,10 @@ test("Mayor audit trail exposes scoped responsive hooks without changing route o
   assert.match(pageSource, /limit: AUDIT_PAGE_SIZE/);
   assert.match(pageSource, /className="mayor-audit-trail-page"/);
   assert.match(pageSource, /className="mayor-audit-trail-filter-card"/);
+  assert.match(
+    pageSource,
+    /hasActiveAuditFilters \? \([\s\S]*?className="mayor-audit-trail-filter-actions"/,
+  );
   assert.match(pageSource, /className="mayor-audit-trail-summary-grid"/);
   assert.match(pageSource, /className="mayor-audit-trail-toolbar"/);
   assert.match(pageSource, /className="mayor-audit-trail-search-wrap"/);

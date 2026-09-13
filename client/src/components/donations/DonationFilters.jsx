@@ -198,7 +198,9 @@ const DonationFilters = ({
   const selectedTransparencySortOrder =
     transparencyToolbarFilters?.sortOrder || "newest";
   const donationActiveFilterCount =
-    selectedDonorTypes.length + (selectedSortOrder !== "newest" ? 1 : 0);
+    (donationTypeFilter ? 1 : 0) +
+    selectedDonorTypes.length +
+    (selectedSortOrder !== "newest" ? 1 : 0);
   const transparencyActiveFilterCount =
     selectedTransparencyMovements.length +
     (selectedTransparencySortOrder !== "newest" ? 1 : 0);
@@ -232,6 +234,7 @@ const DonationFilters = ({
 
     onDonationToolbarFilterChange?.("sortOrder", "newest");
     onDonationToolbarFilterChange?.("donorTypes", []);
+    onDonationTypeFilterChange?.("");
   };
 
   return (

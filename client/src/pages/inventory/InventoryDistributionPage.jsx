@@ -293,7 +293,6 @@ const InventoryDistributionPage = () => {
     errorMessage,
     hasActiveEvents,
     handleEventScopeChange,
-    resetAllDistributionFilters,
     setSearchTerm,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
@@ -352,19 +351,17 @@ const InventoryDistributionPage = () => {
   }, [selectedBarangayId, selectedDisasterEventId]);
 
   const activeFilterCount = useMemo(() => {
-    return selectedSectorIds.length + (selectedSortOrder !== "oldest" ? 1 : 0);
-  }, [selectedSectorIds.length, selectedSortOrder]);
+    return (
+      (selectedStatus ? 1 : 0) +
+      selectedSectorIds.length +
+      (selectedSortOrder !== "oldest" ? 1 : 0)
+    );
+  }, [selectedSectorIds.length, selectedSortOrder, selectedStatus]);
 
-  const hasActiveDistributionFilters = Boolean(
-    selectedDisasterEventId ||
-      selectedBarangayId ||
-      selectedStatus ||
-      searchTerm.trim() ||
-      activeFilterCount > 0,
-  );
-
-  const handleClearAllFilters = () => {
-    resetAllDistributionFilters();
+  const handleClearPopoverFilters = () => {
+    setSelectedStatus("");
+    setSelectedSectorIds([]);
+    setSelectedSortOrder("oldest");
     setIsFilterOpen(false);
   };
 
@@ -796,28 +793,6 @@ const InventoryDistributionPage = () => {
             </div>
           </div>
 
-          {hasActiveDistributionFilters ? (
-            <div className="inventory-distribution-filter-actions">
-              <button
-                className="inventory-distribution-clear-filters"
-                type="button"
-                onClick={handleClearAllFilters}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  color: "#55718b",
-                  padding: "2px 0",
-                  fontSize: "13px",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  textDecoration: "underline",
-                  textUnderlineOffset: "3px",
-                }}
-              >
-                Clear filters
-              </button>
-            </div>
-          ) : null}
         </section>
 
         {selectedDisasterEvent ? (
@@ -981,10 +956,10 @@ const InventoryDistributionPage = () => {
                   <div style={filterPanelStyles.actions}>
                     <button
                       type="button"
-                      onClick={handleClearAllFilters}
+                      onClick={handleClearPopoverFilters}
                       style={filterPanelStyles.clearAction}
                     >
-                      Clear all filters
+                      Clear
                     </button>
                   </div>
               </ResponsiveFilterPopover>

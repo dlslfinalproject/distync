@@ -253,14 +253,6 @@ export const useInventoryForecast = () => {
     }
   };
 
-  const resetForecastFilters = () => {
-    setSelectedForecastEventId(forecastEvents[0]?.id || "");
-    setSelectedForecastModel("MOVING_AVERAGE");
-    setForecastHistoryDetails(null);
-    setForecastErrorMessage("");
-    setForecastSuccessMessage("");
-  };
-
   return {
     forecastEvents,
     selectedForecastEventId,
@@ -278,7 +270,6 @@ export const useInventoryForecast = () => {
     forecastSuccessMessage,
     setSelectedForecastEventId,
     setSelectedForecastModel,
-    resetForecastFilters,
     handleRunForecast,
     handleSelectForecastHistoryRun,
   };

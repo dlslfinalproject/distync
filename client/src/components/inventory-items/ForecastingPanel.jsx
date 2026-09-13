@@ -46,23 +46,6 @@ const panelStyles = {
     alignItems: "end",
     minWidth: 0,
   },
-  filterActions: {
-    display: "flex",
-    justifyContent: "flex-end",
-    marginTop: "16px",
-    width: "100%",
-  },
-  clearFilters: {
-    border: "none",
-    background: "transparent",
-    color: "#55718b",
-    padding: "2px 0",
-    fontSize: "13px",
-    fontWeight: 700,
-    cursor: "pointer",
-    textDecoration: "underline",
-    textUnderlineOffset: "3px",
-  },
   filterLabel: {
     display: "block",
     marginBottom: "8px",
@@ -1161,7 +1144,6 @@ const ForecastingPanel = ({
   onOpenExportModal,
   onForecastEventChange,
   onForecastModelChange,
-  onClearFilters,
   onRunForecast,
   onSelectForecastHistoryRun,
 }) => {
@@ -1252,9 +1234,6 @@ const ForecastingPanel = ({
   const donorNeedRows = recommendationRows.slice(0, 6);
   const modelHasResults = resultRows.length > 0;
   const selectedModelLabel = getForecastModelLabel(selectedForecastModel);
-  const hasActiveForecastFilters =
-    selectedForecastModel !== "MOVING_AVERAGE" ||
-    selectedForecastEventId !== (forecastEvents[0]?.id || "");
   const totalForecastNeed = resultRows.reduce(
     (total, row) => total + Number(row.forecasted_usage || 0),
     0,
@@ -1445,23 +1424,6 @@ const ForecastingPanel = ({
           </div>
         </div>
 
-        <div
-          className="mayor-inventory-forecast-filter-actions"
-          style={panelStyles.filterActions}
-        >
-          <button
-            type="button"
-            onClick={onClearFilters}
-            disabled={!hasActiveForecastFilters}
-            style={{
-              ...panelStyles.clearFilters,
-              opacity: hasActiveForecastFilters ? 1 : 0.5,
-              cursor: hasActiveForecastFilters ? "pointer" : "not-allowed",
-            }}
-          >
-            Clear filters
-          </button>
-        </div>
       </section>
 
       <div style={panelStyles.forecastActionRow}>

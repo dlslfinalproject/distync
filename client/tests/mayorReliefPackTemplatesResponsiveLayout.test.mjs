@@ -42,7 +42,10 @@ test("Mayor relief pack templates page exposes scoped responsive hooks", async (
   );
   assert.match(pageSource, /className="mayor-relief-pack-card-grid"/);
   assert.match(pageSource, /className="mayor-relief-pack-tabs"/);
-  assert.match(pageSource, /className="mayor-relief-pack-filter-actions"/);
+  assert.match(
+    pageSource,
+    /hasActiveReliefPackFilters \? \([\s\S]*?className="mayor-relief-pack-filter-actions"/,
+  );
   assert.doesNotMatch(pageSource, /Packs Available/);
   assert.match(pageSource, /Packs Needed/);
   assert.match(pageSource, /Item Still Needed/);
@@ -113,11 +116,7 @@ test("Mayor relief pack templates page exposes scoped responsive hooks", async (
   );
   assert.match(
     cssSource,
-    /\.mayor-relief-pack-filter-actions,[\s\S]*?\.mayor-anomaly-filter-actions \{[\s\S]*?position: absolute;[\s\S]*?right: clamp\(16px, 2vw, 24px\);[\s\S]*?top: clamp\(16px, 2vw, 24px\);/,
-  );
-  assert.doesNotMatch(
-    cssSource,
-    /\.mayor-relief-pack-filter-actions,[\s\S]*?\.mayor-anomaly-filter-actions \{[\s\S]*?bottom: 2px;/,
+    /\.inventory-tracking-filter-actions,[\s\S]*?\.mayor-relief-pack-filter-actions,[\s\S]*?\.mayor-anomaly-filter-actions \{[\s\S]*?position: absolute;[\s\S]*?right: clamp\(16px, 2vw, 24px\);[\s\S]*?bottom: clamp\(16px, 2vw, 24px\);/,
   );
 });
 

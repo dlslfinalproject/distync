@@ -1385,6 +1385,15 @@ const AnomalyTrackingPage = ({
     setPage(1);
     setIsFilterOpen(false);
   };
+
+  const handleClearPopoverFilters = () => {
+    updateViewState((currentValue) => ({
+      ...currentValue,
+      status: "all",
+      order: "newest",
+    }));
+    setIsFilterOpen(false);
+  };
   const totalItems = pagination.totalItems || 0;
   const shouldShowPaginationControls = totalItems > 0;
   const openAnomalyDetails = useCallback((row, event) => {
@@ -1528,28 +1537,28 @@ const AnomalyTrackingPage = ({
           </div>
         </div>
 
-        <div className="mayor-anomaly-filter-actions">
-          <button
-            className="mayor-anomaly-clear-filters"
-            type="button"
-            onClick={handleClearAllFilters}
-            disabled={!hasActiveFilters}
-            style={{
-              border: "none",
-              background: "transparent",
-              color: "#55718b",
-              padding: "2px 0",
-              fontSize: "13px",
-              fontWeight: 700,
-              cursor: hasActiveFilters ? "pointer" : "not-allowed",
-              opacity: hasActiveFilters ? 1 : 0.5,
-              textDecoration: "underline",
-              textUnderlineOffset: "3px",
-            }}
-          >
-            Clear filters
-          </button>
-        </div>
+        {hasActiveFilters ? (
+          <div className="mayor-anomaly-filter-actions">
+            <button
+              className="mayor-anomaly-clear-filters"
+              type="button"
+              onClick={handleClearAllFilters}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: "#55718b",
+                padding: "2px 0",
+                fontSize: "13px",
+                fontWeight: 700,
+                cursor: "pointer",
+                textDecoration: "underline",
+                textUnderlineOffset: "3px",
+              }}
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <div style={pageSpacingStyles.toolbar}>
@@ -1675,7 +1684,7 @@ const AnomalyTrackingPage = ({
                 <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
                   <button
                     type="button"
-                    onClick={handleClearAllFilters}
+                    onClick={handleClearPopoverFilters}
                     style={{
                       border: "none",
                       background: "transparent",
@@ -1688,7 +1697,7 @@ const AnomalyTrackingPage = ({
                       textUnderlineOffset: "3px",
                     }}
                   >
-                    Clear all filters
+                    Clear
                   </button>
                 </div>
             </ResponsiveFilterPopover>

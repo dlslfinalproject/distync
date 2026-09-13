@@ -27,6 +27,7 @@ test("Mayor inventory forecasting keeps route, service endpoints, and forecast s
   assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/history/);
   assert.doesNotMatch(panelSource, /fetch\(|axios|\/api\/v1/);
   assert.doesNotMatch(panelSource, /FORECAST_HORIZON_DAYS|lookback_days|moving_average_window|exponential_smoothing_alpha/);
+  assert.doesNotMatch(panelSource, /onClearFilters|mayor-inventory-forecast-filter-actions|Clear filters/);
 });
 
 test("Mayor inventory forecasting controls, KPIs, charts, and tables expose mobile-safe layout primitives", async () => {
