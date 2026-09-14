@@ -49,6 +49,126 @@ const SYNC_STATUS = {
   CONFLICT: "CONFLICT",
   FAILED: "FAILED",
 };
+
+const STAGE3_DATABASE_CONSTRAINTS =
+  householdRegistrationService.STAGE3_DATABASE_CONSTRAINTS ||
+  Object.freeze({
+    OPEN_ATTENDANCE: "uq_evacuation_logs_open_evacuee",
+    STATUS_TIME_OUT: "chk_evacuation_log_status_time_out",
+    FAMILY_HEAD_FLAG: "uq_evacuees_household_family_head",
+    FAMILY_HEAD_MEMBERSHIP: "fk_households_family_head_same_household",
+    ATTENDANCE_HOUSEHOLD_EVENT: "fk_evacuation_logs_household_event",
+    ATTENDANCE_EVACUEE_HOUSEHOLD: "fk_evacuation_logs_evacuee_household",
+    STUB_HOUSEHOLD_EVENT: "fk_stub_household_event",
+  });
+const STAGE3_DATABASE_ERROR_DEFINITIONS =
+  householdRegistrationService.STAGE3_DATABASE_ERROR_DEFINITIONS ||
+  Object.freeze({
+    [STAGE3_DATABASE_CONSTRAINTS.OPEN_ATTENDANCE]: {
+      code: "OPEN_ATTENDANCE_CONFLICT",
+      statusCode: 409,
+      message:
+        "This evacuee already has an open attendance record. The existing attendance was kept; review it before retrying.",
+    },
+    [STAGE3_DATABASE_CONSTRAINTS.STATUS_TIME_OUT]: {
+      code: "INVALID_ATTENDANCE_STATE",
+      statusCode: 400,
+      message:
+        "The attendance lifecycle state is invalid. Use PRESENT without a departure time or a terminal status with a departure time.",
+    },
+    [STAGE3_DATABASE_CONSTRAINTS.FAMILY_HEAD_FLAG]: {
+      code: "FAMILY_HEAD_CONFLICT",
+      statusCode: 409,
+      message:
+        "This household already has a flagged family head. Review the family-head record before retrying.",
+    },
+    [STAGE3_DATABASE_CONSTRAINTS.FAMILY_HEAD_MEMBERSHIP]: {
+      code: "FAMILY_HEAD_MEMBERSHIP_CONFLICT",
+      statusCode: 409,
+      message:
+        "The selected family head does not belong to this household. Review the household relationship.",
+    },
+    [STAGE3_DATABASE_CONSTRAINTS.ATTENDANCE_HOUSEHOLD_EVENT]: {
+      code: "ATTENDANCE_HOUSEHOLD_EVENT_CONFLICT",
+      statusCode: 409,
+      message:
+        "The attendance record does not belong to the household's disaster event. Review the household relationship.",
+    },
+    [STAGE3_DATABASE_CONSTRAINTS.ATTENDANCE_EVACUEE_HOUSEHOLD]: {
+      code: "ATTENDANCE_EVACUEE_HOUSEHOLD_CONFLICT",
+      statusCode: 409,
+      message:
+        "The attendance record's evacuee does not belong to the selected household. Review the household relationship.",
+    },
+    [STAGE3_DATABASE_CONSTRAINTS.STUB_HOUSEHOLD_EVENT]: {
+      code: "STUB_HOUSEHOLD_EVENT_CONFLICT",
+      statusCode: 409,
+      message:
+        "The stub does not belong to the household's disaster event. Review the household relationship.",
+    },
+  });
+const STAGE3_DATABASE_SQLSTATES = new Set(["23505", "23514", "23503"]);
+
+const getStage3DatabaseConstraintName = (error) => {
+  const candidate =
+    error?.databaseConstraint ||
+    error?.constraint ||
+    error?.cause?.databaseConstraint ||
+    error?.cause?.constraint ||
+    null;
+
+  return Object.values(STAGE3_DATABASE_CONSTRAINTS).includes(candidate)
+    ? candidate
+    : null;
+};
+
+const getStage3DatabaseSqlState = (error) =>
+  error?.databaseSqlState ||
+  error?.sqlState ||
+  error?.cause?.databaseSqlState ||
+  error?.cause?.code ||
+  (STAGE3_DATABASE_SQLSTATES.has(error?.code) ? error.code : null);
+
+const normalizeStage3DatabaseError = (error) => {
+  const serviceMappedError =
+    typeof householdRegistrationService.mapStage3DatabaseError === "function"
+      ? householdRegistrationService.mapStage3DatabaseError(error)
+      : error;
+
+  if (!serviceMappedError || serviceMappedError.stage3Constraint === true) {
+    return serviceMappedError;
+  }
+
+  const constraint = getStage3DatabaseConstraintName(serviceMappedError);
+  const sqlState = getStage3DatabaseSqlState(serviceMappedError);
+  const definition = constraint
+    ? STAGE3_DATABASE_ERROR_DEFINITIONS[constraint]
+    : null;
+
+  if (!definition || !STAGE3_DATABASE_SQLSTATES.has(sqlState)) {
+    return serviceMappedError;
+  }
+
+  const mappedError = new Error(definition.message);
+  mappedError.statusCode = definition.statusCode;
+  mappedError.code = definition.code;
+  mappedError.databaseConstraint = constraint;
+  mappedError.databaseSqlState = sqlState;
+  mappedError.stage3Constraint = true;
+  mappedError.retryable = false;
+  mappedError.cause = error;
+  return mappedError;
+};
+
+const isStage3DatabaseConstraintError = (error) => {
+  const constraint = getStage3DatabaseConstraintName(error);
+  const sqlState = getStage3DatabaseSqlState(error);
+  return Boolean(
+    constraint &&
+      STAGE3_DATABASE_ERROR_DEFINITIONS[constraint] &&
+      STAGE3_DATABASE_SQLSTATES.has(sqlState),
+  );
+};
 const subtractiveInventoryTransactionTypes = new Set([
   "OUTFLOW",
   "EXPIRED",
@@ -2114,6 +2234,8 @@ const processSingleSyncEntry = async (entry, auth) => {
       conflict: conflictRecord,
     };
     } catch (error) {
+      error = normalizeStage3DatabaseError(error);
+
       if (
         !businessEffectApplied &&
         canUseSyncBusinessSavepoint
@@ -2146,8 +2268,13 @@ const processSingleSyncEntry = async (entry, auth) => {
 
     const isCrossBarangayDuplicateConflict =
       error.code === POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE;
+    const isOpenAttendanceConstraintConflict =
+      isStage3DatabaseConstraintError(error) &&
+      getStage3DatabaseConstraintName(error) ===
+        STAGE3_DATABASE_CONSTRAINTS.OPEN_ATTENDANCE;
     const isDuplicateConflict =
       isCrossBarangayDuplicateConflict ||
+      isOpenAttendanceConstraintConflict ||
       error.code === "DUPLICATE_HOUSEHOLD_REGISTRATION" ||
       error.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" ||
       error.code === "STUB_ALREADY_CLAIMED" ||
@@ -2367,6 +2494,36 @@ const processSingleSyncEntry = async (entry, auth) => {
           error_code: createConflictPersistenceError(failureMessage).code,
         };
       }
+    }
+
+    const isStage3PermanentConstraintFailure =
+      isStage3DatabaseConstraintError(error) &&
+      !isOpenAttendanceConstraintConflict;
+
+    if (isStage3PermanentConstraintFailure) {
+      const failureRecord = await recordSyncFailureAndNotificationIntent({
+        syncTransactionId: syncTransaction.id,
+        transactionPayload: {
+          entity_server_id: entry.entity_server_id || null,
+          server_timestamp: new Date().toISOString(),
+          error_message: error.message,
+        },
+        dbClient,
+      });
+      if (failureRecord.notificationOutboxEvent?.id) {
+        notificationOutboxEventIds.push(failureRecord.notificationOutboxEvent.id);
+      }
+
+      return {
+        client_sync_id: entry.client_sync_id,
+        sync_transaction_id: syncTransaction.id,
+        sync_status: SYNC_STATUS.FAILED,
+        resolution_status: "MANUAL_REVIEW_REQUIRED",
+        message: error.message,
+        data: null,
+        conflict: null,
+        error_code: error.code,
+      };
     }
 
     const stockStateDriftConflict =

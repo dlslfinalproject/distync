@@ -45,6 +45,108 @@ const NON_ADMITTED_RESIDENT_STAY_TYPES = new Set([
   "OTHER_SAFE_PLACE",
 ]);
 
+const STAGE3_DATABASE_CONSTRAINTS = Object.freeze({
+  OPEN_ATTENDANCE: "uq_evacuation_logs_open_evacuee",
+  STATUS_TIME_OUT: "chk_evacuation_log_status_time_out",
+  FAMILY_HEAD_FLAG: "uq_evacuees_household_family_head",
+  FAMILY_HEAD_MEMBERSHIP: "fk_households_family_head_same_household",
+  ATTENDANCE_HOUSEHOLD_EVENT: "fk_evacuation_logs_household_event",
+  ATTENDANCE_EVACUEE_HOUSEHOLD: "fk_evacuation_logs_evacuee_household",
+  STUB_HOUSEHOLD_EVENT: "fk_stub_household_event",
+});
+
+const STAGE3_DATABASE_ERROR_DEFINITIONS = Object.freeze({
+  [STAGE3_DATABASE_CONSTRAINTS.OPEN_ATTENDANCE]: {
+    code: "OPEN_ATTENDANCE_CONFLICT",
+    statusCode: 409,
+    message:
+      "This evacuee already has an open attendance record. The existing attendance was kept; review it before retrying.",
+  },
+  [STAGE3_DATABASE_CONSTRAINTS.STATUS_TIME_OUT]: {
+    code: "INVALID_ATTENDANCE_STATE",
+    statusCode: 400,
+    message:
+      "The attendance lifecycle state is invalid. Use PRESENT without a departure time or a terminal status with a departure time.",
+  },
+  [STAGE3_DATABASE_CONSTRAINTS.FAMILY_HEAD_FLAG]: {
+    code: "FAMILY_HEAD_CONFLICT",
+    statusCode: 409,
+    message:
+      "This household already has a flagged family head. Review the family-head record before retrying.",
+  },
+  [STAGE3_DATABASE_CONSTRAINTS.FAMILY_HEAD_MEMBERSHIP]: {
+    code: "FAMILY_HEAD_MEMBERSHIP_CONFLICT",
+    statusCode: 409,
+    message:
+      "The selected family head does not belong to this household. Review the household relationship.",
+  },
+  [STAGE3_DATABASE_CONSTRAINTS.ATTENDANCE_HOUSEHOLD_EVENT]: {
+    code: "ATTENDANCE_HOUSEHOLD_EVENT_CONFLICT",
+    statusCode: 409,
+    message:
+      "The attendance record does not belong to the household's disaster event. Review the household relationship.",
+  },
+  [STAGE3_DATABASE_CONSTRAINTS.ATTENDANCE_EVACUEE_HOUSEHOLD]: {
+    code: "ATTENDANCE_EVACUEE_HOUSEHOLD_CONFLICT",
+    statusCode: 409,
+    message:
+      "The attendance record's evacuee does not belong to the selected household. Review the household relationship.",
+  },
+  [STAGE3_DATABASE_CONSTRAINTS.STUB_HOUSEHOLD_EVENT]: {
+    code: "STUB_HOUSEHOLD_EVENT_CONFLICT",
+    statusCode: 409,
+    message:
+      "The stub does not belong to the household's disaster event. Review the household relationship.",
+  },
+});
+const STAGE3_DATABASE_SQLSTATES = new Set(["23505", "23514", "23503"]);
+
+const getStage3DatabaseConstraintName = (error) => {
+  const candidate =
+    error?.databaseConstraint ||
+    error?.constraint ||
+    error?.cause?.databaseConstraint ||
+    error?.cause?.constraint ||
+    null;
+
+  return Object.values(STAGE3_DATABASE_CONSTRAINTS).includes(candidate)
+    ? candidate
+    : null;
+};
+
+const getStage3DatabaseSqlState = (error) =>
+  error?.databaseSqlState ||
+  error?.sqlState ||
+  error?.cause?.databaseSqlState ||
+  error?.cause?.code ||
+  (STAGE3_DATABASE_SQLSTATES.has(error?.code) ? error.code : null);
+
+const mapStage3DatabaseError = (error) => {
+  if (!error || error.stage3Constraint === true) {
+    return error;
+  }
+
+  const constraint = getStage3DatabaseConstraintName(error);
+  const sqlState = getStage3DatabaseSqlState(error);
+  const definition = constraint
+    ? STAGE3_DATABASE_ERROR_DEFINITIONS[constraint]
+    : null;
+
+  if (!definition || !STAGE3_DATABASE_SQLSTATES.has(sqlState)) {
+    return error;
+  }
+
+  const mappedError = new Error(definition.message);
+  mappedError.statusCode = definition.statusCode;
+  mappedError.code = definition.code;
+  mappedError.databaseConstraint = constraint;
+  mappedError.databaseSqlState = sqlState;
+  mappedError.stage3Constraint = true;
+  mappedError.retryable = false;
+  mappedError.cause = error;
+  return mappedError;
+};
+
 const buildDuplicateDepartureError = (
   householdId,
   latestAttendance,
@@ -1890,7 +1992,7 @@ const updateHouseholdDetails = async ({
     if (!externalClient) {
       await client.query("ROLLBACK");
     }
-    throw error;
+    throw mapStage3DatabaseError(error);
   } finally {
     if (!externalClient) {
       client.release();
@@ -2540,7 +2642,7 @@ const registerHousehold = async (
     if (!externalClient) {
       await client.query("ROLLBACK");
     }
-    throw error;
+    throw mapStage3DatabaseError(error);
   } finally {
     if (!externalClient) {
       client.release();
@@ -2748,7 +2850,7 @@ const departHousehold = async (
     if (!externalClient) {
       await client.query("ROLLBACK");
     }
-    throw error;
+    throw mapStage3DatabaseError(error);
   } finally {
     if (!externalClient) {
       client.release();
@@ -2904,7 +3006,7 @@ const correctEvacuationLog = async ({
     };
   } catch (error) {
     await client.query("ROLLBACK");
-    throw error;
+    throw mapStage3DatabaseError(error);
   } finally {
     client.release();
   }
@@ -3020,7 +3122,7 @@ const archiveHousehold = async ({ householdId, requester, archiveData }) => {
     };
   } catch (error) {
     await client.query("ROLLBACK");
-    throw error;
+    throw mapStage3DatabaseError(error);
   } finally {
     client.release();
   }
@@ -3323,13 +3425,17 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
     };
   } catch (error) {
     await client.query("ROLLBACK");
-    throw error;
+    throw mapStage3DatabaseError(error);
   } finally {
     client.release();
   }
 };
 
 module.exports = {
+  STAGE3_DATABASE_CONSTRAINTS,
+  STAGE3_DATABASE_ERROR_DEFINITIONS,
+  getStage3DatabaseConstraintName,
+  mapStage3DatabaseError,
   getHouseholdDetails,
   getAuthorizedHouseholdSummaryForUpdate,
   assertHouseholdUpdateDisasterEventActive,
