@@ -138,21 +138,6 @@ export default defineConfig(({ mode }) => {
                 ),
               handler: "NetworkOnly",
             },
-            {
-              urlPattern: ({ request }) =>
-                ["image", "font"].includes(request.destination),
-              handler: "CacheFirst",
-              options: {
-                cacheName: getModeCacheNameForAccessMode(
-                  DISTYNC_CACHE_BASE_NAMES.STATIC_ASSETS,
-                  configuredAccessMode,
-                ),
-                expiration: {
-                  maxEntries: 80,
-                  maxAgeSeconds: 60 * 60 * 24 * 30,
-                },
-              },
-            },
           ],
         },
       }),
