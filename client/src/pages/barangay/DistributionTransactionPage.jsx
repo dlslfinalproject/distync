@@ -19,6 +19,7 @@ import {
   markDistributionTargetAsServerVerified,
   markDistributionTargetAsUnverified,
 } from "../../features/distribution/distributionTargetProvenance";
+import { scrollToErrorElement } from "../../utils/scrollToFirstError";
 
 QrScanner.WORKER_PATH = qrScannerWorkerPath;
 
@@ -141,6 +142,7 @@ const DistributionTransactionPage = () => {
   const [searchParams] = useSearchParams();
   const qrScannerVideoRef = useRef(null);
   const qrScannerInstanceRef = useRef(null);
+  const qrLookupInputRef = useRef(null);
 
   const [stubContext, setStubContext] = useState(() =>
     buildStubContextFromLocation(location.state, searchParams),
@@ -276,6 +278,7 @@ const DistributionTransactionPage = () => {
     if (!normalizedValue) {
       setErrorMessage("Enter or scan a QR reference value first.");
       setSuccessMessage("");
+      scrollToErrorElement(qrLookupInputRef);
       return;
     }
 
@@ -407,11 +410,13 @@ const DistributionTransactionPage = () => {
               QR Reference Lookup
             </label>
             <input
+              ref={qrLookupInputRef}
               id="qr_reference_lookup"
               type="text"
               value={qrLookupValue}
               onChange={(event) => setQrLookupValue(event.target.value)}
               placeholder="Scan or enter the stub QR reference value"
+              aria-invalid={Boolean(errorMessage && !qrLookupValue.trim())}
               style={qrLookupStyles.field}
             />
           </div>

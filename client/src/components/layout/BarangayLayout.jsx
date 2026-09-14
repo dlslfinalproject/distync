@@ -32,6 +32,10 @@ const SHELL_HEADER_HEIGHT = "68px";
 const MOBILE_NAV_QUERY = "(max-width: 1024px)";
 const COMPACT_NAV_QUERY = "(max-width: 1024px)";
 const SIDEBAR_NAVIGATION_ID = "distync-sidebar-navigation";
+const BARANGAY_OFFLINE_READINESS_ROUTES = new Set([
+  "/barangay/masterlist",
+  "/barangay/stub-distribution",
+]);
 
 const getInitialMediaQueryMatch = (query) => {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -187,6 +191,8 @@ const BarangayLayout = () => {
   const shouldBlockMswdoOfflineRoute = isMswdoOffline && isMswdoOfflineBlockedRoute(location.pathname, { isPrepared: mswdoOfflinePreparation.isReady });
   const shouldBlockBarangayOfflineRoute =
     isBarangayOffline && isBarangayOfflineBlockedRoute(location.pathname);
+  const shouldShowBarangayOfflineReadiness =
+    isBarangayPortal && BARANGAY_OFFLINE_READINESS_ROUTES.has(location.pathname);
   const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
   const isMayorAnomalyRoute = location.pathname.startsWith("/inventory/anomalies");
   const shouldShowSyncStatusBanner =
@@ -236,11 +242,11 @@ const BarangayLayout = () => {
   }, []);
 
   useEffect(() => {
-    if (!isMayorPortal || typeof document === "undefined") {
+    if ((!isMayorPortal && !isBarangayPortal) || typeof document === "undefined") {
       return undefined;
     }
 
-    const handleMayorFormSubmit = (event) => {
+    const handlePortalFormSubmit = (event) => {
       if (event.target?.tagName !== "FORM") {
         return;
       }
@@ -248,12 +254,12 @@ const BarangayLayout = () => {
       scheduleScrollToFirstError(event.target);
     };
 
-    document.addEventListener("submit", handleMayorFormSubmit);
+    document.addEventListener("submit", handlePortalFormSubmit);
 
     return () => {
-      document.removeEventListener("submit", handleMayorFormSubmit);
+      document.removeEventListener("submit", handlePortalFormSubmit);
     };
-  }, [isMayorPortal]);
+  }, [isBarangayPortal, isMayorPortal]);
 
   useEffect(() => {
     if (isDonorPortal || isSettingsRoute) {
@@ -407,7 +413,9 @@ const BarangayLayout = () => {
                 acknowledge: () => setIsMayorInventoryReadyAcknowledged(true),
               }}
             >
-              {isBarangayPortal ? <OfflineDataReadiness {...offlinePreparation} /> : null}
+              {shouldShowBarangayOfflineReadiness ? (
+                <OfflineDataReadiness {...offlinePreparation} />
+              ) : null}
               {isMswdoPortal ? <OfflineDataReadiness {...mswdoOfflinePreparation} variant="mswdo" /> : null}
               {shouldBlockMayorOfflineRoute ? (
                 <MayorOfflineAccessNotice />

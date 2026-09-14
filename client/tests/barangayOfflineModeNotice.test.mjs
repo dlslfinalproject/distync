@@ -25,7 +25,13 @@ test("offline readiness remains a separate Barangay layout concern", async () =>
   const layout = await readSource("components/layout/BarangayLayout.jsx");
 
   assert.match(layout, /<BarangayOfflineModeNotice \/>/);
-  assert.match(layout, /<OfflineDataReadiness \{\.\.\.offlinePreparation\} \/>/);
+  assert.match(layout, /BARANGAY_OFFLINE_READINESS_ROUTES = new Set\(\[/);
+  assert.match(layout, /"\/barangay\/masterlist"/);
+  assert.match(layout, /"\/barangay\/stub-distribution"/);
+  assert.match(
+    layout,
+    /shouldShowBarangayOfflineReadiness \? \([\s\S]*?<OfflineDataReadiness \{\.\.\.offlinePreparation\} \/>/,
+  );
 });
 
 test("Mayor Inventory reuses the exact Barangay offline notice", async () => {

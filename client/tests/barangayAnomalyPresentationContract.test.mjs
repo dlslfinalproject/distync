@@ -87,3 +87,19 @@ test("BRG-ANOM-P05 responsive table and modal workflow contracts remain intact",
   assert.match(modalSource, /const shouldShowReviewForm =\s*canRecordReview && \(!hasSavedReview \|\| \(isBarangayScope && isEditingReview\)\)/);
   assert.match(modalSource, /disabled=\{isSaveDisabled\}/);
 });
+
+test("BRG-ANOM-P06 mobile review status filter fills its row", async () => {
+  const cssSource = await fs.readFile(
+    new URL("../src/index.css", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.mayor-anomaly-toolbar-controls > div:first-child \{[\s\S]*?display: flex !important;[\s\S]*?flex-direction: column;[\s\S]*?justify-content: flex-start !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.mayor-anomaly-toolbar-controls > div:first-child select \{[\s\S]*?width: 100% !important;[\s\S]*?min-width: 0 !important;/,
+  );
+});

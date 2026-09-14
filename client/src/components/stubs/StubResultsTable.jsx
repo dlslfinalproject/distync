@@ -27,11 +27,18 @@ const tableStyles = {
     borderBottom: "1px solid #e0eaf4",
     whiteSpace: "nowrap",
   },
+  pillHeaderCell: {
+    textAlign: "center",
+  },
   bodyCell: {
     padding: "16px",
     color: "#21405f",
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
+    verticalAlign: "middle",
+  },
+  pillBodyCell: {
+    textAlign: "center",
     verticalAlign: "middle",
   },
   qrStubColumn: {
@@ -388,7 +395,7 @@ const StubResultsTable = ({
                 style={{
                   ...tableStyles.headerCell,
                   ...tableStyles.qrStubColumn,
-                  textAlign: "center",
+                  ...tableStyles.pillHeaderCell,
                 }}
               >
                 Household Size
@@ -415,7 +422,7 @@ const StubResultsTable = ({
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  textAlign: "center",
+                  ...tableStyles.pillHeaderCell,
                 }}
               >
                 Status
@@ -485,7 +492,7 @@ const StubResultsTable = ({
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
-                      textAlign: "center",
+                      ...tableStyles.pillBodyCell,
                     }}
                   >
                     <span
@@ -548,8 +555,7 @@ const StubResultsTable = ({
                       ...tableStyles.bodyCell,
                       ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       ...tableStyles.statusColumn,
-                      textAlign: "center",
-                      verticalAlign: "middle",
+                      ...tableStyles.pillBodyCell,
                     }}
                   >
                     {row.is_local_only ? (

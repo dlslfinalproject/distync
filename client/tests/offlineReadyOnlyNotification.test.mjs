@@ -6,7 +6,10 @@ const read = (file) => readFile(new URL(`../src/${file}`, import.meta.url), "utf
 
 test("both operational role consumers use the shared readiness presentation", async () => {
   const layout = await read("components/layout/BarangayLayout.jsx");
-  assert.match(layout, /isBarangayPortal \? <OfflineDataReadiness \{\.\.\.offlinePreparation\} \/>/);
+  assert.match(
+    layout,
+    /shouldShowBarangayOfflineReadiness \? \([\s\S]*?<OfflineDataReadiness \{\.\.\.offlinePreparation\} \/>/,
+  );
   assert.match(layout, /isMswdoPortal \? <OfflineDataReadiness \{\.\.\.mswdoOfflinePreparation\} variant="mswdo" \/>/);
 });
 

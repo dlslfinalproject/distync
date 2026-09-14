@@ -52,6 +52,7 @@ import {
   DEFAULT_TABLE_PAGE_SIZE,
   TABLE_PAGE_SIZE_OPTIONS,
 } from "../../features/pagination/pagination.mjs";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -124,6 +125,7 @@ const BarangayMasterlistPage = () => {
     useState("newest");
   const [selectedExportSectorIds, setSelectedExportSectorIds] = useState([]);
   const [availableExportSectorIds, setAvailableExportSectorIds] = useState([]);
+  const exportModalRef = useRef(null);
   const [exportValidationErrors, setExportValidationErrors] = useState({
     sectors: "",
     barangays: "",
@@ -1055,6 +1057,7 @@ const BarangayMasterlistPage = () => {
         sectors: "Select at least one sector.",
         barangays: "",
       });
+      scheduleScrollToFirstError(exportModalRef);
       return;
     }
 
@@ -1245,6 +1248,7 @@ const BarangayMasterlistPage = () => {
       />
 
       <MswdoExportModal
+        modalRef={exportModalRef}
         isOpen={isExportModalOpen}
         title="Evacuee Masterlist Report"
         isSubmitting={Boolean(exportingFormat)}

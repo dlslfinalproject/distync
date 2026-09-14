@@ -30,6 +30,9 @@ const tableStyles = {
     borderBottom: "1px solid #e0eaf4",
     whiteSpace: "nowrap",
   },
+  pillHeaderCell: {
+    textAlign: "center",
+  },
   bodyCell: {
     padding: "16px",
     color: "#21405f",
@@ -38,6 +41,9 @@ const tableStyles = {
     verticalAlign: "middle",
     lineHeight: 1.5,
     wordBreak: "break-word",
+  },
+  pillBodyCell: {
+    textAlign: "center",
   },
   actionHeaderCell: {
     width: "88px",
@@ -324,7 +330,7 @@ const MasterlistTable = ({
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  textAlign: "center",
+                  ...tableStyles.pillHeaderCell,
                 }}
               >
                 Household Size
@@ -439,7 +445,7 @@ const MasterlistTable = ({
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
-                      textAlign: "center",
+                      ...tableStyles.pillBodyCell,
                     }}
                   >
                     <span

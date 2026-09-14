@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FiX } from "react-icons/fi";
 import { pageHeaderStyles } from "../layout/PageHeader";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
 
 const modalStyles = {
   overlay: {
@@ -138,6 +139,7 @@ const StubPrintSheetModal = ({
     orderList: "oldest_newest",
   });
   const [errors, setErrors] = useState({});
+  const modalRef = useRef(null);
 
   const selectedEvent = useMemo(
     () =>
@@ -229,6 +231,7 @@ const StubPrintSheetModal = ({
 
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
+      scheduleScrollToFirstError(modalRef);
       return;
     }
 
@@ -237,7 +240,7 @@ const StubPrintSheetModal = ({
 
   return (
     <div style={modalStyles.overlay}>
-      <div style={modalStyles.modal}>
+      <div ref={modalRef} style={modalStyles.modal}>
         <div style={modalStyles.header}>
           <h2 style={modalStyles.title}>Print QR Stub Sheet</h2>
           <button type="button" onClick={onClose} style={modalStyles.closeButton}>
@@ -253,6 +256,7 @@ const StubPrintSheetModal = ({
               onChange={(event) =>
                 handleChange("disasterEventId", event.target.value)
               }
+              aria-invalid={Boolean(errors.disasterEventId)}
               style={modalStyles.select}
             >
               <option value="">Select disaster event</option>
@@ -275,6 +279,7 @@ const StubPrintSheetModal = ({
                 onChange={(event) =>
                   handleChange("barangayId", event.target.value)
                 }
+                aria-invalid={Boolean(errors.barangayId)}
                 style={modalStyles.select}
               >
                 <option value="">Select barangay</option>

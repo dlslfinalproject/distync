@@ -339,6 +339,7 @@ const FamilyHeadSection = ({ form }) => {
             onChange={(event) =>
               form.updateFamilyHeadField("first_name", event.target.value)
             }
+            aria-invalid={Boolean(form.validationErrors.familyHead.first_name)}
             style={{
               ...fieldStyles.input,
               ...(isFamilyHeadProtected ? fieldStyles.lockedInput : {}),
@@ -376,6 +377,7 @@ const FamilyHeadSection = ({ form }) => {
             onChange={(event) =>
               form.updateFamilyHeadField("last_name", event.target.value)
             }
+            aria-invalid={Boolean(form.validationErrors.familyHead.last_name)}
             style={{
               ...fieldStyles.input,
               ...(isFamilyHeadProtected ? fieldStyles.lockedInput : {}),
@@ -416,6 +418,7 @@ const FamilyHeadSection = ({ form }) => {
             onChange={(event) =>
               form.updateFamilyHeadField("age_value", event.target.value)
             }
+            aria-invalid={Boolean(form.validationErrors.familyHead.age_value)}
             style={{
               ...fieldStyles.input,
               ...(isFamilyHeadProtected ? fieldStyles.lockedInput : {}),
@@ -623,6 +626,7 @@ const FamilyHeadSection = ({ form }) => {
                     accept="image/*"
                     capture="environment"
                     onChange={handleUploadFallback}
+                    aria-invalid={Boolean(form.validationErrors.family_head_photo_url)}
                     style={fieldStyles.input}
                   />
                   <p style={fieldStyles.helperText}>

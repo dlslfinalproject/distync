@@ -174,6 +174,7 @@ const HouseholdFormSection = ({ form }) => {
               value={form.selectedBarangayId}
               onChange={(event) => form.setSelectedBarangayId(event.target.value)}
               disabled={isBarangayLocked}
+              aria-invalid={Boolean(form.validationErrors.selectedBarangayId)}
               style={getInputStyle(isBarangayLocked)}
             >
               <option value="">
@@ -221,6 +222,7 @@ const HouseholdFormSection = ({ form }) => {
               form.updateHouseholdField("evacuation_center_id", event.target.value)
             }
             disabled={isEvacuationCenterLocked}
+            aria-invalid={Boolean(form.validationErrors.evacuation_center_id)}
             style={getInputStyle(isEvacuationCenterLocked)}
           >
             <option value="">No evacuation center selected</option>
@@ -249,6 +251,7 @@ const HouseholdFormSection = ({ form }) => {
               onChange={(event) =>
                 form.updateContactNumber(event.target.value)
               }
+              aria-invalid={Boolean(form.validationErrors.contact_number)}
               style={{
                 ...getInputStyle(false, fieldStyles.phoneInput),
               }}

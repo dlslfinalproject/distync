@@ -181,6 +181,9 @@ const MembersSection = ({ form }) => {
                         event.target.value,
                       )
                     }
+                    aria-invalid={Boolean(
+                      form.validationErrors.members[index]?.first_name,
+                    )}
                     style={fieldStyles.input}
                   />
                   {form.validationErrors.members[index]?.first_name ? (
@@ -218,6 +221,9 @@ const MembersSection = ({ form }) => {
                         event.target.value,
                       )
                     }
+                    aria-invalid={Boolean(
+                      form.validationErrors.members[index]?.last_name,
+                    )}
                     style={fieldStyles.input}
                   />
                   {form.validationErrors.members[index]?.last_name ? (
@@ -265,6 +271,9 @@ const MembersSection = ({ form }) => {
                         event.target.value,
                       )
                     }
+                    aria-invalid={Boolean(
+                      form.validationErrors.members[index]?.age_value,
+                    )}
                     style={fieldStyles.input}
                   />
                   {form.validationErrors.members[index]?.age_value ? (
@@ -320,6 +329,9 @@ const MembersSection = ({ form }) => {
                         event.target.value,
                       )
                     }
+                    aria-invalid={Boolean(
+                      form.validationErrors.members[index]?.relationship_option,
+                    )}
                     style={fieldStyles.input}
                   >
                     <option value="">Select relationship</option>
@@ -351,6 +363,9 @@ const MembersSection = ({ form }) => {
                           event.target.value,
                         )
                       }
+                      aria-invalid={Boolean(
+                        form.validationErrors.members[index]?.custom_relationship,
+                      )}
                       style={fieldStyles.input}
                     />
                     {form.validationErrors.members[index]?.custom_relationship ? (

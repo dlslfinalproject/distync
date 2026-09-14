@@ -3644,3 +3644,19 @@ img {
     max-width: 100%;
   }
 }
+
+@media (max-width: 480px) {
+  .mayor-anomaly-toolbar-controls > div:first-child {
+    align-items: stretch !important;
+    display: flex !important;
+    flex-direction: column;
+    gap: 6px !important;
+    justify-content: flex-start !important;
+  }
+
+  .mayor-anomaly-toolbar-controls > div:first-child select {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100%;
+  }
+}
