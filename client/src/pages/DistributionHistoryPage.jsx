@@ -699,7 +699,9 @@ const DistributionHistoryPage = () => {
                 {historyRows.map((row) => (
                   <tr key={row.id}>
                     <td className="distribution-history-text-cell" style={tableStyles.td}>
-                      <div>{row.disaster_event_title || "--"}</div>
+                      <div style={{ fontWeight: 700 }}>
+                        {row.disaster_event_title || "--"}
+                      </div>
                     </td>
                     <td style={{ ...tableStyles.td, ...tableStyles.pillBodyCell }}>
                       <span style={getDisasterEventStatusStyles(row.disaster_event_status)}>
@@ -755,7 +757,9 @@ const DistributionHistoryPage = () => {
                 {historyRows.map((row) => (
                   <tr key={row.id}>
                     <td className="distribution-history-text-cell" style={tableStyles.td}>
-                      {row.family_head_name || "--"}
+                      <span style={{ fontWeight: 700 }}>
+                        {row.family_head_name || "--"}
+                      </span>
                     </td>
                     {!isBarangay ? (
                       <td className="distribution-history-text-cell" style={tableStyles.td}>{row.barangay_name || "--"}</td>

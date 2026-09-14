@@ -182,3 +182,16 @@ test("Distribution History detail action is accessible and does not expose raw Q
   assert.match(pageSource, /formatDisplayStubNumber\(row\)/);
   assert.doesNotMatch(pageSource, /row\.qr_code_value/);
 });
+
+test("Distribution History emphasizes the event and selected-event family values", async () => {
+  const pageSource = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+
+  assert.match(
+    pageSource,
+    /<div style=\{\{ fontWeight: 700 \}\}>\s*\{row\.disaster_event_title \|\| "--"\}\s*<\/div>/,
+  );
+  assert.match(
+    pageSource,
+    /<span style=\{\{ fontWeight: 700 \}\}>\s*\{row\.family_head_name \|\| "--"\}\s*<\/span>/,
+  );
+});
