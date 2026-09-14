@@ -12,6 +12,9 @@ export const hydrateStubDetailsWithCachedHousehold = (
 
   const cachedHousehold = cachedDetails.household;
   const cachedPhoto = resolveFamilyHeadPhoto(cachedHousehold);
+  const stubPhoto = resolveFamilyHeadPhoto(stubDetails.household || {});
+  const resolvedPhoto = cachedPhoto || stubPhoto;
+  const cachedEventTitle = cachedHousehold.disaster_event_title || "";
   const familyHeadName = [
     cachedHousehold.family_head_first_name,
     cachedHousehold.family_head_middle_name,
@@ -23,7 +26,8 @@ export const hydrateStubDetailsWithCachedHousehold = (
     ...stubDetails,
     disaster_event: {
       ...(stubDetails.disaster_event || {}),
-      name: cachedHousehold.disaster_event_title || stubDetails.disaster_event?.name || stubDetails.disaster_event?.title || "",
+      title: cachedEventTitle || stubDetails.disaster_event?.title || stubDetails.disaster_event?.name || "",
+      name: cachedEventTitle || stubDetails.disaster_event?.name || stubDetails.disaster_event?.title || "",
     },
     barangay: {
       ...(stubDetails.barangay || {}),
@@ -35,7 +39,8 @@ export const hydrateStubDetailsWithCachedHousehold = (
       id: cachedHousehold.id || getHouseholdId(stubDetails),
       family_head_name: familyHeadName || cachedHousehold.family_head_name || stubDetails.household?.family_head_name || "",
       members_count: cachedHousehold.household_size ?? cachedHousehold.members_count ?? stubDetails.household?.members_count ?? 0,
-      family_head_photo_url: cachedPhoto,
+      family_head_photo_url: resolvedPhoto,
+      family_head_photo_data_url: resolvedPhoto,
     },
     members: cachedDetails.members || [],
     household_sectors: cachedDetails.household_sectors || [],
