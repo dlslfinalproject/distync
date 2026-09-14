@@ -217,6 +217,8 @@ CREATE TABLE public.households (
   CONSTRAINT households_evacuation_center_id_fkey FOREIGN KEY (evacuation_center_id) REFERENCES public.evacuation_centers(id),
   CONSTRAINT households_registered_by_fkey FOREIGN KEY (registered_by) REFERENCES public.users(id),
   CONSTRAINT fk_households_family_head_evacuee FOREIGN KEY (family_head_evacuee_id) REFERENCES public.evacuees(id),
+  CONSTRAINT uq_households_id_event UNIQUE (id, disaster_event_id),
+  CONSTRAINT fk_households_family_head_same_household FOREIGN KEY (family_head_evacuee_id, id) REFERENCES public.evacuees(id, household_id) MATCH SIMPLE ON UPDATE NO ACTION ON DELETE SET NULL (family_head_evacuee_id),
   CONSTRAINT households_photo_captured_by_fkey FOREIGN KEY (photo_captured_by) REFERENCES public.users(id)
 );
 
@@ -265,6 +267,7 @@ CREATE TABLE public.evacuees (
   age_value integer CHECK (age_value IS NULL OR age_value >= 0),
   age_unit character varying CHECK (age_unit IS NULL OR (age_unit::text = ANY (ARRAY['MONTHS'::character varying, 'YEARS'::character varying]::text[]))),
   CONSTRAINT evacuees_pkey PRIMARY KEY (id),
+  CONSTRAINT uq_evacuees_id_household UNIQUE (id, household_id),
   CONSTRAINT evacuees_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id)
 );
 
@@ -302,9 +305,13 @@ CREATE TABLE public.evacuation_logs (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT evacuation_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT chk_evacuation_log_time CHECK ((time_out IS NULL) OR (time_out >= time_in)),
+  CONSTRAINT chk_evacuation_log_status_time_out CHECK (((status)::text = 'PRESENT'::text AND time_out IS NULL) OR ((status)::text = ANY (ARRAY['LEFT'::character varying, 'TRANSFERRED'::character varying]::text[]) AND time_out IS NOT NULL)),
   CONSTRAINT evacuation_logs_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
   CONSTRAINT evacuation_logs_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id),
   CONSTRAINT evacuation_logs_evacuee_id_fkey FOREIGN KEY (evacuee_id) REFERENCES public.evacuees(id),
+  CONSTRAINT fk_evacuation_logs_household_event FOREIGN KEY (household_id, disaster_event_id) REFERENCES public.households(id, disaster_event_id) MATCH SIMPLE ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT fk_evacuation_logs_evacuee_household FOREIGN KEY (evacuee_id, household_id) REFERENCES public.evacuees(id, household_id) MATCH SIMPLE ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT evacuation_logs_evacuation_center_id_fkey FOREIGN KEY (evacuation_center_id) REFERENCES public.evacuation_centers(id),
   CONSTRAINT evacuation_logs_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.users(id)
 );
@@ -333,6 +340,7 @@ CREATE TABLE public.stubs (
   CONSTRAINT stubs_pkey PRIMARY KEY (id),
   CONSTRAINT stubs_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
   CONSTRAINT stubs_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id),
+  CONSTRAINT fk_stub_household_event FOREIGN KEY (household_id, disaster_event_id) REFERENCES public.households(id, disaster_event_id) MATCH SIMPLE ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT stubs_issued_by_fkey FOREIGN KEY (issued_by) REFERENCES public.users(id),
   CONSTRAINT stubs_qr_generated_by_fkey FOREIGN KEY (qr_generated_by) REFERENCES public.users(id)
 );
@@ -357,6 +365,14 @@ CREATE TABLE public.stub_donated_relief_pack_assignments (
   CONSTRAINT stub_donated_relief_pack_assignments_donation_id_fkey FOREIGN KEY (donation_id) REFERENCES public.donations(id),
   CONSTRAINT stub_donated_relief_pack_assignments_items_array_check CHECK (jsonb_typeof(items_snapshot) = 'array')
 );
+
+CREATE UNIQUE INDEX uq_evacuation_logs_open_evacuee
+  ON public.evacuation_logs USING btree (evacuee_id)
+  WHERE ((status)::text = 'PRESENT'::text AND time_out IS NULL);
+
+CREATE UNIQUE INDEX uq_evacuees_household_family_head
+  ON public.evacuees USING btree (household_id)
+  WHERE (is_family_head IS TRUE);
 
 CREATE UNIQUE INDEX stub_donated_relief_pack_assignments_group_unique
   ON public.stub_donated_relief_pack_assignments (stub_id, donation_id, LOWER(pack_name), pack_size);

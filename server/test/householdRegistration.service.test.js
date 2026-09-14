@@ -258,6 +258,94 @@ const assertNoRestrictedExternalLeak = (match) => {
   });
 };
 
+test("Stage-3 database errors map by named constraint and SQLSTATE", () => {
+  const harness = loadServiceWithMocks();
+
+  try {
+    const { STAGE3_DATABASE_CONSTRAINTS, STAGE3_DATABASE_ERROR_DEFINITIONS } =
+      harness.service;
+
+    for (const constraint of Object.values(STAGE3_DATABASE_CONSTRAINTS)) {
+      const rawError = new Error(
+        `raw database detail for ${constraint}: secret-column-value`,
+      );
+      rawError.code = constraint.startsWith("uq_") ? "23505" :
+        constraint.startsWith("chk_") ? "23514" : "23503";
+      rawError.constraint = constraint;
+
+      const mappedError = harness.service.mapStage3DatabaseError(rawError);
+      const definition = STAGE3_DATABASE_ERROR_DEFINITIONS[constraint];
+
+      assert.equal(mappedError.code, definition.code);
+      assert.equal(mappedError.statusCode, definition.statusCode);
+      assert.equal(mappedError.message, definition.message);
+      assert.equal(mappedError.databaseConstraint, constraint);
+      assert.equal(mappedError.retryable, false);
+      assert.equal(mappedError.cause, rawError);
+      assert.doesNotMatch(mappedError.message, /secret-column-value/);
+    }
+  } finally {
+    harness.restore();
+  }
+});
+
+test("Stage-3 database mapping leaves unrelated SQLSTATE violations untouched", () => {
+  const harness = loadServiceWithMocks();
+
+  try {
+    const rawError = new Error("unrelated database detail");
+    rawError.code = "23505";
+    rawError.constraint = "unrelated_unique_constraint";
+
+    assert.equal(harness.service.mapStage3DatabaseError(rawError), rawError);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("registerHousehold maps a named Stage-3 conflict after transaction rollback", async () => {
+  const events = [];
+  const rawError = new Error("duplicate key value exposes database detail");
+  rawError.code = "23505";
+  rawError.constraint = "uq_evacuees_household_family_head";
+  const fakeClient = {
+    query: async (query) => {
+      events.push(String(query).trim());
+      return { rows: [] };
+    },
+    release: () => events.push("RELEASE"),
+  };
+  const harness = loadServiceWithMocks(
+    {
+      getSectorsByIds: async () => [],
+      getSectorsByCodes: async () => [{ id: "adult-sector", code: "ADULT" }],
+      getAgeGroupSectors: async () => [{ id: "adult-sector", code: "ADULT" }],
+      insertHousehold: async () => {
+        throw rawError;
+      },
+    },
+    {
+      connect: async () => fakeClient,
+    },
+  );
+
+  try {
+    await assert.rejects(
+      harness.service.registerHousehold(buildValidRegistrationRequest()),
+      (error) => {
+        assert.equal(error.code, "FAMILY_HEAD_CONFLICT");
+        assert.equal(error.statusCode, 409);
+        assert.match(error.message, /flagged family head/i);
+        assert.doesNotMatch(error.message, /database detail/i);
+        return true;
+      },
+    );
+    assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
+  } finally {
+    harness.restore();
+  }
+});
+
 test("duplicate suggestions preserve same-barangay Barangay match details", async () => {
   const harness = loadServiceWithMocks({
     getUserBarangayScopeById: async () => ({

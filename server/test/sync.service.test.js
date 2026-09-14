@@ -4085,6 +4085,142 @@ test("processSyncEntries records duplicate accepted-server conflicts with FIRST_
   );
 });
 
+test("processSyncEntries classifies the Stage-3 open-attendance race as a deterministic server-wins conflict", async () => {
+  let conflictPayload = null;
+  let transactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+          transactionPayload = payload.transactionPayload;
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-open-attendance",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error(
+            "raw duplicate detail: attendance_log_id=secret-value",
+          );
+          error.code = "23505";
+          error.constraint = "uq_evacuation_logs_open_evacuee";
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "stage3-open-attendance-race",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-stage3-open-attendance",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.client_sync_id, "stage3-open-attendance-race");
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.conflict_type, "OPEN_ATTENDANCE_CONFLICT");
+      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+      assert.equal(transactionPayload.sync_status, "CONFLICT");
+      assert.match(result.message, /open attendance/i);
+      assert.doesNotMatch(result.message, /secret-value|duplicate detail/i);
+    },
+  );
+});
+
+test("processSyncEntries classifies Stage-3 relationship violations as permanent manual-review failures", async () => {
+  let failurePayload = null;
+  let conflictCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Stage-3 relationship failure must not be a conflict retry");
+        },
+        recordSyncFailureAndNotificationIntent: async ({
+          syncTransactionId,
+          transactionPayload,
+        }) => {
+          failurePayload = transactionPayload;
+          return {
+            syncTransaction: {
+              id: syncTransactionId,
+              sync_status: "FAILED",
+              ...transactionPayload,
+            },
+            notificationOutboxEvent: null,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error(
+            "raw foreign key detail: household_id=secret-value",
+          );
+          error.code = "23503";
+          error.constraint = "fk_evacuation_logs_evacuee_household";
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "stage3-relationship-failure",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-stage3-relationship",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:01:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.client_sync_id, "stage3-relationship-failure");
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.resolution_status, "MANUAL_REVIEW_REQUIRED");
+      assert.equal(result.error_code, "ATTENDANCE_EVACUEE_HOUSEHOLD_CONFLICT");
+      assert.match(result.message, /does not belong to the selected household/i);
+      assert.doesNotMatch(result.message, /secret-value|foreign key detail/i);
+      assert.equal(failurePayload.error_message, result.message);
+      assert.equal(conflictCalls, 0);
+    },
+  );
+});
+
 test("H05-01 processSyncEntries records claimed-stub duplicates with FIRST_ACCEPTED", async () => {
   let conflictPayload;
 
