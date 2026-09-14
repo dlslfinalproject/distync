@@ -370,6 +370,8 @@ const getAuditLogs = async (
       sc_direct.conflict_type AS sync_conflict_type,
       sc_direct.local_payload_json AS sync_conflict_local_payload_json,
       sc_direct.server_payload_json AS sync_conflict_server_payload_json,
+      st_sync.client_timestamp AS sync_conflict_client_timestamp,
+      st_sync.created_at AS sync_conflict_transaction_created_at,
       sc_direct.resolution_action AS sync_conflict_resolution_action,
       sc_direct.resolution_reason AS sync_conflict_resolution_reason,
       sc_direct.resolved_payload_json AS sync_conflict_resolved_payload_json,
@@ -503,6 +505,8 @@ const getAuditLogs = async (
     LEFT JOIN sync_conflicts sc_direct
       ON al.entity_type = 'SYNC_CONFLICT'
       AND sc_direct.id = al.entity_id
+    LEFT JOIN sync_transactions st_sync
+      ON st_sync.id = sc_direct.sync_transaction_id
     LEFT JOIN inventory_items ii_direct
       ON al.entity_type = 'INVENTORY_ITEM'
       AND ii_direct.id = al.entity_id

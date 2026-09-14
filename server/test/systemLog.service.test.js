@@ -234,7 +234,9 @@ test("Keep Server sync audits identify the kept and duplicate records", async ()
             item_name: "Rice",
             barcode: "RICE-001",
             batch_no: "RICE-BATCH-002",
+            updated_at: "2026-08-09T04:55:00.000Z",
           },
+          sync_conflict_client_timestamp: "2026-08-09T04:53:00.000Z",
           sync_conflict_resolution_reason: "Saved record was accepted first.",
           sync_conflict_resolved_at: "2026-08-09T05:00:00.000Z",
           created_at: "2026-08-09T04:59:00.000Z",
@@ -251,12 +253,12 @@ test("Keep Server sync audits identify the kept and duplicate records", async ()
       assert.equal(entry.action_label, "Sync Conflict Resolved");
       assert.equal(entry.module, "Sync Center");
       assert.deepEqual(entry.record_lines, [
-        "Rice (RICE-001) - RICE-BATCH-002",
-        "Rice (RICE-001) - RICE-BATCH-002",
+        "Kept Record: Item: Rice | Barcode: RICE-001 | Batch Number: RICE-BATCH-002",
+        "Duplicate Record: Item: Rice | Barcode: RICE-001 | Batch Number: RICE-BATCH-002",
       ]);
       assert.equal(
         entry.action_detail,
-        "Saved record kept; offline duplicate discarded",
+        "Kept saved record; offline record discarded",
       );
       assert.equal(entry.timestamp, "2026-08-09T05:00:00.000Z");
       assert.equal(
@@ -278,14 +280,6 @@ test("Keep Server sync audits identify the kept and duplicate records", async ()
             new_value: "Kept first accepted record",
           },
           {
-            label: "Kept Record",
-            new_value: "Rice (RICE-001) - RICE-BATCH-002",
-          },
-          {
-            label: "Duplicate Record",
-            new_value: "Rice (RICE-001) - RICE-BATCH-002",
-          },
-          {
             label: "Result",
             new_value:
               "The first record accepted by DISTYNC was kept. The offline entry was treated as a duplicate.",
@@ -295,6 +289,49 @@ test("Keep Server sync audits identify the kept and duplicate records", async ()
             new_value: "Saved record was accepted first.",
           },
         ],
+      );
+      assert.deepEqual(
+        entry.audit_detail.sync_resolution.record_comparison,
+        {
+          note:
+            "Date & Time shows when each record was captured or last updated in its source system.",
+          records: [
+            {
+              label: "Kept Record",
+              fields: [
+                { field: "item", label: "Item", value: "Rice" },
+                { field: "barcode", label: "Barcode", value: "RICE-001" },
+                {
+                  field: "batch_number",
+                  label: "Batch No.",
+                  value: "RICE-BATCH-002",
+                },
+                {
+                  field: "record_date_time",
+                  label: "Date & Time",
+                  value: "Aug 9, 2026, 12:55 PM",
+                },
+              ],
+            },
+            {
+              label: "Duplicate Record",
+              fields: [
+                { field: "item", label: "Item", value: "Rice" },
+                { field: "barcode", label: "Barcode", value: "RICE-001" },
+                {
+                  field: "batch_number",
+                  label: "Batch No.",
+                  value: "RICE-BATCH-002",
+                },
+                {
+                  field: "record_date_time",
+                  label: "Date & Time",
+                  value: "Aug 9, 2026, 12:53 PM",
+                },
+              ],
+            },
+          ],
+        },
       );
     },
   );
@@ -350,10 +387,13 @@ test("Accept Both sync audits show both accepted records and the verdict", async
       const result = await getSystemLogReview({ type: "audit", limit: "all" });
       const [entry] = result.audit_logs;
 
-      assert.equal(entry.action_detail, "Both records accepted as separate batches");
+      assert.equal(
+        entry.action_detail,
+        "Accepted both records; separate batch created",
+      );
       assert.deepEqual(entry.record_lines, [
-        "Palmolive Naturals Shampoo (SHAMP-001) - SHAMP001-BATCH-008",
-        "Palmolive Naturals Shampoo (SHAMP-001) - SHAMP001-BATCH-009",
+        "Saved Record: Item: Palmolive Naturals Shampoo | Barcode: SHAMP-001 | Batch Number: SHAMP001-BATCH-008",
+        "Offline Record: Item: Palmolive Naturals Shampoo | Barcode: SHAMP-001 | Batch Number: SHAMP001-BATCH-009",
       ]);
       assert.deepEqual(
         entry.audit_detail.sync_resolution.changes.map(({ label, new_value }) => ({
@@ -370,16 +410,6 @@ test("Accept Both sync audits show both accepted records and the verdict", async
             new_value: "Accepted both records",
           },
           {
-            label: "Saved Record",
-            new_value:
-              "Palmolive Naturals Shampoo (SHAMP-001) - SHAMP001-BATCH-008",
-          },
-          {
-            label: "Offline Record",
-            new_value:
-              "Palmolive Naturals Shampoo (SHAMP-001) - SHAMP001-BATCH-009",
-          },
-          {
             label: "Result",
             new_value:
               "Both records were kept as separate inventory batches. The saved record remained first, and the offline record received the next available batch number.",
@@ -389,6 +419,56 @@ test("Accept Both sync audits show both accepted records and the verdict", async
             new_value: "Both are different stock entries.",
           },
         ],
+      );
+      assert.deepEqual(
+        entry.audit_detail.sync_resolution.record_comparison.records.map(
+          (record) => ({
+            label: record.label,
+            fields: record.fields.filter(
+              ({ field }) => field !== "record_date_time",
+            ),
+          }),
+        ),
+        [
+          {
+            label: "Saved Record",
+            fields: [
+              {
+                field: "item",
+                label: "Item",
+                value: "Palmolive Naturals Shampoo",
+              },
+              { field: "barcode", label: "Barcode", value: "SHAMP-001" },
+              {
+                field: "batch_number",
+                label: "Batch No.",
+                value: "SHAMP001-BATCH-008",
+              },
+            ],
+          },
+          {
+            label: "Offline Record",
+            fields: [
+              {
+                field: "item",
+                label: "Item",
+                value: "Palmolive Naturals Shampoo",
+              },
+              { field: "barcode", label: "Barcode", value: "SHAMP-001" },
+              {
+                field: "batch_number",
+                label: "Batch No.",
+                value: "SHAMP001-BATCH-009",
+              },
+            ],
+          },
+        ],
+      );
+      assert.equal(
+        entry.audit_detail.sync_resolution.record_comparison.records
+          .flatMap((record) => record.fields)
+          .some(({ label }) => label === "Status"),
+        false,
       );
     },
   );
@@ -450,10 +530,10 @@ test("Apply Local sync audits show the accepted record, duplicate, and correctio
       const result = await getSystemLogReview({ type: "audit", limit: "all" });
       const [entry] = result.audit_logs;
 
-      assert.equal(entry.action_detail, "Corrected device record applied");
+      assert.equal(entry.action_detail, "Applied offline record");
       assert.deepEqual(entry.record_lines, [
-        "Bota (99999999)",
-        "Kapote (99999999)",
+        "Accepted First: Item: Bota | Barcode: 99999999",
+        "Duplicate Record: Item: Kapote | Barcode: 99999999",
       ]);
       assert.deepEqual(
         entry.audit_detail.sync_resolution.changes.map(({ label, new_value }) => ({
@@ -470,14 +550,6 @@ test("Apply Local sync audits show the accepted record, duplicate, and correctio
             new_value: "Applied offline record",
           },
           {
-            label: "Accepted First",
-            new_value: "Bota (99999999)",
-          },
-          {
-            label: "Duplicate Record",
-            new_value: "Kapote (99999999)",
-          },
-          {
             label: "Result",
             new_value:
               "The saved record remained first. The duplicate device record was saved as a manual item without a barcode.",
@@ -487,6 +559,42 @@ test("Apply Local sync audits show the accepted record, duplicate, and correctio
             new_value: "This needs revision.",
           },
         ],
+      );
+      assert.deepEqual(
+        entry.audit_detail.sync_resolution.record_comparison.records.map(
+          (record) => ({
+            label: record.label,
+            fields: record.fields.filter(
+              ({ field }) => field !== "record_date_time",
+            ),
+          }),
+        ),
+        [
+          {
+            label: "Accepted First",
+            fields: [
+              { field: "item", label: "Item", value: "Bota" },
+              { field: "barcode", label: "Barcode", value: "99999999" },
+              { field: "packaging", label: "Packaging", value: "piece" },
+              { field: "quantity", label: "Quantity", value: "1" },
+            ],
+          },
+          {
+            label: "Duplicate Record",
+            fields: [
+              { field: "item", label: "Item", value: "Kapote" },
+              { field: "barcode", label: "Barcode", value: "99999999" },
+              { field: "packaging", label: "Packaging", value: "piece" },
+              { field: "quantity", label: "Quantity", value: "1" },
+            ],
+          },
+        ],
+      );
+      assert.equal(
+        entry.audit_detail.sync_resolution.record_comparison.records
+          .flatMap((record) => record.fields)
+          .some(({ label }) => label === "Status"),
+        false,
       );
       assert.deepEqual(entry.audit_detail.sync_resolution.correction_changes, [
         {

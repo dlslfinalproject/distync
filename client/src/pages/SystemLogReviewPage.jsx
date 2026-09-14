@@ -316,6 +316,35 @@ const detailModalStyles = {
     fontSize: "14px",
     lineHeight: 1.5,
   },
+  comparisonNote: {
+    margin: "12px 0 0",
+    color: "#69839c",
+    fontSize: "14px",
+    lineHeight: 1.5,
+  },
+  comparisonGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))",
+    gap: "16px",
+    marginTop: "16px",
+  },
+  comparisonPanel: {
+    minWidth: 0,
+    padding: "14px",
+    border: "1px solid #d6e2ee",
+    borderRadius: "12px",
+    backgroundColor: "#f8fbfe",
+  },
+  comparisonTitle: {
+    margin: "0 0 12px",
+    color: "#17324d",
+    fontSize: "16px",
+    fontWeight: 800,
+  },
+  comparisonRow: {
+    padding: "10px 0",
+    borderTop: "1px solid #e0eaf4",
+  },
 };
 
 const formatActionLabel = (entryOrValue) => {
@@ -525,6 +554,68 @@ const AuditDetailChangesTable = ({
         </tbody>
       </table>
     </div>
+  );
+};
+
+const SyncRecordComparisonDetails = ({ comparison }) => {
+  const records = Array.isArray(comparison?.records)
+    ? comparison.records.filter((record) => Array.isArray(record?.fields))
+    : [];
+
+  if (!records.length || !records.some((record) => record.fields.length > 0)) {
+    return null;
+  }
+
+  return (
+    <section
+      className="mayor-audit-trail-detail-section"
+      style={detailModalStyles.sectionCard}
+    >
+      <h3 style={{ margin: 0, color: "#17324d" }}>Record Comparison</h3>
+      {comparison.note ? (
+        <p style={detailModalStyles.comparisonNote}>{comparison.note}</p>
+      ) : null}
+      <div style={detailModalStyles.comparisonGrid}>
+        {records.map((record, index) => (
+          <div
+            key={`${record.label || "record"}-${index}`}
+            style={detailModalStyles.comparisonPanel}
+          >
+            <h4 style={detailModalStyles.comparisonTitle}>{record.label}</h4>
+            {record.fields.map((field) => (
+              <div
+                key={`${record.label || "record"}-${field.field}`}
+                style={detailModalStyles.comparisonRow}
+              >
+                <p style={detailModalStyles.label}>{field.label}</p>
+                <p style={detailModalStyles.value}>
+                  {field.value || "Not available"}
+                </p>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+};
+
+const SyncCorrectionDetails = ({ changes }) => {
+  if (!Array.isArray(changes) || changes.length === 0) {
+    return null;
+  }
+
+  return (
+    <section
+      className="mayor-audit-trail-detail-section"
+      style={detailModalStyles.sectionCard}
+    >
+      <h3 style={{ margin: 0, color: "#17324d" }}>Correction Applied</h3>
+      <AuditDetailChangesTable
+        changes={changes}
+        isCreatedRecord={false}
+      />
+    </section>
   );
 };
 
@@ -849,34 +940,23 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
         ) : null}
 
         {syncResolution ? (
-          <section
-            className="mayor-audit-trail-detail-section"
-            style={detailModalStyles.sectionCard}
-          >
-            <h3 style={{ margin: 0, color: "#17324d" }}>Resolution Details</h3>
-            <AuditDetailChangesTable
-              changes={syncResolution.changes || []}
-              isCreatedRecord
-              valueHeader="Value"
+          <>
+            <section
+              className="mayor-audit-trail-detail-section"
+              style={detailModalStyles.sectionCard}
+            >
+              <h3 style={{ margin: 0, color: "#17324d" }}>Resolution Details</h3>
+              <AuditDetailChangesTable
+                changes={syncResolution.changes || []}
+                isCreatedRecord
+                valueHeader="Value"
+              />
+            </section>
+            <SyncRecordComparisonDetails
+              comparison={syncResolution.record_comparison}
             />
-            {syncResolution.correction_changes?.length ? (
-              <>
-                <h4
-                  style={{
-                    margin: "24px 0 0",
-                    color: "#17324d",
-                    fontSize: "18px",
-                  }}
-                >
-                  Correction Applied
-                </h4>
-                <AuditDetailChangesTable
-                  changes={syncResolution.correction_changes}
-                  isCreatedRecord={false}
-                />
-              </>
-            ) : null}
-          </section>
+            <SyncCorrectionDetails changes={syncResolution.correction_changes} />
+          </>
         ) : null}
 
         {isDonationEntryRecord && donationItems.length > 0 ? (

@@ -71,6 +71,8 @@ test("Mayor audit trail tables keep horizontal overflow local and paginator outs
     /!isDistributedItemsRecord && !isSyncConflictResolution\(entry\) \? \([\s\S]*?getChangeHeading\(entry\)/,
   );
   assert.match(pageSource, /Resolution Details/);
+  assert.match(pageSource, /Record Comparison/);
+  assert.match(pageSource, /record_comparison/);
   assert.match(pageSource, /isKeepServerSyncResolution/);
   assert.match(pageSource, /Kept Record/);
   assert.match(pageSource, /Accepted First/);

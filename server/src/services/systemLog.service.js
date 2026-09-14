@@ -2147,18 +2147,18 @@ const SYNC_RESOLUTION_PRESENTATIONS = {
   },
   KEEP_SERVER: {
     decision: "Kept first accepted record",
-    summary: "Saved record kept; offline duplicate discarded",
+    summary: "Kept saved record; offline record discarded",
     result:
       "The first record accepted by DISTYNC was kept. The offline entry was treated as a duplicate.",
   },
   APPLY_LOCAL: {
     decision: "Applied offline record",
-    summary: "Offline record applied after review",
+    summary: "Applied offline record",
     result: "The offline record was accepted after review.",
   },
   ACCEPT_BOTH: {
     decision: "Accepted both records",
-    summary: "Both records accepted as separate batches",
+    summary: "Accepted both records; separate batch created",
     result: "Both records were kept as separate inventory batches.",
   },
 };
@@ -2486,6 +2486,46 @@ const buildSyncInventoryRecordLabel = (payload) => {
     : labelWithBarcode;
 };
 
+const buildSyncAuditRecordLabel = (payload) => {
+  const itemName = getSyncPayloadValue(payload, [
+    "item_name",
+    "itemName",
+    "inventory_item_name",
+    "inventory_item.item_name",
+    "item.name",
+  ]);
+  const itemCode = getSyncPayloadValue(payload, [
+    "item_code",
+    "itemCode",
+    "inventory_item.item_code",
+  ]);
+  const barcode = getSyncPayloadValue(payload, [
+    "barcode",
+    "item_barcode",
+    "stock_form_barcode",
+    "stockFormBarcode",
+    "inventory_item.barcode",
+    "inventory_item_stock_form.barcode",
+    "stock_form.barcode",
+  ]);
+  const batchNumber = getSyncPayloadValue(payload, [
+    "batch_no",
+    "batch_number",
+    "inventory_batch_no",
+  ]);
+  const details = [
+    itemName
+      ? `Item: ${itemName}`
+      : itemCode
+        ? `Item Code: ${itemCode}`
+        : null,
+    `Barcode: ${barcode || "No barcode"}`,
+    batchNumber ? `Batch Number: ${batchNumber}` : null,
+  ].filter(Boolean);
+
+  return details.length ? details.join(" | ") : "Inventory record details unavailable";
+};
+
 const hasSyncPayload = (payload) =>
   Object.keys(getSyncPayload(payload)).length > 0;
 
@@ -2500,20 +2540,6 @@ const getSyncResolutionAction = (row) =>
 
 const buildSyncResolutionSummary = (row) => {
   const resolutionAction = getSyncResolutionAction(row);
-
-  if (
-    resolutionAction === "APPLY_LOCAL" &&
-    getSyncConflictType(row) === "DUPLICATE_INVENTORY_BARCODE"
-  ) {
-    return "Corrected device record applied";
-  }
-
-  if (
-    resolutionAction === "APPLY_LOCAL" &&
-    getSyncConflictType(row) === "DUPLICATE_INVENTORY_ITEM"
-  ) {
-    return "Corrected duplicate packaging applied";
-  }
 
   const presentation = SYNC_RESOLUTION_PRESENTATIONS[
     resolutionAction
@@ -2602,6 +2628,223 @@ const getSyncResolutionRecordLabels = (resolutionAction) => {
   return ["Saved Record", "Offline Record"];
 };
 
+const SYNC_RECORD_COMPARISON_FIELD_DEFINITIONS = [
+  {
+    key: "family_head",
+    label: "Family Head",
+    keys: [
+      "family_head_name",
+      "familyHeadName",
+      "family_head.full_name",
+      "family_head.name",
+      "familyHead.fullName",
+      "familyHead.name",
+    ],
+  },
+  {
+    key: "stub_number",
+    label: "Stub No.",
+    keys: [
+      "display_stub_no",
+      "display_stub_number",
+      "stub_no",
+      "stub_number",
+    ],
+  },
+  {
+    key: "receipt_number",
+    label: "Receipt No.",
+    keys: ["receipt_no", "receipt_number"],
+  },
+  {
+    key: "barangay",
+    label: "Barangay",
+    keys: [
+      "barangay_name",
+      "barangayName",
+      "barangay.name",
+      "assigned_barangay_name",
+      "assigned_barangay",
+    ],
+  },
+  {
+    key: "disaster_event",
+    label: "Disaster Event",
+    keys: [
+      "disaster_event_title",
+      "disasterEventTitle",
+      "disaster_event.name",
+      "disasterEvent.name",
+    ],
+  },
+  {
+    key: "remarks",
+    label: "Remarks",
+    keys: ["remarks"],
+  },
+  {
+    key: "item",
+    label: "Item",
+    keys: [
+      "item_name",
+      "itemName",
+      "inventory_item_name",
+      "inventory_item.item_name",
+      "item.name",
+    ],
+  },
+  {
+    key: "barcode",
+    label: "Barcode",
+    keys: [
+      "barcode",
+      "item_barcode",
+      "stock_form_barcode",
+      "stockFormBarcode",
+      "inventory_item.barcode",
+      "inventory_item_stock_form.barcode",
+      "stock_form.barcode",
+    ],
+  },
+  {
+    key: "packaging",
+    label: "Packaging",
+    keys: [
+      "packaging",
+      "stock_form_packaging",
+      "inventory_item.packaging",
+      "inventory_item_stock_form.packaging",
+      "stock_form.packaging",
+    ],
+  },
+  {
+    key: "units_per_packaging",
+    label: "Units per Packaging",
+    keys: [
+      "units_per_packaging",
+      "stock_form_units_per_packaging",
+      "inventory_item_stock_form.units_per_packaging",
+      "stock_form.units_per_packaging",
+    ],
+  },
+  {
+    key: "quantity",
+    label: "Quantity",
+    keys: ["quantity", "quantity_needed", "quantity_received"],
+  },
+  {
+    key: "batch_number",
+    label: "Batch No.",
+    keys: ["batch_no", "batch_number", "inventory_batch_no"],
+  },
+  {
+    key: "donor",
+    label: "Donor",
+    keys: ["donor_name", "donorName"],
+  },
+];
+
+const SYNC_RECORD_DATE_TIME_LABEL = "Date & Time";
+const SYNC_RECORD_DATE_TIME_NOTE =
+  "Date & Time shows when each record was captured or last updated in its source system.";
+const SYNC_RECORD_COMPARISON_MISSING_VALUE = "Not available";
+
+const getSyncComparisonValue = (payload, keys = []) => {
+  const normalizedPayload = getSyncPayload(payload);
+
+  for (const key of keys) {
+    const value = key
+      .split(".")
+      .reduce((current, segment) => current?.[segment], normalizedPayload);
+
+    if (
+      value !== undefined &&
+      value !== null &&
+      typeof value !== "object" &&
+      String(value).trim() !== ""
+    ) {
+      return String(value).trim();
+    }
+  }
+
+  return null;
+};
+
+const getSyncRecordDateTime = (payload, fallbackValue = null) =>
+  fallbackValue ||
+  getSyncComparisonValue(payload, [
+    "client_timestamp",
+    "clientTimestamp",
+    "registered_at",
+    "registeredAt",
+    "updated_at",
+    "updatedAt",
+    "created_at",
+    "createdAt",
+  ]);
+
+const getSyncRecordComparisonValue = (payload, field) =>
+  getSyncComparisonValue(payload, field.keys);
+
+const formatSyncRecordComparisonValue = (value) => {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return SYNC_RECORD_COMPARISON_MISSING_VALUE;
+  }
+
+  return String(value).trim();
+};
+
+const buildSyncRecordComparison = (row, recordPayloads, recordLabels) => {
+  const [savedPayload, offlinePayload] = recordPayloads;
+  const localDateTime = getSyncRecordDateTime(
+    offlinePayload,
+    row.sync_conflict_client_timestamp ||
+      row.sync_conflict_transaction_created_at,
+  );
+  const savedDateTime = getSyncRecordDateTime(savedPayload);
+  const fieldValues = SYNC_RECORD_COMPARISON_FIELD_DEFINITIONS.map((field) => ({
+    ...field,
+    savedValue: getSyncRecordComparisonValue(savedPayload, field),
+    offlineValue: getSyncRecordComparisonValue(offlinePayload, field),
+  })).filter(
+    (field) => field.savedValue !== null || field.offlineValue !== null,
+  );
+
+  if (savedDateTime || localDateTime) {
+    fieldValues.push({
+      key: "record_date_time",
+      label: SYNC_RECORD_DATE_TIME_LABEL,
+      savedValue: savedDateTime,
+      offlineValue: localDateTime,
+      isDateTime: true,
+    });
+  }
+
+  return {
+    note: SYNC_RECORD_DATE_TIME_NOTE,
+    records: recordPayloads.map((payload, index) => {
+      const isSavedRecord = index === 0;
+
+      return {
+        label: recordLabels[index],
+        fields: fieldValues.map((field) => {
+          const rawValue = isSavedRecord
+            ? field.savedValue
+            : field.offlineValue;
+
+          return {
+            field: field.key,
+            label: field.label,
+            value: field.isDateTime && rawValue
+              ? formatAuditDateTime(rawValue)
+              : formatSyncRecordComparisonValue(rawValue),
+          };
+        }),
+      };
+    }),
+  };
+};
+
 const buildSyncResolutionDetail = (row) => {
   if (row.action !== "SYNC_CONFLICT_RESOLUTION") {
     return null;
@@ -2641,11 +2884,6 @@ const buildSyncResolutionDetail = (row) => {
         label: "Decision",
         new_value: presentation.decision,
       },
-      ...recordPayloads.map((payload, index) => ({
-        field: index === 0 ? "primary_record" : "related_record",
-        label: recordLabels[index],
-        new_value: buildSyncInventoryRecordLabel(payload),
-      })),
       {
         field: "result",
         label: "Result",
@@ -2657,6 +2895,11 @@ const buildSyncResolutionDetail = (row) => {
         new_value: reviewNote,
       },
     ],
+    record_comparison: buildSyncRecordComparison(
+      row,
+      recordPayloads,
+      recordLabels,
+    ),
     correction_changes: correctionChanges,
   };
 };
@@ -2674,8 +2917,19 @@ const buildSyncRecordLines = (row) => {
       resolutionAction,
     );
 
-    if (recordPayloads.some(hasSyncPayload)) {
-      return recordPayloads.map(buildSyncInventoryRecordLabel);
+    const recordLabels = getSyncResolutionRecordLabels(resolutionAction);
+    const recordLines = recordPayloads
+      .map((payload, index) => {
+        if (!hasSyncPayload(payload)) {
+          return null;
+        }
+
+        return `${recordLabels[index] || "Record"}: ${buildSyncAuditRecordLabel(payload)}`;
+      })
+      .filter(Boolean);
+
+    if (recordLines.length) {
+      return recordLines;
     }
   }
 
