@@ -16,6 +16,7 @@ import {
 } from "../../features/offline/mswdoOfflineAccess";
 import distyncLogo from "../../assets/distync-logo.png";
 import SidebarAccountMenu from "./SidebarAccountMenu";
+import DistyncLogo from "./DistyncLogo";
 
 const BARANGAY_SIDEBAR_OFFLINE_ACCESS_MESSAGE =
   "Internet connection required";
@@ -119,7 +120,7 @@ export const SidebarBrandStrip = ({
 
     <div style={layoutBrandStyles.brand}>
       <div style={layoutBrandStyles.brandHeader}>
-        <img src={distyncLogo} alt="Logo" style={layoutBrandStyles.brandLogo} />
+        <DistyncLogo src={distyncLogo} alt="Logo" style={layoutBrandStyles.brandLogo} />
         <h1 style={layoutBrandStyles.brandTitle}>DISTYNC</h1>
       </div>
     </div>
@@ -317,7 +318,7 @@ const Sidebar = ({
       <div className="distync-sidebar__body" style={sidebarStyles.body}>
         <div className="distync-sidebar__mobile-header">
           <div className="distync-sidebar__mobile-brand" aria-label="DISTYNC">
-            <img
+            <DistyncLogo
               src={distyncLogo}
               alt="DISTYNC logo"
               className="distync-sidebar__mobile-logo"
