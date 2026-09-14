@@ -92,7 +92,8 @@ const getAuditLogs = async (
   const shouldLimit = Number.isInteger(limit);
   const offset = shouldLimit ? (page - 1) * limit : 0;
   const values = [];
-  const auditTimestampExpression = "COALESCE(dt_direct.distribution_date, al.created_at)";
+  const auditTimestampExpression =
+    "COALESCE(dt_direct.distribution_date, CASE WHEN al.action = 'SYNC_CONFLICT_RESOLUTION' THEN sc_direct.resolved_at END, al.created_at)";
   const normalizedModule = String(module || "all").trim().toLowerCase();
   const normalizedAuditAction = String(auditAction || "all").trim().toLowerCase();
   const normalizedSearch = String(search || "").trim();
@@ -365,6 +366,14 @@ const getAuditLogs = async (
       al.new_values_json,
       al.ip_address,
       al.created_at,
+      sc_direct.entity_type AS sync_conflict_entity_type,
+      sc_direct.conflict_type AS sync_conflict_type,
+      sc_direct.local_payload_json AS sync_conflict_local_payload_json,
+      sc_direct.server_payload_json AS sync_conflict_server_payload_json,
+      sc_direct.resolution_action AS sync_conflict_resolution_action,
+      sc_direct.resolution_reason AS sync_conflict_resolution_reason,
+      sc_direct.resolved_payload_json AS sync_conflict_resolved_payload_json,
+      sc_direct.resolved_at AS sync_conflict_resolved_at,
       u.id AS user_id,
       u.first_name,
       u.last_name,
@@ -797,7 +806,7 @@ const getAuditLogs = async (
       ${auditActionClause}
       ${dateClause}
       ${searchClause}
-    ORDER BY al.created_at DESC, al.id DESC
+    ORDER BY ${auditTimestampExpression} DESC, al.id DESC
     ${limitClause}
   `;
 

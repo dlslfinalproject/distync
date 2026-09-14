@@ -205,6 +205,301 @@ test("item detail edit records use the pre-edit item name", async () => {
   );
 });
 
+test("Keep Server sync audits identify the kept and duplicate records", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-sync-keep-server-1",
+          action: "SYNC_CONFLICT_RESOLUTION",
+          entity_type: "SYNC_CONFLICT",
+          entity_id: "conflict-1",
+          role_code: "MAYOR",
+          old_values_json: {
+            status: "OPEN",
+          },
+          new_values_json: {
+            status: "RESOLVED",
+            resolution_action: "KEEP_SERVER",
+            conflict_type: "DUPLICATE_INVENTORY_BATCH",
+          },
+          sync_conflict_type: "DUPLICATE_INVENTORY_BATCH",
+          sync_conflict_resolution_action: "KEEP_SERVER",
+          sync_conflict_local_payload_json: {
+            item_name: "Rice",
+            barcode: "RICE-001",
+            batch_no: "RICE-BATCH-002",
+          },
+          sync_conflict_server_payload_json: {
+            item_name: "Rice",
+            barcode: "RICE-001",
+            batch_no: "RICE-BATCH-002",
+          },
+          sync_conflict_resolution_reason: "Saved record was accepted first.",
+          sync_conflict_resolved_at: "2026-08-09T05:00:00.000Z",
+          created_at: "2026-08-09T04:59:00.000Z",
+          first_name: "Kath",
+          last_name: "Alonzo",
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const [entry] = result.audit_logs;
+
+      assert.equal(entry.action_label, "Sync Conflict Resolved");
+      assert.equal(entry.module, "Sync Center");
+      assert.deepEqual(entry.record_lines, [
+        "Rice (RICE-001) - RICE-BATCH-002",
+        "Rice (RICE-001) - RICE-BATCH-002",
+      ]);
+      assert.equal(
+        entry.action_detail,
+        "Saved record kept; offline duplicate discarded",
+      );
+      assert.equal(entry.timestamp, "2026-08-09T05:00:00.000Z");
+      assert.equal(
+        entry.audit_detail.sync_resolution.resolution_action,
+        "KEEP_SERVER",
+      );
+      assert.deepEqual(
+        entry.audit_detail.sync_resolution.changes.map(({ label, new_value }) => ({
+          label,
+          new_value,
+        })),
+        [
+          {
+            label: "Conflict",
+            new_value: "Possible Duplicate Inventory Batch",
+          },
+          {
+            label: "Decision",
+            new_value: "Kept first accepted record",
+          },
+          {
+            label: "Kept Record",
+            new_value: "Rice (RICE-001) - RICE-BATCH-002",
+          },
+          {
+            label: "Duplicate Record",
+            new_value: "Rice (RICE-001) - RICE-BATCH-002",
+          },
+          {
+            label: "Result",
+            new_value:
+              "The first record accepted by DISTYNC was kept. The offline entry was treated as a duplicate.",
+          },
+          {
+            label: "Reason",
+            new_value: "Saved record was accepted first.",
+          },
+        ],
+      );
+    },
+  );
+});
+
+test("Accept Both sync audits show both accepted records and the verdict", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-sync-accept-both-1",
+          action: "SYNC_CONFLICT_RESOLUTION",
+          entity_type: "SYNC_CONFLICT",
+          entity_id: "conflict-2",
+          role_code: "MAYOR",
+          old_values_json: {
+            status: "OPEN",
+          },
+          new_values_json: {
+            status: "RESOLVED",
+            resolution_action: "ACCEPT_BOTH",
+            conflict_type: "DUPLICATE_INVENTORY_BATCH",
+          },
+          sync_conflict_type: "DUPLICATE_INVENTORY_BATCH",
+          sync_conflict_resolution_action: "ACCEPT_BOTH",
+          sync_conflict_local_payload_json: {
+            item_name: "Palmolive Naturals Shampoo",
+            barcode: "SHAMP-001",
+            batch_no: "SHAMP001-BATCH-008",
+          },
+          sync_conflict_server_payload_json: {
+            item_name: "Palmolive Naturals Shampoo",
+            barcode: "SHAMP-001",
+            batch_no: "SHAMP001-BATCH-008",
+          },
+          sync_conflict_resolved_payload_json: {
+            winner: "BOTH",
+            batchNumber: "SHAMP001-BATCH-009",
+            batchNumberOrdering: {
+              localEntryOrder: "LATER_OR_TIE",
+            },
+          },
+          sync_conflict_resolution_reason: "Both are different stock entries.",
+          sync_conflict_resolved_at: "2026-08-09T11:00:00.000Z",
+          created_at: "2026-08-09T10:59:00.000Z",
+          first_name: "Kath",
+          last_name: "Alonzo",
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const [entry] = result.audit_logs;
+
+      assert.equal(entry.action_detail, "Both records accepted as separate batches");
+      assert.deepEqual(entry.record_lines, [
+        "Palmolive Naturals Shampoo (SHAMP-001) - SHAMP001-BATCH-008",
+        "Palmolive Naturals Shampoo (SHAMP-001) - SHAMP001-BATCH-009",
+      ]);
+      assert.deepEqual(
+        entry.audit_detail.sync_resolution.changes.map(({ label, new_value }) => ({
+          label,
+          new_value,
+        })),
+        [
+          {
+            label: "Conflict",
+            new_value: "Possible Duplicate Inventory Batch",
+          },
+          {
+            label: "Decision",
+            new_value: "Accepted both records",
+          },
+          {
+            label: "Saved Record",
+            new_value:
+              "Palmolive Naturals Shampoo (SHAMP-001) - SHAMP001-BATCH-008",
+          },
+          {
+            label: "Offline Record",
+            new_value:
+              "Palmolive Naturals Shampoo (SHAMP-001) - SHAMP001-BATCH-009",
+          },
+          {
+            label: "Result",
+            new_value:
+              "Both records were kept as separate inventory batches. The saved record remained first, and the offline record received the next available batch number.",
+          },
+          {
+            label: "Reason",
+            new_value: "Both are different stock entries.",
+          },
+        ],
+      );
+    },
+  );
+});
+
+test("Apply Local sync audits show the accepted record, duplicate, and correction", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-sync-apply-local-1",
+          action: "SYNC_CONFLICT_RESOLUTION",
+          entity_type: "SYNC_CONFLICT",
+          entity_id: "conflict-3",
+          role_code: "MAYOR",
+          old_values_json: {
+            status: "OPEN",
+          },
+          new_values_json: {
+            status: "RESOLVED",
+            resolution_action: "APPLY_LOCAL",
+            conflict_type: "DUPLICATE_INVENTORY_BARCODE",
+          },
+          sync_conflict_type: "DUPLICATE_INVENTORY_BARCODE",
+          sync_conflict_entity_type: "INVENTORY_ITEM",
+          sync_conflict_resolution_action: "APPLY_LOCAL",
+          sync_conflict_local_payload_json: {
+            item_name: "Kapote",
+            barcode: "99999999",
+            packaging: "piece",
+            quantity: 1,
+          },
+          sync_conflict_server_payload_json: {
+            item_name: "Bota",
+            barcode: "99999999",
+            packaging: "piece",
+            quantity: 1,
+          },
+          sync_conflict_resolved_payload_json: {
+            winner: "LOCAL",
+            savedWithoutBarcode: true,
+            acceptedPayload: {
+              item_name: "Kapote",
+              barcode: null,
+              packaging: "piece",
+              quantity: 1,
+            },
+          },
+          sync_conflict_resolution_reason: "This needs revision.",
+          sync_conflict_resolved_at: "2026-08-09T11:46:00.000Z",
+          created_at: "2026-08-09T11:45:00.000Z",
+          first_name: "Kath",
+          last_name: "Alonzo",
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const [entry] = result.audit_logs;
+
+      assert.equal(entry.action_detail, "Corrected device record applied");
+      assert.deepEqual(entry.record_lines, [
+        "Bota (99999999)",
+        "Kapote (99999999)",
+      ]);
+      assert.deepEqual(
+        entry.audit_detail.sync_resolution.changes.map(({ label, new_value }) => ({
+          label,
+          new_value,
+        })),
+        [
+          {
+            label: "Conflict",
+            new_value: "Barcode Used for Another Packaging",
+          },
+          {
+            label: "Decision",
+            new_value: "Applied offline record",
+          },
+          {
+            label: "Accepted First",
+            new_value: "Bota (99999999)",
+          },
+          {
+            label: "Duplicate Record",
+            new_value: "Kapote (99999999)",
+          },
+          {
+            label: "Result",
+            new_value:
+              "The saved record remained first. The duplicate device record was saved as a manual item without a barcode.",
+          },
+          {
+            label: "Reason",
+            new_value: "This needs revision.",
+          },
+        ],
+      );
+      assert.deepEqual(entry.audit_detail.sync_resolution.correction_changes, [
+        {
+          field: "barcode",
+          label: "Barcode",
+          previous_value: "99999999",
+          new_value: "No barcode",
+        },
+      ]);
+    },
+  );
+});
+
 test("audit item details omit redundant perishable status and trim unit value decimals", async () => {
   await withMockRepository(
     {

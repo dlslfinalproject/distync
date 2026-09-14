@@ -123,7 +123,10 @@ test("getAuditLogs applies five-year retention and page offset", async () => {
   assert.match(capturedQuery, /AS donation_count/);
   assert.match(capturedQuery, /AS distribution_count/);
   assert.match(capturedQuery, /NOW\(\) - INTERVAL '5 years'/);
-  assert.match(capturedQuery, /ORDER BY al\.created_at DESC, al\.id DESC/);
+  assert.match(
+    capturedQuery,
+    /ORDER BY COALESCE\(dt_direct\.distribution_date, CASE WHEN al\.action = 'SYNC_CONFLICT_RESOLUTION' THEN sc_direct\.resolved_at END, al\.created_at\) DESC, al\.id DESC/,
+  );
   assert.match(capturedQuery, /LIMIT \$1 OFFSET \$2/);
   assert.doesNotMatch(capturedQuery, /stock_adjusted/i);
   assert.doesNotMatch(capturedQuery, /THEN 'stock adjusted'/i);
@@ -386,11 +389,11 @@ test("getAuditLogs applies inclusive date range filter before paging", async () 
 
   assert.match(
     capturedQuery,
-    /COALESCE\(dt_direct\.distribution_date, al\.created_at\) >= \$1::date/,
+    /COALESCE\(dt_direct\.distribution_date, CASE WHEN al\.action = 'SYNC_CONFLICT_RESOLUTION' THEN sc_direct\.resolved_at END, al\.created_at\) >= \$1::date/,
   );
   assert.match(
     capturedQuery,
-    /COALESCE\(dt_direct\.distribution_date, al\.created_at\) < \(\$2::date \+ INTERVAL '1 day'\)/,
+    /COALESCE\(dt_direct\.distribution_date, CASE WHEN al\.action = 'SYNC_CONFLICT_RESOLUTION' THEN sc_direct\.resolved_at END, al\.created_at\) < \(\$2::date \+ INTERVAL '1 day'\)/,
   );
   assert.match(capturedQuery, /LIMIT \$3 OFFSET \$4/);
   assert.deepEqual(capturedValues, ["2026-08-01", "2026-08-11", 50, 0]);

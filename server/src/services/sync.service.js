@@ -2869,6 +2869,33 @@ const INVENTORY_BATCH_RESOLUTION_FIELDS = [
   "source_type",
 ];
 
+// Keep the correction snapshot deliberately limited to fields that are useful
+// to a Mayor reviewing the conflict.  The original local/server payloads stay
+// on the conflict; this snapshot records the final values that were actually
+// accepted after Apply Local was completed.
+const SYNC_RESOLUTION_AUDIT_FIELDS = [
+  "item_code",
+  "item_name",
+  "category",
+  "unit_of_measure",
+  "unit_of_measure_value",
+  "packaging",
+  "packaging_count",
+  "quantity",
+  "reorder_level",
+  "expiration_date",
+  "barcode",
+  "batch_no",
+  "quantity_received",
+  "stock_form_barcode",
+  "stock_form_packaging",
+  "stock_form_units_per_packaging",
+  "stock_form_unit_of_measure",
+  "stock_form_unit_of_measure_value",
+  "source_type",
+  "storage_location",
+];
+
 const buildCorrectedInventoryBatchPayload = ({
   localPayload,
   resolutionPayload,
@@ -2970,6 +2997,24 @@ const getConflictLocalPayload = (conflict) => {
   }
 
   return localPayload;
+};
+
+const buildSyncResolutionAuditPayload = (...payloads) => {
+  const result = {};
+
+  payloads.forEach((payload) => {
+    if (!payload || typeof payload !== "object") {
+      return;
+    }
+
+    SYNC_RESOLUTION_AUDIT_FIELDS.forEach((fieldName) => {
+      if (Object.prototype.hasOwnProperty.call(payload, fieldName)) {
+        result[fieldName] = payload[fieldName];
+      }
+    });
+  });
+
+  return result;
 };
 
 const createInvalidConflictResolutionInputError = (message) => {
@@ -3194,6 +3239,14 @@ const applyManualInventoryDuplicateResolution = async ({
       acceptedEntity: "INVENTORY_BATCH",
       replacementBarcode: correctedBatchBarcode,
       batchNumber: createdBatch?.batch_no || correctedBatchPayload.batch_no,
+      acceptedPayload: buildSyncResolutionAuditPayload(
+        correctedBatchPayload,
+        createdBatch,
+        {
+          batch_no: createdBatch?.batch_no || correctedBatchPayload.batch_no,
+          stock_form_barcode: correctedBatchBarcode,
+        },
+      ),
     };
   }
 
@@ -3249,6 +3302,11 @@ const applyManualInventoryDuplicateResolution = async ({
         acceptedEntity: "INVENTORY_ITEM",
         replacementBarcode: savedBarcode || null,
         savedWithoutBarcode: !savedBarcode,
+        acceptedPayload: buildSyncResolutionAuditPayload(
+          correctedPayload,
+          createdItem,
+          { barcode: savedBarcode || null },
+        ),
       };
     }
 
@@ -3307,8 +3365,16 @@ const applyManualInventoryDuplicateResolution = async ({
         winner: "LOCAL",
         entityServerId: createdBatch?.id || null,
         acceptedEntity: "INVENTORY_BATCH",
-        replacementBarcode,
-        batchNumber: createdBatch?.batch_no || null,
+        replacementBarcode: correctedBatchBarcode,
+        batchNumber: createdBatch?.batch_no || correctedBatchPayload.batch_no,
+        acceptedPayload: buildSyncResolutionAuditPayload(
+          correctedBatchPayload,
+          createdBatch,
+          {
+            batch_no: createdBatch?.batch_no || correctedBatchPayload.batch_no,
+            stock_form_barcode: correctedBatchBarcode,
+          },
+        ),
       };
     }
   }

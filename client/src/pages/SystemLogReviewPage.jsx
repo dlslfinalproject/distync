@@ -378,6 +378,51 @@ const getRecordLines = (entry) => {
   return lines.map(formatBackendEnumText);
 };
 
+const isKeepServerSyncResolution = (entry) =>
+  entry?.action === "SYNC_CONFLICT_RESOLUTION" &&
+  entry?.audit_detail?.sync_resolution?.resolution_action === "KEEP_SERVER";
+
+const isSyncConflictResolution = (entry) =>
+  entry?.action === "SYNC_CONFLICT_RESOLUTION";
+
+const getSyncRecordTableLineLabel = (entry, index) => {
+  const resolutionAction = entry?.audit_detail?.sync_resolution?.resolution_action;
+
+  if (isKeepServerSyncResolution(entry)) {
+    return index === 0 ? "Kept Record" : "Duplicate Record";
+  }
+
+  if (resolutionAction === "APPLY_LOCAL") {
+    return index === 0 ? "Accepted First" : "Duplicate Record";
+  }
+
+  if (resolutionAction === "ACCEPT_BOTH") {
+    return index === 0 ? "Saved Record" : "Offline Record";
+  }
+
+  if (resolutionAction === "MARK_REVIEWED") {
+    return index === 0 ? "Saved Record" : "Offline Record";
+  }
+
+  return null;
+};
+
+const getRecordLineLabel = (entry, index) => {
+  return index === 0 ? "Record" : "Related Detail";
+};
+
+const formatRecordLineForTable = (entry, line, index) => {
+  if (isSyncConflictResolution(entry)) {
+    const label = getSyncRecordTableLineLabel(entry, index);
+
+    if (label) {
+      return `${label}: ${line}`;
+    }
+  }
+
+  return line;
+};
+
 const InfoField = ({ label, value, style, className }) => (
   <div className={className} style={style}>
     <p style={detailModalStyles.label}>{label}</p>
@@ -385,7 +430,11 @@ const InfoField = ({ label, value, style, className }) => (
   </div>
 );
 
-const AuditDetailChangesTable = ({ changes, isCreatedRecord }) => {
+const AuditDetailChangesTable = ({
+  changes,
+  isCreatedRecord,
+  valueHeader = "Created Value",
+}) => {
   if (!changes.length) {
     return (
       <p style={detailModalStyles.emptyText}>
@@ -409,7 +458,7 @@ const AuditDetailChangesTable = ({ changes, isCreatedRecord }) => {
                   ...detailModalStyles.valueColumn,
                 }}
               >
-                Created Value
+                {valueHeader}
               </th>
             ) : (
               <>
@@ -680,6 +729,7 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
   const changes = entry.audit_detail?.changes || [];
   const itemChanges = entry.audit_detail?.item_changes || [];
   const distributedItems = entry.audit_detail?.distributed_items || [];
+  const syncResolution = entry.audit_detail?.sync_resolution || null;
   const recordLines = getRecordLines(entry);
   const isCreatedRecord = isCreateAuditAction(entry);
   const isItemCreatedRecord =
@@ -746,7 +796,7 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
             {recordLines.map((line, index) => (
               <InfoField
                 key={`${entry.id}-summary-record-${index}`}
-                label={index === 0 ? "Record" : "Related Detail"}
+                label={getRecordLineLabel(entry, index)}
                 value={line}
                 className={
                   isWrittenOffRecord && index === 0
@@ -763,7 +813,7 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
           </div>
         </section>
 
-        {!isDistributedItemsRecord ? (
+        {!isDistributedItemsRecord && !isSyncConflictResolution(entry) ? (
           <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
             <h3 style={{ margin: 0, color: "#17324d" }}>
               {isDonationEntryRecord || isDonationDetailsEditedRecord
@@ -792,6 +842,37 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
                 <AuditDetailChangesTable
                   changes={donationStockAdjustment}
                   isCreatedRecord
+                />
+              </>
+            ) : null}
+          </section>
+        ) : null}
+
+        {syncResolution ? (
+          <section
+            className="mayor-audit-trail-detail-section"
+            style={detailModalStyles.sectionCard}
+          >
+            <h3 style={{ margin: 0, color: "#17324d" }}>Resolution Details</h3>
+            <AuditDetailChangesTable
+              changes={syncResolution.changes || []}
+              isCreatedRecord
+              valueHeader="Value"
+            />
+            {syncResolution.correction_changes?.length ? (
+              <>
+                <h4
+                  style={{
+                    margin: "24px 0 0",
+                    color: "#17324d",
+                    fontSize: "18px",
+                  }}
+                >
+                  Correction Applied
+                </h4>
+                <AuditDetailChangesTable
+                  changes={syncResolution.correction_changes}
+                  isCreatedRecord={false}
                 />
               </>
             ) : null}
@@ -1241,7 +1322,9 @@ const SystemLogReviewPage = () => {
                       <td style={{ ...tableStyles.td, ...tableStyles.moduleColumn, ...tableStyles.wrapCell }}>{entry.module}</td>
                       <td style={{ ...tableStyles.td, ...tableStyles.recordColumn, ...tableStyles.wrapCell }}>
                         {getRecordLines(entry).map((line, index) => (
-                          <div key={`${entry.id}-record-${index}`}>{line}</div>
+                          <div key={`${entry.id}-record-${index}`}>
+                            {formatRecordLineForTable(entry, line, index)}
+                          </div>
                         ))}
                       </td>
                       <td style={{ ...tableStyles.td, ...tableStyles.performedByColumn, ...tableStyles.wrapCell }}>

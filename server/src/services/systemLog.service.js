@@ -1700,6 +1700,7 @@ const buildAuditDetail = (row, relatedRows = []) => {
     distributed_items: isDistributionAuditRow(row)
       ? buildDistributionItemDetails(row)
       : [],
+    sync_resolution: buildSyncResolutionDetail(row),
   };
 
   if (row.entity_type === "DONATION" && row.action === "DONATION_CREATE") {
@@ -2128,17 +2129,564 @@ const buildSyncAuditActionLabel = (row) => {
   return "Sync Activity";
 };
 
+const SYNC_CONFLICT_TYPE_LABELS = {
+  INVENTORY_STOCK_STATE_DRIFT: "Inventory Stock Difference",
+  DUPLICATE_INVENTORY_ITEM: "Possible Duplicate Inventory Item",
+  DUPLICATE_INVENTORY_BARCODE: "Barcode Used for Another Packaging",
+  DUPLICATE_INVENTORY_BATCH: "Possible Duplicate Inventory Batch",
+  POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE:
+    "Possible Cross-Barangay Household Duplicate",
+};
+
+const SYNC_RESOLUTION_PRESENTATIONS = {
+  MARK_REVIEWED: {
+    decision: "Conflict reviewed",
+    summary: "Conflict reviewed; saved record kept",
+    result:
+      "The conflict was closed without changing the saved DISTYNC record.",
+  },
+  KEEP_SERVER: {
+    decision: "Kept first accepted record",
+    summary: "Saved record kept; offline duplicate discarded",
+    result:
+      "The first record accepted by DISTYNC was kept. The offline entry was treated as a duplicate.",
+  },
+  APPLY_LOCAL: {
+    decision: "Applied offline record",
+    summary: "Offline record applied after review",
+    result: "The offline record was accepted after review.",
+  },
+  ACCEPT_BOTH: {
+    decision: "Accepted both records",
+    summary: "Both records accepted as separate batches",
+    result: "Both records were kept as separate inventory batches.",
+  },
+};
+
+const formatSyncConflictType = (value) => {
+  const normalizedValue = String(value || "").trim().toUpperCase();
+
+  if (!normalizedValue) {
+    return "Sync conflict";
+  }
+
+  return (
+    SYNC_CONFLICT_TYPE_LABELS[normalizedValue] ||
+    formatAuditStatus(normalizedValue)
+  );
+};
+
+const getSyncPayload = (payload) => {
+  if (
+    payload?.payload &&
+    typeof payload.payload === "object" &&
+    !Array.isArray(payload.payload)
+  ) {
+    return payload.payload;
+  }
+
+  return payload && typeof payload === "object" ? payload : {};
+};
+
+const getSyncPayloadValue = (payload, keys = []) => {
+  const normalizedPayload = getSyncPayload(payload);
+
+  for (const key of keys) {
+    const value = key
+      .split(".")
+      .reduce((current, segment) => current?.[segment], normalizedPayload);
+
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      return String(value).trim();
+    }
+  }
+
+  return null;
+};
+
+const getSyncConflictType = (row) =>
+  String(
+    row.sync_conflict_type ||
+      row.new_values_json?.conflict_type ||
+      row.old_values_json?.conflict_type ||
+      row.new_values_json?.entity_type ||
+      row.entity_type ||
+      "",
+  )
+    .trim()
+    .toUpperCase();
+
+const getSyncConflictEntityType = (row) =>
+  String(row.sync_conflict_entity_type || row.entity_type || "")
+    .trim()
+    .toUpperCase();
+
+const getSyncResolutionAcceptedPayload = (row) => {
+  const resolvedPayload = getSyncPayload(
+    row.sync_conflict_resolved_payload_json,
+  );
+  const explicitAcceptedPayload =
+    resolvedPayload.acceptedPayload ||
+    resolvedPayload.accepted_payload ||
+    resolvedPayload.correctedPayload ||
+    resolvedPayload.corrected_payload;
+
+  if (
+    explicitAcceptedPayload &&
+    typeof explicitAcceptedPayload === "object" &&
+    !Array.isArray(explicitAcceptedPayload)
+  ) {
+    return getSyncPayload(explicitAcceptedPayload);
+  }
+
+  if (getSyncResolutionAction(row) !== "APPLY_LOCAL") {
+    return {};
+  }
+
+  // Older resolutions did not persist the final corrected snapshot.  Rebuild
+  // the small part needed for the audit from the original device payload and
+  // the persisted resolution result so existing records remain understandable.
+  const fallbackPayload = {
+    ...getSyncPayload(row.sync_conflict_local_payload_json),
+  };
+  const replacementBarcode = getSyncPayloadValue(resolvedPayload, [
+    "replacementBarcode",
+    "replacement_barcode",
+  ]);
+
+  if (isAuditBooleanTrue(resolvedPayload.savedWithoutBarcode)) {
+    if (getSyncConflictEntityType(row) === "INVENTORY_BATCH") {
+      fallbackPayload.stock_form_barcode = null;
+    } else {
+      fallbackPayload.barcode = null;
+    }
+  } else if (replacementBarcode) {
+    if (getSyncConflictEntityType(row) === "INVENTORY_BATCH") {
+      fallbackPayload.stock_form_barcode = replacementBarcode;
+    } else {
+      fallbackPayload.barcode = replacementBarcode;
+    }
+  }
+
+  const resolvedBatchNumber = getSyncPayloadValue(resolvedPayload, [
+    "batchNumber",
+    "batch_number",
+    "batch_no",
+  ]);
+
+  if (resolvedBatchNumber) {
+    fallbackPayload.batch_no = resolvedBatchNumber;
+  }
+
+  return fallbackPayload;
+};
+
+const SYNC_CORRECTION_FIELD_DEFINITIONS = [
+  { key: "item_code", label: "Item Code", keys: ["item_code", "itemCode"] },
+  { key: "item_name", label: "Item Name", keys: ["item_name", "itemName"] },
+  { key: "category", label: "Category", keys: ["category"] },
+  {
+    key: "unit_of_measure",
+    label: "Unit",
+    keys: ["unit_of_measure", "unitOfMeasure", "stock_form_unit_of_measure"],
+    batchKeys: [
+      "stock_form_unit_of_measure",
+      "unit_of_measure",
+      "unitOfMeasure",
+    ],
+  },
+  {
+    key: "unit_of_measure_value",
+    label: "Unit Value",
+    keys: [
+      "unit_of_measure_value",
+      "unitOfMeasureValue",
+      "stock_form_unit_of_measure_value",
+    ],
+    batchKeys: [
+      "stock_form_unit_of_measure_value",
+      "unit_of_measure_value",
+      "unitOfMeasureValue",
+    ],
+  },
+  {
+    key: "packaging",
+    label: "Packaging",
+    keys: ["packaging", "stock_form_packaging"],
+    batchKeys: ["stock_form_packaging", "packaging"],
+  },
+  {
+    key: "packaging_count",
+    label: "Packaging Count",
+    keys: ["packaging_count", "stock_form_units_per_packaging"],
+    batchKeys: ["stock_form_units_per_packaging", "packaging_count"],
+  },
+  {
+    key: "quantity",
+    label: "Quantity",
+    keys: ["quantity", "quantity_received"],
+    batchKeys: ["quantity_received", "quantity"],
+  },
+  { key: "reorder_level", label: "Reorder Level", keys: ["reorder_level"] },
+  {
+    key: "expiration_date",
+    label: "Expiration Date",
+    keys: ["expiration_date"],
+  },
+  {
+    key: "barcode",
+    label: "Barcode",
+    keys: [
+      "barcode",
+      "item_barcode",
+      "stock_form_barcode",
+      "stockFormBarcode",
+    ],
+    batchKeys: [
+      "stock_form_barcode",
+      "barcode",
+      "item_barcode",
+      "stockFormBarcode",
+    ],
+  },
+  { key: "batch_no", label: "Batch Number", keys: ["batch_no", "batch_number"] },
+  { key: "source_type", label: "Source", keys: ["source_type"] },
+  {
+    key: "storage_location",
+    label: "Storage Location",
+    keys: ["storage_location"],
+  },
+];
+
+const getSyncPayloadField = (payload, keys = []) => {
+  const normalizedPayload = getSyncPayload(payload);
+
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(normalizedPayload, key)) {
+      return {
+        present: true,
+        value: normalizedPayload[key],
+      };
+    }
+  }
+
+  return {
+    present: false,
+    value: undefined,
+  };
+};
+
+const normalizeSyncCorrectionValue = (value) => {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  if (Array.isArray(value) || (value && typeof value === "object")) {
+    return JSON.stringify(value);
+  }
+
+  return String(value).trim();
+};
+
+const formatSyncCorrectionValue = (field, value) => {
+  if (field.key === "barcode" && (value === undefined || value === null || value === "")) {
+    return "No barcode";
+  }
+
+  if (field.key === "expiration_date") {
+    return formatAuditValue("expiration_date", value);
+  }
+
+  if (field.key === "unit_of_measure_value") {
+    return formatAuditValue("unit_of_measure_value", value);
+  }
+
+  if (field.key === "source_type") {
+    return formatAuditStatus(value);
+  }
+
+  if (value === undefined || value === null || value === "") {
+    return "--";
+  }
+
+  return String(value);
+};
+
+const buildSyncResolutionCorrectionChanges = (row) => {
+  if (getSyncResolutionAction(row) !== "APPLY_LOCAL") {
+    return [];
+  }
+
+  const localPayload = getSyncPayload(row.sync_conflict_local_payload_json);
+  const acceptedPayload = getSyncResolutionAcceptedPayload(row);
+  const useBatchFields =
+    getSyncConflictEntityType(row) === "INVENTORY_BATCH" ||
+    getSyncConflictType(row) === "DUPLICATE_INVENTORY_ITEM";
+
+  return SYNC_CORRECTION_FIELD_DEFINITIONS.flatMap((field) => {
+    const fieldKeys = useBatchFields && field.batchKeys ? field.batchKeys : field.keys;
+    const previous = getSyncPayloadField(localPayload, fieldKeys);
+    const next = getSyncPayloadField(acceptedPayload, fieldKeys);
+
+    // Only show fields that were present in both snapshots.  This omits
+    // defaults added while saving and keeps the table focused on the reviewer's
+    // actual correction.
+    if (
+      !previous.present ||
+      !next.present ||
+      normalizeSyncCorrectionValue(previous.value) ===
+        normalizeSyncCorrectionValue(next.value)
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        field: field.key,
+        label: field.label,
+        previous_value: formatSyncCorrectionValue(field, previous.value),
+        new_value: formatSyncCorrectionValue(field, next.value),
+      },
+    ];
+  });
+};
+
+const buildSyncInventoryRecordLabel = (payload) => {
+  const itemName = getSyncPayloadValue(payload, [
+    "item_name",
+    "itemName",
+    "inventory_item_name",
+    "inventory_item.item_name",
+  ]);
+  const itemCode = getSyncPayloadValue(payload, [
+    "item_code",
+    "itemCode",
+    "inventory_item.item_code",
+  ]);
+  const barcode = getSyncPayloadValue(payload, [
+    "barcode",
+    "item_barcode",
+    "stock_form_barcode",
+    "inventory_item.barcode",
+    "inventory_item_stock_form.barcode",
+    "stock_form.barcode",
+  ]);
+  const batchNumber = getSyncPayloadValue(payload, [
+    "batch_no",
+    "batch_number",
+    "inventory_batch_no",
+  ]);
+  const baseLabel = itemName || itemCode || batchNumber || "Inventory record";
+  const labelWithBarcode = barcode
+    ? `${baseLabel} (${barcode})`
+    : baseLabel;
+
+  return batchNumber && batchNumber !== baseLabel
+    ? `${labelWithBarcode} - ${batchNumber}`
+    : labelWithBarcode;
+};
+
+const hasSyncPayload = (payload) =>
+  Object.keys(getSyncPayload(payload)).length > 0;
+
+const getSyncResolutionAction = (row) =>
+  String(
+    row.sync_conflict_resolution_action ||
+      row.new_values_json?.resolution_action ||
+      "",
+  )
+    .trim()
+    .toUpperCase();
+
+const buildSyncResolutionSummary = (row) => {
+  const resolutionAction = getSyncResolutionAction(row);
+
+  if (
+    resolutionAction === "APPLY_LOCAL" &&
+    getSyncConflictType(row) === "DUPLICATE_INVENTORY_BARCODE"
+  ) {
+    return "Corrected device record applied";
+  }
+
+  if (
+    resolutionAction === "APPLY_LOCAL" &&
+    getSyncConflictType(row) === "DUPLICATE_INVENTORY_ITEM"
+  ) {
+    return "Corrected duplicate packaging applied";
+  }
+
+  const presentation = SYNC_RESOLUTION_PRESENTATIONS[
+    resolutionAction
+  ];
+
+  return presentation?.summary || null;
+};
+
+const getSyncResolutionRecordPayloads = (row, resolutionAction) => {
+  const serverPayload = row.sync_conflict_server_payload_json;
+  const localPayload = getSyncPayload(row.sync_conflict_local_payload_json);
+
+  if (resolutionAction === "ACCEPT_BOTH") {
+    const acceptedBatchNumber = getSyncPayloadValue(
+      row.sync_conflict_resolved_payload_json,
+      ["batchNumber", "batch_number", "batch_no"],
+    );
+
+    return [
+      serverPayload,
+      acceptedBatchNumber
+        ? { ...localPayload, batch_no: acceptedBatchNumber }
+        : localPayload,
+    ];
+  }
+
+  if (resolutionAction === "APPLY_LOCAL") {
+    return [serverPayload, localPayload];
+  }
+
+  return [serverPayload, localPayload];
+};
+
+const buildSyncResolutionResult = (row, resolutionAction) => {
+  if (resolutionAction === "APPLY_LOCAL") {
+    const conflictType = getSyncConflictType(row);
+    const resolvedPayload = getSyncPayload(
+      row.sync_conflict_resolved_payload_json,
+    );
+
+    if (
+      conflictType === "DUPLICATE_INVENTORY_BARCODE" &&
+      isAuditBooleanTrue(resolvedPayload.savedWithoutBarcode)
+    ) {
+      return "The saved record remained first. The duplicate device record was saved as a manual item without a barcode.";
+    }
+
+    if (conflictType === "DUPLICATE_INVENTORY_ITEM") {
+      return "The saved item remained first. The duplicate packaging was corrected and added under that item.";
+    }
+
+    if (conflictType === "DUPLICATE_INVENTORY_BARCODE") {
+      return "The saved record remained first. The duplicate device record was corrected and applied.";
+    }
+
+    return "The accepted first record remained unchanged, and the duplicate record was corrected and applied.";
+  }
+
+  if (resolutionAction !== "ACCEPT_BOTH") {
+    return SYNC_RESOLUTION_PRESENTATIONS[resolutionAction]?.result || null;
+  }
+
+  const resolvedPayload = getSyncPayload(
+    row.sync_conflict_resolved_payload_json,
+  );
+  const localEntryOrder = String(
+    resolvedPayload.batchNumberOrdering?.localEntryOrder || "",
+  ).toUpperCase();
+
+  if (localEntryOrder === "EARLIER") {
+    return "Both records were kept as separate inventory batches. The offline record was recorded first, so it kept the earlier batch position.";
+  }
+
+  return "Both records were kept as separate inventory batches. The saved record remained first, and the offline record received the next available batch number.";
+};
+
+const getSyncResolutionRecordLabels = (resolutionAction) => {
+  if (resolutionAction === "KEEP_SERVER") {
+    return ["Kept Record", "Duplicate Record"];
+  }
+
+  if (resolutionAction === "APPLY_LOCAL") {
+    return ["Accepted First", "Duplicate Record"];
+  }
+
+  return ["Saved Record", "Offline Record"];
+};
+
+const buildSyncResolutionDetail = (row) => {
+  if (row.action !== "SYNC_CONFLICT_RESOLUTION") {
+    return null;
+  }
+
+  const resolutionAction = getSyncResolutionAction(row);
+  const presentation = SYNC_RESOLUTION_PRESENTATIONS[resolutionAction];
+
+  if (!presentation) {
+    return null;
+  }
+
+  const conflictType = formatSyncConflictType(
+    row.sync_conflict_type || row.new_values_json?.conflict_type,
+  );
+  const recordPayloads = getSyncResolutionRecordPayloads(
+    row,
+    resolutionAction,
+  );
+  const recordLabels = getSyncResolutionRecordLabels(resolutionAction);
+  const reviewNote =
+    row.sync_conflict_resolution_reason ||
+    row.new_values_json?.reason ||
+    "No review note provided";
+  const correctionChanges = buildSyncResolutionCorrectionChanges(row);
+
+  return {
+    resolution_action: resolutionAction,
+    changes: [
+      {
+        field: "conflict_type",
+        label: "Conflict",
+        new_value: conflictType,
+      },
+      {
+        field: "decision",
+        label: "Decision",
+        new_value: presentation.decision,
+      },
+      ...recordPayloads.map((payload, index) => ({
+        field: index === 0 ? "primary_record" : "related_record",
+        label: recordLabels[index],
+        new_value: buildSyncInventoryRecordLabel(payload),
+      })),
+      {
+        field: "result",
+        label: "Result",
+        new_value: buildSyncResolutionResult(row, resolutionAction),
+      },
+      {
+        field: "reason",
+        label: "Reason",
+        new_value: reviewNote,
+      },
+    ],
+    correction_changes: correctionChanges,
+  };
+};
+
 const buildSyncRecordLines = (row) => {
-  const conflictType =
-    row.new_values_json?.conflict_type ||
-    row.old_values_json?.conflict_type ||
-    row.new_values_json?.entity_type ||
-    row.entity_type;
-  const resolutionAction = row.new_values_json?.resolution_action;
+  const conflictType = getSyncConflictType(row);
+  const resolutionAction = getSyncResolutionAction(row);
+
+  if (
+    row.action === "SYNC_CONFLICT_RESOLUTION" &&
+    SYNC_RESOLUTION_PRESENTATIONS[resolutionAction]
+  ) {
+    const recordPayloads = getSyncResolutionRecordPayloads(
+      row,
+      resolutionAction,
+    );
+
+    if (recordPayloads.some(hasSyncPayload)) {
+      return recordPayloads.map(buildSyncInventoryRecordLabel);
+    }
+  }
 
   return [
-    conflictType,
-    resolutionAction ? `Resolution: ${resolutionAction}` : null,
+    formatSyncConflictType(conflictType),
+    resolutionAction
+      ? `Resolution: ${
+          SYNC_RESOLUTION_PRESENTATIONS[resolutionAction]?.decision ||
+          formatAuditStatus(resolutionAction)
+        }`
+      : null,
   ].filter(Boolean);
 };
 
@@ -2397,9 +2945,7 @@ const mapAuditLog = (row, relatedRows = []) => {
           ? null
           : buildReliefPackEditDetail(row)
         : isSync
-          ? row.new_values_json?.resolution_action
-            ? `Resolution: ${row.new_values_json.resolution_action}`
-            : null
+          ? buildSyncResolutionSummary(row)
           : buildInventoryAuditActionDetail(row),
     module: isDonation
       ? "Donation"
@@ -2418,7 +2964,11 @@ const mapAuditLog = (row, relatedRows = []) => {
     entity_id: row.entity_id,
     record_label: recordLines.length ? recordLines.join(" - ") : null,
     record_lines: recordLines,
-    timestamp: isDistribution ? row.distribution_date || row.created_at : row.created_at,
+    timestamp: isDistribution
+      ? row.distribution_date || row.created_at
+      : row.action === "SYNC_CONFLICT_RESOLUTION"
+        ? row.sync_conflict_resolved_at || row.created_at
+        : row.created_at,
     status: "SUCCESS",
     details: {
       changed_fields: buildValueSummary(row.new_values_json),

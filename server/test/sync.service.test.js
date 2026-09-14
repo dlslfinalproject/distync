@@ -7347,6 +7347,10 @@ test("Mayor can apply a barcode conflict with a replacement barcode", async () =
       assert.equal(updatedTransactionPayload.entity_server_id, "new-item");
       assert.equal(resolved.sync_status, "SYNCED");
       assert.equal(resolved.entity_server_id, "new-item");
+      assert.equal(
+        resolved.resolved_payload_json.acceptedPayload.barcode,
+        "0748485100099",
+      );
     },
   );
 });
@@ -7453,6 +7457,11 @@ test("Mayor can accept a barcode conflict as a corrected manual item", async () 
         resolved.resolved_payload_json.savedWithoutBarcode,
         true,
       );
+      assert.equal(
+        resolved.resolved_payload_json.acceptedPayload.item_name,
+        "Rice Manual",
+      );
+      assert.equal(resolved.resolved_payload_json.acceptedPayload.barcode, null);
     },
   );
 });
@@ -7588,6 +7597,10 @@ test("Mayor can correct a barcode conflict for a packaging batch", async () => {
       assert.equal(resolved.status, "RESOLVED");
       assert.equal(resolved.sync_status, "SYNCED");
       assert.equal(resolved.entity_server_id, "corrected-batch");
+      assert.equal(
+        resolved.resolved_payload_json.acceptedPayload.stock_form_barcode,
+        "987654322",
+      );
     },
   );
 });
@@ -7760,6 +7773,10 @@ test("Mayor can correct a duplicate-item barcode conflict as a new packaging bat
       assert.equal(resolved.status, "RESOLVED");
       assert.equal(resolved.sync_status, "SYNCED");
       assert.equal(resolved.entity_server_id, "corrected-pack-batch");
+      assert.equal(
+        resolved.resolved_payload_json.acceptedPayload.stock_form_barcode,
+        "987654322",
+      );
     },
   );
 });
