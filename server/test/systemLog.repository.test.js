@@ -310,6 +310,33 @@ test("getAuditLogs filters Packaging Added to additional packaging records", asy
   assert.deepEqual(capturedValues, [50, 0]);
 });
 
+test("getAuditLogs scopes Sync Conflict Resolved to Mayor inventory conflicts", async () => {
+  let capturedQuery = "";
+
+  await withMockPool(
+    async (query) => {
+      capturedQuery = query;
+      return { rows: [] };
+    },
+    async ({ getAuditLogs }) => {
+      await getAuditLogs({
+        auditAction: "sync_conflict_resolution",
+        module: "Sync",
+        limit: 50,
+        page: 1,
+      });
+    },
+  );
+
+  assert.match(capturedQuery, /LEFT JOIN sync_conflicts sc_direct/);
+  assert.match(
+    capturedQuery,
+    /al\.action = 'SYNC_CONFLICT_RESOLUTION'[\s\S]*sc_direct\.entity_type IN \([\s\S]*'INVENTORY_ITEM'[\s\S]*'INVENTORY_BATCH'[\s\S]*'INVENTORY_TRANSACTION'/,
+  );
+  assert.doesNotMatch(capturedQuery, /'HOUSEHOLD'/);
+  assert.doesNotMatch(capturedQuery, /'STUB'/);
+});
+
 test("getAuditLogs includes write-offs for both inventory sources", async () => {
   let capturedQuery = "";
   let capturedValues = [];

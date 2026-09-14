@@ -215,6 +215,11 @@ const getAuditLogs = async (
       sync_conflict_resolution: `
         al.entity_type = 'SYNC_CONFLICT'
         AND al.action = 'SYNC_CONFLICT_RESOLUTION'
+        AND sc_direct.entity_type IN (
+          'INVENTORY_ITEM',
+          'INVENTORY_BATCH',
+          'INVENTORY_TRANSACTION'
+        )
       `,
     };
 
@@ -486,6 +491,9 @@ const getAuditLogs = async (
       distribution_items.items AS distribution_items_json
     FROM audit_logs al
     LEFT JOIN users u ON u.id = al.user_id
+    LEFT JOIN sync_conflicts sc_direct
+      ON al.entity_type = 'SYNC_CONFLICT'
+      AND sc_direct.id = al.entity_id
     LEFT JOIN inventory_items ii_direct
       ON al.entity_type = 'INVENTORY_ITEM'
       AND ii_direct.id = al.entity_id
