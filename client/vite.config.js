@@ -138,21 +138,6 @@ export default defineConfig(({ mode }) => {
                 ),
               handler: "NetworkOnly",
             },
-            {
-              urlPattern: ({ request }) =>
-                ["image", "font"].includes(request.destination),
-              handler: "CacheFirst",
-              options: {
-                cacheName: getModeCacheNameForAccessMode(
-                  DISTYNC_CACHE_BASE_NAMES.STATIC_ASSETS,
-                  configuredAccessMode,
-                ),
-                expiration: {
-                  maxEntries: 80,
-                  maxAgeSeconds: 60 * 60 * 24 * 30,
-                },
-              },
-            },
           ],
         },
       }),
@@ -161,8 +146,10 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           assetFileNames: (assetInfo) =>
-            assetInfo.name === "distync-logo-cropped.png"
-              ? "assets/distync-logo-cropped.png"
+            ["distync-logo.png", "distync-logo-cropped.png"].includes(
+              assetInfo.name,
+            )
+              ? `assets/${assetInfo.name}`
               : "assets/[name]-[hash][extname]",
         },
       },

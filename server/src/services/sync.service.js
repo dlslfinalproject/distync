@@ -1959,9 +1959,6 @@ const processSingleSyncEntry = async (entry, auth) => {
     const syncBusinessSavepoint = "sync_business_action";
     const canUseSyncBusinessSavepoint =
       dbClient && typeof dbClient.query === "function";
-    const isEarlierDepartureResolution = (error) =>
-      error?.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" &&
-      error?.incomingDepartureWasEarlier === true;
 
     try {
       if (canUseSyncBusinessSavepoint) {
@@ -2117,14 +2114,9 @@ const processSingleSyncEntry = async (entry, auth) => {
       conflict: conflictRecord,
     };
     } catch (error) {
-      // departHousehold updates the existing evacuation log to the earlier
-      // original departure and then throws a typed duplicate-resolution error
-      // so this branch can reconcile the sync history. That update is the
-      // successful business effect and must survive the savepoint rollback.
       if (
         !businessEffectApplied &&
-        canUseSyncBusinessSavepoint &&
-        !isEarlierDepartureResolution(error)
+        canUseSyncBusinessSavepoint
       ) {
         try {
           await dbClient.query(`ROLLBACK TO SAVEPOINT ${syncBusinessSavepoint}`);
@@ -2179,56 +2171,7 @@ const processSingleSyncEntry = async (entry, auth) => {
       ].includes(error.code);
       const isSystemResolvedDuplicate =
         isInventoryItrDuplicate;
-      const isEarlierDepartureResolutionResult =
-        isEarlierDepartureResolution(error);
       const departureResolutionStrategy = RESOLUTION_STRATEGY.FIRST_ACCEPTED;
-
-      if (
-        isEarlierDepartureResolutionResult &&
-        typeof syncRepository.findHouseholdDepartureSyncTransactions === "function"
-      ) {
-        const priorDepartureTransactions =
-          await syncRepository.findHouseholdDepartureSyncTransactions({
-            householdId: conflictEntityServerId,
-            disasterEventId: entry.payload?.disaster_event_id,
-            barangayId: entry.payload?.barangay_id,
-            excludeSyncTransactionId: syncTransaction.id,
-          }, dbClient);
-        const resolvedAt = new Date().toISOString();
-
-        for (const priorTransaction of priorDepartureTransactions) {
-          await syncRepository.updateSyncTransaction(
-            priorTransaction.id,
-            {
-              entity_server_id: conflictEntityServerId,
-              server_timestamp: resolvedAt,
-              sync_status: SYNC_STATUS.CONFLICT,
-              error_message:
-                "Superseded automatically by an earlier original departure timestamp.",
-            },
-            dbClient,
-          );
-          await syncRepository.recordSyncConflictOnly({
-            sync_transaction_id: priorTransaction.id,
-            entity_type: actionConfig.entityType,
-            entity_server_id: conflictEntityServerId,
-            conflict_type: error.code,
-            local_payload_json: priorTransaction.payload_json?.payload || {},
-            server_payload_json: entry.payload,
-            resolution_strategy: departureResolutionStrategy,
-            resolution_reason:
-              "The earlier valid original departure timestamp became authoritative.",
-            resolved_payload_json: {
-              winner: "INCOMING",
-              authoritative_payload: entry.payload,
-              authoritative_departure_time: error.serverPayload?.time_out || null,
-            },
-            resolved_by: null,
-            resolved_at: resolvedAt,
-            status: CONFLICT_STATUS.RESOLVED,
-          }, dbClient);
-        }
-      }
 
       if (isCrossBarangayDuplicateConflict) {
         const automaticResolution = await tryAutoResolveCrossBarangayDuplicate({
@@ -2317,12 +2260,8 @@ const processSingleSyncEntry = async (entry, auth) => {
             transactionPayload: {
               entity_server_id: entityServerId,
               server_timestamp: serverTimestamp,
-              sync_status: isEarlierDepartureResolutionResult
-                ? SYNC_STATUS.SYNCED
-                : SYNC_STATUS.CONFLICT,
-              error_message: isEarlierDepartureResolutionResult
-                ? null
-                : error.message || "Duplicate offline action was ignored",
+              sync_status: SYNC_STATUS.CONFLICT,
+              error_message: error.message || "Duplicate offline action was ignored",
             },
             conflictPayload: {
               sync_transaction_id: syncTransaction.id,
@@ -2341,7 +2280,7 @@ const processSingleSyncEntry = async (entry, auth) => {
                 isManualInventoryDuplicateConflict
                 ? null
                 : {
-                    winner: isEarlierDepartureResolutionResult ? "INCOMING" : "SERVER",
+                    winner: "SERVER",
                     reason: error.message,
                     authoritative_payload: duplicateConflictServerPayload,
                     authoritative_departure_time: error.serverPayload?.time_out || null,
@@ -2373,12 +2312,8 @@ const processSingleSyncEntry = async (entry, auth) => {
         return {
           client_sync_id: entry.client_sync_id,
           sync_transaction_id: syncTransaction.id,
-          sync_status: isEarlierDepartureResolutionResult
-            ? SYNC_STATUS.SYNCED
-            : SYNC_STATUS.CONFLICT,
-          message: isEarlierDepartureResolutionResult
-            ? "Earlier departure timestamp retained automatically."
-            : error.message || "Duplicate offline action was ignored",
+          sync_status: SYNC_STATUS.CONFLICT,
+          message: error.message || "Duplicate offline action was ignored",
           data: conflictTransaction,
           conflict: conflictRecord,
         };

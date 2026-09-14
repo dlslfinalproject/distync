@@ -19,6 +19,54 @@ test("BRG-SC-06-M01 household departure lock query locks the authoritative house
   assert.match(source, /getHouseholdSummaryByIdForUpdate,/);
 });
 
+test("HH-ATT-001 lifecycle dependency probe covers operational child records", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+
+  const dependencySource = source.match(
+    /const getHouseholdLifecycleDependencies = async \([\s\S]*?const getActiveHouseholdSuccessorById/,
+  )?.[0];
+
+  assert.ok(dependencySource, "lifecycle dependency probe is present");
+  for (const tableName of [
+    "evacuees",
+    "evacuation_logs",
+    "household_privacy_consents",
+    "household_sectors",
+    "evacuee_sectors",
+    "stubs",
+    "stub_donated_relief_pack_assignments",
+    "distribution_transactions",
+  ]) {
+    assert.match(dependencySource, new RegExp(`FROM ${tableName}`));
+  }
+  assert.match(dependencySource, /has_open_attendance/);
+  assert.match(dependencySource, /has_reserved_assignments/);
+  assert.match(source, /getHouseholdLifecycleDependencies,/);
+});
+
+test("HH-ATT-002 correction update only targets current open attendance and preserves time order", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+  const correctionSource = source.match(
+    /const updateEvacuationLogCorrection = async \([\s\S]*?const archiveHousehold/,
+  )?.[0];
+
+  assert.ok(correctionSource, "attendance correction update is present");
+  assert.match(correctionSource, /status = 'PRESENT'/);
+  assert.match(correctionSource, /time_out IS NULL/);
+  assert.match(correctionSource, /GREATEST\(NOW\(\), time_in\)/);
+});
+
+test("HH-ATT-002 no repository operation remains for rewriting closed departure timestamps", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+
+  assert.doesNotMatch(source, /updateHouseholdDepartureTimestamp/);
+  assert.match(
+    source,
+    /const getEvacuationLogByIdForHouseholdForUpdate = async \([\s\S]*?FOR UPDATE/,
+  );
+  assert.match(source, /getEvacuationLogByIdForHouseholdForUpdate,/);
+});
+
 test("EE-FIX-01 household registration scope lock projects authoritative event status", () => {
   const source = fs.readFileSync(repositoryPath, "utf8");
 

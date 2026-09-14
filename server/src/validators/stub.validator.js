@@ -128,9 +128,9 @@ const validateGetBarangayStubDashboard = (req, res, next) => {
 
     const normalizedStatus = String(status || "all").trim().toLowerCase();
 
-    if (!["all", "claimed", "unclaimed", "issued"].includes(normalizedStatus)) {
+    if (!["all", "claimed", "unclaimed", "issued", "for_claim", "not_present"].includes(normalizedStatus)) {
       return res.status(400).json({
-        message: "status must be one of: all, claimed, unclaimed",
+        message: "status must be one of: all, claimed, unclaimed, not_present",
       });
     }
 
@@ -160,7 +160,10 @@ const validateGetBarangayStubDashboard = (req, res, next) => {
       page: parsedPage,
       pageSize: parsedPageSize,
       search: typeof search === "string" ? search.trim() : "",
-      status: normalizedStatus === "issued" ? "unclaimed" : normalizedStatus,
+      status:
+        normalizedStatus === "issued" || normalizedStatus === "for_claim"
+          ? "unclaimed"
+          : normalizedStatus,
       sector_ids: selectedSectorIds,
       sort_order: normalizedSortOrder,
       is_paginated: hasPagination,

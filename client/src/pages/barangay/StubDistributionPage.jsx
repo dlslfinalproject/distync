@@ -52,6 +52,8 @@ import { getCachedFamilyHeadPhoto } from "../../features/masterlist/familyHeadPh
 import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
 import { resolveStubDetailsForOfflineDisplay } from "../../features/stubs/offlineHouseholdHydration";
 import { DEFAULT_TABLE_PAGE_SIZE } from "../../features/pagination/pagination.mjs";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue.js";
+import { isEffectivelyNotPresentStubRow } from "../../features/stubs/stubPresentation.js";
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
@@ -189,6 +191,7 @@ const isArchivedStubHousehold = (stubLike) =>
 
 const isSelectableClaimStubRow = (row) =>
   row?.status === "ISSUED" &&
+  (row?.presentation_status === "FOR_CLAIM" || !row?.presentation_status) &&
   !row?.is_local_only &&
   isCurrentlyPresentStubRow(row) &&
   !row?.is_claim_pending &&
@@ -400,7 +403,7 @@ const StubDistributionPage = () => {
 
     const matchingRows = searchedRows.filter((row) => {
       const matchesStatus = matchesStubStatusFilter(
-        row.status,
+        row.presentation_status || row.status,
         normalizedStubStatus,
       );
 
@@ -489,8 +492,10 @@ const StubDistributionPage = () => {
   }, [isSelectedEventEnded, selectedEvent?.id]);
 
   const stubStatusOptions = [
-    { value: STATUS_FILTERS.CLAIMED, label: "Claimed" },
+    { value: STATUS_FILTERS.ALL, label: "All" },
     { value: STATUS_FILTERS.UNCLAIMED, label: "For Claim" },
+    { value: STATUS_FILTERS.CLAIMED, label: "Claimed" },
+    { value: STATUS_FILTERS.NOT_PRESENT, label: "Unclaimed" },
   ];
 
   const toggleSectorFilter = (sectorName) => {
@@ -1036,7 +1041,16 @@ const StubDistributionPage = () => {
         });
       }
 
-      if (stubDetails?.household?.is_active === false) {
+      const effectiveNotPresent = isEffectivelyNotPresentStubRow(
+        stubDetails,
+        await getVisibleSyncQueueEntries(),
+        {
+          disasterEventId: selectedEventId,
+          barangayId: selectedBarangayForPrintId,
+        },
+      );
+
+      if (stubDetails?.household?.is_active === false || effectiveNotPresent) {
         throw createQrScanError({
           code: QR_SCAN_ERROR_CODES.HOUSEHOLD_ARCHIVED,
           message:

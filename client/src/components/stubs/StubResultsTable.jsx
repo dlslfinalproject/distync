@@ -218,13 +218,20 @@ const getStatusLabel = (status) => {
   }
 
   if (status === "NOT_PRESENT") {
-    return "Not Present";
+    return "Unclaimed";
   }
 
   return status || "-";
 };
 
 const isArchivedHouseholdRow = (row) => row?.household?.is_active === false;
+const getPresentationStatus = (row) =>
+  row?.presentation_status ||
+  (row?.status === "CLAIMED"
+    ? "CLAIMED"
+    : row?.household?.is_active === false || !isCurrentlyPresentStubRow(row)
+      ? "NOT_PRESENT"
+      : "FOR_CLAIM");
 const isRowBlockedByClaimSync = (row) =>
   row?.is_claim_pending || row?.sync_status === "PENDING" || row?.sync_status === "CONFLICT";
 
@@ -304,6 +311,7 @@ const StubResultsTable = ({
     ? []
     : rows.filter(
         (row) =>
+          getPresentationStatus(row) === "FOR_CLAIM" &&
           row.status === "ISSUED" &&
           !row.is_local_only &&
           isCurrentlyPresentStubRow(row) &&
@@ -413,8 +421,10 @@ const StubResultsTable = ({
           <tbody>
             {rows.map((row) => {
               const isArchivedRow = isArchivedHouseholdRow(row);
+              const presentationStatus = getPresentationStatus(row);
               const isSelectable =
                 !isClaimReadOnly &&
+                presentationStatus === "FOR_CLAIM" &&
                 row.status === "ISSUED" &&
                 !row.is_local_only &&
                 isCurrentlyPresentStubRow(row) &&
@@ -534,12 +544,12 @@ const StubResultsTable = ({
                       <span style={getStatusChipStyles("PENDING_SYNC")}>
                         Pending Sync
                       </span>
-                    ) : row.status === "ISSUED" && !isCurrentlyPresentStubRow(row) ? (
+                    ) : presentationStatus === "NOT_PRESENT" ? (
                       <span
                         style={getStatusChipStyles("NOT_PRESENT")}
-                        title="This household is not currently present in the evacuation center"
+                        title="This household is no longer present in the evacuation center"
                       >
-                        Not Present
+                        Unclaimed
                       </span>
                     ) : isClaimReadOnly && row.status === "ISSUED" ? (
                       <span style={getStatusChipStyles("ISSUED")}>
@@ -580,8 +590,10 @@ const StubResultsTable = ({
                         <FaHandHolding size={18} />
                       </button>
                     ) : (
-                      <span style={getStatusChipStyles(row.status)}>
-                        {getStatusLabel(row.status)}
+                      <span style={getStatusChipStyles(presentationStatus)}>
+                        {presentationStatus === "FOR_CLAIM"
+                          ? "For Claim"
+                          : getStatusLabel(presentationStatus)}
                       </span>
                     )}
                   </td>
