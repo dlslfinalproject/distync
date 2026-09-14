@@ -616,6 +616,116 @@ const buildReliefPackTemplateCreatedChanges = (row) => {
   return changes;
 };
 
+const RELIEF_PACK_SECTOR_IDS_PREFIX = "__relief_pack_sector_ids__:";
+
+const getReliefPackSectorIds = (values = {}) => {
+  if (Array.isArray(values.sector_ids)) {
+    return Array.from(
+      new Set(values.sector_ids.map((sectorId) => String(sectorId || "").trim()).filter(Boolean)),
+    );
+  }
+
+  const description = String(values.description || "");
+
+  if (!description.startsWith(RELIEF_PACK_SECTOR_IDS_PREFIX)) {
+    return [];
+  }
+
+  try {
+    const parsedSectorIds = JSON.parse(
+      description.slice(RELIEF_PACK_SECTOR_IDS_PREFIX.length),
+    );
+
+    return Array.isArray(parsedSectorIds)
+      ? Array.from(
+          new Set(
+            parsedSectorIds
+              .map((sectorId) => String(sectorId || "").trim())
+              .filter(Boolean),
+          ),
+        )
+      : [];
+  } catch (_error) {
+    return [];
+  }
+};
+
+const formatReliefPackFamilySize = (values = {}) =>
+  values.based_on_family_size
+    ? formatAuditValue("family_size_covered", values.description)
+    : "Not applicable";
+
+const formatReliefPackSectorMatch = (values = {}) => {
+  const sectorCount = getReliefPackSectorIds(values).length;
+
+  if (sectorCount > 0) {
+    return `${sectorCount} selected sector${sectorCount === 1 ? "" : "s"}`;
+  }
+
+  return values.based_on_sector ? "Configured" : "Not applicable";
+};
+
+const buildReliefPackTemplateEditChanges = (row) => {
+  const oldValues = row.old_values_json || {};
+  const newValues = row.new_values_json || {};
+  const changes = [];
+  const addChangedChange = (field, label, previousValue, newValue) => {
+    if (previousValue === newValue) {
+      return;
+    }
+
+    changes.push({
+      field,
+      label,
+      previous_value: previousValue,
+      new_value: newValue,
+    });
+  };
+
+  addChangedChange(
+    "name",
+    "Pack Name",
+    formatAuditValue("name", oldValues.name),
+    formatAuditValue("name", newValues.name),
+  );
+  addChangedChange(
+    "family_size_covered",
+    "Family Size Covered",
+    formatReliefPackFamilySize(oldValues),
+    formatReliefPackFamilySize(newValues),
+  );
+  addChangedChange(
+    "sector_match",
+    "Sector Match",
+    formatReliefPackSectorMatch(oldValues),
+    formatReliefPackSectorMatch(newValues),
+  );
+  addChangedChange(
+    "is_additional_pack",
+    "Pack Type",
+    formatAuditValue("is_additional_pack", oldValues.is_additional_pack),
+    formatAuditValue("is_additional_pack", newValues.is_additional_pack),
+  );
+  addChangedChange(
+    "disaster_types",
+    "Disaster Types",
+    formatReliefPackDisasterTypes(oldValues.disaster_types, {
+      appliesToAllDisasters: oldValues.applies_to_all_disasters === true,
+    }),
+    formatReliefPackDisasterTypes(newValues.disaster_types, {
+      appliesToAllDisasters: newValues.applies_to_all_disasters === true,
+    }),
+  );
+  addChangedChange(
+    "is_active",
+    "Template Status",
+    formatAuditValue("is_active", oldValues.is_active),
+    formatAuditValue("is_active", newValues.is_active),
+  );
+
+  return changes;
+};
+
 const buildAuditDetailChanges = (row) => {
   const oldValues = row.old_values_json || {};
   const newValues = row.new_values_json || {};
@@ -1443,11 +1553,13 @@ const buildDistributionItemDetails = (row) =>
   }));
 
 const buildAuditDetail = (row, relatedRows = []) => {
+  const isReliefPackTemplate = row.entity_type === "RELIEF_PACK_TEMPLATE";
   const isReliefPackTemplateCreated =
-    row.entity_type === "RELIEF_PACK_TEMPLATE" &&
-    row.action === "RELIEF_PACK_TEMPLATE_CREATE";
+    isReliefPackTemplate && row.action === "RELIEF_PACK_TEMPLATE_CREATE";
   const changes = isReliefPackTemplateCreated
     ? buildReliefPackTemplateCreatedChanges(row)
+    : isReliefPackTemplate
+      ? buildReliefPackTemplateEditChanges(row)
     : buildAuditDetailChanges(row);
   const detailChanges =
     row.entity_type === "DONATION_ITEM" &&
@@ -1966,21 +2078,13 @@ const buildInventoryRecordLabel = (row) => {
 };
 
 const buildReliefPackEditDetail = (row) => {
-  const changedFieldLabels = buildChangedFieldLabels(
-    row,
-    RELIEF_PACK_EDIT_AUDIT_FIELDS,
-    RELIEF_PACK_FIELD_LABELS,
+  const uniqueChangedFieldLabels = buildReliefPackTemplateEditChanges(row).map(
+    ({ label }) => label,
   );
-  const uniqueChangedFieldLabels = [];
 
-  changedFieldLabels.filter(Boolean).forEach((fieldLabel) => {
-    const normalizedFieldLabel =
-      fieldLabel === "Disaster Types" ? "Disaster Applicability" : fieldLabel;
-
-    if (!uniqueChangedFieldLabels.includes(normalizedFieldLabel)) {
-      uniqueChangedFieldLabels.push(normalizedFieldLabel);
-    }
-  });
+  if (buildAuditDetailItemChanges(row).length > 0) {
+    uniqueChangedFieldLabels.push("Template Items");
+  }
 
   if (!uniqueChangedFieldLabels.length) {
     return null;
