@@ -104,7 +104,7 @@ export const useMasterlist = ({
             setInfoMessage("");
             setErrorMessage(
               isOffline
-                ? "Offline Data Not Ready: no saved Masterlist is available for this event and Barangay."
+                ? "No saved Masterlist is available for this event and Barangay."
                 : error.message || "Failed to load masterlist",
             );
           }
