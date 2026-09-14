@@ -284,6 +284,17 @@ const detailModalStyles = {
     letterSpacing: "0.08em",
     whiteSpace: "nowrap",
   },
+  fieldColumn: {
+    width: "220px",
+    minWidth: "220px",
+    whiteSpace: "nowrap",
+  },
+  valueColumn: {
+    minWidth: "160px",
+    overflowWrap: "break-word",
+    wordBreak: "normal",
+    whiteSpace: "normal",
+  },
   td: {
     padding: "12px",
     borderBottom: "1px solid #edf3f8",
@@ -388,13 +399,36 @@ const AuditDetailChangesTable = ({ changes, isCreatedRecord }) => {
       <table className="mayor-audit-trail-detail-table" style={detailModalStyles.table}>
         <thead>
           <tr>
-            <th style={detailModalStyles.th}>Field</th>
+            <th style={{ ...detailModalStyles.th, ...detailModalStyles.fieldColumn }}>
+              Field
+            </th>
             {isCreatedRecord ? (
-              <th style={detailModalStyles.th}>Created Value</th>
+              <th
+                style={{
+                  ...detailModalStyles.th,
+                  ...detailModalStyles.valueColumn,
+                }}
+              >
+                Created Value
+              </th>
             ) : (
               <>
-                <th style={detailModalStyles.th}>Before</th>
-                <th style={detailModalStyles.th}>After</th>
+                <th
+                  style={{
+                    ...detailModalStyles.th,
+                    ...detailModalStyles.valueColumn,
+                  }}
+                >
+                  Before
+                </th>
+                <th
+                  style={{
+                    ...detailModalStyles.th,
+                    ...detailModalStyles.valueColumn,
+                  }}
+                >
+                  After
+                </th>
               </>
             )}
           </tr>
@@ -402,17 +436,37 @@ const AuditDetailChangesTable = ({ changes, isCreatedRecord }) => {
         <tbody>
           {changes.map((change) => (
             <tr key={change.field}>
-              <td style={detailModalStyles.td}>{change.label}</td>
+              <td style={{ ...detailModalStyles.td, ...detailModalStyles.fieldColumn }}>
+                {change.label}
+              </td>
               {isCreatedRecord ? (
-                <td style={{ ...detailModalStyles.td, ...detailModalStyles.changedValue }}>
+                <td
+                  style={{
+                    ...detailModalStyles.td,
+                    ...detailModalStyles.changedValue,
+                    ...detailModalStyles.valueColumn,
+                  }}
+                >
                   {change.new_value}
                 </td>
               ) : (
                 <>
-                  <td style={{ ...detailModalStyles.td, ...detailModalStyles.previousValue }}>
+                  <td
+                    style={{
+                      ...detailModalStyles.td,
+                      ...detailModalStyles.previousValue,
+                      ...detailModalStyles.valueColumn,
+                    }}
+                  >
                     {change.previous_value}
                   </td>
-                  <td style={{ ...detailModalStyles.td, ...detailModalStyles.changedValue }}>
+                  <td
+                    style={{
+                      ...detailModalStyles.td,
+                      ...detailModalStyles.changedValue,
+                      ...detailModalStyles.valueColumn,
+                    }}
+                  >
                     {change.new_value}
                   </td>
                 </>
@@ -648,6 +702,7 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
     entry.action_label === "Stock Added" &&
     ["INVENTORY_BATCH", "INVENTORY_TRANSACTION"].includes(entry.entity_type);
   const isWrittenOffRecord = entry.action_label === "Written Off";
+  const isDistributedItemsRecord = entry.action_label === "Distributed Items";
   const donationDetails = isDonationEntryRecord
     ? entry.audit_detail?.donation_details ?? changes
     : [];
@@ -708,38 +763,40 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
           </div>
         </section>
 
-        <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
-          <h3 style={{ margin: 0, color: "#17324d" }}>
-            {isDonationEntryRecord || isDonationDetailsEditedRecord
-              ? "Donation Details"
-              : isItemCreatedRecord || isPackagingAddedRecord
-              ? "Item Details"
-              : isStockAddedRecord
-                ? "Stock Addition Details"
-                : getChangeHeading(entry)}
-          </h3>
-          <AuditDetailChangesTable
-            changes={isDonationEntryRecord ? donationDetails : itemDetails}
-            isCreatedRecord={isCreatedRecord}
-          />
-          {isDonationDetailsEditedRecord && donationStockAdjustment.length > 0 ? (
-            <>
-              <h4
-                style={{
-                  margin: "24px 0 0",
-                  color: "#17324d",
-                  fontSize: "18px",
-                }}
-              >
-                Related Stock Adjustment
-              </h4>
-              <AuditDetailChangesTable
-                changes={donationStockAdjustment}
-                isCreatedRecord
-              />
-            </>
-          ) : null}
-        </section>
+        {!isDistributedItemsRecord ? (
+          <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
+            <h3 style={{ margin: 0, color: "#17324d" }}>
+              {isDonationEntryRecord || isDonationDetailsEditedRecord
+                ? "Donation Details"
+                : isItemCreatedRecord || isPackagingAddedRecord
+                ? "Item Details"
+                : isStockAddedRecord
+                  ? "Stock Addition Details"
+                  : getChangeHeading(entry)}
+            </h3>
+            <AuditDetailChangesTable
+              changes={isDonationEntryRecord ? donationDetails : itemDetails}
+              isCreatedRecord={isCreatedRecord}
+            />
+            {isDonationDetailsEditedRecord && donationStockAdjustment.length > 0 ? (
+              <>
+                <h4
+                  style={{
+                    margin: "24px 0 0",
+                    color: "#17324d",
+                    fontSize: "18px",
+                  }}
+                >
+                  Related Stock Adjustment
+                </h4>
+                <AuditDetailChangesTable
+                  changes={donationStockAdjustment}
+                  isCreatedRecord
+                />
+              </>
+            ) : null}
+          </section>
+        ) : null}
 
         {isDonationEntryRecord && donationItems.length > 0 ? (
           <DonationEntryItemsDetails items={donationItems} />
