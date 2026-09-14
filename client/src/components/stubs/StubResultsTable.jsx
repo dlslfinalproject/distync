@@ -14,6 +14,8 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
+    minWidth: "1040px",
+    maxWidth: "none",
   },
   headerCell: {
     padding: "14px 16px",
@@ -31,6 +33,13 @@ const tableStyles = {
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
     verticalAlign: "middle",
+  },
+  qrStubColumn: {
+    width: "88px",
+    minWidth: "88px",
+  },
+  statusColumn: {
+    minWidth: "128px",
   },
   statusButton: {
     border: "1px solid #c6d8ea",
@@ -139,6 +148,7 @@ const getStatusChipStyles = (status, isActionable = false) => {
     fontSize: "12px",
     fontWeight: 700,
     lineHeight: 1,
+    whiteSpace: "nowrap",
     ...palette,
     boxShadow: isActionable ? "0 2px 8px rgba(75, 101, 132, 0.06)" : "none",
   };
@@ -356,7 +366,7 @@ const StubResultsTable = ({
       ) : null}
 
       <div className="stub-results-table-scroll" style={{ overflowX: "auto" }}>
-        <table style={tableStyles.table}>
+        <table style={tableStyles.table} className="stub-results-table">
           <thead>
             <tr>
               <th
@@ -377,6 +387,7 @@ const StubResultsTable = ({
               <th
                 style={{
                   ...tableStyles.headerCell,
+                  ...tableStyles.qrStubColumn,
                   textAlign: "center",
                 }}
               >
@@ -387,6 +398,7 @@ const StubResultsTable = ({
               <th
                 style={{
                   ...tableStyles.headerCell,
+                  ...tableStyles.statusColumn,
                   textAlign: "center",
                 }}
               >
@@ -516,12 +528,13 @@ const StubResultsTable = ({
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                      ...tableStyles.qrStubColumn,
                       textAlign: "center",
                     }}
                   >
                     <div
                       className="stub-results-qr-cell"
-                      style={{ width: "112px", margin: "0 auto" }}
+                      style={{ width: "88px", margin: "0 auto" }}
                     >
                       <QrCodePanel
                         value={row.qr_code_value || ""}
@@ -534,6 +547,7 @@ const StubResultsTable = ({
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                      ...tableStyles.statusColumn,
                       textAlign: "center",
                       verticalAlign: "middle",
                     }}

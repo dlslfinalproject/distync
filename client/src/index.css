@@ -1755,6 +1755,19 @@ img {
   overflow-wrap: anywhere;
 }
 
+.masterlist-table-scroll,
+.stub-results-table-scroll {
+  max-width: 100%;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.masterlist-table,
+.stub-results-table {
+  max-width: none !important;
+}
+
 .distribution-history-text-cell {
   overflow-wrap: break-word;
 }
@@ -1866,6 +1879,16 @@ img {
 .distribution-history-date-cell,
 .distribution-history-identifier-cell {
   white-space: nowrap;
+}
+
+@media (min-width: 1025px) {
+  .distribution-history-filter-grid[data-filter-count="5"] {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+
+  .distribution-history-filter-grid[data-filter-count="4"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
 }
 
 .distribution-history-export-button {
@@ -2821,8 +2844,23 @@ img {
     gap: 6px !important;
   }
 
+  .masterlist-toolbar-status-filter,
+  .stub-distribution-status-filter {
+    align-items: stretch !important;
+    flex-direction: column;
+    gap: 6px !important;
+    justify-content: flex-start !important;
+  }
+
+  .masterlist-toolbar-status-filter select,
+  .stub-distribution-status-filter select {
+    width: 100%;
+    min-width: 0 !important;
+    max-width: 100%;
+  }
+
   .distribution-history-filter-grid {
-    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 
   .distribution-history-export-button {
@@ -2843,7 +2881,7 @@ img {
   }
 
   .stub-summary-grid {
-    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 
   .stub-qr-scan-card {
@@ -3525,7 +3563,7 @@ img {
   }
 
   .masterlist-toolbar-status-filter {
-    grid-column: 1 / -1;
+    grid-column: 1 / -1 !important;
     justify-content: space-between;
   }
 

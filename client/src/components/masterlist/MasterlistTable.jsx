@@ -17,7 +17,8 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    minWidth: "860px",
+    minWidth: "1040px",
+    maxWidth: "none",
   },
   headerCell: {
     padding: "14px 16px",
@@ -296,8 +297,8 @@ const MasterlistTable = ({
         nextAriaLabel="Go to next masterlist page"
       />
 
-      <div style={{ overflowX: "auto" }}>
-        <table style={tableStyles.table}>
+      <div style={{ overflowX: "auto" }} className="masterlist-table-scroll">
+        <table style={tableStyles.table} className="masterlist-table">
           <thead>
             <tr>
               {showSelectionColumn ? (

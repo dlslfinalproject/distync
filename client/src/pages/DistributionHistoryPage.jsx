@@ -455,6 +455,7 @@ const DistributionHistoryPage = () => {
       <section className="distribution-history-filter-card" style={shellStyles.card}>
         <div
           className="distribution-history-filter-grid"
+          data-filter-count={isBarangay ? "4" : "5"}
           style={pageSpacingStyles.filterGrid}
         >
           <div>

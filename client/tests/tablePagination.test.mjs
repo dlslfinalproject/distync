@@ -297,7 +297,7 @@ test("all Barangay table surfaces use the shared paginator and Sync Center slice
   assertOrdered(normalizedMasterlistSource.slice(masterlistPopulatedStart), [
     '<h3 className="table-card-title">Registered Family</h3>',
     "<TablePagination",
-    '<div style={{ overflowX: "auto" }}>',
+    '<div style={{ overflowX: "auto" }} className="masterlist-table-scroll">',
     "<table style={tableStyles.table}",
     "<thead>",
   ]);

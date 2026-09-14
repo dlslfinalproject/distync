@@ -20,10 +20,19 @@ test("Barangay masterlist toolbar and event summary expose mobile responsive hoo
     readSource(["index.css"]),
   ]);
 
+  const tableSource = await readSource(["components", "masterlist", "MasterlistTable.jsx"]);
+
   assert.match(dashboardSource, /className="barangay-dashboard-event-title"/);
   assert.match(dashboardSource, /className="barangay-dashboard-event-meta"/);
   assert.match(toolbarSource, /className="masterlist-toolbar-search"/);
   assert.match(toolbarSource, /className="masterlist-toolbar-actions"/);
+  assert.match(tableSource, /className="masterlist-table-scroll"/);
+  assert.match(tableSource, /className="masterlist-table"/);
+  assert.match(tableSource, /minWidth: "1040px"/);
+  assert.match(
+    cssSource,
+    /\.masterlist-table-scroll,[\s\S]*?max-width: 100%;[\s\S]*?overflow-x: auto !important;/,
+  );
   assert.match(
     cssSource,
     /@media \(max-width: 768px\)[\s\S]*?\.barangay-dashboard-event-meta \{[\s\S]*?flex-wrap: wrap;/,
@@ -31,6 +40,18 @@ test("Barangay masterlist toolbar and event summary expose mobile responsive hoo
   assert.match(
     cssSource,
     /@media \(max-width: 768px\)[\s\S]*?\.masterlist-toolbar-search,[\s\S]*?\.masterlist-toolbar-actions \{[\s\S]*?flex: 1 1 100% !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.masterlist-toolbar-status-filter \{[\s\S]*?grid-column: 1 \/ -1 !important;[\s\S]*?justify-content: space-between;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.masterlist-toolbar-status-filter,[\s\S]*?\.stub-distribution-status-filter \{[\s\S]*?flex-direction: column;[\s\S]*?justify-content: flex-start !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.masterlist-toolbar-status-filter select,[\s\S]*?\.stub-distribution-status-filter select \{[\s\S]*?width: 100%;[\s\S]*?min-width: 0 !important;/,
   );
 });
 

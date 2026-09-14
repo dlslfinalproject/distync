@@ -28,6 +28,14 @@ test("Relief distribution toolbar exposes mobile responsive grouping hooks", asy
     cssSource,
     /@media \(max-width: 480px\)[\s\S]*?\.stub-distribution-toolbar-actions button/,
   );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.masterlist-toolbar-status-filter,[\s\S]*?\.stub-distribution-status-filter \{[\s\S]*?flex-direction: column;[\s\S]*?justify-content: flex-start !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.masterlist-toolbar-status-filter select,[\s\S]*?\.stub-distribution-status-filter select \{[\s\S]*?width: 100%;[\s\S]*?min-width: 0 !important;/,
+  );
 });
 
 test("Relief distribution table overflow remains scoped to the results table", async () => {
@@ -39,10 +47,22 @@ test("Relief distribution table overflow remains scoped to the results table", a
 
   assert.match(tableSource, /className="stub-results-card"/);
   assert.match(tableSource, /className="stub-results-table-scroll"/);
+  assert.match(tableSource, /className="stub-results-table"/);
+  assert.match(tableSource, /minWidth: "1040px"/);
   assert.match(tableSource, /className="stub-results-qr-cell"/);
   assert.match(tableSource, /showValue=\{false\}/);
   assert.match(tableSource, /value=\{row\.qr_code_value \|\| ""\}/);
+  assert.match(tableSource, /qrStubColumn:\s*\{[\s\S]*?width: "88px"/);
+  assert.match(tableSource, /statusColumn:\s*\{[\s\S]*?minWidth: "128px"/);
+  assert.match(
+    tableSource,
+    /fontWeight: 700,[\s\S]*?lineHeight: 1,[\s\S]*?whiteSpace: "nowrap"/,
+  );
   assert.match(qrPanelSource, /showValue = true/);
+  assert.match(
+    cssSource,
+    /\.stub-results-table-scroll,[\s\S]*?max-width: 100%;[\s\S]*?overflow-x: auto !important;/,
+  );
   assert.match(
     cssSource,
     /@media \(max-width: 768px\)[\s\S]*?\.stub-results-table-scroll \{[\s\S]*?overflow-x: auto !important;/,
@@ -70,7 +90,7 @@ test("Relief distribution summary cards use balanced responsive columns", async 
   );
   assert.match(
     cssSource,
-    /@media \(max-width: 480px\)[\s\S]*?\.stub-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+    /@media \(max-width: 480px\)[\s\S]*?\.stub-summary-grid \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
   );
 });
 
