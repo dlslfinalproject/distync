@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { FiBell } from "react-icons/fi";
+import { FiBell, FiSettings } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_CODES } from "../../utils/roleSession";
 import {
@@ -58,6 +58,21 @@ const headerNotificationStyles = {
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+    lineHeight: 0,
+  },
+  settingsButton: {
+    border: "none",
+    borderRadius: "12px",
+    backgroundColor: "transparent",
+    color: "#24496e",
+    width: "44px",
+    height: "44px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    flexShrink: 0,
+    padding: 0,
     lineHeight: 0,
   },
   badge: {
@@ -130,6 +145,21 @@ const HeaderNotifications = () => {
 
   const notificationRoute =
     notificationRouteByRole[currentRole] || "/inventory/notifications";
+  const settingsRouteByRole = useMemo(
+    () => ({
+      [ROLE_CODES.MAYOR]: "/inventory/settings",
+      [ROLE_CODES.MSWDO]: "/mswdo/settings",
+      [ROLE_CODES.BARANGAY]: "/barangay/settings",
+    }),
+    [],
+  );
+  const settingsRoute = settingsRouteByRole[currentRole];
+  const settingsLabelByRole = {
+    [ROLE_CODES.MAYOR]: "Mayor Settings",
+    [ROLE_CODES.MSWDO]: "MSWDO Settings",
+    [ROLE_CODES.BARANGAY]: "Barangay Settings",
+  };
+  const settingsLabel = settingsLabelByRole[currentRole] || "Settings";
 
   useEffect(() => {
     notificationScopeRef.current = notificationScope;
@@ -461,9 +491,22 @@ const HeaderNotifications = () => {
               )}
             </div>
           ) : null}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsNotificationDropdownOpen(false);
+              navigate(settingsRoute);
+            }}
+            style={headerNotificationStyles.settingsButton}
+            title={settingsLabel}
+            aria-label={`Open ${settingsLabel}`}
+          >
+            <FiSettings size={22} strokeWidth={1.8} />
+          </button>
         </div>
       </div>
-    </div>
   );
 };
 
