@@ -109,12 +109,14 @@ const withStubbedDonationService = async (overrides, runTest) => {
     insertedBatches: [],
     insertedTransactions: [],
     donatedPackAssignmentCalls: [],
+    auditLogs: [],
   };
   const client = buildClient(events);
   const donationRecord = {
     id: "donation-1",
     disaster_event_id: "event-1",
     donor_name: "Test Donor",
+    donor_name_public: false,
     donor_type: "INDIVIDUAL",
     donor_type_other: null,
     contact_information: null,
@@ -165,6 +167,56 @@ const withStubbedDonationService = async (overrides, runTest) => {
         insertDonation: async () => ({ id: "donation-1" }),
         getDonationByIdForUpdate: async () => donationRecord,
         getDonationById: async () => donationRecord,
+        updateDonation: async () => {},
+        renameDonorAcrossDonations: async () => [],
+        syncDonationInventoryTransactions: async () => {},
+        getDonationItemByIdForUpdate: async () => ({
+          id: "donation-item-1",
+          donation_id: "donation-1",
+          inventory_item_id: "inventory-item-1",
+          inventory_batch_id: "batch-1",
+          quantity_received: 5,
+          remarks: null,
+        }),
+        getDonationItemById: async () => ({
+          id: "donation-item-1",
+          donation_id: "donation-1",
+          inventory_item_id: "inventory-item-1",
+          inventory_batch_id: "batch-1",
+          quantity_received: 5,
+          remarks: null,
+          item_code: inventoryItem.item_code,
+          item_name: inventoryItem.item_name,
+          category: inventoryItem.category,
+          unit_of_measure: inventoryItem.unit_of_measure,
+          reorder_level: null,
+          item_total_stock: 5,
+          inventory_item_stock_form_id: "stock-form-1",
+          batch_no: "DON-INV-RICE-001-BATCH-001",
+          source_type: "DONATED",
+          quantity_available: 5,
+          expiration_date: null,
+          storage_location: null,
+          stock_form_barcode: null,
+          stock_form_packaging: "piece",
+          stock_form_units_per_packaging: 1,
+          stock_form_unit_of_measure: "pc",
+          stock_form_unit_of_measure_value: 1,
+        }),
+        getInventoryBatchByIdForUpdate: async () => ({
+          id: "batch-1",
+          inventory_item_id: "inventory-item-1",
+          batch_no: "DON-INV-RICE-001-BATCH-001",
+          source_type: "DONATED",
+          quantity_received: 5,
+          quantity_available: 5,
+          expiration_date: null,
+          storage_location: null,
+          status: "AVAILABLE",
+          created_by: "user-1",
+        }),
+        updateInventoryBatchStock: async () => {},
+        updateDonationItem: async () => {},
         getDonationItemsByDonationId: async () =>
           calls.insertedDonationItems.map((item) => ({
             id: item.id,
@@ -328,7 +380,9 @@ const withStubbedDonationService = async (overrides, runTest) => {
       filename: systemLogPath,
       loaded: true,
       exports: {
-        logAuditSafely: async () => {},
+        logAuditSafely: async (payload) => {
+          calls.auditLogs.push(payload);
+        },
         pickDefined: (value, keys) =>
           keys.reduce((result, key) => {
             if (value?.[key] !== undefined) {
@@ -768,6 +822,119 @@ test("donation validation accepts legacy parent activity values without normaliz
       false,
     );
   }
+});
+
+test("donation update audit stores matching editable before and after snapshots", async () => {
+  const previousDonation = {
+    id: "donation-1",
+    disaster_event_id: "event-1",
+    donor_name: "Test Donor",
+    donor_name_public: false,
+    donor_type: "INDIVIDUAL",
+    donor_type_other: null,
+    contact_information: "Old contact",
+    received_by: "user-1",
+    received_at: "2026-09-03T08:00:00.000Z",
+    status: "RECEIVED",
+    remarks: "Original remarks",
+  };
+  const updatedDonation = {
+    ...previousDonation,
+    donor_name: "Updated Donor",
+    contact_information: "New contact",
+    remarks: "Updated remarks",
+    disaster_event_title: "Test Event",
+  };
+
+  await withStubbedDonationService(
+    {
+      donationRepository: {
+        getDonationByIdForUpdate: async () => previousDonation,
+        getDonationById: async () => updatedDonation,
+      },
+    },
+    async (service, { calls }) => {
+      const payload = {
+        ...buildDonationPayload([]),
+        donor_name: "Updated Donor",
+        contact_information: "New contact",
+        remarks: "Updated remarks",
+      };
+
+      await service.updateDonation(
+        "donation-1",
+        payload,
+        { userId: "user-1", roleCode: "MAYOR" },
+      );
+
+      const audit = calls.auditLogs.find(
+        (entry) => entry.action === "DONATION_UPDATE",
+      );
+
+      assert.ok(audit);
+      assert.deepEqual(audit.oldValues, {
+        disaster_event_id: "event-1",
+        donor_name: "Test Donor",
+        donor_name_public: false,
+        donor_type: "INDIVIDUAL",
+        donor_type_other: null,
+        contact_information: "Old contact",
+        received_at: "2026-09-03T08:00:00.000Z",
+        status: "RECEIVED",
+        remarks: "Original remarks",
+        disaster_event_title: "Test Event",
+      });
+      assert.deepEqual(audit.newValues, {
+        disaster_event_id: "event-1",
+        donor_name: "Updated Donor",
+        donor_name_public: false,
+        donor_type: "INDIVIDUAL",
+        donor_type_other: null,
+        contact_information: "New contact",
+        received_at: "2026-09-03T08:00:00.000Z",
+        status: "RECEIVED",
+        remarks: "Updated remarks",
+        disaster_event_title: "Test Event",
+      });
+      assert.equal(audit.oldValues.items, undefined);
+      assert.equal(audit.newValues.items, undefined);
+    },
+  );
+});
+
+test("donation update does not create an audit row when no donation field changed", async () => {
+  await withStubbedDonationService({}, async (service, { calls }) => {
+    await service.updateDonation(
+      "donation-1",
+      buildDonationPayload([]),
+      { userId: "user-1", roleCode: "MAYOR" },
+    );
+
+    assert.equal(
+      calls.auditLogs.some((entry) => entry.action === "DONATION_UPDATE"),
+      false,
+    );
+  });
+});
+
+test("donation item update does not create an audit row when no item field changed", async () => {
+  await withStubbedDonationService({}, async (service, { calls }) => {
+    await service.updateDonationItem(
+      "donation-item-1",
+      {
+        quantity_received: 5,
+        remarks: null,
+        expiration_date: null,
+        storage_location: null,
+      },
+      "user-1",
+    );
+
+    assert.equal(
+      calls.auditLogs.some((entry) => entry.action === "DONATION_ITEM_UPDATE"),
+      false,
+    );
+  });
 });
 
 test("donation validation normalizes an existing-item legacy stock-form barcode without enforcing new-assignment length", () => {

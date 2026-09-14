@@ -893,3 +893,198 @@ test("donation details edited includes the related stock adjustment", async () =
     },
   );
 });
+
+test("donation details edited shows donation-level changes before and after", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-donation-edit-2",
+          action: "DONATION_UPDATE",
+          entity_type: "DONATION",
+          entity_id: "donation-2",
+          role_code: "MAYOR",
+          old_values_json: {
+            donor_name: "Hybe Corp.",
+            donor_name_public: false,
+            disaster_event_title: "Habagat Flood Response 2026",
+            donor_type: "PRIVATE_ORGANIZATION",
+            contact_information: "Old contact",
+            remarks: "Original remarks",
+          },
+          new_values_json: {
+            donor_name: "Hybe Foundation",
+            donor_name_public: false,
+            disaster_event_title: "Typhoon Odette Response",
+            donor_type: "NGO",
+            contact_information: "New contact",
+            remarks: "Updated remarks",
+          },
+          created_at: "2026-08-12T02:10:00.000Z",
+          first_name: "Maria",
+          last_name: "Santos",
+          donation_donor_name: "Hybe Foundation",
+          donation_disaster_event_title: "Typhoon Odette Response",
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const [entry] = result.audit_logs;
+
+      assert.equal(entry.action_label, "Donation Details Edited");
+      assert.deepEqual(
+        entry.audit_detail.changes.map(
+          ({ field, label, previous_value, new_value }) => ({
+            field,
+            label,
+            previous_value,
+            new_value,
+          }),
+        ),
+        [
+          {
+            field: "donor_name",
+            label: "Donor Name",
+            previous_value: "Hybe Corp.",
+            new_value: "Hybe Foundation",
+          },
+          {
+            field: "disaster_event_title",
+            label: "Disaster Event",
+            previous_value: "Habagat Flood Response 2026",
+            new_value: "Typhoon Odette Response",
+          },
+          {
+            field: "donor_type",
+            label: "Donor Type",
+            previous_value: "Private Organization",
+            new_value: "NGO",
+          },
+          {
+            field: "contact_information",
+            label: "Contact Information",
+            previous_value: "Old contact",
+            new_value: "New contact",
+          },
+          {
+            field: "remarks",
+            label: "Remarks",
+            previous_value: "Original remarks",
+            new_value: "Updated remarks",
+          },
+        ],
+      );
+    },
+  );
+});
+
+test("donor name visibility audit shows hidden and visible values", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-donor-visibility-1",
+          action: "DONATION_PUBLIC_NAME_UPDATE",
+          entity_type: "DONATION",
+          entity_id: "donation-3",
+          role_code: "MAYOR",
+          old_values_json: { donor_name_public: false },
+          new_values_json: { donor_name_public: true },
+          created_at: "2026-08-12T02:10:00.000Z",
+          first_name: "Maria",
+          last_name: "Santos",
+          donation_donor_name: "Hybe Corp.",
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const [entry] = result.audit_logs;
+
+      assert.equal(entry.action_label, "Donor Name Visibility Updated");
+      assert.deepEqual(entry.audit_detail.changes, [
+        {
+          field: "donor_name_public",
+          label: "Donor Name Visibility",
+          previous_value: "Hidden",
+          new_value: "Visible",
+        },
+      ]);
+    },
+  );
+});
+
+test("donation item edits show item and stock details before and after", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-donation-item-edit-1",
+          action: "DONATION_ITEM_UPDATE",
+          entity_type: "DONATION_ITEM",
+          entity_id: "donation-item-2",
+          role_code: "MAYOR",
+          old_values_json: {
+            item_code: "INV-RICE-001",
+            item_name: "Rice",
+            category: "Perishable",
+            quantity_received: 10,
+            unit_of_measure: "kg",
+            packaging: "sack",
+            units_per_packaging: 10,
+            batch_no: "DON-RICE-BATCH-001",
+            quantity_available: 10,
+            remarks: "Original quantity",
+          },
+          new_values_json: {
+            item_code: "INV-RICE-001",
+            item_name: "Brown Rice",
+            category: "Perishable",
+            quantity_received: 12,
+            unit_of_measure: "kg",
+            packaging: "sack",
+            units_per_packaging: 10,
+            batch_no: "DON-RICE-BATCH-001",
+            expiration_date: "2026-12-31",
+            quantity_available: 12,
+            remarks: "Updated quantity",
+          },
+          created_at: "2026-08-12T02:10:00.000Z",
+          first_name: "Maria",
+          last_name: "Santos",
+          donation_donor_name: "Hybe Corp.",
+          inventory_item_name: "Brown Rice",
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const [entry] = result.audit_logs;
+
+      assert.deepEqual(
+        entry.audit_detail.changes.map(({ field, label }) => ({ field, label })),
+        [
+          { field: "item_name", label: "Item Name" },
+          { field: "quantity_received", label: "Quantity" },
+          { field: "expiration_date", label: "Expiration Date" },
+          { field: "quantity_available", label: "Quantity Available" },
+          { field: "remarks", label: "Item Remarks" },
+        ],
+      );
+      assert.equal(
+        entry.audit_detail.changes.find((change) => change.field === "quantity_received")
+          .previous_value,
+        "10",
+      );
+      assert.equal(
+        entry.audit_detail.changes.find((change) => change.field === "quantity_received")
+          .new_value,
+        "12",
+      );
+    },
+  );
+});

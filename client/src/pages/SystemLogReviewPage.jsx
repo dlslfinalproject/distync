@@ -643,7 +643,11 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
   const isDonationEntryRecord =
     entry.entity_type === "DONATION" && entry.action === "DONATION_CREATE";
   const isDonationDetailsEditedRecord =
-    entry.action_label === "Donation Details Edited" &&
+    [
+      "DONATION_UPDATE",
+      "DONATION_PUBLIC_NAME_UPDATE",
+      "DONATION_ITEM_UPDATE",
+    ].includes(entry.action) &&
     ["DONATION", "DONATION_ITEM"].includes(entry.entity_type);
   const isStockAddedRecord =
     entry.action_label === "Stock Added" &&

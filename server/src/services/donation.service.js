@@ -338,21 +338,78 @@ const buildDonationAuditValues = (donation) => ({
     ),
 });
 
-const summarizeDonationItem = (donationItem) => ({
-  ...pickDefined(donationItem, [
-    "donation_id",
-    "inventory_item_id",
-    "inventory_batch_id",
-    "quantity_received",
+const buildDonationUpdateAuditValues = (donation, disasterEvent = null) => ({
+  ...pickDefined(donation, [
+    "disaster_event_id",
+    "donor_name",
+    "donor_name_public",
+    "donor_type",
+    "donor_type_other",
+    "contact_information",
+    "received_at",
+    "status",
     "remarks",
   ]),
-  ...pickDefined(donationItem?.inventory_item || {}, ["item_name", "category"]),
-  ...pickDefined(donationItem?.inventory_batch || {}, [
-    "batch_no",
-    "expiration_date",
-    "quantity_available",
-  ]),
+  disaster_event_title:
+    donation?.disaster_event?.title ||
+    donation?.disaster_event_title ||
+    disasterEvent?.title ||
+    null,
 });
+
+const hasAuditValueChanges = (previousValues = {}, nextValues = {}) => {
+  const fieldNames = new Set([
+    ...Object.keys(previousValues || {}),
+    ...Object.keys(nextValues || {}),
+  ]);
+
+  return Array.from(fieldNames).some((fieldName) => {
+    const previousValue = previousValues?.[fieldName];
+    const nextValue = nextValues?.[fieldName];
+
+    return JSON.stringify(previousValue) !== JSON.stringify(nextValue);
+  });
+};
+
+const summarizeDonationItem = (donationItem) => {
+  const inventoryItem = donationItem?.inventory_item || {};
+  const inventoryBatch = donationItem?.inventory_batch || {};
+  const stockForm = donationItem?.inventory_item_stock_form || {};
+  const unitOfMeasureValue =
+    inventoryItem.unit_of_measure_value ??
+    stockForm.unit_of_measure_value ??
+    inventoryBatch.stock_form_unit_of_measure_value;
+
+  return {
+    ...pickDefined(donationItem, [
+      "donation_id",
+      "inventory_item_id",
+      "inventory_batch_id",
+      "quantity_received",
+      "remarks",
+    ]),
+    ...pickDefined(inventoryItem, [
+      "item_code",
+      "item_name",
+      "category",
+      "unit_of_measure",
+    ]),
+    ...(unitOfMeasureValue !== undefined
+      ? { unit_of_measure_value: unitOfMeasureValue }
+      : {}),
+    ...pickDefined(inventoryBatch, [
+      "batch_no",
+      "expiration_date",
+      "quantity_available",
+    ]),
+    packaging:
+      stockForm.packaging ?? inventoryBatch.stock_form_packaging ?? undefined,
+    units_per_packaging:
+      stockForm.units_per_packaging ??
+      inventoryBatch.stock_form_units_per_packaging ??
+      undefined,
+  };
+};
 
 const summarizeDonationInventoryBatch = (batch) =>
   pickDefined(batch, [
@@ -2019,14 +2076,29 @@ const updateDonation = async (id, payload, actor = null) => {
       throw error;
     }
 
-    const previousDonationSummary = summarizeDonation(existingDonation);
     const donorNameChanged =
       normalizeDonationDonorName(existingDonation.donor_name) !==
       normalizeDonationDonorName(normalizedPayload.donor_name);
 
-    await ensureDisasterEvent(normalizedPayload.disaster_event_id, client, {
-      requireActive: true,
-    });
+    const nextDisasterEvent = await ensureDisasterEvent(
+      normalizedPayload.disaster_event_id,
+      client,
+      {
+        requireActive: true,
+      },
+    );
+    const previousDisasterEvent =
+      String(existingDonation.disaster_event_id) ===
+      String(normalizedPayload.disaster_event_id)
+        ? nextDisasterEvent
+        : await donationRepository.getDisasterEventById(
+            existingDonation.disaster_event_id,
+            client,
+          );
+    const previousDonationSummary = buildDonationUpdateAuditValues(
+      existingDonation,
+      previousDisasterEvent,
+    );
 
     let renamedDonationRows = [];
 
@@ -2069,27 +2141,25 @@ const updateDonation = async (id, payload, actor = null) => {
     await client.query("COMMIT");
 
     const updatedDonation = await getDonationById(id);
+    const nextDonationSummary = buildDonationUpdateAuditValues(
+      updatedDonation,
+      nextDisasterEvent,
+    );
 
-    await logAuditSafely({
-      actor: normalizedActor,
-      action: "DONATION_UPDATE",
-      entityType: "DONATION",
-      entityId: id,
-      oldValues: previousDonationSummary,
-      newValues: buildDonationAuditValues(updatedDonation),
-    });
+    if (hasAuditValueChanges(previousDonationSummary, nextDonationSummary)) {
+      await logAuditSafely({
+        actor: normalizedActor,
+        action: "DONATION_UPDATE",
+        entityType: "DONATION",
+        entityId: id,
+        oldValues: previousDonationSummary,
+        newValues: nextDonationSummary,
+      });
+    }
 
     if (donorNameChanged) {
-      const propagatedOldValues = pickDefined(existingDonation, [
-        "donor_name",
-        "donor_type",
-        "donor_type_other",
-      ]);
-      const propagatedNewValues = pickDefined(updatedDonation, [
-        "donor_name",
-        "donor_type",
-        "donor_type_other",
-      ]);
+      const propagatedOldValues = pickDefined(existingDonation, ["donor_name"]);
+      const propagatedNewValues = pickDefined(updatedDonation, ["donor_name"]);
 
       for (const renamedDonationRow of renamedDonationRows) {
         if (String(renamedDonationRow.id) === String(id)) {
@@ -2145,19 +2215,23 @@ const updateDonationPublicName = async (id, donorNamePublic, actor = null) => {
     await client.query("COMMIT");
 
     const updatedDonation = await getDonationById(id);
+    const previousVisibility = {
+      donor_name_public: Boolean(existingDonation.donor_name_public),
+    };
+    const nextVisibility = {
+      donor_name_public: nextDonorNamePublic,
+    };
 
-    await logAuditSafely({
-      actor: normalizedActor,
-      action: "DONATION_PUBLIC_NAME_UPDATE",
-      entityType: "DONATION",
-      entityId: id,
-      oldValues: {
-        donor_name_public: Boolean(existingDonation.donor_name_public),
-      },
-      newValues: {
-        donor_name_public: nextDonorNamePublic,
-      },
-    });
+    if (hasAuditValueChanges(previousVisibility, nextVisibility)) {
+      await logAuditSafely({
+        actor: normalizedActor,
+        action: "DONATION_PUBLIC_NAME_UPDATE",
+        entityType: "DONATION",
+        entityId: id,
+        oldValues: previousVisibility,
+        newValues: nextVisibility,
+      });
+    }
 
     return updatedDonation;
   } catch (error) {
@@ -2462,19 +2536,28 @@ const updateDonationItem = async (id, payload, performedBy) => {
       ),
     });
 
-    await logAuditSafely({
-      actor: normalizedActor,
-      action: "DONATION_ITEM_UPDATE",
-      entityType: "DONATION_ITEM",
-      entityId: id,
-      oldValues: previousDonationItemSummary,
-      newValues: {
-        ...nextDonationItemSummary,
-        ...(adjustmentTransactionId
-          ? { adjustment_transaction_id: adjustmentTransactionId }
-          : {}),
-      },
-    });
+    const nextDonationAuditValues = {
+      ...nextDonationItemSummary,
+      ...(adjustmentTransactionId
+        ? { adjustment_transaction_id: adjustmentTransactionId }
+        : {}),
+    };
+
+    if (
+      hasAuditValueChanges(
+        previousDonationItemSummary,
+        nextDonationAuditValues,
+      )
+    ) {
+      await logAuditSafely({
+        actor: normalizedActor,
+        action: "DONATION_ITEM_UPDATE",
+        entityType: "DONATION_ITEM",
+        entityId: id,
+        oldValues: previousDonationItemSummary,
+        newValues: nextDonationAuditValues,
+      });
+    }
 
     await logAuditSafely({
       actor: normalizedActor,

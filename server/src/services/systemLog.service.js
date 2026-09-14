@@ -56,14 +56,32 @@ const RELIEF_PACK_EDIT_AUDIT_FIELDS = Object.keys(RELIEF_PACK_FIELD_LABELS);
 
 const DONATION_FIELD_LABELS = {
   donor_name: "Donor Name",
+  donor_name_public: "Donor Name Visibility",
+  disaster_event_title: "Disaster Event",
+  donor_type: "Donor Type",
+  donor_type_other: "Other Donor Type",
+  contact_information: "Contact Information",
   received_at: "Received Date",
+  status: "Status",
+  remarks: "Remarks",
   item_count: "Donation Items",
   total_quantity_received: "Donation Items",
   items: "Donation Items",
 };
 
 const DONATION_ITEM_FIELD_LABELS = {
+  donor_name: "Donor Name",
+  item_code: "Item Code",
+  item_name: "Item Name",
+  category: "Category",
   quantity_received: "Quantity",
+  unit_of_measure: "Unit",
+  unit_of_measure_value: "Unit Value",
+  packaging: "Packaging",
+  units_per_packaging: "Units per Packaging",
+  batch_no: "Batch Number",
+  expiration_date: "Expiration Date",
+  quantity_available: "Quantity Available",
   remarks: "Item Remarks",
 };
 
@@ -109,6 +127,7 @@ const AUDIT_DETAIL_FIELD_LABELS = {
   applies_to_all_disasters: "Disaster Coverage",
   disaster_types: "Disaster Types",
   donor_name: "Donor Name",
+  donor_name_public: "Donor Name Visibility",
   donation_type: "Donation Type",
   disaster_event_title: "Disaster Event",
   donor_type: "Donor Type",
@@ -123,6 +142,7 @@ const AUDIT_DETAIL_FIELD_LABELS = {
   receipt_no: "Receipt Number",
   receipt_status: "Receipt Status",
   received_at: "Received At",
+  units_per_packaging: "Units per Packaging",
 };
 
 const AUDIT_DETAIL_ALLOWED_FIELDS = {
@@ -178,6 +198,7 @@ const AUDIT_DETAIL_ALLOWED_FIELDS = {
   DONATION: [
     "donation_type",
     "donor_name",
+    "donor_name_public",
     "disaster_event_title",
     "donor_type",
     "donor_type_other",
@@ -190,9 +211,14 @@ const AUDIT_DETAIL_ALLOWED_FIELDS = {
   ],
   DONATION_ITEM: [
     "donor_name",
+    "item_code",
     "item_name",
     "category",
     "quantity_received",
+    "unit_of_measure",
+    "unit_of_measure_value",
+    "packaging",
+    "units_per_packaging",
     "batch_no",
     "expiration_date",
     "quantity_available",
@@ -268,6 +294,21 @@ const normalizeComparableAuditValue = (value) => {
   }
 
   return normalizedValue;
+};
+
+const getComparableAuditFields = (row, allowedFields) => {
+  if (row.entity_type !== "DONATION" || row.action !== "DONATION_UPDATE") {
+    return allowedFields;
+  }
+
+  const oldValues = row.old_values_json || {};
+  const newValues = row.new_values_json || {};
+
+  return allowedFields.filter(
+    (fieldName) =>
+      Object.prototype.hasOwnProperty.call(oldValues, fieldName) &&
+      Object.prototype.hasOwnProperty.call(newValues, fieldName),
+  );
 };
 
 const formatInventoryDate = (value) => {
@@ -379,6 +420,12 @@ const formatAuditValue = (fieldName, value) => {
     return value ? "Yes" : "No";
   }
 
+  if (fieldName === "donor_name_public") {
+    return value === true || String(value).trim().toLowerCase() === "true"
+      ? "Visible"
+      : "Hidden";
+  }
+
   if (fieldName === "is_additional_pack") {
     return value ? "Additional pack" : "Standard pack";
   }
@@ -442,7 +489,7 @@ const buildAuditDetailChanges = (row) => {
   const newValues = row.new_values_json || {};
   const allowedFields = AUDIT_DETAIL_ALLOWED_FIELDS[row.entity_type] || [];
 
-  return allowedFields
+  return getComparableAuditFields(row, allowedFields)
     .filter((fieldName) => {
       const previousValue = normalizeComparableAuditValue(oldValues[fieldName]);
       const nextValue = normalizeComparableAuditValue(newValues[fieldName]);
@@ -1381,6 +1428,7 @@ const buildChangedFieldLabels = (row, auditFields, fieldLabels) => {
   const newValues = row.new_values_json || {};
 
   return auditFields
+    .filter((key) => getComparableAuditFields(row, [key]).length > 0)
     .filter((key) => {
       return (
         normalizeComparableAuditValue(oldValues[key]) !==

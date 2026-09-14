@@ -1415,10 +1415,10 @@ export const useDonationManagementModals = ({
           normalizeDonorType(donationForm.donor_type) === "OTHER"
             ? donationForm.donor_type_other.trim()
             : null,
-        contact_information: null,
+        contact_information: donationForm.contact_information?.trim() || null,
         received_at: donationForm.received_at || null,
         status: donationForm.status,
-        remarks: null,
+        remarks: donationForm.remarks?.trim() || null,
       };
 
       if (!donationForm.id) {
@@ -1788,7 +1788,7 @@ export const useDonationManagementModals = ({
         return {
           ...item,
           quantity_received: nextQuantityReceived,
-          remarks: null,
+          remarks: item.remarks || null,
           expiration_date: nextExpirationDate,
           inventory_item: {
             ...item.inventory_item,
