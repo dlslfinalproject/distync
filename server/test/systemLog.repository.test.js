@@ -95,6 +95,8 @@ test("getAuditLogs includes finalized distribution claim audit rows", async () =
   assert.match(capturedQuery, /DISTRIBUTION_RECORD/);
   assert.match(capturedQuery, /DISTRIBUTION_QR_CLAIM/);
   assert.match(capturedQuery, /distribution_items_json/);
+  assert.match(capturedQuery, /relief_pack_sector_name_map/);
+  assert.match(capturedQuery, /jsonb_object_agg\(sector_lookup\.id::text, sector_lookup\.name\)/);
   assert.match(capturedQuery, /FROM audit_logs transaction_audit/);
   assert.match(capturedQuery, /transaction_audit\.new_values_json->>'inventory_batch_id'/);
   assert.match(capturedQuery, /transaction_audit\.new_values_json->>'reference_type'/);

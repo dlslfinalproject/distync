@@ -441,6 +441,14 @@ const getAuditLogs = async (
       ) AS inventory_barcode,
       rpt_direct.name AS relief_pack_template_name,
       rpt_direct.is_active AS relief_pack_template_is_active,
+      (
+        SELECT COALESCE(
+          jsonb_object_agg(sector_lookup.id::text, sector_lookup.name),
+          '{}'::jsonb
+        )
+        FROM sectors sector_lookup
+        WHERE al.entity_type = 'RELIEF_PACK_TEMPLATE'
+      ) AS relief_pack_sector_name_map,
       COALESCE(
         d_direct.id,
         d_item.id,

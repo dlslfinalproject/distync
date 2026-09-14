@@ -562,7 +562,7 @@ test("relief pack template creation details use clear rule labels and disaster t
             based_on_family_size: false,
             based_on_sector: true,
             is_additional_pack: true,
-            sector_ids: ["sector-1"],
+            sector_ids: ["sector-1", "sector-2"],
             applies_to_all_disasters: true,
             disaster_types: [],
             is_active: false,
@@ -571,6 +571,10 @@ test("relief pack template creation details use clear rule labels and disaster t
           created_at: "2026-08-11T01:29:00.000Z",
           first_name: "Maria",
           last_name: "Santos",
+          relief_pack_sector_name_map: {
+            "sector-1": "Infant",
+            "sector-2": "Senior Citizen",
+          },
         },
       ],
       getErrorLogs: async () => [],
@@ -588,7 +592,6 @@ test("relief pack template creation details use clear rule labels and disaster t
         [
           { field: "name", label: "Pack Name", new_value: "Standard Food Pack" },
           { field: "family_size_covered", label: "Family Size Covered", new_value: "5" },
-          { field: "sector_match", label: "Sector Match", new_value: "No" },
           { field: "is_additional_pack", label: "Pack Type", new_value: "Standard pack" },
           { field: "disaster_types", label: "Disaster Types", new_value: "Typhoon, Flood" },
           { field: "is_active", label: "Template Status", new_value: "Active" },
@@ -605,13 +608,19 @@ test("relief pack template creation details use clear rule labels and disaster t
         additionalPack.audit_detail.changes.find(
           ({ field }) => field === "disaster_types",
         ).new_value,
-        "All disaster types",
+        "Typhoon, Flood, Earthquake, Landslide, Volcanic Eruption, Storm Surge, Drought / El Niño, Tsunami, Fire, Other",
       );
       assert.equal(
         additionalPack.audit_detail.changes.find(
-          ({ field }) => field === "sector_match",
+        ({ field }) => field === "sector_match",
         ).new_value,
-        "Yes",
+        "Infant, Senior Citizen",
+      );
+      assert.equal(
+        additionalPack.audit_detail.changes.some(
+          ({ field }) => field === "family_size_covered",
+        ),
+        false,
       );
     },
   );
@@ -682,7 +691,8 @@ test("relief pack edits show semantic before and after values without boolean ru
         {
           field: "disaster_types",
           label: "Disaster Types",
-          previous_value: "All disaster types",
+          previous_value:
+            "Typhoon, Flood, Earthquake, Landslide, Volcanic Eruption, Storm Surge, Drought / El Niño, Tsunami, Fire, Other",
           new_value: "Flood, Typhoon",
         },
       ]);

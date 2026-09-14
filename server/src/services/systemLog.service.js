@@ -455,19 +455,55 @@ const formatReliefPackDisasterType = (value) => {
   );
 };
 
+const isAuditBooleanTrue = (value) =>
+  value === true || String(value || "").trim().toLowerCase() === "true";
+
+const hasReliefPackDisasterTypes = (value) => {
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  return value !== undefined && value !== null && String(value).trim() !== "";
+};
+
+const isReliefPackAllDisasters = (values = {}) => {
+  const appliesToAllDisasters = values.applies_to_all_disasters;
+
+  if (
+    appliesToAllDisasters === undefined ||
+    appliesToAllDisasters === null ||
+    appliesToAllDisasters === ""
+  ) {
+    return !hasReliefPackDisasterTypes(values.disaster_types);
+  }
+
+  return isAuditBooleanTrue(appliesToAllDisasters);
+};
+
 const formatReliefPackDisasterTypes = (
   value,
   { appliesToAllDisasters = false } = {},
 ) => {
-  if (appliesToAllDisasters) {
-    return "All disaster types";
-  }
-
   const disasterTypes = Array.isArray(value)
     ? value
     : value === undefined || value === null || value === ""
       ? []
       : [value];
+  const includesGenericAllDisasterLabel = disasterTypes.some((entry) => {
+    const disasterType =
+      entry && typeof entry === "object"
+        ? entry.disaster_type || entry.name || entry.label
+        : entry;
+
+    return (
+      String(disasterType || "").trim().toLowerCase() === "all disaster types"
+    );
+  });
+
+  if (appliesToAllDisasters || includesGenericAllDisasterLabel) {
+    return RELIEF_PACK_DISASTER_TYPE_LABELS.join(", ");
+  }
+
   const formattedDisasterTypes = disasterTypes
     .map((entry) => {
       if (entry && typeof entry === "object") {
@@ -569,60 +605,18 @@ const formatAuditValue = (fieldName, value) => {
   return String(value);
 };
 
-const buildReliefPackTemplateCreatedChanges = (row) => {
-  const values = row.new_values_json || {};
-  const changes = [];
-  const addChange = (field, label, newValue) => {
-    changes.push({
-      field,
-      label,
-      previous_value: "--",
-      new_value:
-        newValue === undefined || newValue === null || newValue === ""
-          ? "--"
-          : String(newValue),
-    });
-  };
-
-  addChange("name", "Pack Name", values.name);
-
-  if (values.based_on_family_size) {
-    addChange("family_size_covered", "Family Size Covered", values.description);
-  }
-
-  addChange(
-    "sector_match",
-    "Sector Match",
-    formatAuditValue("based_on_sector", values.based_on_sector),
-  );
-  addChange(
-    "is_additional_pack",
-    "Pack Type",
-    formatAuditValue("is_additional_pack", values.is_additional_pack),
-  );
-  addChange(
-    "disaster_types",
-    "Disaster Types",
-    formatReliefPackDisasterTypes(values.disaster_types, {
-      appliesToAllDisasters: values.applies_to_all_disasters === true,
-    }),
-  );
-  addChange(
-    "is_active",
-    "Template Status",
-    formatAuditValue("is_active", values.is_active),
-  );
-
-  return changes;
-};
-
 const RELIEF_PACK_SECTOR_IDS_PREFIX = "__relief_pack_sector_ids__:";
 
 const getReliefPackSectorIds = (values = {}) => {
-  if (Array.isArray(values.sector_ids)) {
-    return Array.from(
-      new Set(values.sector_ids.map((sectorId) => String(sectorId || "").trim()).filter(Boolean)),
-    );
+  const explicitSectorIds = [
+    ...(Array.isArray(values.sector_ids) ? values.sector_ids : []),
+    values.sector_id,
+  ]
+    .map((sectorId) => String(sectorId || "").trim())
+    .filter(Boolean);
+
+  if (explicitSectorIds.length > 0) {
+    return Array.from(new Set(explicitSectorIds));
   }
 
   const description = String(values.description || "");
@@ -650,35 +644,159 @@ const getReliefPackSectorIds = (values = {}) => {
   }
 };
 
-const formatReliefPackFamilySize = (values = {}) =>
-  values.based_on_family_size
-    ? formatAuditValue("family_size_covered", values.description)
-    : "Not applicable";
+const getReliefPackSectorNameMap = (row = {}) => {
+  const rawSectorNameMap = row.relief_pack_sector_name_map;
+  let parsedSectorNameMap = rawSectorNameMap;
 
-const formatReliefPackSectorMatch = (values = {}) => {
-  const sectorCount = getReliefPackSectorIds(values).length;
-
-  if (sectorCount > 0) {
-    return `${sectorCount} selected sector${sectorCount === 1 ? "" : "s"}`;
+  if (typeof rawSectorNameMap === "string") {
+    try {
+      parsedSectorNameMap = JSON.parse(rawSectorNameMap);
+    } catch (_error) {
+      parsedSectorNameMap = {};
+    }
   }
 
-  return values.based_on_sector ? "Configured" : "Not applicable";
+  if (!parsedSectorNameMap || typeof parsedSectorNameMap !== "object") {
+    return new Map();
+  }
+
+  return new Map(
+    Object.entries(parsedSectorNameMap)
+      .map(([sectorId, sectorName]) => [
+        String(sectorId),
+        String(sectorName || "").trim(),
+      ])
+      .filter(([, sectorName]) => Boolean(sectorName)),
+  );
+};
+
+const getReliefPackSectorNames = (values = {}) => {
+  const directSectorNames = [
+    ...(Array.isArray(values.sector_names) ? values.sector_names : []),
+    ...(Array.isArray(values.sector_labels) ? values.sector_labels : []),
+    ...(Array.isArray(values.sectors) ? values.sectors : []),
+  ]
+    .map((sector) => {
+      if (sector && typeof sector === "object") {
+        return sector.name || sector.label;
+      }
+
+      return sector;
+    })
+    .map((sectorName) => String(sectorName || "").trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(directSectorNames));
+};
+
+const formatReliefPackFamilySize = (values = {}) => {
+  if (
+    isAuditBooleanTrue(values.is_additional_pack) ||
+    !isAuditBooleanTrue(values.based_on_family_size)
+  ) {
+    return null;
+  }
+
+  return formatAuditValue("family_size_covered", values.description);
+};
+
+const formatReliefPackSectorMatch = (
+  values = {},
+  sectorNameMap = new Map(),
+) => {
+  if (!isAuditBooleanTrue(values.is_additional_pack)) {
+    return null;
+  }
+
+  const directSectorNames = getReliefPackSectorNames(values);
+
+  if (directSectorNames.length > 0) {
+    return directSectorNames.join(", ");
+  }
+
+  const sectorIds = getReliefPackSectorIds(values);
+
+  if (sectorIds.length === 0) {
+    return "--";
+  }
+
+  return sectorIds
+    .map((sectorId) => sectorNameMap.get(sectorId) || "Unknown sector")
+    .join(", ");
+};
+
+const buildReliefPackTemplateCreatedChanges = (row) => {
+  const values = row.new_values_json || {};
+  const sectorNameMap = getReliefPackSectorNameMap(row);
+  const changes = [];
+  const addChange = (field, label, newValue) => {
+    changes.push({
+      field,
+      label,
+      previous_value: "--",
+      new_value:
+        newValue === undefined || newValue === null || newValue === ""
+          ? "--"
+          : String(newValue),
+    });
+  };
+
+  addChange("name", "Pack Name", values.name);
+
+  if (isAuditBooleanTrue(values.is_additional_pack)) {
+    addChange(
+      "sector_match",
+      "Sector Match",
+      formatReliefPackSectorMatch(values, sectorNameMap),
+    );
+  } else if (isAuditBooleanTrue(values.based_on_family_size)) {
+    addChange(
+      "family_size_covered",
+      "Family Size Covered",
+      values.description,
+    );
+  }
+
+  addChange(
+    "is_additional_pack",
+    "Pack Type",
+    formatAuditValue("is_additional_pack", values.is_additional_pack),
+  );
+  addChange(
+    "disaster_types",
+    "Disaster Types",
+    formatReliefPackDisasterTypes(values.disaster_types, {
+      appliesToAllDisasters: isReliefPackAllDisasters(values),
+    }),
+  );
+  addChange(
+    "is_active",
+    "Template Status",
+    formatAuditValue("is_active", values.is_active),
+  );
+
+  return changes;
 };
 
 const buildReliefPackTemplateEditChanges = (row) => {
   const oldValues = row.old_values_json || {};
   const newValues = row.new_values_json || {};
+  const sectorNameMap = getReliefPackSectorNameMap(row);
   const changes = [];
   const addChangedChange = (field, label, previousValue, newValue) => {
     if (previousValue === newValue) {
       return;
     }
 
+    if (previousValue === null && newValue === null) {
+      return;
+    }
+
     changes.push({
       field,
       label,
-      previous_value: previousValue,
-      new_value: newValue,
+      previous_value: previousValue === null ? "Not applicable" : previousValue,
+      new_value: newValue === null ? "Not applicable" : newValue,
     });
   };
 
@@ -697,8 +815,8 @@ const buildReliefPackTemplateEditChanges = (row) => {
   addChangedChange(
     "sector_match",
     "Sector Match",
-    formatReliefPackSectorMatch(oldValues),
-    formatReliefPackSectorMatch(newValues),
+    formatReliefPackSectorMatch(oldValues, sectorNameMap),
+    formatReliefPackSectorMatch(newValues, sectorNameMap),
   );
   addChangedChange(
     "is_additional_pack",
@@ -710,10 +828,10 @@ const buildReliefPackTemplateEditChanges = (row) => {
     "disaster_types",
     "Disaster Types",
     formatReliefPackDisasterTypes(oldValues.disaster_types, {
-      appliesToAllDisasters: oldValues.applies_to_all_disasters === true,
+      appliesToAllDisasters: isReliefPackAllDisasters(oldValues),
     }),
     formatReliefPackDisasterTypes(newValues.disaster_types, {
-      appliesToAllDisasters: newValues.applies_to_all_disasters === true,
+      appliesToAllDisasters: isReliefPackAllDisasters(newValues),
     }),
   );
   addChangedChange(
