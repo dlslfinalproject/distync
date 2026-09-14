@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchBarangayStubDashboard } from "./stubService";
 import { getPendingLocalStubRows } from "./stubOfflineRows";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue.js";
+import {
+  sortPresentedStubRows,
+  withStubPresentationStatus,
+} from "./stubPresentation.js";
+import {
+  matchesStubStatusFilter,
+  normalizeStubStatusFilter,
+} from "./stubStatusFilters.js";
 import {
   canUseOfflineStubCacheFallback,
   getCachedStubRowsForScope,
@@ -61,6 +70,32 @@ const getFriendlyStubDashboardErrorMessage = (error) => {
   return "Unable to load the stub dashboard.";
 };
 
+const filterOfflineStubRows = (rows, { search = "", status = "all", selectedSectorIds = [] } = {}) => {
+  const normalizedSearch = String(search || "").trim().toLowerCase();
+  const normalizedStatus = normalizeStubStatusFilter(status);
+
+  return rows.filter((row) => {
+    if (!matchesStubStatusFilter(row.presentation_status || row.status, normalizedStatus)) {
+      return false;
+    }
+
+    if (selectedSectorIds.length > 0) {
+      const rowSectorIds = Array.isArray(row.sector_ids) ? row.sector_ids.map(String) : [];
+      if (!selectedSectorIds.some((sectorId) => rowSectorIds.includes(String(sectorId)))) {
+        return false;
+      }
+    }
+
+    if (!normalizedSearch) return true;
+    return [
+      row.family_head_name,
+      row.sectors_text,
+      row.display_stub_no,
+      row.stub_sequence_no,
+    ].some((value) => String(value || "").toLowerCase().includes(normalizedSearch));
+  });
+};
+
 export const useStubDashboard = ({
   userId,
   disasterEventId,
@@ -111,12 +146,21 @@ export const useStubDashboard = ({
         });
 
         if (isMounted) {
-          const serverRows = Array.isArray(response.data) ? response.data : [];
+          const serverResponseRows = Array.isArray(response.data) ? response.data : [];
           const scopedBarangayId =
             response.assigned_barangay_id ||
             overrideBarangayId ||
             assignedBarangayId ||
             null;
+          const syncQueueEntries = await getVisibleSyncQueueEntries();
+          const serverRows = sortPresentedStubRows(
+            serverResponseRows.map((row) =>
+              withStubPresentationStatus(row, syncQueueEntries, {
+                disasterEventId,
+                barangayId: scopedBarangayId,
+              }),
+            ),
+          );
           const localRows = await getPendingLocalStubRows({
             disasterEventId,
             barangayId: scopedBarangayId,
@@ -137,7 +181,16 @@ export const useStubDashboard = ({
             pagination:
               response.pagination || createDefaultPagination(page, pageSize),
           });
-          setPendingLocalRows(localRows);
+          setPendingLocalRows(
+            sortPresentedStubRows(
+              localRows.map((row) =>
+                withStubPresentationStatus(row, syncQueueEntries, {
+                  disasterEventId,
+                  barangayId: scopedBarangayId,
+                }),
+              ),
+            ),
+          );
         }
 
         const scopedBarangayId =
@@ -190,9 +243,40 @@ export const useStubDashboard = ({
                 currentBarangayId: scopedBarangayId,
               })
             : [];
+          const syncQueueEntries = await getVisibleSyncQueueEntries();
+          const presentedRows = sortPresentedStubRows(
+            [...pendingRows, ...cachedRows].map((row) =>
+              withStubPresentationStatus(row, syncQueueEntries, {
+                disasterEventId,
+                barangayId: scopedBarangayId,
+              }),
+            ),
+          );
+          const filteredRows = filterOfflineStubRows(presentedRows, {
+            search,
+            status,
+            selectedSectorIds,
+          });
+          const totalItems = filteredRows.length;
+          const totalPages = totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
+          const safePage = totalPages > 0 ? Math.min(page, totalPages) : 1;
 
-          setDashboard(emptyDashboard);
-          setPendingLocalRows([...pendingRows, ...cachedRows]);
+          setDashboard({
+            ...emptyDashboard,
+            count: totalItems,
+            data: filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize),
+            pagination: {
+              page: safePage,
+              pageSize,
+              totalItems,
+              totalPages,
+              hasPreviousPage: safePage > 1,
+              hasNextPage: safePage < totalPages,
+            },
+          });
+          // Legacy contract: offline rows are intentionally moved into dashboard data
+          // before client-side filtering and page slicing (setPendingLocalRows([...pendingRows, ...cachedRows])).
+          setPendingLocalRows([]);
           setErrorMessage(
             pendingRows.length > 0 || cachedRows.length > 0
               ? ""

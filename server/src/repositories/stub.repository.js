@@ -30,6 +30,16 @@ const stubSequenceExpression = `
 
 const stubSequenceSelect = `${stubSequenceExpression} AS stub_sequence_no`;
 
+const presentationStatusExpression = `
+      CASE
+        WHEN s.status = 'CLAIMED' THEN 'CLAIMED'
+        WHEN h.is_active = FALSE
+          OR latest_attendance.status <> 'PRESENT'
+          OR latest_attendance.time_out IS NOT NULL
+        THEN 'NOT_PRESENT'
+        ELSE 'FOR_CLAIM'
+      END`;
+
 const buildBarangayDashboardFilters = ({
   disasterEventId,
   barangayId,
@@ -43,20 +53,14 @@ const buildBarangayDashboardFilters = ({
     "h.barangay_id = $2",
     "h.current_stay_type = 'EVAC_CENTER'",
     "s.status IN ('ISSUED', 'CLAIMED')",
-    `(
-        (
-          h.is_active = TRUE
-          AND latest_attendance.status = 'PRESENT'
-          AND latest_attendance.time_out IS NULL
-        )
-        OR h.is_active = FALSE
-      )`,
   ];
 
   if (status === "claimed") {
     conditions.push("s.status = 'CLAIMED'");
   } else if (status === "unclaimed") {
-    conditions.push("s.status = 'ISSUED'");
+    conditions.push(`s.status = 'ISSUED' AND ${presentationStatusExpression} = 'FOR_CLAIM'`);
+  } else if (status === "not_present") {
+    conditions.push(`${presentationStatusExpression} = 'NOT_PRESENT'`);
   }
 
   if (Array.isArray(sectorIds) && sectorIds.length > 0) {
@@ -138,8 +142,14 @@ const getBarangayDashboardOrderBy = (sortOrder = "oldest") => {
 
   return `
     ORDER BY
-      COALESCE(latest_attendance.time_in, s.qr_generated_at, s.issued_at) ${direction} NULLS LAST,
-      ${stubSequenceExpression} ${direction},
+      CASE ${presentationStatusExpression}
+        WHEN 'FOR_CLAIM' THEN 1
+        WHEN 'CLAIMED' THEN 2
+        WHEN 'NOT_PRESENT' THEN 3
+        ELSE 99
+      END ASC,
+      ${stubSequenceExpression} ${direction} NULLS LAST,
+      s.issued_at ${direction} NULLS LAST,
       s.id ASC`;
 };
 
@@ -163,11 +173,16 @@ const getStubDashboardMetrics = async (disasterEventId, barangayId) => {
     SELECT
       COUNT(s.id)::int AS total_issued_stubs,
       COUNT(*) FILTER (WHERE s.status = 'CLAIMED')::int AS claimed_stubs,
-      COUNT(*) FILTER (WHERE s.status = 'ISSUED')::int AS unclaimed_stubs,
+      COUNT(*) FILTER (
+        WHERE s.status = 'ISSUED'
+          AND h.is_active = TRUE
+          AND latest_attendance.status = 'PRESENT'
+          AND latest_attendance.time_out IS NULL
+      )::int AS unclaimed_stubs,
       COUNT(DISTINCT s.household_id)::int AS beneficiary_families
     FROM stubs s
     JOIN households h ON h.id = s.household_id
-    INNER JOIN LATERAL (
+    LEFT JOIN LATERAL (
       SELECT el.status, el.time_in, el.time_out
       FROM evacuation_logs el
       WHERE el.household_id = h.id
@@ -181,9 +196,6 @@ const getStubDashboardMetrics = async (disasterEventId, barangayId) => {
     WHERE s.disaster_event_id = $1
       AND h.barangay_id = $2
       AND h.current_stay_type = 'EVAC_CENTER'
-      AND h.is_active = TRUE
-      AND latest_attendance.status = 'PRESENT'
-      AND latest_attendance.time_out IS NULL
       AND s.status IN ('ISSUED', 'CLAIMED')
   `;
 
@@ -217,9 +229,14 @@ const getBarangayStubDashboardRows = async (
     ? getBarangayDashboardOrderBy(options.sortOrder)
     : `
     ORDER BY
-      CASE WHEN h.is_active = FALSE THEN 1 ELSE 0 END ASC,
-      latest_attendance.time_in ASC NULLS LAST,
-      s.issued_at ASC,
+      CASE ${presentationStatusExpression}
+        WHEN 'FOR_CLAIM' THEN 1
+        WHEN 'CLAIMED' THEN 2
+        WHEN 'NOT_PRESENT' THEN 3
+        ELSE 99
+      END ASC,
+      ${stubSequenceExpression} ASC NULLS LAST,
+      s.issued_at ASC NULLS LAST,
       s.id ASC`;
   const query = `
     SELECT
@@ -229,6 +246,7 @@ const getBarangayStubDashboardRows = async (
       s.stub_no,
       s.serial_no,
       s.status,
+      ${presentationStatusExpression} AS presentation_status,
       s.issued_at,
       s.claimed_at,
       s.updated_at,
