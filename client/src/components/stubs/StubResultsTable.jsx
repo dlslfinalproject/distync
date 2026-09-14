@@ -461,7 +461,9 @@ const StubResultsTable = ({
                     }}
                   >
                     <div style={tableStyles.familyHeadCell}>
-                      <span>{row.household?.family_head_name || "-"}</span>
+                      <span style={{ fontWeight: 700 }}>
+                        {row.household?.family_head_name || "-"}
+                      </span>
                       {shouldShowSyncStatusIcon(syncStatus, isOffline) ? (
                         <SyncStatusIcon status={syncStatus} />
                       ) : null}

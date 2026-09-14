@@ -130,11 +130,7 @@ const getEventCodeSortValue = (event) => {
 const formatDisasterEventTitle = (event) =>
   String(event?.title || "").trim() || "No disaster event selected";
 
-const getEventSelectPlaceholder = (eventScope, isContextResolved) => {
-  if (!isContextResolved) {
-    return "Loading event context...";
-  }
-
+const getEventSelectPlaceholder = (eventScope) => {
   return eventScope === "ended"
     ? "Select ended disaster event"
     : "Select active disaster event";
@@ -167,17 +163,12 @@ const BarangayDashboardOverview = ({
   const scopeLabel = eventScope === "active" ? "Active" : "Ended";
   const showFallbackOverride =
     isContextResolved && allowFallback && !hasAssignedBarangay;
-  const barangayDisplayName = !isContextResolved
-    ? "Resolving barangay..."
-    : assignedBarangay?.name || "No assigned barangay";
-  const eventPlaceholder = getEventSelectPlaceholder(
-    eventScope,
-    isContextResolved,
-  );
+  const barangayDisplayName =
+    assignedBarangay?.name ||
+    (isContextResolved ? "No assigned barangay" : "—");
+  const eventPlaceholder = getEventSelectPlaceholder(eventScope);
   const eventSelectValue = isContextResolved ? selectedDisasterEventId : "";
-  const eventSummaryTitle = isContextResolved
-    ? formatDisasterEventTitle(selectedEvent)
-    : "Preparing event context...";
+  const eventSummaryTitle = formatDisasterEventTitle(selectedEvent);
   const sortedAvailableEvents = useMemo(() => {
     return [...(availableEvents || [])].sort((left, right) => {
       const codeDifference =
@@ -203,21 +194,19 @@ const BarangayDashboardOverview = ({
 
   let stateMessage = "";
 
-  if (!isContextResolved) {
-    stateMessage = "Preparing barangay and event context...";
-  } else if (errorCode === "NO_ASSIGNED_BARANGAY") {
+  if (isContextResolved && errorCode === "NO_ASSIGNED_BARANGAY") {
     stateMessage =
       showFallbackOverride && !overrideBarangayId
         ? "Select a fallback barangay to continue."
         : "No assigned barangay. Please contact administrator.";
-  } else if (errorMessage) {
+  } else if (isContextResolved && errorMessage) {
     stateMessage = errorMessage;
-  } else if (!hasEvents) {
+  } else if (isContextResolved && !hasEvents) {
     stateMessage = `No ${scopeLabel.toLowerCase()} disaster events are available for this barangay yet.`;
-  } else if (!hasSelectedEvent) {
+  } else if (isContextResolved && !hasSelectedEvent) {
     stateMessage =
       "Select a disaster event to load the disaster information and analytics.";
-  } else if (!hasData) {
+  } else if (isContextResolved && !hasData) {
     stateMessage =
       "No data available for this barangay and selected disaster event.";
   }
@@ -361,14 +350,6 @@ const BarangayDashboardOverview = ({
             <span>Period: {formatReliefPeriod(selectedEvent)}</span>
           </div>
         </div>
-
-        {(isLoading || !isContextResolved) && (
-          <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
-            {!isContextResolved
-              ? "Preparing barangay and event context..."
-              : "Loading barangay dashboard..."}
-          </p>
-        )}
 
         {isContextResolved && !isLoading && stateMessage && (
           <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>

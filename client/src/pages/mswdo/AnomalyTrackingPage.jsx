@@ -1420,7 +1420,7 @@ const AnomalyTrackingPage = ({
   return (
     <div style={pageSpacingStyles.pageStack}>
       <PageHeader
-        title="Anomaly Tracking"
+        title="ANOMALY TRACKING"
         actions={[]}
       />
 
