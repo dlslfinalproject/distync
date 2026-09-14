@@ -61,9 +61,10 @@ const headerNotificationStyles = {
     lineHeight: 0,
   },
   settingsButton: {
-    border: "none",
-    borderRadius: "12px",
-    backgroundColor: "transparent",
+    position: "relative",
+    border: "1px solid #c7d7e8",
+    borderRadius: "14px",
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
     color: "#24496e",
     width: "44px",
     height: "44px",
@@ -74,6 +75,9 @@ const headerNotificationStyles = {
     flexShrink: 0,
     padding: 0,
     lineHeight: 0,
+    overflow: "visible",
+    boxShadow: "0 10px 24px rgba(61, 93, 125, 0.08)",
+    backdropFilter: "blur(10px)",
   },
   badge: {
     position: "absolute",
