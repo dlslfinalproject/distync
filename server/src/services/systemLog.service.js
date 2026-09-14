@@ -1800,10 +1800,6 @@ const buildInventoryAuditActionLabel = (row) => {
       return "Written Off";
     }
 
-    if (transactionType === "ADJUSTMENT") {
-      return "Stock Adjusted";
-    }
-
     if (transactionType === "INFLOW") {
       return "Stock Added";
     }

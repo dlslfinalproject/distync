@@ -469,7 +469,7 @@ test("EE-FIX-04 non-ACTIVE event-specific manual OUTFLOW is rejected before inve
 });
 
 test("EE-FIX-04 general inventory transactions are not blocked by non-ACTIVE event metadata", async () => {
-  for (const transactionType of ["INFLOW", "ADJUSTMENT", "EXPIRED", "MISSING", "DAMAGED", "SPOILED", "STOLEN", "RETURN"]) {
+  for (const transactionType of ["INFLOW", "EXPIRED", "MISSING", "DAMAGED", "SPOILED", "STOLEN", "RETURN"]) {
     const events = [];
 
     await withStubbedInventoryService(
@@ -488,6 +488,33 @@ test("EE-FIX-04 general inventory transactions are not blocked by non-ACTIVE eve
       },
     );
   }
+});
+
+test("regular inventory stock adjustments are rejected before any stock mutation", async () => {
+  const events = [];
+
+  await withStubbedInventoryService(
+    buildInventoryCreateStubs({ disasterEventStatus: "ACTIVE", events }),
+    async ({ createInventoryTransaction }) => {
+      await assert.rejects(
+        () =>
+          createInventoryTransaction(
+            createInventoryPayload({
+              transaction_type: "ADJUSTMENT",
+              quantity: 1,
+              inventoryTransactionReferenceNo: "ITR-2026-100099",
+            }),
+          ),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.equal(error.code, "STOCK_ADJUSTMENT_NOT_SUPPORTED");
+          return true;
+        },
+      );
+
+      assert.deepEqual(events, []);
+    },
+  );
 });
 
 test("EE-FIX-04 general non-event OUTFLOW remains valid and does not require event status", async () => {

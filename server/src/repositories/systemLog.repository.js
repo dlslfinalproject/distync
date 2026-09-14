@@ -168,12 +168,6 @@ const getAuditLogs = async (
           )
         )
       `,
-      stock_adjusted: `
-        al.entity_type = 'INVENTORY_TRANSACTION'
-        AND al.action = 'INVENTORY_TRANSACTION_CREATE'
-        AND al.new_values_json->>'transaction_type' = 'ADJUSTMENT'
-        AND COALESCE(it_direct.reference_type, '') <> 'DONATION'
-      `,
       written_off: `
         al.entity_type = 'INVENTORY_TRANSACTION'
         AND al.action = 'INVENTORY_TRANSACTION_CREATE'
@@ -270,9 +264,6 @@ const getAuditLogs = async (
             AND it_direct.reference_type = 'DONATION'
             AND al.new_values_json->>'transaction_type' = 'OUTFLOW'
             THEN 'donated stock removed'
-          WHEN al.entity_type = 'INVENTORY_TRANSACTION'
-            AND al.new_values_json->>'transaction_type' = 'ADJUSTMENT'
-            THEN 'stock adjusted'
           WHEN al.entity_type = 'INVENTORY_TRANSACTION'
             AND al.new_values_json->>'transaction_type' = 'INFLOW'
             THEN 'stock added'
@@ -731,7 +722,6 @@ const getAuditLogs = async (
               AND al.new_values_json->>'transaction_type' IN (
                 'INFLOW',
                 'RETURN',
-                'ADJUSTMENT',
                 'EXPIRED',
                 'MISSING',
                 'DAMAGED',

@@ -39,11 +39,6 @@ const AUDIT_ACTION_FILTER_OPTIONS = [
     modules: ["Inventory"],
   },
   { value: "stock_added", label: "Stock Added", modules: ["Inventory"] },
-  {
-    value: "stock_adjusted",
-    label: "Stock Adjusted",
-    modules: ["Inventory"],
-  },
   { value: "written_off", label: "Written Off", modules: ["Inventory", "Donation"] },
   {
     value: "relief_pack_template_created",

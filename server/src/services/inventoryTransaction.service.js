@@ -61,6 +61,15 @@ const createDisasterEventNotActiveError = () => {
   return error;
 };
 
+const createStockAdjustmentNotSupportedError = () => {
+  const error = new Error(
+    "Stock adjustments are not supported for regular inventory items. Use the appropriate stock status workflow instead.",
+  );
+  error.statusCode = 400;
+  error.code = "STOCK_ADJUSTMENT_NOT_SUPPORTED";
+  return error;
+};
+
 const buildFullName = (firstName, lastName) => {
   return [firstName, lastName].filter(Boolean).join(" ");
 };
@@ -430,6 +439,24 @@ const getInventoryTransactionById = async (id) => {
 };
 
 const createInventoryTransaction = async (transactionData) => {
+  const normalizedTransactionType = String(
+    transactionData.transaction_type || "",
+  )
+    .trim()
+    .toUpperCase();
+  const normalizedReferenceType = String(
+    transactionData.reference_type || "MANUAL",
+  )
+    .trim()
+    .toUpperCase();
+
+  if (
+    normalizedTransactionType === "ADJUSTMENT" &&
+    normalizedReferenceType !== "DONATION"
+  ) {
+    throw createStockAdjustmentNotSupportedError();
+  }
+
   const normalizedOtherStatus =
     typeof transactionData.other_status === "string"
       ? transactionData.other_status.trim()

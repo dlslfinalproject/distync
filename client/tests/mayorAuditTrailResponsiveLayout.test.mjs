@@ -56,6 +56,7 @@ test("Mayor audit trail tables keep horizontal overflow local and paginator outs
     /isItemCreatedRecord\s*\|\|\s*isPackagingAddedRecord[\s\S]*?\?\s*"Item Details"/,
   );
   assert.match(pageSource, /Packaging Added/);
+  assert.doesNotMatch(pageSource, /Stock Adjusted/);
   assert.match(pageSource, /Donation Entry/);
   assert.match(pageSource, /Donation Details/);
   assert.match(pageSource, /Donation Details Edited/);

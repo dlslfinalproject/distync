@@ -56,7 +56,6 @@ const validateGetSystemLogReview = (req, res, next) => {
         "packaging_added",
         "item_details_edited",
         "stock_added",
-        "stock_adjusted",
         "written_off",
         "relief_pack_template_created",
         "relief_pack_details_edited",

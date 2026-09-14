@@ -123,6 +123,8 @@ test("getAuditLogs applies five-year retention and page offset", async () => {
   assert.match(capturedQuery, /NOW\(\) - INTERVAL '5 years'/);
   assert.match(capturedQuery, /ORDER BY al\.created_at DESC, al\.id DESC/);
   assert.match(capturedQuery, /LIMIT \$1 OFFSET \$2/);
+  assert.doesNotMatch(capturedQuery, /stock_adjusted/i);
+  assert.doesNotMatch(capturedQuery, /THEN 'stock adjusted'/i);
   assert.deepEqual(capturedValues, [50, 100]);
 });
 
