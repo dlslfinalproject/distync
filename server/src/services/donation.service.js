@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const donationRepository = require("../repositories/donation.repository");
 const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
+const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const inventoryItemStockFormRepository = require("../repositories/inventoryItemStockForm.repository");
 const inventoryItemService = require("./inventoryItem.service");
 const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
@@ -25,6 +26,13 @@ const {
   getDonationTypeKey: resolveDonationTypeKey,
   isReliefPackDonationItemRemark,
 } = require("../utils/donationType");
+const {
+  isValidInventoryBarcode,
+  normalizeInventoryBarcode,
+} = require("../utils/inventoryBarcode");
+const {
+  createDuplicateInventoryBarcodeError,
+} = require("../utils/inventoryItemIdentity");
 
 const buildFullName = (firstName, lastName) => {
   return [firstName, lastName].filter(Boolean).join(" ");
@@ -296,14 +304,32 @@ const summarizeDonation = (donation) =>
 
 const buildDonationAuditValues = (donation) => ({
   ...summarizeDonation(donation),
+  donation_type: resolveDonationTypeKey(donation?.items),
+  disaster_event_title: donation?.disaster_event?.title || null,
   items: [...(Array.isArray(donation?.items) ? donation.items : [])]
-    .map((item) => ({
-      inventory_item_id: item.inventory_item_id,
-      item_name: item.inventory_item?.item_name || item.item_name || null,
-      quantity_received: Number(item.quantity_received || 0),
-      unit_of_measure: item.inventory_item?.unit_of_measure || item.unit_of_measure || null,
-      remarks: item.remarks || null,
-    }))
+    .map((item) => {
+      const stockForm = item.inventory_item_stock_form || {};
+      const batch = item.inventory_batch || {};
+
+      return {
+        inventory_item_id: item.inventory_item_id,
+        item_code: item.inventory_item?.item_code || item.item_code || null,
+        item_name: item.inventory_item?.item_name || item.item_name || null,
+        category: item.inventory_item?.category || item.category || null,
+        quantity_received: Number(item.quantity_received || 0),
+        unit_of_measure:
+          item.inventory_item?.unit_of_measure || item.unit_of_measure || null,
+        packaging:
+          stockForm.packaging || batch.stock_form_packaging || null,
+        units_per_packaging:
+          stockForm.units_per_packaging ||
+          batch.stock_form_units_per_packaging ||
+          null,
+        batch_no: batch.batch_no || null,
+        expiration_date: batch.expiration_date || null,
+        remarks: item.remarks || null,
+      };
+    })
     .filter((item) => item.inventory_item_id || item.item_name)
     .sort((leftItem, rightItem) =>
       String(leftItem.item_name || "").localeCompare(
@@ -312,21 +338,78 @@ const buildDonationAuditValues = (donation) => ({
     ),
 });
 
-const summarizeDonationItem = (donationItem) => ({
-  ...pickDefined(donationItem, [
-    "donation_id",
-    "inventory_item_id",
-    "inventory_batch_id",
-    "quantity_received",
+const buildDonationUpdateAuditValues = (donation, disasterEvent = null) => ({
+  ...pickDefined(donation, [
+    "disaster_event_id",
+    "donor_name",
+    "donor_name_public",
+    "donor_type",
+    "donor_type_other",
+    "contact_information",
+    "received_at",
+    "status",
     "remarks",
   ]),
-  ...pickDefined(donationItem?.inventory_item || {}, ["item_name", "category"]),
-  ...pickDefined(donationItem?.inventory_batch || {}, [
-    "batch_no",
-    "expiration_date",
-    "quantity_available",
-  ]),
+  disaster_event_title:
+    donation?.disaster_event?.title ||
+    donation?.disaster_event_title ||
+    disasterEvent?.title ||
+    null,
 });
+
+const hasAuditValueChanges = (previousValues = {}, nextValues = {}) => {
+  const fieldNames = new Set([
+    ...Object.keys(previousValues || {}),
+    ...Object.keys(nextValues || {}),
+  ]);
+
+  return Array.from(fieldNames).some((fieldName) => {
+    const previousValue = previousValues?.[fieldName];
+    const nextValue = nextValues?.[fieldName];
+
+    return JSON.stringify(previousValue) !== JSON.stringify(nextValue);
+  });
+};
+
+const summarizeDonationItem = (donationItem) => {
+  const inventoryItem = donationItem?.inventory_item || {};
+  const inventoryBatch = donationItem?.inventory_batch || {};
+  const stockForm = donationItem?.inventory_item_stock_form || {};
+  const unitOfMeasureValue =
+    inventoryItem.unit_of_measure_value ??
+    stockForm.unit_of_measure_value ??
+    inventoryBatch.stock_form_unit_of_measure_value;
+
+  return {
+    ...pickDefined(donationItem, [
+      "donation_id",
+      "inventory_item_id",
+      "inventory_batch_id",
+      "quantity_received",
+      "remarks",
+    ]),
+    ...pickDefined(inventoryItem, [
+      "item_code",
+      "item_name",
+      "category",
+      "unit_of_measure",
+    ]),
+    ...(unitOfMeasureValue !== undefined
+      ? { unit_of_measure_value: unitOfMeasureValue }
+      : {}),
+    ...pickDefined(inventoryBatch, [
+      "batch_no",
+      "expiration_date",
+      "quantity_available",
+    ]),
+    packaging:
+      stockForm.packaging ?? inventoryBatch.stock_form_packaging ?? undefined,
+    units_per_packaging:
+      stockForm.units_per_packaging ??
+      inventoryBatch.stock_form_units_per_packaging ??
+      undefined,
+  };
+};
 
 const summarizeDonationInventoryBatch = (batch) =>
   pickDefined(batch, [
@@ -1187,7 +1270,7 @@ const normalizeDonationStockFormDefinition = (
 
   return {
     inventory_item_id: inventoryItem.id,
-    barcode: donationItemPayload.stock_form_barcode || null,
+    barcode: normalizeInventoryBarcode(donationItemPayload.stock_form_barcode) || null,
     packaging,
     units_per_packaging: unitsPerPackaging,
     unit_of_measure: unitOfMeasure,
@@ -1265,6 +1348,78 @@ const ensureInventoryItemForUpdate = async (inventoryItemId, dbClient) => {
 const normalizeDonationInventoryItemName = (itemName) =>
   String(itemName || "").trim().toLowerCase();
 
+const getInventoryItemsByBarcode = async (barcode, dbClient = pool) => {
+  if (typeof inventoryItemRepository.getInventoryItemsByBarcode === "function") {
+    const matches = await inventoryItemRepository.getInventoryItemsByBarcode(
+      barcode,
+      dbClient,
+    );
+    return Array.isArray(matches) ? matches : [];
+  }
+
+  if (typeof inventoryItemRepository.getInventoryItemByBarcode === "function") {
+    const match = await inventoryItemRepository.getInventoryItemByBarcode(
+      barcode,
+      dbClient,
+    );
+    return match ? [match] : [];
+  }
+
+  return [];
+};
+
+const ensureDonationBarcodeOwnerAvailable = async ({
+  barcode,
+  inventoryItem,
+  dbClient,
+}) => {
+  if (!barcode) {
+    return;
+  }
+
+  const canonicalOwner =
+    typeof inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode ===
+    "function"
+      ? await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
+          barcode,
+          dbClient,
+        )
+      : null;
+
+  if (canonicalOwner) {
+    const existingItem =
+      String(canonicalOwner.inventory_item_id) === String(inventoryItem.id)
+        ? inventoryItem
+        : typeof inventoryItemRepository.getInventoryItemById === "function"
+          ? await inventoryItemRepository.getInventoryItemById(
+              canonicalOwner.inventory_item_id,
+              dbClient,
+            )
+          : null;
+
+    throw createDuplicateInventoryBarcodeError({
+      existingItem,
+      existingStockForm: canonicalOwner,
+      packagingConflict: true,
+    });
+  }
+
+  const legacyItemCandidates = await getInventoryItemsByBarcode(
+    barcode,
+    dbClient,
+  );
+  const conflictingLegacyItems = legacyItemCandidates.filter(
+    (candidate) => String(candidate.id) !== String(inventoryItem.id),
+  );
+
+  if (conflictingLegacyItems.length > 0) {
+    throw createDuplicateInventoryBarcodeError({
+      existingItem:
+        legacyItemCandidates.length === 1 ? conflictingLegacyItems[0] : null,
+    });
+  }
+};
+
 const resolveDonationInventoryItem = async ({
   donationItemPayload,
   performedBy,
@@ -1302,16 +1457,17 @@ const resolveDonationInventoryItem = async ({
     return existingInventoryItem;
   }
 
+  const { is_active: _legacyItemIsActive, ...canonicalItemDefinition } =
+    itemDefinition;
   const category = String(itemDefinition.category || "").trim();
   const createdInventoryItem = await inventoryItemService.createInventoryItem(
     {
-      ...itemDefinition,
+      ...canonicalItemDefinition,
       category,
       is_perishable:
         typeof itemDefinition.is_perishable === "boolean"
           ? itemDefinition.is_perishable
           : category.toLowerCase() === "perishable",
-      is_active: true,
       skip_opening_stock: true,
     },
     { userId: performedBy },
@@ -1427,6 +1583,23 @@ const createOrAttachDonationBatch = async ({
       if (matchedStockForm) {
         resolvedStockFormId = matchedStockForm.id;
       } else {
+        if (
+          stockFormDefinition.barcode &&
+          !isValidInventoryBarcode(stockFormDefinition.barcode)
+        ) {
+          const error = new Error(
+            "stock_form_barcode must contain 8 to 18 digits",
+          );
+          error.statusCode = 400;
+          throw error;
+        }
+
+        await ensureDonationBarcodeOwnerAvailable({
+          barcode: stockFormDefinition.barcode,
+          inventoryItem,
+          dbClient,
+        });
+
         const createdStockForm =
           await inventoryItemStockFormRepository.insertInventoryItemStockForm(
             stockFormDefinition,
@@ -1903,14 +2076,29 @@ const updateDonation = async (id, payload, actor = null) => {
       throw error;
     }
 
-    const previousDonationSummary = summarizeDonation(existingDonation);
     const donorNameChanged =
       normalizeDonationDonorName(existingDonation.donor_name) !==
       normalizeDonationDonorName(normalizedPayload.donor_name);
 
-    await ensureDisasterEvent(normalizedPayload.disaster_event_id, client, {
-      requireActive: true,
-    });
+    const nextDisasterEvent = await ensureDisasterEvent(
+      normalizedPayload.disaster_event_id,
+      client,
+      {
+        requireActive: true,
+      },
+    );
+    const previousDisasterEvent =
+      String(existingDonation.disaster_event_id) ===
+      String(normalizedPayload.disaster_event_id)
+        ? nextDisasterEvent
+        : await donationRepository.getDisasterEventById(
+            existingDonation.disaster_event_id,
+            client,
+          );
+    const previousDonationSummary = buildDonationUpdateAuditValues(
+      existingDonation,
+      previousDisasterEvent,
+    );
 
     let renamedDonationRows = [];
 
@@ -1953,27 +2141,25 @@ const updateDonation = async (id, payload, actor = null) => {
     await client.query("COMMIT");
 
     const updatedDonation = await getDonationById(id);
+    const nextDonationSummary = buildDonationUpdateAuditValues(
+      updatedDonation,
+      nextDisasterEvent,
+    );
 
-    await logAuditSafely({
-      actor: normalizedActor,
-      action: "DONATION_UPDATE",
-      entityType: "DONATION",
-      entityId: id,
-      oldValues: previousDonationSummary,
-      newValues: buildDonationAuditValues(updatedDonation),
-    });
+    if (hasAuditValueChanges(previousDonationSummary, nextDonationSummary)) {
+      await logAuditSafely({
+        actor: normalizedActor,
+        action: "DONATION_UPDATE",
+        entityType: "DONATION",
+        entityId: id,
+        oldValues: previousDonationSummary,
+        newValues: nextDonationSummary,
+      });
+    }
 
     if (donorNameChanged) {
-      const propagatedOldValues = pickDefined(existingDonation, [
-        "donor_name",
-        "donor_type",
-        "donor_type_other",
-      ]);
-      const propagatedNewValues = pickDefined(updatedDonation, [
-        "donor_name",
-        "donor_type",
-        "donor_type_other",
-      ]);
+      const propagatedOldValues = pickDefined(existingDonation, ["donor_name"]);
+      const propagatedNewValues = pickDefined(updatedDonation, ["donor_name"]);
 
       for (const renamedDonationRow of renamedDonationRows) {
         if (String(renamedDonationRow.id) === String(id)) {
@@ -2029,19 +2215,23 @@ const updateDonationPublicName = async (id, donorNamePublic, actor = null) => {
     await client.query("COMMIT");
 
     const updatedDonation = await getDonationById(id);
+    const previousVisibility = {
+      donor_name_public: Boolean(existingDonation.donor_name_public),
+    };
+    const nextVisibility = {
+      donor_name_public: nextDonorNamePublic,
+    };
 
-    await logAuditSafely({
-      actor: normalizedActor,
-      action: "DONATION_PUBLIC_NAME_UPDATE",
-      entityType: "DONATION",
-      entityId: id,
-      oldValues: {
-        donor_name_public: Boolean(existingDonation.donor_name_public),
-      },
-      newValues: {
-        donor_name_public: nextDonorNamePublic,
-      },
-    });
+    if (hasAuditValueChanges(previousVisibility, nextVisibility)) {
+      await logAuditSafely({
+        actor: normalizedActor,
+        action: "DONATION_PUBLIC_NAME_UPDATE",
+        entityType: "DONATION",
+        entityId: id,
+        oldValues: previousVisibility,
+        newValues: nextVisibility,
+      });
+    }
 
     return updatedDonation;
   } catch (error) {
@@ -2346,14 +2536,28 @@ const updateDonationItem = async (id, payload, performedBy) => {
       ),
     });
 
-    await logAuditSafely({
-      actor: normalizedActor,
-      action: "DONATION_ITEM_UPDATE",
-      entityType: "DONATION_ITEM",
-      entityId: id,
-      oldValues: previousDonationItemSummary,
-      newValues: nextDonationItemSummary,
-    });
+    const nextDonationAuditValues = {
+      ...nextDonationItemSummary,
+      ...(adjustmentTransactionId
+        ? { adjustment_transaction_id: adjustmentTransactionId }
+        : {}),
+    };
+
+    if (
+      hasAuditValueChanges(
+        previousDonationItemSummary,
+        nextDonationAuditValues,
+      )
+    ) {
+      await logAuditSafely({
+        actor: normalizedActor,
+        action: "DONATION_ITEM_UPDATE",
+        entityType: "DONATION_ITEM",
+        entityId: id,
+        oldValues: previousDonationItemSummary,
+        newValues: nextDonationAuditValues,
+      });
+    }
 
     await logAuditSafely({
       actor: normalizedActor,
@@ -3280,7 +3484,14 @@ const exportReceivedDonationsReport = async (filters = {}, format) => {
   });
 };
 
-const formatDonationEventDetails = (breakdown, unitOfMeasure, prefix) => {
+const formatDonationEventDetails = (
+  breakdown,
+  unitOfMeasure,
+  prefix,
+  emptyLabel,
+  separator = "; ",
+  compactUnit = false,
+) => {
   let normalizedBreakdown = breakdown;
 
   if (typeof normalizedBreakdown === "string") {
@@ -3292,28 +3503,56 @@ const formatDonationEventDetails = (breakdown, unitOfMeasure, prefix) => {
   }
 
   if (!Array.isArray(normalizedBreakdown) || normalizedBreakdown.length === 0) {
-    return "--";
+    return emptyLabel;
   }
 
   const normalizedUnit = String(unitOfMeasure || "").trim();
+  const movementRows = normalizedBreakdown.filter(
+    (eventRow) => Number(eventRow?.quantity || 0) > 0,
+  );
 
-  return normalizedBreakdown
+  if (movementRows.length === 0) {
+    return emptyLabel;
+  }
+
+  return movementRows
     .map((eventRow) => {
       const eventTitle = String(
         eventRow?.event_title || "Unassigned disaster event",
       ).trim();
       const quantity = Number(eventRow?.quantity || 0);
+      const displayUnit =
+        compactUnit && normalizedUnit.toLowerCase() === "pc" && quantity !== 1
+          ? "pcs"
+          : normalizedUnit;
+      const unitSuffix = compactUnit
+        ? displayUnit
+        : displayUnit
+          ? ` ${displayUnit}`
+          : "";
 
-      return `${prefix} ${eventTitle}: ${quantity}${normalizedUnit ? ` ${normalizedUnit}` : ""}`;
+      return `${prefix ? `${prefix} ` : ""}${eventTitle}: ${quantity}${unitSuffix}`;
     })
-    .join("; ");
+    .join(separator);
 };
 
 const formatDistributionEventDetails = (breakdown, unitOfMeasure) =>
-  formatDonationEventDetails(breakdown, unitOfMeasure, "To");
+  formatDonationEventDetails(
+    breakdown,
+    unitOfMeasure,
+    "",
+    "No distributions recorded",
+    "\n",
+    true,
+  );
 
 const formatTransferEventDetails = (breakdown, unitOfMeasure) =>
-  formatDonationEventDetails(breakdown, unitOfMeasure, "Transferred to");
+  formatDonationEventDetails(
+    breakdown,
+    unitOfMeasure,
+    "Transferred to",
+    "No transfers recorded",
+  );
 
 const exportDonationTransparencyReport = async (filters = {}, format) => {
   const rows = await donationRepository.getDonationTransparencyExportRows(
@@ -3324,10 +3563,6 @@ const exportDonationTransparencyReport = async (filters = {}, format) => {
       ...row,
       distribution_event_details: formatDistributionEventDetails(
         row.distribution_event_breakdown,
-        row.unit_of_measure,
-      ),
-      transfer_event_details: formatTransferEventDetails(
-        row.transfer_event_breakdown,
         row.unit_of_measure,
       ),
       write_off_reasons: row.write_off_reasons || "--",
@@ -3357,14 +3592,9 @@ const exportDonationTransparencyReport = async (filters = {}, format) => {
       {
         key: "distribution_event_details",
         label: "Distribution Details",
-        width: 32,
-        pdfWidth: 154,
-      },
-      {
-        key: "transfer_event_details",
-        label: "Transfer Details",
         width: 30,
         pdfWidth: 140,
+        pdfMaxChars: 40,
       },
       { key: "item_name", label: "Item Name", width: 28, pdfWidth: 124 },
       { key: "unit_of_measure", label: "Unit", width: 14, pdfWidth: 64 },
@@ -3411,4 +3641,6 @@ module.exports = {
   getDonationManagementTransparency,
   exportReceivedDonationsReport,
   exportDonationTransparencyReport,
+  formatDistributionEventDetails,
+  formatTransferEventDetails,
 };

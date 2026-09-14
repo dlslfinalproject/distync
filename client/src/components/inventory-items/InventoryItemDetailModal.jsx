@@ -86,6 +86,13 @@ const modalStyles = {
     textAlign: "center",
     verticalAlign: "middle",
   },
+  centeredHeaderCell: {
+    textAlign: "center",
+  },
+  centeredBodyCell: {
+    textAlign: "center",
+    verticalAlign: "middle",
+  },
   actionButton: {
     border: "1px solid #c6d8ea",
     borderRadius: "12px",
@@ -378,8 +385,22 @@ const InventoryItemDetailModal = ({
                       <th style={modalStyles.th}>Packaging</th>
                       <th style={modalStyles.th}>Expiry Date</th>
                       <th style={modalStyles.th}>Source</th>
-                      <th style={modalStyles.th}>Status</th>
-                      <th style={modalStyles.th}>Action</th>
+                      <th
+                        style={{
+                          ...modalStyles.th,
+                          ...modalStyles.centeredHeaderCell,
+                        }}
+                      >
+                        Status
+                      </th>
+                      <th
+                        style={{
+                          ...modalStyles.th,
+                          ...modalStyles.centeredHeaderCell,
+                        }}
+                      >
+                        Action
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -411,7 +432,12 @@ const InventoryItemDetailModal = ({
                           <td style={modalStyles.td}>
                             {formatSourceLabel(batch.source_type)}
                           </td>
-                          <td style={modalStyles.td}>
+                          <td
+                            style={{
+                              ...modalStyles.td,
+                              ...modalStyles.centeredBodyCell,
+                            }}
+                          >
                             <span
                               style={{
                                 ...modalStyles.badge,

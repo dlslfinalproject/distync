@@ -183,7 +183,7 @@ export const SYNC_MISSING_VALUE = "Not available";
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export const formatSyncDateTime = (value) => {
+const formatSyncDateTimeWithMonth = (value, month) => {
   if (!value) {
     return "--";
   }
@@ -196,12 +196,18 @@ export const formatSyncDateTime = (value) => {
 
   return parsedDate.toLocaleString("en-PH", {
     year: "numeric",
-    month: "short",
+    month,
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
 };
+
+export const formatSyncDateTime = (value) =>
+  formatSyncDateTimeWithMonth(value, "short");
+
+export const formatSyncStatusDateTime = (value) =>
+  formatSyncDateTimeWithMonth(value, "long");
 
 export const formatSyncHistoryDateTime = (value) => {
   const formattedValue = formatSyncDateTime(value);

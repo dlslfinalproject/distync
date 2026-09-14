@@ -73,6 +73,20 @@ test("inventory batch storage location remains optional and nullable", () => {
   assert.equal(nullable.req.validatedBody.storage_location, null);
 });
 
+test("inventory batch validation normalizes legacy short barcode input for service-level resolution", () => {
+  const result = runMiddleware(
+    validateCreateInventoryBatch,
+    {
+      ...buildBatchPayload(),
+      stock_form_barcode: "00 1234",
+    },
+  );
+
+  assert.equal(result.nextCalled, true);
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.req.validatedBody.stock_form_barcode, "001234");
+});
+
 test("inventory batch storage location preserves existing server whitespace behavior", () => {
   const result = runMiddleware(
     validateCreateInventoryBatch,

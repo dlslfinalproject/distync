@@ -230,3 +230,134 @@ test("lookupInventoryItemByBarcode falls back to the external catalog for unknow
     },
   );
 });
+
+test("lookupInventoryItemByBarcode treats the canonical stock form as authoritative", async () => {
+  let legacyLookupCalled = false;
+  const stockForm = {
+    id: "stock-form-canonical",
+    inventory_item_id: "item-1",
+    barcode: "12345678",
+    packaging: "box",
+    units_per_packaging: 12,
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    is_active: true,
+  };
+
+  await withStubbedInventoryItemService(
+    baseStubs({
+      inventoryItemRepository: {
+        getInventoryItemByBarcode: async () => {
+          legacyLookupCalled = true;
+          return { ...sampleItem, id: "stale-legacy-item" };
+        },
+      },
+      stockFormRepository: {
+        getInventoryItemStockFormByBarcode: async () => stockForm,
+      },
+      fetch: async () => {
+        throw new Error("External lookup should not run for canonical ownership");
+      },
+    }),
+    async ({ lookupInventoryItemByBarcode }) => {
+      const result = await lookupInventoryItemByBarcode("12 345 678");
+
+      assert.equal(result.found, true);
+      assert.equal(result.item.id, "item-1");
+      assert.equal(result.barcode, "12345678");
+      assert.equal(legacyLookupCalled, false);
+    },
+  );
+});
+
+test("lookupInventoryItemByBarcode does not choose an arbitrary legacy candidate", async () => {
+  let fetchCalled = false;
+
+  await withStubbedInventoryItemService(
+    baseStubs({
+      inventoryItemRepository: {
+        getInventoryItemsByBarcode: async () => [
+          { ...sampleItem, id: "legacy-item-a" },
+          { ...sampleItem, id: "legacy-item-b" },
+        ],
+      },
+      fetch: async () => {
+        fetchCalled = true;
+        return { ok: false, status: 502, json: async () => ({}) };
+      },
+    }),
+    async ({ lookupInventoryItemByBarcode }) => {
+      const result = await lookupInventoryItemByBarcode("8850006330449");
+
+      assert.equal(result.found, false);
+      assert.equal(result.source, "LOCAL_INVENTORY");
+      assert.equal(result.item, null);
+      assert.match(result.message, /multiple local inventory records/i);
+      assert.equal(fetchCalled, false);
+    },
+  );
+});
+
+test("lookupInventoryItemByBarcode keeps an inactive canonical owner from falling through", async () => {
+  let legacyLookupCalled = false;
+  let fetchCalled = false;
+
+  await withStubbedInventoryItemService(
+    baseStubs({
+      inventoryItemRepository: {
+        getInventoryItemByBarcode: async () => {
+          legacyLookupCalled = true;
+          return sampleItem;
+        },
+      },
+      stockFormRepository: {
+        getInventoryItemStockFormByBarcode: async () => ({
+          id: "inactive-form",
+          inventory_item_id: "item-1",
+          barcode: "8850006330449",
+          packaging: "box",
+          units_per_packaging: 12,
+          unit_of_measure: "pc",
+          unit_of_measure_value: 1,
+          is_active: false,
+        }),
+      },
+      fetch: async () => {
+        fetchCalled = true;
+        return { ok: false, status: 502, json: async () => ({}) };
+      },
+    }),
+    async ({ lookupInventoryItemByBarcode }) => {
+      const result = await lookupInventoryItemByBarcode("8850006330449");
+
+      assert.equal(result.found, false);
+      assert.equal(result.source, "LOCAL_INVENTORY");
+      assert.match(result.message, /inactive local inventory/i);
+      assert.equal(legacyLookupCalled, false);
+      assert.equal(fetchCalled, false);
+    },
+  );
+});
+
+test("lookupInventoryItemByBarcode remains readable for a six-digit legacy mirror", async () => {
+  await withStubbedInventoryItemService(
+    baseStubs({
+      inventoryItemRepository: {
+        getInventoryItemByBarcode: async () => ({
+          ...sampleItem,
+          barcode: "001234",
+        }),
+      },
+      fetch: async () => {
+        throw new Error("External lookup should not run for a legacy mirror");
+      },
+    }),
+    async ({ lookupInventoryItemByBarcode }) => {
+      const result = await lookupInventoryItemByBarcode("00 1234");
+
+      assert.equal(result.found, true);
+      assert.equal(result.barcode, "001234");
+      assert.equal(result.item.barcode, "001234");
+    },
+  );
+});

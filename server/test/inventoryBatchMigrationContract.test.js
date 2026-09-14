@@ -107,3 +107,99 @@ test("current runtime and historical migrations do not depend on the stale broad
     assert.doesNotMatch(fs.readFileSync(filePath, "utf8"), staleName, filePath);
   }
 });
+
+const sameItemMigrationPath = path.join(
+  repositoryRoot,
+  "database",
+  "migrations",
+  "2026-09-12_add_batch_stock_form_same_item_fk.sql",
+);
+
+test("batch stock-form same-item migration is limited to the parent key and validated composite FK", () => {
+  assert.equal(fs.existsSync(sameItemMigrationPath), true);
+
+  const migration = fs.readFileSync(sameItemMigrationPath, "utf8");
+  const executableSql = stripSqlComments(migration);
+
+  assert.match(migration, /^BEGIN;\s*/i);
+  assert.match(migration, /COMMIT;\s*$/i);
+  assert.match(
+    migration,
+    /ALTER TABLE public\.inventory_item_stock_forms\s+ADD CONSTRAINT uq_inventory_item_stock_forms_id_item\s+UNIQUE \(id, inventory_item_id\)/i,
+  );
+  assert.match(
+    migration,
+    /ALTER TABLE public\.inventory_batches\s+ADD CONSTRAINT inventory_batches_stock_form_item_same_fkey\s+FOREIGN KEY \(inventory_item_stock_form_id, inventory_item_id\)\s+REFERENCES public\.inventory_item_stock_forms \(id, inventory_item_id\)\s+MATCH SIMPLE\s+ON UPDATE NO ACTION\s+ON DELETE NO ACTION\s+NOT VALID/i,
+  );
+  assert.match(
+    migration,
+    /ALTER TABLE public\.inventory_batches\s+VALIDATE CONSTRAINT inventory_batches_stock_form_item_same_fkey/i,
+  );
+
+  assert.equal(
+    (executableSql.match(/ALTER TABLE/g) || []).length,
+    3,
+  );
+  assert.equal(
+    (executableSql.match(/ADD CONSTRAINT/g) || []).length,
+    2,
+  );
+  assert.equal(
+    (executableSql.match(/VALIDATE CONSTRAINT/g) || []).length,
+    1,
+  );
+  assert.equal(
+    (executableSql.match(/NOT VALID/g) || []).length,
+    1,
+  );
+  assert.doesNotMatch(
+    executableSql,
+    /\bINSERT\s+INTO\b|\bUPDATE\s+[^;\n]+\s+SET\b|\bDELETE\s+FROM\b|\bTRUNCATE\b/i,
+  );
+  assert.doesNotMatch(executableSql, /\bCASCADE\b/i);
+  assert.doesNotMatch(executableSql, /ALTER\s+COLUMN/i);
+  assert.doesNotMatch(executableSql, /CREATE\s+(?:UNIQUE\s+)?INDEX/i);
+  assert.doesNotMatch(executableSql, /DROP\s+(?:CONSTRAINT|INDEX)/i);
+  assert.doesNotMatch(executableSql, /TRIGGER|FUNCTION|POLICY|GRANT|REVOKE/i);
+});
+
+test("batch stock-form same-item schema contract preserves nullable compatibility and independent FKs", () => {
+  const schemaPath = path.join(
+    repositoryRoot,
+    "database",
+    "schema",
+    "distync_schema.sql",
+  );
+  const schema = fs.readFileSync(schemaPath, "utf8");
+  const batchBlock = schema.match(
+    /CREATE TABLE public\.inventory_batches \(([\s\S]*?)\r?\n\);/i,
+  )?.[1];
+  const stockFormBlock = schema.match(
+    /CREATE TABLE public\.inventory_item_stock_forms \(([\s\S]*?)\r?\n\);/i,
+  )?.[1];
+
+  assert.ok(batchBlock);
+  assert.ok(stockFormBlock);
+  assert.match(batchBlock, /inventory_item_stock_form_id uuid,\s/i);
+  assert.match(
+    batchBlock,
+    /inventory_batches_inventory_item_id_fkey FOREIGN KEY \(inventory_item_id\) REFERENCES public\.inventory_items\(id\) ON DELETE RESTRICT/i,
+  );
+  assert.match(
+    batchBlock,
+    /inventory_batches_inventory_item_stock_form_id_fkey FOREIGN KEY \(inventory_item_stock_form_id\) REFERENCES public\.inventory_item_stock_forms\(id\)/i,
+  );
+  assert.match(
+    stockFormBlock,
+    /inventory_item_stock_forms_inventory_item_id_fkey FOREIGN KEY \(inventory_item_id\) REFERENCES public\.inventory_items\(id\)/i,
+  );
+  assert.match(stockFormBlock, /inventory_item_stock_forms_barcode_key UNIQUE \(barcode\)/i);
+  assert.match(
+    batchBlock,
+    /inventory_batches_inventory_item_id_batch_no_unique UNIQUE \(inventory_item_id, batch_no\)/i,
+  );
+  assert.equal(
+    (schema.match(/inventory_batches_stock_form_item_same_fkey/g) || []).length,
+    1,
+  );
+});

@@ -27,16 +27,30 @@ test("Mayor inventory forecasting keeps route, service endpoints, and forecast s
   assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/history/);
   assert.doesNotMatch(panelSource, /fetch\(|axios|\/api\/v1/);
   assert.doesNotMatch(panelSource, /FORECAST_HORIZON_DAYS|lookback_days|moving_average_window|exponential_smoothing_alpha/);
+  assert.doesNotMatch(panelSource, /onClearFilters|mayor-inventory-forecast-filter-actions|Clear filters/);
+  assert.match(panelSource, /inventory_item_count/);
+  assert.match(panelSource, /active_inventory_item_count/);
+  assert.match(
+    panelSource,
+    /canonicalCount !== undefined[\s\S]*canonicalCount !== null[\s\S]*\? canonicalCount[\s\S]*summary\?\.active_inventory_item_count/,
+  );
+  assert.doesNotMatch(panelSource, /No active inventory items/);
 });
 
 test("Mayor inventory forecasting controls, KPIs, charts, and tables expose mobile-safe layout primitives", async () => {
-  const [panelSource, modalSource] = await Promise.all([
+  const [panelSource, modalSource, cssSource] = await Promise.all([
     readSource(["components", "inventory-items", "ForecastingPanel.jsx"]),
     readSource(["components", "inventory-items", "InventoryForecastExportModal.jsx"]),
+    readSource(["index.css"]),
   ]);
 
   assert.match(panelSource, /gridTemplateColumns: "repeat\(auto-fit, minmax\(min\(100%, 220px\), 1fr\)\)"/);
   assert.match(panelSource, /gridTemplateColumns: "repeat\(auto-fit, minmax\(min\(100%, 150px\), 1fr\)\)"/);
+  assert.match(panelSource, /className="mayor-inventory-forecast-stat-grid"/);
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.mayor-inventory-forecast-stat-grid \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
+  );
   assert.match(panelSource, /minHeight: "clamp\(220px, 46vw, 280px\)"/);
   assert.match(panelSource, /aria-label="Inventory usage trend chart"/);
   assert.match(panelSource, /role="img"/);

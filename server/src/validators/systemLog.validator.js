@@ -32,13 +32,18 @@ const validateGetSystemLogReview = (req, res, next) => {
     const normalizedModule = String(module || "all").toLowerCase();
 
     if (
-      !["all", "inventory", "relief pack", "donation", "distribution"].includes(
-        normalizedModule,
-      )
+      ![
+        "all",
+        "inventory",
+        "relief pack",
+        "donation",
+        "distribution",
+        "sync",
+      ].includes(normalizedModule)
     ) {
       return res.status(400).json({
         message:
-          "module must be one of: all, inventory, relief pack, donation, distribution",
+          "module must be one of: all, inventory, relief pack, donation, distribution, sync",
       });
     }
 
@@ -48,6 +53,7 @@ const validateGetSystemLogReview = (req, res, next) => {
       ![
         "all",
         "item_created",
+        "packaging_added",
         "item_details_edited",
         "stock_added",
         "stock_adjusted",
@@ -57,6 +63,7 @@ const validateGetSystemLogReview = (req, res, next) => {
         "donation_entry",
         "donation_details_edited",
         "distributed_items",
+        "sync_conflict_resolution",
       ].includes(normalizedAuditAction)
     ) {
       return res.status(400).json({

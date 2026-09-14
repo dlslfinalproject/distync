@@ -165,12 +165,14 @@ const StubSearchBar = ({
               fontWeight: 600,
             }}
           >
+            {!stubStatusOptions.some((statusOption) => statusOption.value === STATUS_FILTERS.ALL) ? (
+              <option value={STATUS_FILTERS.ALL}>All</option>
+            ) : null}
             {stubStatusOptions.map((statusOption) => (
               <option key={statusOption.value} value={statusOption.value}>
                 {statusOption.label}
               </option>
             ))}
-            <option value={STATUS_FILTERS.ALL}>All</option>
           </select>
         </label>
 

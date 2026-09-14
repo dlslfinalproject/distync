@@ -61,8 +61,11 @@ test("BRG-SC-P02 Sync Center renders last successful sync from status-summary", 
   assert.match(source, /fetchSyncStatusSummary/);
   assert.match(source, /lastSuccessfulSyncAt:\s*summaryResponse\.lastSuccessfulSyncAt/);
   assert.match(source, /<SyncHealthStatus health=\{syncHealth\} \/>/);
-  assert.match(componentSource, /Last successful sync:/);
-  assert.match(componentSource, /formatSyncDateTime\(presentation\.lastSuccessfulSyncAt\)/);
+  assert.match(componentSource, /Last Successful Sync:/);
+  assert.match(
+    componentSource,
+    /formatSyncStatusDateTime\(presentation\.lastSuccessfulSyncAt\)/,
+  );
   assert.match(serviceSource, /return payload\?\.data \|\| \{\}/);
 });
 
@@ -383,7 +386,7 @@ test("BRG-SC-P13 table scroll and prior Sync Center fixes remain present", async
     /<div className="sync-center-table-scroll" style=\{\{ overflowX: "auto" \}\}>[\s\S]*syncHistoryTableStyles/,
   );
   assert.match(source, /aria-label="View synchronization details"/);
-  assert.match(componentSource, /Last successful sync:/);
+  assert.match(componentSource, /Last Successful Sync:/);
 });
 
 test("BRG-SC-P14 Barangay search no longer advertises or indexes Barangay", async () => {

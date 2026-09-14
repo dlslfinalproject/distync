@@ -3,7 +3,7 @@ const inventoryTransactionRepository = require("../repositories/inventoryTransac
 const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
-const mayorReportExport = require("../utils/mayorReportExport");
+const reportExport = require("../utils/mswdoReportExport");
 const notificationService = require("../modules/notifications/notification.service");
 const {
   logAuditSafely,
@@ -63,6 +63,84 @@ const createDisasterEventNotActiveError = () => {
 
 const buildFullName = (firstName, lastName) => {
   return [firstName, lastName].filter(Boolean).join(" ");
+};
+
+const formatInventoryTransactionLabel = (value) => {
+  const normalizedValue = String(value || "").trim().toUpperCase();
+
+  if (!normalizedValue) {
+    return "--";
+  }
+
+  return normalizedValue
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+};
+
+const getInventoryTransactionMovementLabel = (transaction) => {
+  const transactionType = String(transaction?.transaction_type || "").toUpperCase();
+
+  if (additiveTransactionTypes.has(transactionType)) {
+    return "Inflow";
+  }
+
+  if (subtractiveTransactionTypes.has(transactionType)) {
+    return "Outflow";
+  }
+
+  return "--";
+};
+
+const isDonationAdjustmentTransaction = (transaction) => {
+  const referenceType = String(transaction?.reference_type || "").toUpperCase();
+  const transactionType = String(transaction?.transaction_type || "").toUpperCase();
+  const remarks = String(transaction?.remarks || "").trim().toLowerCase();
+
+  if (referenceType !== "DONATION") {
+    return false;
+  }
+
+  if (transactionType === "ADJUSTMENT") {
+    return true;
+  }
+
+  return (
+    remarks.startsWith("adjusted up donation stock") ||
+    remarks.startsWith("adjusted down donation stock") ||
+    remarks.includes("donation adjustment")
+  );
+};
+
+const getInventoryTransactionDisplayLabel = (transaction) => {
+  const transactionType = String(transaction?.transaction_type || "").toUpperCase();
+  const referenceType = String(transaction?.reference_type || "").toUpperCase();
+  const sourceType = String(
+    transaction?.inventory_batch?.source_type || "",
+  ).toUpperCase();
+  const movement = getInventoryTransactionMovementLabel(transaction);
+  const isDonatedStock =
+    sourceType === "DONATED" ||
+    referenceType === "DONATION" ||
+    Boolean(transaction?.donation?.donor_name);
+
+  if (isDonationAdjustmentTransaction(transaction)) {
+    return "Donation Adjustment";
+  }
+
+  if (movement === "Inflow") {
+    return isDonatedStock ? "Donated" : "Stock-Up";
+  }
+
+  if (referenceType === "DISTRIBUTION") {
+    return "Distributed";
+  }
+
+  if (transactionType === "OTHER") {
+    return String(transaction?.other_status || "").trim() || "Other";
+  }
+
+  return formatInventoryTransactionLabel(transactionType);
 };
 
 const mapInventoryTransaction = (transaction) => {
@@ -753,29 +831,26 @@ const createInventoryTransaction = async (transactionData) => {
 const exportInventoryTransactions = async (filters, format) => {
   const transactions = await getInventoryTransactions(filters);
   const rows = transactions.map((transaction) => ({
-    transaction_type: transaction.transaction_type || "--",
-    quantity: transaction.quantity ?? 0,
-    inventory_transaction_reference_no:
-      transaction.inventory_transaction_reference_no || "--",
-    reference_type: transaction.reference_type || "--",
-    performed_by: transaction.performer?.full_name || "--",
-    performed_at: mayorReportExport.formatDateTime(transaction.performed_at),
-    other_status: transaction.other_status || "--",
+    movement: getInventoryTransactionMovementLabel(transaction),
+    transaction: getInventoryTransactionDisplayLabel(transaction),
+    item: transaction.inventory_item?.item_name || "--",
+    batch_number: transaction.inventory_batch?.batch_no || "--",
+    date: reportExport.formatDateTime(transaction.performed_at),
+    performed_by: transaction.performer?.full_name || "Not recorded",
     remarks: transaction.remarks || "--",
   }));
 
-  return mayorReportExport.buildExportFile({
-    filePrefix: "office-mayor-inventory-transactions",
-    worksheetName: "Inventory Transactions",
-    reportTitle: "Inventory Transactions Report",
+  return reportExport.buildExportFile({
+    filePrefix: "office-mayor-inventory-tracking",
+    worksheetName: "Inventory Tracking",
+    reportTitle: "Inventory Tracking Report",
+    tableTitle: "Inventory Transactions",
+    sourceName: "Office of the Mayor",
     metadata: [
-      { label: "Search", value: filters.search?.trim() || "None" },
       {
-        label: "Transaction Type",
+        label: "Transaction",
         value: filters.transaction_label || filters.transaction_type || "All",
       },
-      { label: "Reference Type", value: filters.reference_type || "All" },
-      { label: "Movement", value: filters.movement || "All" },
       { label: "Source", value: filters.source || "All" },
       { label: "Date From", value: filters.date_from || "None" },
       { label: "Date To", value: filters.date_to || "None" },
@@ -788,14 +863,37 @@ const exportInventoryTransactions = async (filters, format) => {
       },
     ],
     columns: [
-      { key: "transaction_type", label: "Transaction Type", width: 20, pdfWidth: 95 },
-      { key: "quantity", label: "Quantity", width: 12, pdfWidth: 55 },
-      { key: "inventory_transaction_reference_no", label: "ITR No.", width: 18, pdfWidth: 85 },
-      { key: "reference_type", label: "Reference Type", width: 18, pdfWidth: 90 },
-      { key: "performed_by", label: "Performed By", width: 24, pdfWidth: 120 },
-      { key: "performed_at", label: "Performed At", width: 22, pdfWidth: 95 },
-      { key: "other_status", label: "Other Status", width: 20, pdfWidth: 95 },
-      { key: "remarks", label: "Remarks", width: 34, pdfWidth: 300 },
+      {
+        key: "movement",
+        label: "Movement",
+        width: 14,
+        pdfWidth: 70,
+        alignment: { vertical: "top", horizontal: "center", wrapText: true },
+      },
+      {
+        key: "transaction",
+        label: "Transaction",
+        width: 22,
+        pdfWidth: 105,
+        alignment: { vertical: "top", horizontal: "center", wrapText: true },
+      },
+      { key: "item", label: "Item", width: 30, pdfWidth: 140 },
+      { key: "batch_number", label: "Batch Number", width: 28, pdfWidth: 140 },
+      {
+        key: "date",
+        label: "Date",
+        width: 22,
+        pdfWidth: 105,
+        alignment: { vertical: "top", horizontal: "center", wrapText: true },
+      },
+      {
+        key: "performed_by",
+        label: "Performed By",
+        width: 24,
+        pdfWidth: 120,
+        alignment: { vertical: "top", horizontal: "center", wrapText: true },
+      },
+      { key: "remarks", label: "Remarks", width: 40, pdfWidth: 182 },
     ],
     rows,
     format,

@@ -95,7 +95,11 @@ const barangayAnomalyColumnStyles = {
   affectedRecord: { width: "16%", minWidth: "170px" },
   disasterEvent: { width: "16%", minWidth: "180px" },
   whyFlagged: { width: "25%", minWidth: "300px" },
-  reviewStatus: { width: "13%", minWidth: "150px" },
+  reviewStatus: {
+    width: "13%",
+    minWidth: "150px",
+    textAlign: "center",
+  },
   detectedAt: { width: "10%", minWidth: "150px" },
   action: { width: "10%", minWidth: "136px", textAlign: "center", whiteSpace: "nowrap" },
 };
@@ -106,7 +110,11 @@ const mswdoAnomalyColumnStyles = {
   affectedRecord: { width: "16%", minWidth: "185px" },
   disasterEvent: { width: "14%", minWidth: "170px" },
   whyFlagged: { width: "26%", minWidth: "320px" },
-  reviewStatus: { width: "14%", minWidth: "160px" },
+  reviewStatus: {
+    width: "14%",
+    minWidth: "160px",
+    textAlign: "center",
+  },
   detectedAt: { width: "12%", minWidth: "150px" },
   action: { width: "7%", minWidth: "88px", textAlign: "center", whiteSpace: "nowrap" },
 };
@@ -1359,15 +1367,42 @@ const AnomalyTrackingPage = ({
     }
   }, [page, pageSize, pagination.pageSize, pagination.totalItems]);
 
-  const hasActiveFilters = Boolean(
+  const hasActiveMainFilters = Boolean(
     filters.disaster_event_id ||
       (filters.barangay_id && !isBarangayScope) ||
       filters.date_from ||
       filters.date_to ||
-      viewState.search.trim() ||
-      viewState.anomaly_type !== "all" ||
-      viewState.status !== "all",
+      viewState.anomaly_type !== "all"
   );
+  const hasActiveFilters = Boolean(
+    hasActiveMainFilters ||
+      viewState.search.trim() ||
+      viewState.status !== "all" ||
+      viewState.order !== "newest",
+  );
+  const handleClearAllFilters = () => {
+    setFilters((currentFilters) => ({
+      ...currentFilters,
+      disaster_event_id: "",
+      barangay_id: isBarangayScope ? resolvedAssignedBarangay?.id || "" : "",
+      date_from: "",
+      date_to: "",
+    }));
+    updateViewState((currentValue) => ({
+      ...currentValue,
+      anomaly_type: "all",
+    }));
+    setPage(1);
+  };
+
+  const handleClearPopoverFilters = () => {
+    updateViewState((currentValue) => ({
+      ...currentValue,
+      status: "all",
+      order: "newest",
+    }));
+    setIsFilterOpen(false);
+  };
   const totalItems = pagination.totalItems || 0;
   const shouldShowPaginationControls = totalItems > 0;
   const openAnomalyDetails = useCallback((row, event) => {
@@ -1385,8 +1420,15 @@ const AnomalyTrackingPage = ({
         actions={[]}
       />
 
-      <section style={shellStyles.card}>
-        <div style={pageSpacingStyles.filterGrid}>
+      <section
+        className="mayor-anomaly-filter-card"
+        style={shellStyles.card}
+      >
+        <div
+          className="mayor-anomaly-filter-grid"
+          data-filter-count={isBarangayScope ? "4" : "5"}
+          style={pageSpacingStyles.filterGrid}
+        >
           <div>
             <label htmlFor="anomaly-event" style={labelStyles}>
               Disaster Event
@@ -1473,6 +1515,7 @@ const AnomalyTrackingPage = ({
               id="anomaly-date-from"
               type="date"
               value={filters.date_from}
+              max={filters.date_to || undefined}
               onChange={(event) =>
                 updateFilters((currentValue) => ({
                   ...currentValue,
@@ -1491,6 +1534,7 @@ const AnomalyTrackingPage = ({
               id="anomaly-date-to"
               type="date"
               value={filters.date_to}
+              min={filters.date_from || undefined}
               onChange={(event) =>
                 updateFilters((currentValue) => ({
                   ...currentValue,
@@ -1501,10 +1545,39 @@ const AnomalyTrackingPage = ({
             />
           </div>
         </div>
+
+        {hasActiveMainFilters ? (
+          <div className="mayor-anomaly-filter-actions">
+            <button
+              className="mayor-anomaly-clear-filters"
+              type="button"
+              onClick={handleClearAllFilters}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: "#55718b",
+                padding: "2px 0",
+                fontSize: "13px",
+                fontWeight: 700,
+                cursor: "pointer",
+                textDecoration: "underline",
+                textUnderlineOffset: "3px",
+              }}
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : null}
       </section>
 
-      <div style={pageSpacingStyles.toolbar}>
-        <div style={{ position: "relative", flex: "1 1 420px", minWidth: "260px" }}>
+      <div
+        className={isMayorScope ? "mayor-anomaly-toolbar" : undefined}
+        style={pageSpacingStyles.toolbar}
+      >
+        <div
+          className={isMayorScope ? "mayor-anomaly-toolbar-search" : undefined}
+          style={{ position: "relative", flex: "1 1 420px", minWidth: "260px" }}
+        >
           <FiSearch
             size={18}
             style={{
@@ -1536,7 +1609,10 @@ const AnomalyTrackingPage = ({
           />
         </div>
 
-        <div style={pageSpacingStyles.actionGroup}>
+        <div
+          className={isMayorScope ? "mayor-anomaly-toolbar-controls" : undefined}
+          style={pageSpacingStyles.actionGroup}
+        >
           <div
             style={{
               display: "flex",
@@ -1623,6 +1699,25 @@ const AnomalyTrackingPage = ({
                     </option>
                   ))}
                 </select>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
+                  <button
+                    type="button"
+                    onClick={handleClearPopoverFilters}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: "#55718b",
+                      padding: "2px 0",
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                      textUnderlineOffset: "3px",
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
             </ResponsiveFilterPopover>
           </div>
         </div>

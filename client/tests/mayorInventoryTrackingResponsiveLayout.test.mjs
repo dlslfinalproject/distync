@@ -16,6 +16,11 @@ test("Mayor inventory tracking page exposes scoped responsive hooks", async () =
 
   assert.match(pageSource, /className="inventory-tracking-page"/);
   assert.match(pageSource, /className="inventory-tracking-filter-grid"/);
+  assert.match(
+    pageSource,
+    /hasActiveTrackingFilters \? \([\s\S]*?className="inventory-tracking-filter-actions"/,
+  );
+  assert.match(pageSource, /className="inventory-tracking-clear-filters"/);
   assert.match(pageSource, /className="inventory-tracking-summary-grid"/);
   assert.match(pageSource, /className="inventory-tracking-toolbar"/);
   assert.match(pageSource, /className="inventory-tracking-search-wrap"/);
@@ -34,7 +39,11 @@ test("Mayor inventory tracking page exposes scoped responsive hooks", async () =
   );
   assert.match(
     cssSource,
-    /@media \(max-width: 480px\)[\s\S]*?\.inventory-tracking-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+    /@media \(max-width: 480px\)[\s\S]*?\.inventory-tracking-summary-grid \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.inventory-tracking-summary-grid[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
   );
 });
 
@@ -53,7 +62,7 @@ test("Mayor inventory tracking table keeps overflow local and preserves columns"
   assert.doesNotMatch(tableSource, /overflowX:\s*"hidden"/);
   assert.match(
     tableSource,
-    /Item Name[\s\S]*?Batch Number[\s\S]*?ITR No\.[\s\S]*?Quantity[\s\S]*?Movement[\s\S]*?Transaction Type[\s\S]*?Date[\s\S]*?Performed By[\s\S]*?Action/,
+    /Item(?: Name)?[\s\S]*?Batch Number[\s\S]*?ITR No\.[\s\S]*?Quantity[\s\S]*?Movement[\s\S]*?Transaction<\/th>[\s\S]*?Date[\s\S]*?Performed By[\s\S]*?Action/,
   );
   assert.match(
     cssSource,
@@ -63,6 +72,35 @@ test("Mayor inventory tracking table keeps overflow local and preserves columns"
     cssSource,
     /@media \(max-width: 480px\)[\s\S]*?\.inventory-tracking-table-cell \{[\s\S]*?line-height: 1\.35 !important;[\s\S]*?padding: 10px 8px !important;/,
   );
+});
+
+test("Mayor inventory tracking table uses compact columns without sync status and includes pagination", async () => {
+  const [tableSource, cssSource] = await Promise.all([
+    readSource(["components", "inventory-transactions", "InventoryTransactionsTable.jsx"]),
+    readSource(["index.css"]),
+  ]);
+
+  assert.doesNotMatch(tableSource, /SyncStatusIcon/);
+  assert.match(tableSource, />Transaction<\/th>/);
+  assert.doesNotMatch(tableSource, />Transaction Type<\/th>/);
+  assert.match(tableSource, /TablePagination/);
+  assert.match(tableSource, /paginatedRows\.map\(\(row\) =>/);
+  assert.match(tableSource, /tableLayout: "fixed"/);
+  assert.match(
+    tableSource,
+    /itemNameText: \{[\s\S]*?fontWeight: 700[\s\S]*?textOverflow: "ellipsis"[\s\S]*?whiteSpace: "nowrap"/,
+  );
+  assert.match(
+    tableSource,
+    /quantityContent: \{[\s\S]*?justifyContent: "center"[\s\S]*?textAlign: "center"/,
+  );
+  assert.match(
+    tableSource,
+    /<div style=\{tableStyles\.quantityContent\}>\{row\.quantity \?\? 0\}<\/div>/,
+  );
+  assert.match(tableSource, /dateColumn: \{[\s\S]*?width: "185px"/);
+  assert.match(tableSource, /compactCell: \{[\s\S]*?whiteSpace: "nowrap"/);
+  assert.match(cssSource, /\.inventory-tracking-table \{[\s\S]*?min-width: 1280px !important;/);
 });
 
 test("Mayor inventory tracking detail modal is phone safe", async () => {

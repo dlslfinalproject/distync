@@ -81,26 +81,77 @@ test("inventory transaction export serializes every active filter", async () => 
   );
 });
 
-test("inventory tracking page passes screen filters into export", async () => {
-  const source = await fs.readFile(
+test("inventory tracking page seeds and submits the report filters", async () => {
+  const [source, modalSource] = await Promise.all([
+    fs.readFile(
     path.join(clientRoot, "src/pages/inventory/InventoryTransactionsPage.jsx"),
-    "utf8",
-  );
+      "utf8",
+    ),
+    fs.readFile(
+      path.join(
+        clientRoot,
+        "src/components/inventory-transactions/InventoryTransactionExportModal.jsx",
+      ),
+      "utf8",
+    ),
+  ]);
+
   const exportStart = source.indexOf(
     "const file = await exportInventoryTransactions(format, {",
   );
-  const exportBlock = source.slice(exportStart, exportStart + 700);
+  const exportBlock = source.slice(exportStart, exportStart + 900);
+  const openModalStart = source.indexOf("const handleOpenExportModal = () => {");
+  const openModalBlock = source.slice(openModalStart, openModalStart + 900);
 
   assert.notEqual(exportStart, -1);
-  assert.match(exportBlock, /inventory_item_id: filters\.inventory_item_id/);
-  assert.match(exportBlock, /inventory_batch_id: filters\.inventory_batch_id/);
-  assert.match(exportBlock, /transaction_label: filters\.transaction_type/);
-  assert.match(exportBlock, /date_from: filters\.date_from/);
-  assert.match(exportBlock, /date_to: filters\.date_to/);
-  assert.match(exportBlock, /source: filters\.source/);
-  assert.match(exportBlock, /search: toolbarState\.search/);
-  assert.match(exportBlock, /movement: toolbarState\.movement/);
-  assert.match(exportBlock, /stock_form_packaging: toolbarState\.stockForms/);
+  assert.notEqual(openModalStart, -1);
+  assert.match(openModalBlock, /inventory_item_id: filters\.inventory_item_id/);
+  assert.match(openModalBlock, /inventory_batch_id: filters\.inventory_batch_id/);
+  assert.match(openModalBlock, /transaction_label: filters\.transaction_type/);
+  assert.match(openModalBlock, /date_from: filters\.date_from/);
+  assert.match(openModalBlock, /date_to: filters\.date_to/);
+  assert.match(openModalBlock, /source: filters\.source/);
+  assert.match(openModalBlock, /stock_form_packaging:/);
+  assert.match(openModalBlock, /toolbarState\.stockForms/);
+  assert.match(exportBlock, /inventory_item_id: exportFilters\.inventory_item_id/);
+  assert.match(exportBlock, /inventory_batch_id: exportFilters\.inventory_batch_id/);
+  assert.match(exportBlock, /transaction_label: exportFilters\.transaction_label/);
+  assert.match(exportBlock, /date_from: exportFilters\.date_from/);
+  assert.match(exportBlock, /date_to: exportFilters\.date_to/);
+  assert.match(exportBlock, /source: exportFilters\.source/);
+  assert.match(exportBlock, /stock_form_packaging: exportFilters\.stock_form_packaging/);
+  assert.match(source, /<InventoryTransactionExportModal/);
+  assert.match(modalSource, /<h4 style=\{sectionTitleStyles\}>Export Details<\/h4>/);
+  assert.match(modalSource, /Inventory Tracking Report/);
+  assert.match(modalSource, /gridTemplateColumns: "repeat\(6, minmax\(0, 1fr\)\)"/);
+  assert.match(modalSource, /inventory-tracking-export-field--half/);
+  assert.match(modalSource, /inventory-tracking-export-field--third/);
+  assert.match(modalSource, /id="tracking-export-format"/);
+  assert.match(modalSource, /id="tracking-export-date-from"/);
+  assert.match(modalSource, /id="tracking-export-date-to"/);
+  assert.match(modalSource, /id="tracking-export-source"/);
+  assert.doesNotMatch(modalSource, /id="tracking-export-movement"/);
+  assert.doesNotMatch(modalSource, /id="tracking-export-search"/);
+  assert.match(modalSource, /onSelectAllStockForms/);
+  assert.match(modalSource, /Select All/);
+  assert.match(modalSource, /Unselect All/);
+  assert.match(modalSource, /chipStyles/);
+  assert.match(modalSource, /Packaging \/ Stock Form/);
+
+  const itemIndex = modalSource.indexOf('id="tracking-export-item"');
+  const batchIndex = modalSource.indexOf('id="tracking-export-batch"');
+  const transactionIndex = modalSource.indexOf('id="tracking-export-transaction"');
+  const dateFromIndex = modalSource.indexOf('id="tracking-export-date-from"');
+  const dateToIndex = modalSource.indexOf('id="tracking-export-date-to"');
+  const sourceIndex = modalSource.indexOf('id="tracking-export-source"');
+  const formatIndex = modalSource.indexOf('id="tracking-export-format"');
+
+  assert.ok(itemIndex < batchIndex);
+  assert.ok(batchIndex < transactionIndex);
+  assert.ok(transactionIndex < dateFromIndex);
+  assert.ok(dateFromIndex < dateToIndex);
+  assert.ok(dateToIndex < sourceIndex);
+  assert.ok(sourceIndex < formatIndex);
 });
 
 test("inventory tracking summaries use filtered movement rows and scoped stock health", async () => {
@@ -122,4 +173,45 @@ test("inventory tracking summaries use filtered movement rows and scoped stock h
   assert.match(summaryBlock, /const totalWriteOff = displayedRows\.reduce\(/);
   assert.match(summaryBlock, /summaryScopedItems\.filter\(/);
   assert.match(summaryBlock, /summaryTrackingMap\.get\(/);
+});
+
+test("inventory tracking local filters cover batch search, date validation, reset, and labels", async () => {
+  const source = await fs.readFile(
+    path.join(clientRoot, "src/pages/inventory/InventoryTransactionsPage.jsx"),
+    "utf8",
+  );
+  const searchStart = source.indexOf("const searchableFields = [");
+  const labelStart = source.indexOf("const getTransactionTypeLabel = (row) => {");
+
+  assert.notEqual(searchStart, -1);
+  assert.match(source.slice(searchStart, searchStart + 700), /row\.batch_no/);
+  assert.match(source, /const DATE_RANGE_ERROR_MESSAGE =/);
+  assert.match(source, /if \(hasInvalidDateRange\) \{\s*return \[\];/);
+  assert.match(source, /T23:59:59\.999/);
+  assert.match(source, /id="tracking-date-range-error"/);
+  assert.match(source, /setFilters\(\{ \.\.\.EMPTY_TRANSACTION_FILTERS \}\)/);
+  assert.match(source, /onClick=\{handleClearAllFilters\}/);
+  assert.match(source, /\{ value: "Donated", label: "Donated" \}/);
+  assert.doesNotMatch(source, /helper=/);
+
+  assert.notEqual(labelStart, -1);
+  const labelBlock = source.slice(labelStart, labelStart + 750);
+  assert.match(labelBlock, /sourceLabel === "DONORS"/);
+  assert.match(labelBlock, /referenceType === "DONATED"/);
+});
+
+test("inventory tracking stock cards scope current health to active result rows", async () => {
+  const source = await fs.readFile(
+    path.join(clientRoot, "src/pages/inventory/InventoryTransactionsPage.jsx"),
+    "utf8",
+  );
+
+  assert.match(source, /const hasActiveDataFilters = Boolean\(/);
+  assert.match(source, /const summaryResultScope = useMemo\(\(\) => \{/);
+  assert.match(source, /displayedRows\.forEach\(\(row\) => \{/);
+  assert.match(source, /summaryResultScope\.batchIds\.size/);
+  assert.match(source, /return buildInventoryTrackingMap\(/);
+  assert.match(source, /!isDateExpired\(trackedExpirationDate\)/);
+  assert.match(source, /isItemExpiring\(trackedExpirationDate\)/);
+  assert.match(source, /onHand > 0/);
 });

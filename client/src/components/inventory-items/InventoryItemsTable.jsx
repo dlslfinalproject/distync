@@ -100,6 +100,7 @@ const styles = {
   },
   itemNameText: {
     minWidth: 0,
+    fontWeight: 700,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -114,7 +115,7 @@ const styles = {
 };
 
 const tableHeaders = [
-  "Item Name",
+  "Item",
   "Category",
   "Total Stock",
   "Stock Forms",
@@ -229,7 +230,7 @@ const InventoryItemsTable = ({
                   className="inventory-items-table-header-cell"
                   style={{
                     ...styles.th,
-                    ...(header === "Item Name" ? styles.leftCell : null),
+                    ...(header === "Item" ? styles.leftCell : null),
                     ...(centeredHeaders.has(header) ? styles.centerCell : null),
                     ...(header === "Actions" ? styles.actionCell : null),
                   }}

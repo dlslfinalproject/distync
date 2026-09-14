@@ -99,7 +99,11 @@ const getAuditLogs = async (
   const moduleCountConditions = {
     inventory: `
       (
-        al.entity_type IN ('INVENTORY_ITEM', 'INVENTORY_BATCH')
+        al.entity_type IN (
+          'INVENTORY_ITEM',
+          'INVENTORY_ITEM_STOCK_FORM',
+          'INVENTORY_BATCH'
+        )
         OR (
           al.entity_type = 'INVENTORY_TRANSACTION'
           AND COALESCE(it_direct.reference_type, '') <> 'DONATION'
@@ -117,6 +121,7 @@ const getAuditLogs = async (
       )
     `,
     distribution: "al.entity_type = 'DISTRIBUTION_TRANSACTION'",
+    sync: "al.entity_type IN ('SYNC_CONFLICT', 'SYNC_TRANSACTION')",
   };
   let moduleClause = "";
 
@@ -126,6 +131,7 @@ const getAuditLogs = async (
       "relief pack": `AND ${moduleCountConditions["relief pack"]}`,
       donation: `AND ${moduleCountConditions.donation}`,
       distribution: `AND ${moduleCountConditions.distribution}`,
+      sync: `AND ${moduleCountConditions.sync}`,
     };
 
     moduleClause = moduleConditions[normalizedModule] || "";
@@ -143,6 +149,11 @@ const getAuditLogs = async (
         al.entity_type = 'INVENTORY_ITEM'
         AND al.action = 'INVENTORY_ITEM_UPDATE'
       `,
+      packaging_added: `
+        al.entity_type = 'INVENTORY_ITEM_STOCK_FORM'
+        AND al.action = 'INVENTORY_ITEM_STOCK_FORM_CREATE'
+        AND al.new_values_json->>'is_additional_packaging' = 'true'
+      `,
       stock_added: `
         (
           (
@@ -152,7 +163,8 @@ const getAuditLogs = async (
           OR (
             al.entity_type = 'INVENTORY_TRANSACTION'
             AND al.action = 'INVENTORY_TRANSACTION_CREATE'
-            AND al.new_values_json->>'transaction_type' IN ('INFLOW', 'RETURN')
+            AND al.new_values_json->>'transaction_type' = 'INFLOW'
+            AND COALESCE(it_direct.reference_type, '') <> 'DONATION'
           )
         )
       `,
@@ -160,6 +172,7 @@ const getAuditLogs = async (
         al.entity_type = 'INVENTORY_TRANSACTION'
         AND al.action = 'INVENTORY_TRANSACTION_CREATE'
         AND al.new_values_json->>'transaction_type' = 'ADJUSTMENT'
+        AND COALESCE(it_direct.reference_type, '') <> 'DONATION'
       `,
       written_off: `
         al.entity_type = 'INVENTORY_TRANSACTION'
@@ -205,6 +218,10 @@ const getAuditLogs = async (
         al.entity_type = 'DISTRIBUTION_TRANSACTION'
         AND al.action IN ('DISTRIBUTION_RECORD', 'DISTRIBUTION_QR_CLAIM')
       `,
+      sync_conflict_resolution: `
+        al.entity_type = 'SYNC_CONFLICT'
+        AND al.action = 'SYNC_CONFLICT_RESOLUTION'
+      `,
     };
 
     auditActionClause = auditActionConditions[normalizedAuditAction]
@@ -231,10 +248,61 @@ const getAuditLogs = async (
     const searchParam = `$${values.length}`;
     searchClause = `
       AND (
-        al.action ILIKE ${searchParam}
-        OR al.entity_type ILIKE ${searchParam}
-        OR al.role_code ILIKE ${searchParam}
-        OR al.entity_id::text ILIKE ${searchParam}
+        CASE
+          WHEN al.entity_type = 'INVENTORY_ITEM'
+            AND al.action = 'INVENTORY_ITEM_CREATE'
+            THEN 'item created'
+          WHEN al.entity_type = 'INVENTORY_ITEM'
+            AND al.action = 'INVENTORY_ITEM_UPDATE'
+            THEN 'item details edited'
+          WHEN al.entity_type = 'INVENTORY_ITEM_STOCK_FORM'
+            AND al.action = 'INVENTORY_ITEM_STOCK_FORM_CREATE'
+            AND al.new_values_json->>'is_additional_packaging' = 'true'
+            THEN 'packaging added'
+          WHEN al.entity_type = 'INVENTORY_BATCH'
+            AND al.action IN ('INVENTORY_BATCH_CREATE', 'INVENTORY_BATCH_UPDATE')
+            THEN 'stock added batch expiry updated'
+          WHEN al.entity_type = 'INVENTORY_TRANSACTION'
+            AND it_direct.reference_type = 'DONATION'
+            AND al.new_values_json->>'transaction_type' = 'INFLOW'
+            THEN 'donated stock added'
+          WHEN al.entity_type = 'INVENTORY_TRANSACTION'
+            AND it_direct.reference_type = 'DONATION'
+            AND al.new_values_json->>'transaction_type' = 'OUTFLOW'
+            THEN 'donated stock removed'
+          WHEN al.entity_type = 'INVENTORY_TRANSACTION'
+            AND al.new_values_json->>'transaction_type' = 'ADJUSTMENT'
+            THEN 'stock adjusted'
+          WHEN al.entity_type = 'INVENTORY_TRANSACTION'
+            AND al.new_values_json->>'transaction_type' = 'INFLOW'
+            THEN 'stock added'
+          WHEN al.entity_type = 'RELIEF_PACK_TEMPLATE'
+            AND al.action = 'RELIEF_PACK_TEMPLATE_CREATE'
+            THEN 'relief pack template created'
+          WHEN al.entity_type = 'RELIEF_PACK_TEMPLATE'
+            AND al.action IN (
+              'RELIEF_PACK_TEMPLATE_UPDATE',
+              'RELIEF_PACK_TEMPLATE_UPDATED',
+              'RELIEF_PACK_TEMPLATE_ITEMS_UPDATED'
+            )
+            THEN 'relief pack details edited'
+          WHEN al.entity_type = 'DONATION'
+            AND al.action = 'DONATION_CREATE'
+            THEN 'donation entry'
+          WHEN al.entity_type = 'DONATION'
+            AND al.action IN ('DONATION_UPDATE', 'DONATION_PUBLIC_NAME_UPDATE')
+            THEN 'donation details edited'
+          WHEN al.entity_type = 'DONATION_ITEM'
+            AND al.action = 'DONATION_ITEM_UPDATE'
+            THEN 'donation details edited'
+          WHEN al.entity_type = 'DISTRIBUTION_TRANSACTION'
+            AND al.action IN ('DISTRIBUTION_RECORD', 'DISTRIBUTION_QR_CLAIM')
+            THEN 'distributed items'
+          WHEN al.entity_type = 'SYNC_CONFLICT'
+            AND al.action = 'SYNC_CONFLICT_RESOLUTION'
+            THEN 'sync conflict resolved'
+          ELSE REPLACE(LOWER(COALESCE(al.action, '')), '_', ' ')
+        END ILIKE ${searchParam}
         OR u.first_name ILIKE ${searchParam}
         OR u.last_name ILIKE ${searchParam}
         OR u.email ILIKE ${searchParam}
@@ -242,9 +310,7 @@ const getAuditLogs = async (
         OR ii_direct.item_name ILIKE ${searchParam}
         OR ii_batch.item_name ILIKE ${searchParam}
         OR ii_transaction.item_name ILIKE ${searchParam}
-        OR ii_direct.barcode ILIKE ${searchParam}
-        OR ii_batch.barcode ILIKE ${searchParam}
-        OR ii_transaction.barcode ILIKE ${searchParam}
+        OR ii_stock_form.item_name ILIKE ${searchParam}
         OR ib_direct.batch_no ILIKE ${searchParam}
         OR ib_transaction.batch_no ILIKE ${searchParam}
         OR rpt_direct.name ILIKE ${searchParam}
@@ -261,12 +327,18 @@ const getAuditLogs = async (
         ) ILIKE ${searchParam}
         OR EXISTS (
           SELECT 1
+          FROM donation_items donation_item_search
+          INNER JOIN inventory_items donation_item_inventory_search
+            ON donation_item_inventory_search.id = donation_item_search.inventory_item_id
+          WHERE donation_item_search.donation_id = d_direct.id
+            AND donation_item_inventory_search.item_name ILIKE ${searchParam}
+        )
+        OR EXISTS (
+          SELECT 1
           FROM distribution_transaction_relief_pack_templates dtrpt_search
-          WHERE dtrpt_search.distribution_transaction_id = dt_direct.id
+            WHERE dtrpt_search.distribution_transaction_id = dt_direct.id
             AND dtrpt_search.name_snapshot ILIKE ${searchParam}
         )
-        OR al.old_values_json::text ILIKE ${searchParam}
-        OR al.new_values_json::text ILIKE ${searchParam}
       )
     `;
   }
@@ -304,12 +376,70 @@ const getAuditLogs = async (
       COALESCE(
         ii_direct.item_name,
         ii_batch.item_name,
-        ii_transaction.item_name
+        ii_transaction.item_name,
+        ii_stock_form.item_name
       ) AS inventory_item_name,
+      COALESCE(
+        ii_direct.item_code,
+        ii_batch.item_code,
+        ii_transaction.item_code,
+        ii_stock_form.item_code
+      ) AS inventory_item_code,
+      COALESCE(
+        ii_direct.category,
+        ii_batch.category,
+        ii_transaction.category,
+        ii_stock_form.category
+      ) AS inventory_item_category,
+      COALESCE(
+        ii_direct.unit_of_measure,
+        ii_batch.unit_of_measure,
+        ii_transaction.unit_of_measure,
+        ii_stock_form.unit_of_measure
+      ) AS inventory_item_unit_of_measure,
+      COALESCE(
+        ii_direct.unit_of_measure_value,
+        ii_batch.unit_of_measure_value,
+        ii_transaction.unit_of_measure_value,
+        ii_stock_form.unit_of_measure_value
+      ) AS inventory_item_unit_of_measure_value,
+      COALESCE(
+        ii_direct.reorder_level,
+        ii_batch.reorder_level,
+        ii_transaction.reorder_level,
+        ii_stock_form.reorder_level
+      ) AS inventory_item_reorder_level,
+      COALESCE(
+        iisf_batch.packaging,
+        iisf_transaction.packaging,
+        iisf_direct.packaging
+      ) AS inventory_packaging,
+      COALESCE(
+        iisf_batch.units_per_packaging,
+        iisf_transaction.units_per_packaging,
+        iisf_direct.units_per_packaging
+      ) AS inventory_units_per_packaging,
+      COALESCE(
+        iisf_batch.unit_of_measure,
+        iisf_transaction.unit_of_measure,
+        iisf_direct.unit_of_measure
+      ) AS inventory_packaging_unit_of_measure,
       COALESCE(
         ib_direct.batch_no,
         ib_transaction.batch_no
       ) AS inventory_batch_no,
+      COALESCE(
+        ib_direct.source_type,
+        ib_transaction.source_type
+      ) AS inventory_source_type,
+      COALESCE(
+        ib_direct.expiration_date,
+        ib_transaction.expiration_date
+      ) AS inventory_expiration_date,
+      COALESCE(
+        ib_direct.received_at,
+        ib_transaction.received_at
+      ) AS inventory_received_at,
       it_direct.reference_type AS inventory_transaction_reference_type,
       COALESCE(
         iisf_batch.barcode,
@@ -339,7 +469,13 @@ const getAuditLogs = async (
         al.new_values_json->>'status',
         al.old_values_json->>'status'
       ) AS donation_status,
+      COALESCE(
+        de_donation.title,
+        al.new_values_json->>'disaster_event_title',
+        al.old_values_json->>'disaster_event_title'
+      ) AS donation_disaster_event_title,
       donation_items.items AS donation_items_json,
+      donation_adjustment_details.details AS donation_adjustment_json,
       dt_direct.distribution_date,
       dt_direct.distribution_status,
       dt_direct.verified_by AS distribution_verified_by,
@@ -370,6 +506,11 @@ const getAuditLogs = async (
       ON ii_transaction.id = ib_transaction.inventory_item_id
     LEFT JOIN inventory_item_stock_forms iisf_transaction
       ON iisf_transaction.id = ib_transaction.inventory_item_stock_form_id
+    LEFT JOIN inventory_item_stock_forms iisf_direct
+      ON al.entity_type = 'INVENTORY_ITEM_STOCK_FORM'
+      AND iisf_direct.id = al.entity_id
+    LEFT JOIN inventory_items ii_stock_form
+      ON ii_stock_form.id = iisf_direct.inventory_item_id
     LEFT JOIN relief_pack_templates rpt_direct
       ON al.entity_type = 'RELIEF_PACK_TEMPLATE'
       AND rpt_direct.id = al.entity_id
@@ -387,6 +528,12 @@ const getAuditLogs = async (
       AND di_transaction.id = it_direct.reference_id
     LEFT JOIN donations d_transaction
       ON d_transaction.id = di_transaction.donation_id
+    LEFT JOIN disaster_events de_donation
+      ON de_donation.id = COALESCE(
+        d_direct.disaster_event_id,
+        d_item.disaster_event_id,
+        d_transaction.disaster_event_id
+      )
     LEFT JOIN distribution_transactions dt_direct
       ON al.entity_type = 'DISTRIBUTION_TRANSACTION'
       AND dt_direct.id = al.entity_id
@@ -402,10 +549,26 @@ const getAuditLogs = async (
     ) distribution_template_names ON TRUE
     LEFT JOIN LATERAL (
       SELECT jsonb_agg(
-        jsonb_build_object(
+          jsonb_build_object(
+          'item_code', ii_donation.item_code,
           'item_name', ii_donation.item_name,
+          'category', ii_donation.category,
           'quantity_received', di_donation.quantity_received,
           'unit_of_measure', ii_donation.unit_of_measure,
+          'packaging', stock_forms_donation.packaging,
+          'units_per_packaging', stock_forms_donation.units_per_packaging,
+          'batch_no', ib_donation.batch_no,
+          'expiration_date', ib_donation.expiration_date,
+          'inventory_transaction_remarks', (
+            SELECT it_donation.remarks
+            FROM inventory_transactions it_donation
+            WHERE it_donation.reference_type = 'DONATION'
+              AND it_donation.reference_id = di_donation.id
+            ORDER BY it_donation.performed_at ASC NULLS LAST,
+              it_donation.created_at ASC,
+              it_donation.id ASC
+            LIMIT 1
+          ),
           'remarks', di_donation.remarks
         )
         ORDER BY di_donation.created_at ASC, ii_donation.item_name ASC
@@ -413,12 +576,56 @@ const getAuditLogs = async (
       FROM donation_items di_donation
       INNER JOIN inventory_items ii_donation
         ON ii_donation.id = di_donation.inventory_item_id
+      LEFT JOIN inventory_batches ib_donation
+        ON ib_donation.id = di_donation.inventory_batch_id
+      LEFT JOIN inventory_item_stock_forms stock_forms_donation
+        ON stock_forms_donation.id = ib_donation.inventory_item_stock_form_id
       WHERE di_donation.donation_id = COALESCE(
         d_direct.id,
         d_item.id,
         d_transaction.id
       )
     ) donation_items ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT jsonb_build_object(
+        'id', adjustment_log.id,
+        'old_values_json', adjustment_log.old_values_json,
+        'new_values_json', adjustment_log.new_values_json,
+        'created_at', adjustment_log.created_at
+      ) AS details
+      FROM audit_logs adjustment_log
+      WHERE al.entity_type = 'DONATION_ITEM'
+        AND al.action = 'DONATION_ITEM_UPDATE'
+        AND adjustment_log.entity_type = 'INVENTORY_TRANSACTION'
+        AND adjustment_log.action = 'INVENTORY_TRANSACTION_CREATE'
+        AND COALESCE(
+          adjustment_log.new_values_json->>'reference_type',
+          ''
+        ) = 'DONATION'
+        AND (
+          adjustment_log.id::text = NULLIF(
+            al.new_values_json->>'adjustment_transaction_id',
+            ''
+          )
+          OR (
+            al.new_values_json->>'adjustment_transaction_id' IS NULL
+            AND adjustment_log.new_values_json->>'reference_id' = al.entity_id::text
+            AND (
+              adjustment_log.new_values_json->>'transaction_type' = 'ADJUSTMENT'
+              OR LOWER(COALESCE(adjustment_log.new_values_json->>'remarks', ''))
+                LIKE 'adjusted up donation stock%'
+              OR LOWER(COALESCE(adjustment_log.new_values_json->>'remarks', ''))
+                LIKE 'adjusted down donation stock%'
+              OR LOWER(COALESCE(adjustment_log.new_values_json->>'remarks', ''))
+                LIKE '%donation adjustment%'
+            )
+            AND adjustment_log.created_at >= al.created_at
+            AND adjustment_log.created_at <= al.created_at + INTERVAL '1 minute'
+          )
+        )
+      ORDER BY adjustment_log.created_at ASC
+      LIMIT 1
+    ) donation_adjustment_details ON TRUE
     LEFT JOIN LATERAL (
       SELECT jsonb_agg(
         jsonb_build_object(
@@ -454,22 +661,69 @@ const getAuditLogs = async (
       WHERE dti_distribution.distribution_transaction_id = dt_direct.id
     ) distribution_items ON TRUE
     WHERE al.created_at >= NOW() - INTERVAL '${AUDIT_LOG_RETENTION_YEARS} years'
+      AND NOT (
+        al.entity_type = 'INVENTORY_ITEM_STOCK_FORM'
+        AND al.action = 'INVENTORY_ITEM_STOCK_FORM_CREATE'
+        AND COALESCE(al.new_values_json->>'is_additional_packaging', 'false') <> 'true'
+      )
+      AND NOT (
+        al.entity_type = 'INVENTORY_TRANSACTION'
+        AND al.action = 'INVENTORY_TRANSACTION_CREATE'
+        AND COALESCE(
+          it_direct.reference_type,
+          al.new_values_json->>'reference_type',
+          ''
+        ) = 'DONATION'
+        AND (
+          al.new_values_json->>'transaction_type' = 'ADJUSTMENT'
+          OR LOWER(COALESCE(al.new_values_json->>'remarks', ''))
+            LIKE 'adjusted up donation stock%'
+          OR LOWER(COALESCE(al.new_values_json->>'remarks', ''))
+            LIKE 'adjusted down donation stock%'
+          OR LOWER(COALESCE(al.new_values_json->>'remarks', ''))
+            LIKE '%donation adjustment%'
+        )
+      )
+      -- A regular stock-in creates both an inventory batch and an inventory
+      -- transaction audit row. The transaction is the user-facing Stock Added
+      -- event; keep the batch row only when its transaction audit is missing.
+      AND NOT (
+        al.entity_type = 'INVENTORY_BATCH'
+        AND al.action = 'INVENTORY_BATCH_CREATE'
+        AND EXISTS (
+          SELECT 1
+          FROM audit_logs transaction_audit
+          WHERE transaction_audit.entity_type = 'INVENTORY_TRANSACTION'
+            AND transaction_audit.action = 'INVENTORY_TRANSACTION_CREATE'
+            AND transaction_audit.new_values_json->>'transaction_type' = 'INFLOW'
+            AND COALESCE(
+              transaction_audit.new_values_json->>'reference_type',
+              ''
+            ) <> 'DONATION'
+            AND transaction_audit.new_values_json->>'inventory_batch_id' = al.entity_id::text
+        )
+      )
       AND (
         (
           (
             (
               al.entity_type = 'INVENTORY_ITEM'
-              AND al.action IN ('INVENTORY_ITEM_CREATE', 'INVENTORY_ITEM_UPDATE')
+              AND al.action IN (
+                'INVENTORY_ITEM_CREATE',
+                'INVENTORY_ITEM_UPDATE',
+                'INVENTORY_ITEM_REORDER_LEVEL_UPDATE'
+              )
+            )
+            OR (
+              al.entity_type = 'INVENTORY_ITEM_STOCK_FORM'
+              AND al.action IN (
+                'INVENTORY_ITEM_STOCK_FORM_CREATE',
+                'INVENTORY_ITEM_STOCK_FORM_UPDATE'
+              )
             )
             OR (
               al.entity_type = 'INVENTORY_BATCH'
-              AND al.action = 'INVENTORY_BATCH_CREATE'
-            )
-            OR (
-              al.entity_type = 'INVENTORY_BATCH'
-              AND al.action = 'INVENTORY_BATCH_UPDATE'
-              AND al.old_values_json->>'expiration_date'
-                IS DISTINCT FROM al.new_values_json->>'expiration_date'
+              AND al.action IN ('INVENTORY_BATCH_CREATE', 'INVENTORY_BATCH_UPDATE')
             )
             OR (
               al.entity_type = 'INVENTORY_TRANSACTION'
@@ -486,6 +740,11 @@ const getAuditLogs = async (
                 'OTHER'
               )
             )
+            OR (
+              al.entity_type = 'INVENTORY_TRANSACTION'
+              AND al.action = 'INVENTORY_TRANSACTION_CREATE'
+              AND it_direct.reference_type = 'DONATION'
+            )
           )
         )
         OR (
@@ -496,11 +755,6 @@ const getAuditLogs = async (
             'RELIEF_PACK_TEMPLATE_UPDATED',
             'RELIEF_PACK_TEMPLATE_ITEMS_UPDATED'
           )
-          AND COALESCE(
-            rpt_direct.is_active,
-            NULLIF(al.new_values_json->>'is_active', '')::boolean,
-            TRUE
-          ) IS TRUE
         )
         OR (
           al.entity_type = 'DONATION'
@@ -520,10 +774,17 @@ const getAuditLogs = async (
             'DISTRIBUTION_RECORD',
             'DISTRIBUTION_QR_CLAIM'
           )
-          AND COALESCE(
-            dt_direct.distribution_status,
-            al.new_values_json->>'distribution_status'
-          ) = 'CLAIMED'
+        )
+        OR (
+          al.entity_type = 'SYNC_CONFLICT'
+          AND al.action IN (
+            'SYNC_CONFLICT_REVIEW',
+            'SYNC_CONFLICT_RESOLUTION'
+          )
+        )
+        OR (
+          al.entity_type = 'SYNC_TRANSACTION'
+          AND al.action = 'SYNC_RETRY_REQUEST'
         )
       )
       ${moduleClause}
@@ -567,6 +828,151 @@ const getErrorLogs = async ({ limit = 50 } = {}, dbClient = pool) => {
   return result.rows;
 };
 
+const getInventoryItemCreationRelatedAuditLogs = async (
+  { itemIds = [] } = {},
+  dbClient = pool,
+) => {
+  const normalizedItemIds = Array.from(
+    new Set(
+      (Array.isArray(itemIds) ? itemIds : [])
+        .map((itemId) => String(itemId || "").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (!normalizedItemIds.length) {
+    return [];
+  }
+
+  const query = `
+    SELECT
+      al.id,
+      al.action,
+      al.entity_type,
+      al.entity_id,
+      al.role_code,
+      al.old_values_json,
+      al.new_values_json,
+      al.ip_address,
+      al.created_at,
+      CASE
+        WHEN al.entity_type = 'INVENTORY_ITEM_STOCK_FORM'
+          THEN iisf_related.inventory_item_id::text
+        WHEN al.entity_type = 'INVENTORY_BATCH'
+          THEN ib_related.inventory_item_id::text
+        WHEN al.entity_type = 'INVENTORY_TRANSACTION'
+          THEN ib_transaction.inventory_item_id::text
+        ELSE NULL
+      END AS related_inventory_item_id
+    FROM audit_logs al
+    LEFT JOIN inventory_item_stock_forms iisf_related
+      ON al.entity_type = 'INVENTORY_ITEM_STOCK_FORM'
+      AND iisf_related.id = al.entity_id
+    LEFT JOIN inventory_batches ib_related
+      ON al.entity_type = 'INVENTORY_BATCH'
+      AND ib_related.id = al.entity_id
+    LEFT JOIN inventory_transactions it_related
+      ON al.entity_type = 'INVENTORY_TRANSACTION'
+      AND it_related.id = al.entity_id
+    LEFT JOIN inventory_batches ib_transaction
+      ON al.entity_type = 'INVENTORY_TRANSACTION'
+      AND ib_transaction.id = it_related.inventory_batch_id
+    WHERE al.created_at >= NOW() - INTERVAL '${AUDIT_LOG_RETENTION_YEARS} years'
+      AND (
+        (
+          al.entity_type = 'INVENTORY_ITEM_STOCK_FORM'
+          AND al.action = 'INVENTORY_ITEM_STOCK_FORM_CREATE'
+          AND iisf_related.inventory_item_id::text = ANY($1::text[])
+        )
+        OR (
+          al.entity_type = 'INVENTORY_BATCH'
+          AND al.action = 'INVENTORY_BATCH_CREATE'
+          AND ib_related.inventory_item_id::text = ANY($1::text[])
+        )
+        OR (
+          al.entity_type = 'INVENTORY_TRANSACTION'
+          AND al.action = 'INVENTORY_TRANSACTION_CREATE'
+          AND al.new_values_json->>'transaction_type' = 'INFLOW'
+          AND COALESCE(
+            it_related.reference_type,
+            al.new_values_json->>'reference_type',
+            ''
+          ) <> 'DONATION'
+          AND ib_transaction.inventory_item_id::text = ANY($1::text[])
+        )
+      )
+    ORDER BY al.created_at ASC, al.id ASC
+  `;
+
+  const result = await dbClient.query(query, [normalizedItemIds]);
+  return result.rows;
+};
+
+const getInventoryPackagingAddedRelatedAuditLogs = async (
+  { stockFormIds = [] } = {},
+  dbClient = pool,
+) => {
+  const normalizedStockFormIds = Array.from(
+    new Set(
+      (Array.isArray(stockFormIds) ? stockFormIds : [])
+        .map((stockFormId) => String(stockFormId || "").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (!normalizedStockFormIds.length) {
+    return [];
+  }
+
+  const query = `
+    SELECT
+      al.id,
+      al.action,
+      al.entity_type,
+      al.entity_id,
+      al.role_code,
+      al.old_values_json,
+      al.new_values_json,
+      al.ip_address,
+      al.created_at,
+      CASE
+        WHEN al.entity_type = 'INVENTORY_BATCH'
+          THEN ib_related.inventory_item_stock_form_id::text
+        WHEN al.entity_type = 'INVENTORY_TRANSACTION'
+          THEN ib_transaction.inventory_item_stock_form_id::text
+        ELSE NULL
+      END AS related_inventory_item_stock_form_id
+    FROM audit_logs al
+    LEFT JOIN inventory_batches ib_related
+      ON al.entity_type = 'INVENTORY_BATCH'
+      AND ib_related.id = al.entity_id
+    LEFT JOIN inventory_transactions it_related
+      ON al.entity_type = 'INVENTORY_TRANSACTION'
+      AND it_related.id = al.entity_id
+    LEFT JOIN inventory_batches ib_transaction
+      ON al.entity_type = 'INVENTORY_TRANSACTION'
+      AND ib_transaction.id = it_related.inventory_batch_id
+    WHERE al.created_at >= NOW() - INTERVAL '${AUDIT_LOG_RETENTION_YEARS} years'
+      AND (
+        (
+          al.entity_type = 'INVENTORY_BATCH'
+          AND al.action = 'INVENTORY_BATCH_CREATE'
+          AND ib_related.inventory_item_stock_form_id::text = ANY($1::text[])
+        )
+        OR (
+          al.entity_type = 'INVENTORY_TRANSACTION'
+          AND al.action = 'INVENTORY_TRANSACTION_CREATE'
+          AND al.new_values_json->>'transaction_type' = 'INFLOW'
+          AND ib_transaction.inventory_item_stock_form_id::text = ANY($1::text[])
+        )
+      )
+    ORDER BY al.created_at ASC, al.id ASC
+  `;
+
+  const result = await dbClient.query(query, [normalizedStockFormIds]);
+  return result.rows;
+};
+
 const getAuditLogsByEntity = async (
   { entityType, entityId, limit = 20 },
   dbClient = pool,
@@ -601,6 +1007,8 @@ const getAuditLogsByEntity = async (
 module.exports = {
   getAuditLogs,
   getAuditLogsByEntity,
+  getInventoryItemCreationRelatedAuditLogs,
+  getInventoryPackagingAddedRelatedAuditLogs,
   getErrorLogs,
   insertAuditLog,
   insertErrorLog,

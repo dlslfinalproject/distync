@@ -34,6 +34,33 @@ const ALLOWED_SYNC_HISTORY_STATUSES = new Set([
 
 const ALLOWED_CONFLICT_HISTORY_STATUSES = new Set(["OPEN", "RESOLVED"]);
 
+const ALLOWED_SYNC_HISTORY_RECORD_TYPES = new Set([
+  "ALL",
+  "EVACUEE_MASTERLIST",
+  "RELIEF_GOODS_DISTRIBUTION",
+  "DISASTER_EVENT",
+  "INVENTORY",
+  "INVENTORY_ITEM",
+  "INVENTORY_BATCH",
+  "INVENTORY_TRANSACTION",
+]);
+
+const ALLOWED_SYNC_HISTORY_ORDERS = new Set([
+  "newest",
+  "oldest",
+  "az",
+  "za",
+]);
+
+const isValidSyncHistoryDate = (value) => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+};
+
 const validateProcessSyncEntries = (req, res, next) => {
   try {
     const { entries } = req.body || {};
@@ -153,13 +180,41 @@ const validateProcessSyncEntries = (req, res, next) => {
 
 const validateGetSyncHistory = (req, res, next) => {
   try {
-    const { sync_status, conflict_status, barangay_id, limit } = req.query || {};
+    const {
+      sync_status,
+      conflict_status,
+      barangay_id,
+      limit,
+      page,
+      page_size,
+      search,
+      record_type,
+      date_from,
+      date_to,
+      order,
+    } = req.query || {};
     const parsedLimit =
       limit === undefined ? 50 : Number.parseInt(String(limit), 10);
+    const parsedPage =
+      page === undefined ? 1 : Number.parseInt(String(page), 10);
+    const requestedPageSize = page_size === undefined ? parsedLimit : page_size;
+    const parsedPageSize = Number.parseInt(String(requestedPageSize), 10);
 
     if (Number.isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 200) {
       return res.status(400).json({
         message: "limit must be an integer between 1 and 200",
+      });
+    }
+
+    if (Number.isNaN(parsedPage) || parsedPage < 1) {
+      return res.status(400).json({
+        message: "page must be a positive integer",
+      });
+    }
+
+    if (Number.isNaN(parsedPageSize) || parsedPageSize < 1 || parsedPageSize > 200) {
+      return res.status(400).json({
+        message: "page_size must be an integer between 1 and 200",
       });
     }
 
@@ -201,11 +256,72 @@ const validateGetSyncHistory = (req, res, next) => {
       });
     }
 
+    const normalizedSearch =
+      typeof search === "string" ? search.trim().slice(0, 120) : "";
+    if (typeof search !== "undefined" && typeof search !== "string") {
+      return res.status(400).json({
+        message: "search must be a text value",
+      });
+    }
+
+    const normalizedRecordType =
+      typeof record_type === "string" && record_type.trim()
+        ? record_type.trim().toUpperCase()
+        : "ALL";
+    if (!ALLOWED_SYNC_HISTORY_RECORD_TYPES.has(normalizedRecordType)) {
+      return res.status(400).json({
+        message:
+          "record_type must be one of: ALL, EVACUEE_MASTERLIST, RELIEF_GOODS_DISTRIBUTION, DISASTER_EVENT, INVENTORY, INVENTORY_ITEM, INVENTORY_BATCH, INVENTORY_TRANSACTION",
+      });
+    }
+
+    const normalizedDateFrom =
+      typeof date_from === "string" && date_from.trim() ? date_from.trim() : null;
+    const normalizedDateTo =
+      typeof date_to === "string" && date_to.trim() ? date_to.trim() : null;
+
+    if (normalizedDateFrom && !isValidSyncHistoryDate(normalizedDateFrom)) {
+      return res.status(400).json({
+        message: "date_from must use the YYYY-MM-DD format",
+      });
+    }
+
+    if (normalizedDateTo && !isValidSyncHistoryDate(normalizedDateTo)) {
+      return res.status(400).json({
+        message: "date_to must use the YYYY-MM-DD format",
+      });
+    }
+
+    if (
+      normalizedDateFrom &&
+      normalizedDateTo &&
+      normalizedDateFrom > normalizedDateTo
+    ) {
+      return res.status(400).json({
+        message: "date_from cannot be later than date_to",
+      });
+    }
+
+    const normalizedOrder =
+      typeof order === "string" && order.trim() ? order.trim().toLowerCase() : "newest";
+    if (!ALLOWED_SYNC_HISTORY_ORDERS.has(normalizedOrder)) {
+      return res.status(400).json({
+        message: "order must be one of: newest, oldest, az, za",
+      });
+    }
+
     req.validatedQuery = {
       sync_status: normalizedSyncStatus,
       conflict_status: normalizedConflictStatus,
       barangay_id: normalizedBarangayId,
       limit: parsedLimit,
+      page: parsedPage,
+      page_size: parsedPageSize,
+      search: normalizedSearch,
+      record_type: normalizedRecordType,
+      date_from: normalizedDateFrom,
+      date_to: normalizedDateTo,
+      order: normalizedOrder,
     };
 
     return next();

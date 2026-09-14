@@ -14,11 +14,14 @@ export const calculateFilterPopoverPosition = ({
     0,
     Math.min(FILTER_PANEL_WIDTH, viewportWidth - FILTER_VIEWPORT_MARGIN * 2),
   );
-  const measuredPanelHeight = Math.max(panelHeight || 0, FILTER_MIN_PANEL_HEIGHT);
+  const measuredPanelHeight =
+    panelHeight > 0 ? panelHeight : FILTER_MIN_PANEL_HEIGHT;
   const spaceBelow = viewportHeight - triggerRect.bottom - FILTER_VIEWPORT_MARGIN;
   const spaceAbove = triggerRect.top - FILTER_VIEWPORT_MARGIN;
+  const canFitBelow = spaceBelow >= measuredPanelHeight;
+  const canFitAbove = spaceAbove >= measuredPanelHeight;
   const shouldOpenBelow =
-    spaceBelow >= FILTER_MIN_PANEL_HEIGHT || spaceBelow >= spaceAbove;
+    canFitBelow || (!canFitAbove && spaceBelow >= spaceAbove);
 
   let left = triggerRect.right - constrainedPanelWidth;
   left = Math.min(

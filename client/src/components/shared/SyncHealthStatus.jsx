@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { formatSyncDateTime } from "../../features/sync/syncManagementHelpers.js";
+import { formatSyncStatusDateTime } from "../../features/sync/syncManagementHelpers.js";
 import { getSyncHealthPresentation } from "../../offline/syncStatus.js";
 
 const badgePalette = {
@@ -39,8 +39,8 @@ const cardStyles = {
     boxSizing: "border-box",
     boxShadow: "0 10px 24px rgba(76, 101, 132, 0.08)",
     display: "grid",
-    gap: "18px",
-    padding: "clamp(18px, 2vw, 24px)",
+    gap: "10px",
+    padding: "clamp(16px, 2vw, 20px)",
     width: "100%",
   },
   compact: {
@@ -98,6 +98,38 @@ const SyncHealthStatus = ({
 
   const isCompact = variant === "compact";
   const accentColor = getAccentColor(presentation.state);
+  const renderBadges = (justifyContent = "flex-start") =>
+    presentation.badges.length > 0 ? (
+      <div
+        aria-label="Synchronization status details"
+        style={{
+          display: "flex",
+          flex: "0 1 auto",
+          flexWrap: "wrap",
+          gap: "8px",
+          justifyContent,
+          minWidth: 0,
+        }}
+      >
+        {presentation.badges.map((badge) => (
+          <span
+            key={badge.type}
+            style={{
+              ...badgePalette[badge.type],
+              border: "1px solid",
+              borderRadius: "999px",
+              fontSize: "12px",
+              fontWeight: 700,
+              lineHeight: 1.3,
+              padding: "6px 10px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {badge.label}
+          </span>
+        ))}
+      </div>
+    ) : null;
 
   return (
     <section
@@ -113,22 +145,33 @@ const SyncHealthStatus = ({
         style={{
           display: "grid",
           flex: "1 1 260px",
-          gap: isCompact ? "3px" : "8px",
+          gap: isCompact ? "3px" : "6px",
           minWidth: 0,
         }}
       >
         {!isCompact ? (
-          <h3
+          <div
             style={{
-              color: "#17324d",
-              fontSize: "13px",
-              letterSpacing: "0.08em",
-              margin: 0,
-              textTransform: "uppercase",
+              alignItems: "center",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "8px 12px",
+              justifyContent: "space-between",
             }}
           >
-            Sync Status
-          </h3>
+            <h3
+              style={{
+                color: "#17324d",
+                fontSize: "13px",
+                letterSpacing: "0.08em",
+                margin: 0,
+                textTransform: "uppercase",
+              }}
+            >
+              Sync Status
+            </h3>
+            {renderBadges("flex-end")}
+          </div>
         ) : null}
         <p
           style={{
@@ -151,41 +194,12 @@ const SyncHealthStatus = ({
               margin: 0,
             }}
           >
-            Last successful sync: {formatSyncDateTime(presentation.lastSuccessfulSyncAt)}
+            Last Successful Sync: {formatSyncStatusDateTime(presentation.lastSuccessfulSyncAt)}
           </p>
         ) : null}
       </div>
 
-      {presentation.badges.length > 0 ? (
-        <div
-          aria-label="Synchronization status details"
-          style={{
-            display: "flex",
-            flex: "0 1 auto",
-            flexWrap: "wrap",
-            gap: "8px",
-            minWidth: 0,
-          }}
-        >
-          {presentation.badges.map((badge) => (
-            <span
-              key={badge.type}
-              style={{
-                ...badgePalette[badge.type],
-                border: "1px solid",
-                borderRadius: "999px",
-                fontSize: "12px",
-                fontWeight: 700,
-                lineHeight: 1.3,
-                padding: "6px 10px",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {badge.label}
-            </span>
-          ))}
-        </div>
-      ) : null}
+      {isCompact ? renderBadges("flex-start") : null}
 
       {isCompact && presentation.needsAttention ? (
         <Link

@@ -42,6 +42,10 @@ test("Mayor relief pack templates page exposes scoped responsive hooks", async (
   );
   assert.match(pageSource, /className="mayor-relief-pack-card-grid"/);
   assert.match(pageSource, /className="mayor-relief-pack-tabs"/);
+  assert.match(
+    pageSource,
+    /hasActiveReliefPackFilters \? \([\s\S]*?className="mayor-relief-pack-filter-actions"/,
+  );
   assert.doesNotMatch(pageSource, /Packs Available/);
   assert.match(pageSource, /Packs Needed/);
   assert.match(pageSource, /Item Still Needed/);
@@ -110,6 +114,10 @@ test("Mayor relief pack templates page exposes scoped responsive hooks", async (
     cssSource,
     /@media \(max-width: 768px\)[\s\S]*?\.mayor-relief-pack-tabs \{[\s\S]*?overflow-x: auto !important;/,
   );
+  assert.match(
+    cssSource,
+    /\.inventory-tracking-filter-actions,[\s\S]*?\.mayor-relief-pack-filter-actions,[\s\S]*?\.mayor-anomaly-filter-actions \{[\s\S]*?position: absolute;[\s\S]*?right: clamp\(16px, 2vw, 24px\);[\s\S]*?bottom: clamp\(4px, 0.5vw, 8px\);/,
+  );
 });
 
 test("Mayor relief pack template table and detail tables keep overflow local", async () => {
@@ -121,16 +129,18 @@ test("Mayor relief pack template table and detail tables keep overflow local", a
   assert.match(pageSource, /className="mayor-relief-pack-template-table-scroll"/);
   assert.match(pageSource, /className="mayor-relief-pack-template-table"/);
   assert.match(pageSource, /className="mayor-relief-pack-template-name"/);
+  assert.match(pageSource, /reliefPackName: \{[\s\S]*?fontWeight: 700/);
   assert.doesNotMatch(pageSource, /tableStyles\.nameStatus/);
   assert.match(pageSource, /className="mayor-relief-pack-template-item-name"/);
   assert.match(pageSource, /className="mayor-relief-pack-detail-table-scroll"/);
   assert.match(pageSource, /className="mayor-relief-pack-detail-table"/);
-  assert.match(pageSource, />\s*Name\s*</);
+  assert.match(pageSource, />\s*Relief Pack\s*</);
   assert.match(pageSource, />\s*Pack Type\s*</);
   assert.match(pageSource, />\s*Items\s*</);
   assert.match(pageSource, />\s*Qty \/ Item\s*</);
   assert.match(pageSource, />\s*Rule\s*</);
-  assert.match(pageSource, />\s*Applies To\s*</);
+  assert.match(pageSource, />\s*Disaster Type\s*</);
+  assert.doesNotMatch(pageSource, />\s*Applies To\s*</);
   assert.match(
     pageSource,
     /className="mayor-relief-pack-template-status-cell"[\s\S]*?>\s*Status\s*</,
@@ -153,10 +163,10 @@ test("Mayor relief pack template table and detail tables keep overflow local", a
   );
   assert.match(
     cssSource,
-    /\.mayor-relief-pack-template-table \{[\s\S]*?table-layout: auto !important;[\s\S]*?min-width: 920px !important;/,
+    /\.mayor-relief-pack-template-table \{[\s\S]*?table-layout: fixed !important;[\s\S]*?min-width: 1280px !important;/,
   );
-  assert.match(cssSource, /\.mayor-relief-pack-template-rule-cell \{[\s\S]*?min-width: 130px;/);
-  assert.match(cssSource, /\.mayor-relief-pack-template-applies-cell \{[\s\S]*?min-width: 140px;/);
+  assert.match(cssSource, /\.mayor-relief-pack-template-rule-cell \{[\s\S]*?width: 180px;[\s\S]*?min-width: 180px;/);
+  assert.match(cssSource, /\.mayor-relief-pack-template-applies-cell \{[\s\S]*?width: 180px;[\s\S]*?min-width: 180px;/);
   assert.match(cssSource, /\.mayor-relief-pack-template-status-cell \{[\s\S]*?min-width: 88px;[\s\S]*?white-space: nowrap;/);
   assert.match(cssSource, /\.mayor-relief-pack-template-actions-cell \{[\s\S]*?min-width: 76px;[\s\S]*?white-space: nowrap;/);
   assert.match(

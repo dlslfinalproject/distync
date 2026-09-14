@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getOfflinePreparation,
   OFFLINE_CACHE_VERSION,
@@ -14,10 +14,28 @@ import {
   getCachedRegistrationReferenceData,
 } from "../household-registration/householdRegistrationService.js";
 
+const getSafeFailureMessage = (diagnostics = {}) => {
+  if (diagnostics.failure_message) return diagnostics.failure_message;
+  if (diagnostics.error_code === "OFFLINE_PREPARATION_TIMEOUT" || diagnostics.error_code === "OFFLINE_PREPARATION_SCOPE_CHANGED") {
+    return "The connection was interrupted while preparing offline data.";
+  }
+  if (diagnostics.error_code === "OFFLINE_PREPARATION_REFERENCE_READ_BACK_FAILED" || diagnostics.references && Object.values(diagnostics.references).some((reference) => reference.status === "FAILED")) {
+    return "Reference information could not be refreshed.";
+  }
+  if (diagnostics.error_code === "OFFLINE_PREPARATION_HOUSEHOLD_DETAILS_INCOMPLETE") {
+    return "Some household information could not be prepared.";
+  }
+  if (diagnostics.previous_complete_cache || diagnostics.previousCompleteCache) {
+    return "Offline data for the selected disaster event needs to be refreshed.";
+  }
+  return "";
+};
+
 export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eventId = "", barangayId = "", context = {} }) => {
   const [readiness, setReadiness] = useState(OFFLINE_PREPARATION_STATUS.NOT_PREPARED);
   const [diagnostics, setDiagnostics] = useState(null);
   const [revision, setRevision] = useState(0);
+  const generationRef = useRef(0);
   const actorContext = getSyncQueueActorContext();
   const actorAccessMode = actorContext.accessMode;
   const actorUserId = actorContext.userId || "";
@@ -35,7 +53,9 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
       return undefined;
     }
     let mounted = true;
+    const generation = ++generationRef.current;
     const scope = { eventId, barangayId };
+    const isCurrent = () => mounted && generationRef.current === generation;
     const run = async () => {
       const existing = await getOfflinePreparation(scope);
       if (mounted && existing) setDiagnostics(existing);
@@ -60,8 +80,7 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
         getCachedEvacuationCentersByBarangay(barangayId).length > 0;
       const hasCompleteHouseholdDetails = cachedMasterlistRows.every(
         (row) => Boolean(
-          row?.offline_household_details?.household?.id &&
-            row.offline_household_details.household.family_head_photo_data_url,
+            row?.offline_household_details?.household?.id,
         ),
       );
       const hasPersistedEmptyMasterlistSnapshot =
@@ -89,9 +108,7 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
         hasRequiredMasterlistCache &&
         hasRequiredStubCache &&
         hasEventReference &&
-        hasBarangayReference &&
-        hasSectorReference &&
-        hasEvacuationCenterReference;
+        hasBarangayReference;
       if (hasCompletePreparedCache) {
         if (mounted) {
           setReadiness(
@@ -117,16 +134,26 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
       }
       if (mounted) setReadiness(OFFLINE_PREPARATION_STATUS.PREPARING);
       try {
-        const result = await prepareBarangayOfflineData({ ...scope, userId, context });
-        if (mounted) setReadiness(result?.status || OFFLINE_PREPARATION_STATUS.READY);
+        const result = await prepareBarangayOfflineData({ ...scope, userId, context, generation, isCurrent });
+        if (isCurrent()) setReadiness(result?.status || OFFLINE_PREPARATION_STATUS.READY);
       } catch (_error) {
-        if (mounted) {
+        if (isCurrent()) {
           const previousCache = Boolean(existing?.previous_complete_cache || existing?.previousCompleteCache);
           setReadiness(previousCache ? OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH : OFFLINE_PREPARATION_STATUS.NOT_READY);
         }
       }
     };
-    const update = (event) => { if (mounted) { setDiagnostics(event.detail || null); if (event.detail?.status) setReadiness(event.detail.status); } };
+    const update = (event) => {
+      const detail = event.detail || {};
+      const sameScope = detail.accessMode === actorAccessMode &&
+        detail.userId === userId && detail.roleCode === ROLE_CODES.BARANGAY &&
+        String(detail.disaster_event_id) === String(eventId) &&
+        String(detail.barangay_id) === String(barangayId);
+      if (isCurrent() && sameScope && (detail.generation === undefined || detail.generation === generation)) {
+        setDiagnostics(detail);
+        if (detail.status) setReadiness(detail.status);
+      }
+    };
     const online = () => setRevision((value) => value + 1);
     run();
     if (typeof window !== "undefined") {
@@ -153,5 +180,5 @@ export const useBarangayOfflinePreparation = ({ enabled = true, userId = "", eve
     revision,
     userId,
   ]);
-  return { readiness, diagnostics, isReady: readiness === OFFLINE_PREPARATION_STATUS.READY, retry: () => setRevision((value) => value + 1) };
+  return { readiness, diagnostics, failureMessage: getSafeFailureMessage(diagnostics || {}), isReady: readiness === OFFLINE_PREPARATION_STATUS.READY, retry: () => setRevision((value) => value + 1) };
 };

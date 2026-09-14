@@ -9,6 +9,7 @@ import {
   getFailedSyncEntries,
   getRetryableSyncEntries,
   claimSyncEntries,
+  persistResolvedInventoryItemProjectionId,
   queueSyncEntry,
   updateSyncEntryStatus,
 } from "./syncQueue.js";
@@ -37,6 +38,15 @@ let isInitialized = false;
 let isSyncInFlight = false;
 
 const getIsoNow = () => new Date().toISOString();
+
+const getSyncResultEntityServerId = (result, fallback = null) =>
+  result?.data?.id ||
+  result?.data?.inventory_item?.id ||
+  result?.data?.household?.id ||
+  result?.data?.distribution_transaction_id ||
+  result?.data?.transaction_id ||
+  fallback ||
+  null;
 
 const generateLocalId = () => {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -209,6 +219,7 @@ const flushSelectedSyncEntries = async (
   const nonRetryableIds = [];
   const conflictIds = [];
   const pendingIds = [];
+  const locallyFinalizedIds = new Set();
   let entriesToSync = [];
 
   try {
@@ -282,6 +293,7 @@ const flushSelectedSyncEntries = async (
           processingOwner: null,
           processingUntil: null,
         });
+        locallyFinalizedIds.add(entry.id);
         continue;
       }
 
@@ -299,16 +311,30 @@ const flushSelectedSyncEntries = async (
         nonRetryableIds.push(entry.id);
       }
 
+      const entityServerId = getSyncResultEntityServerId(
+        result,
+        entry.entityServerId,
+      );
+
+      if (
+        entry.actionKey === "INVENTORY_ITEM_CREATE" &&
+        entry.entityType === "INVENTORY_ITEM" &&
+        resultStatus === LOCAL_SYNC_STATUS.SYNCED &&
+        entityServerId
+      ) {
+        // Persist the child projection alias before marking the parent row
+        // terminal. If local storage is unavailable, the parent remains
+        // retryable and a later idempotent replay can repair the projection.
+        await persistResolvedInventoryItemProjectionId({
+          parentLocalId: entry.entityLocalId,
+          parentServerId: entityServerId,
+        });
+      }
+
       await updateSyncEntryStatus(entry.id, {
         status: resultStatus,
         syncTransactionId: result.sync_transaction_id || null,
-        entityServerId:
-          result.data?.id ||
-          result.data?.household?.id ||
-          result.data?.distribution_transaction_id ||
-          result.data?.transaction_id ||
-          entry.entityServerId ||
-          null,
+        entityServerId,
         syncedAt: isTerminalResult ? getIsoNow() : null,
         lastError:
           resultStatus === LOCAL_SYNC_STATUS.FAILED
@@ -322,6 +348,7 @@ const flushSelectedSyncEntries = async (
         processingOwner: null,
         processingUntil: null,
       });
+      locallyFinalizedIds.add(entry.id);
 
       await reconcileOfflineStubCacheForSyncResult(entry, result);
     }
@@ -369,7 +396,7 @@ const flushSelectedSyncEntries = async (
     const transportFailure = isTransportFailure(error);
 
     for (const entry of entriesToSync) {
-      if (syncedIds.includes(entry.id) || conflictIds.includes(entry.id)) {
+      if (locallyFinalizedIds.has(entry.id)) {
         continue;
       }
 

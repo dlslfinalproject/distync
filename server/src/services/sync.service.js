@@ -213,6 +213,8 @@ const getMunicipalSyncReadScope = (auth) => {
     return {
       transactions: syncRepository.getSyncTransactionsByMunicipality,
       conflicts: syncRepository.getSyncConflictsByMunicipality,
+      transactionsPage: syncRepository.getSyncTransactionsByMunicipalityPage,
+      conflictsPage: syncRepository.getSyncConflictsByMunicipalityPage,
       conflictById: syncRepository.getSyncConflictByIdForMunicipality,
       countOpenConflicts: syncRepository.countOpenSyncConflictsByMunicipality,
       lastSuccessfulSyncAt: syncRepository.getLastSuccessfulSyncAtForMunicipality,
@@ -224,6 +226,8 @@ const getMunicipalSyncReadScope = (auth) => {
     return {
       transactions: syncRepository.getSyncTransactionsByMayor,
       conflicts: syncRepository.getSyncConflictsByMayor,
+      transactionsPage: syncRepository.getSyncTransactionsByMayorPage,
+      conflictsPage: syncRepository.getSyncConflictsByMayorPage,
       conflictById: syncRepository.getSyncConflictByIdForMayor,
       countOpenConflicts: syncRepository.countOpenSyncConflictsByMayor,
       lastSuccessfulSyncAt: syncRepository.getLastSuccessfulSyncAtForMayor,
@@ -443,10 +447,18 @@ const ACTION_HANDLERS = {
     entityType: "INVENTORY_ITEM",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth, clientTimestamp, dbClient }) =>
+    execute: async ({
+      payload,
+      auth,
+      clientTimestamp,
+      dbClient,
+      entry,
+    }) =>
       inventoryItemService.createInventoryItem(payload, auth, {
         clientTimestamp,
         dbClient,
+        auditActor: auth,
+        auditSourceEventKeyPrefix: `SYNC:${entry.client_sync_id}:INVENTORY_ITEM_CREATE`,
       }),
   },
   INVENTORY_ITEM_UPDATE: {
@@ -455,16 +467,20 @@ const ACTION_HANDLERS = {
     roles: [ROLE_CODES.MAYOR],
     getCurrentRecord: async ({ entityServerId, dbClient }) =>
       inventoryItemRepository.getInventoryItemById(entityServerId, dbClient),
-    execute: async ({ entityServerId, payload, auth, dbClient }) =>
+    execute: async ({ entityServerId, payload, auth, dbClient, entry }) =>
       inventoryItemService.updateInventoryItem(entityServerId, payload, auth, {
         dbClient,
+        auditActor: auth,
+        auditSourceEventKeyPrefix: entry?.client_sync_id
+          ? `SYNC:${entry.client_sync_id}:INVENTORY_ITEM_UPDATE`
+          : null,
       }),
   },
   INVENTORY_BATCH_CREATE: {
     entityType: "INVENTORY_BATCH",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth, clientTimestamp, dbClient }) => {
+    execute: async ({ payload, auth, clientTimestamp, dbClient, entry }) => {
       const resolvedPayload = await resolveMayorInventoryBatchPayload({
         payload,
         auth,
@@ -484,6 +500,8 @@ const ACTION_HANDLERS = {
         // Accepting the same packaging twice is an explicit Conflict Review
         // decision; an offline payload must never bypass that review.
         forceBatchNumberReassignment: false,
+        auditActor: auth,
+        auditSourceEventKeyPrefix: `SYNC:${entry.client_sync_id}:INVENTORY_BATCH_CREATE`,
         dbClient,
       });
     },
@@ -1471,6 +1489,8 @@ const createBatchForDuplicateInventoryItem = async ({
   receivedAt = clientTimestamp,
   existingBatches,
   dbClient,
+  auditActor = null,
+  auditSourceEventKeyPrefix = null,
 }) => {
   const definition = buildInventoryStockFormDefinitionFromItemPayload(
     localPayload,
@@ -1504,6 +1524,8 @@ const createBatchForDuplicateInventoryItem = async ({
     received_at: receivedAt || null,
     allowBatchNumberReassignment: true,
     forceBatchNumberReassignment: false,
+    auditActor,
+    auditSourceEventKeyPrefix,
     dbClient,
   });
 
@@ -1598,6 +1620,8 @@ const tryAutoMergeDuplicateInventoryItem = async ({
       stockForm: plan.stockForm,
       localPayload: entry.payload,
       actorUserId: auth.userId,
+      auditActor: auth,
+      auditSourceEventKeyPrefix: `SYNC:${entry.client_sync_id}:AUTO_MERGE_BATCH`,
       clientTimestamp: entry.client_timestamp,
       // Automatic packaging merges are ordered by server acceptance, not by
       // the offline device clock. Same-packaging Accept Both keeps its
@@ -1935,9 +1959,6 @@ const processSingleSyncEntry = async (entry, auth) => {
     const syncBusinessSavepoint = "sync_business_action";
     const canUseSyncBusinessSavepoint =
       dbClient && typeof dbClient.query === "function";
-    const isEarlierDepartureResolution = (error) =>
-      error?.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" &&
-      error?.incomingDepartureWasEarlier === true;
 
     try {
       if (canUseSyncBusinessSavepoint) {
@@ -2093,14 +2114,9 @@ const processSingleSyncEntry = async (entry, auth) => {
       conflict: conflictRecord,
     };
     } catch (error) {
-      // departHousehold updates the existing evacuation log to the earlier
-      // original departure and then throws a typed duplicate-resolution error
-      // so this branch can reconcile the sync history. That update is the
-      // successful business effect and must survive the savepoint rollback.
       if (
         !businessEffectApplied &&
-        canUseSyncBusinessSavepoint &&
-        !isEarlierDepartureResolution(error)
+        canUseSyncBusinessSavepoint
       ) {
         try {
           await dbClient.query(`ROLLBACK TO SAVEPOINT ${syncBusinessSavepoint}`);
@@ -2155,56 +2171,7 @@ const processSingleSyncEntry = async (entry, auth) => {
       ].includes(error.code);
       const isSystemResolvedDuplicate =
         isInventoryItrDuplicate;
-      const isEarlierDepartureResolutionResult =
-        isEarlierDepartureResolution(error);
       const departureResolutionStrategy = RESOLUTION_STRATEGY.FIRST_ACCEPTED;
-
-      if (
-        isEarlierDepartureResolutionResult &&
-        typeof syncRepository.findHouseholdDepartureSyncTransactions === "function"
-      ) {
-        const priorDepartureTransactions =
-          await syncRepository.findHouseholdDepartureSyncTransactions({
-            householdId: conflictEntityServerId,
-            disasterEventId: entry.payload?.disaster_event_id,
-            barangayId: entry.payload?.barangay_id,
-            excludeSyncTransactionId: syncTransaction.id,
-          }, dbClient);
-        const resolvedAt = new Date().toISOString();
-
-        for (const priorTransaction of priorDepartureTransactions) {
-          await syncRepository.updateSyncTransaction(
-            priorTransaction.id,
-            {
-              entity_server_id: conflictEntityServerId,
-              server_timestamp: resolvedAt,
-              sync_status: SYNC_STATUS.CONFLICT,
-              error_message:
-                "Superseded automatically by an earlier original departure timestamp.",
-            },
-            dbClient,
-          );
-          await syncRepository.recordSyncConflictOnly({
-            sync_transaction_id: priorTransaction.id,
-            entity_type: actionConfig.entityType,
-            entity_server_id: conflictEntityServerId,
-            conflict_type: error.code,
-            local_payload_json: priorTransaction.payload_json?.payload || {},
-            server_payload_json: entry.payload,
-            resolution_strategy: departureResolutionStrategy,
-            resolution_reason:
-              "The earlier valid original departure timestamp became authoritative.",
-            resolved_payload_json: {
-              winner: "INCOMING",
-              authoritative_payload: entry.payload,
-              authoritative_departure_time: error.serverPayload?.time_out || null,
-            },
-            resolved_by: null,
-            resolved_at: resolvedAt,
-            status: CONFLICT_STATUS.RESOLVED,
-          }, dbClient);
-        }
-      }
 
       if (isCrossBarangayDuplicateConflict) {
         const automaticResolution = await tryAutoResolveCrossBarangayDuplicate({
@@ -2293,12 +2260,8 @@ const processSingleSyncEntry = async (entry, auth) => {
             transactionPayload: {
               entity_server_id: entityServerId,
               server_timestamp: serverTimestamp,
-              sync_status: isEarlierDepartureResolutionResult
-                ? SYNC_STATUS.SYNCED
-                : SYNC_STATUS.CONFLICT,
-              error_message: isEarlierDepartureResolutionResult
-                ? null
-                : error.message || "Duplicate offline action was ignored",
+              sync_status: SYNC_STATUS.CONFLICT,
+              error_message: error.message || "Duplicate offline action was ignored",
             },
             conflictPayload: {
               sync_transaction_id: syncTransaction.id,
@@ -2317,7 +2280,7 @@ const processSingleSyncEntry = async (entry, auth) => {
                 isManualInventoryDuplicateConflict
                 ? null
                 : {
-                    winner: isEarlierDepartureResolutionResult ? "INCOMING" : "SERVER",
+                    winner: "SERVER",
                     reason: error.message,
                     authoritative_payload: duplicateConflictServerPayload,
                     authoritative_departure_time: error.serverPayload?.time_out || null,
@@ -2349,12 +2312,8 @@ const processSingleSyncEntry = async (entry, auth) => {
         return {
           client_sync_id: entry.client_sync_id,
           sync_transaction_id: syncTransaction.id,
-          sync_status: isEarlierDepartureResolutionResult
-            ? SYNC_STATUS.SYNCED
-            : SYNC_STATUS.CONFLICT,
-          message: isEarlierDepartureResolutionResult
-            ? "Earlier departure timestamp retained automatically."
-            : error.message || "Duplicate offline action was ignored",
+          sync_status: SYNC_STATUS.CONFLICT,
+          message: error.message || "Duplicate offline action was ignored",
           data: conflictTransaction,
           conflict: conflictRecord,
         };
@@ -2502,12 +2461,36 @@ const processSingleSyncEntry = async (entry, auth) => {
   });
 };
 
-const processSyncEntries = async ({ entries, auth }) => {
-  const results = [];
+const isDeferredInventoryBatchDependencyResult = (entry = {}, result = {}) =>
+  entry.action_key === "INVENTORY_BATCH_CREATE" &&
+  entry.entity_type === "INVENTORY_BATCH" &&
+  result.sync_status === SYNC_STATUS.FAILED &&
+  result.error_code === "INVENTORY_ITEM_PENDING_SYNC" &&
+  Boolean(String(entry.payload?.inventory_item_local_id || "").trim());
 
-  for (const entry of entries) {
+const processSyncEntries = async ({ entries, auth }) => {
+  const originalEntries = Array.isArray(entries) ? entries : [];
+  const results = new Array(originalEntries.length);
+  const deferredEntries = [];
+
+  // Preserve the existing first-pass order and process every entry exactly
+  // once before looking for a dependency recovery opportunity.
+  for (let index = 0; index < originalEntries.length; index += 1) {
+    const entry = originalEntries[index];
     const result = await processSingleSyncEntry(entry, auth);
-    results.push(result);
+    results[index] = result;
+
+    if (isDeferredInventoryBatchDependencyResult(entry, result)) {
+      deferredEntries.push({ entry, index });
+    }
+  }
+
+  // A single bounded second pass lets a child that preceded its parent in the
+  // request observe the parent's committed sync mapping. Reuse the original
+  // entry object, including its client_sync_id and payload, so idempotency and
+  // validation semantics remain unchanged. Never enqueue another retry pass.
+  for (const { entry, index } of deferredEntries) {
+    results[index] = await processSingleSyncEntry(entry, auth);
   }
 
   return results;
@@ -2519,44 +2502,136 @@ const getSyncHistory = async ({
   conflictStatus,
   barangayId = null,
   limit,
+  page,
+  pageSize,
+  search = "",
+  recordType = "ALL",
+  dateFrom = null,
+  dateTo = null,
+  order = "newest",
 }) => {
   const municipalSyncReadScope = getMunicipalSyncReadScope(auth);
   const effectiveLimit = Number(limit) > 0 ? Number(limit) : 50;
 
-  const [rawTransactions, conflicts] = await Promise.all([
-    municipalSyncReadScope
-      ? municipalSyncReadScope.transactions({
-          syncStatus,
-          ...(auth.roleCode === ROLE_CODES.MSWDO
-            ? { barangayId }
-            : {}),
-          limit: effectiveLimit,
-        })
-      : syncRepository.getSyncTransactionsByUser({
-          userId: auth.userId,
-          syncStatus,
-          limit: effectiveLimit,
-        }),
-    municipalSyncReadScope
-      ? municipalSyncReadScope.conflicts({
-          status: conflictStatus,
-          ...(auth.roleCode === ROLE_CODES.MSWDO
-            ? { barangayId }
-            : {}),
-          limit: effectiveLimit,
-        })
-      : syncRepository.getSyncConflictsByUser({
-          userId: auth.userId,
-          status: conflictStatus,
-          limit: effectiveLimit,
-        }),
+  const useServerHistoryPagination =
+    page !== undefined ||
+    pageSize !== undefined ||
+    Boolean(String(search || "").trim()) ||
+    recordType !== "ALL" ||
+    Boolean(dateFrom) ||
+    Boolean(dateTo) ||
+    order !== "newest";
+  const effectivePage = Number(page) > 0 ? Number(page) : 1;
+  const effectivePageSize = Number(pageSize) > 0 ? Number(pageSize) : effectiveLimit;
+  const sharedPageOptions = {
+    syncStatus,
+    conflictStatus,
+    recordType,
+    search: String(search || "").trim(),
+    dateFrom,
+    dateTo,
+    order,
+    page: effectivePage,
+    pageSize: effectivePageSize,
+    limit: effectivePageSize,
+  };
+
+  const normalizePageResult = (result, fallbackLimit) => {
+    if (Array.isArray(result)) {
+      return {
+        rows: result,
+        totalRecords: result.length,
+      };
+    }
+
+    return {
+      rows: Array.isArray(result?.rows) ? result.rows : [],
+      totalRecords: Number.isFinite(Number(result?.totalRecords))
+        ? Number(result.totalRecords)
+        : Array.isArray(result?.rows)
+          ? result.rows.length
+          : fallbackLimit,
+    };
+  };
+
+  const readHistory = async ({ pageReader, legacyReader, pageOptions, legacyOptions }) => {
+    if (useServerHistoryPagination && typeof pageReader === "function") {
+      return normalizePageResult(await pageReader(pageOptions), effectivePageSize);
+    }
+
+    return normalizePageResult(await legacyReader(legacyOptions), effectiveLimit);
+  };
+
+  const transactionPageOptions = municipalSyncReadScope
+    ? {
+        ...sharedPageOptions,
+        ...(auth.roleCode === ROLE_CODES.MSWDO ? { barangayId } : {}),
+      }
+    : { ...sharedPageOptions, userId: auth.userId };
+  const conflictPageOptions = municipalSyncReadScope
+    ? {
+        ...sharedPageOptions,
+        ...(auth.roleCode === ROLE_CODES.MSWDO ? { barangayId } : {}),
+      }
+    : { ...sharedPageOptions, userId: auth.userId };
+
+  const transactionLegacyOptions = municipalSyncReadScope
+    ? {
+        syncStatus,
+        ...(auth.roleCode === ROLE_CODES.MSWDO ? { barangayId } : {}),
+        limit: effectiveLimit,
+      }
+    : {
+        userId: auth.userId,
+        syncStatus,
+        limit: effectiveLimit,
+      };
+  const conflictLegacyOptions = municipalSyncReadScope
+    ? {
+        status: conflictStatus,
+        ...(auth.roleCode === ROLE_CODES.MSWDO ? { barangayId } : {}),
+        limit: effectiveLimit,
+      }
+    : {
+        userId: auth.userId,
+        status: conflictStatus,
+        limit: effectiveLimit,
+      };
+
+  const [transactionPageResult, conflictPageResult] = await Promise.all([
+    readHistory({
+      pageReader: municipalSyncReadScope
+        ? municipalSyncReadScope.transactionsPage
+        : syncRepository.getSyncTransactionsByUserPage,
+      legacyReader: municipalSyncReadScope
+        ? municipalSyncReadScope.transactions
+        : syncRepository.getSyncTransactionsByUser,
+      pageOptions: transactionPageOptions,
+      legacyOptions: transactionLegacyOptions,
+    }),
+    readHistory({
+      pageReader: municipalSyncReadScope
+        ? municipalSyncReadScope.conflictsPage
+        : syncRepository.getSyncConflictsByUserPage,
+      legacyReader: municipalSyncReadScope
+        ? municipalSyncReadScope.conflicts
+        : syncRepository.getSyncConflictsByUser,
+      pageOptions: conflictPageOptions,
+      legacyOptions: conflictLegacyOptions,
+    }),
   ]);
+
+  const rawTransactions = transactionPageResult.rows;
+  const conflicts = conflictPageResult.rows;
   const transactions = await enrichSyncTransactionsWithDisasterEventTitles({
     transactions: rawTransactions,
     auth,
   });
 
-  const sortedConflicts = sortConflictsByCreatedAtDesc(conflicts).reduce(
+  const sortedConflicts = (useServerHistoryPagination
+    ? conflicts
+    : sortConflictsByCreatedAtDesc(conflicts)
+  ).reduce(
     (uniqueConflicts, conflict) => {
       if (
         auth.roleCode === ROLE_CODES.MSWDO &&
@@ -2574,12 +2649,9 @@ const getSyncHistory = async ({
       return uniqueConflicts;
     },
     [],
-  ).slice(
-    0,
-    effectiveLimit,
-  );
+  ).slice(0, useServerHistoryPagination ? effectivePageSize : effectiveLimit);
 
-  return {
+  const response = {
     transactions,
     conflicts: sortedConflicts.map((conflict) => ({
       ...conflict,
@@ -2587,6 +2659,27 @@ const getSyncHistory = async ({
         getResolutionCapability(conflict, auth).availableResolutionActions,
     })),
   };
+
+  if (useServerHistoryPagination) {
+    response.pagination = {
+      page: effectivePage,
+      pageSize: effectivePageSize,
+      transactions: {
+        page: effectivePage,
+        pageSize: effectivePageSize,
+        totalItems: transactionPageResult.totalRecords,
+        totalPages: Math.ceil(transactionPageResult.totalRecords / effectivePageSize),
+      },
+      conflicts: {
+        page: effectivePage,
+        pageSize: effectivePageSize,
+        totalItems: conflictPageResult.totalRecords,
+        totalPages: Math.ceil(conflictPageResult.totalRecords / effectivePageSize),
+      },
+    };
+  }
+
+  return response;
 };
 
 const getSyncStatusSummary = async ({ auth }) => {
@@ -2905,6 +2998,8 @@ const applyManualInventoryDuplicateResolution = async ({
     userId: conflict.user_id,
     roleCode: ROLE_CODES.MAYOR,
   };
+  const auditSourceEventKeyPrefix =
+    `SYNC_CONFLICT_RESOLUTION:${conflict.id}:${action}`;
 
   if (
     conflict.conflict_type === DUPLICATE_INVENTORY_ITEM &&
@@ -2939,6 +3034,8 @@ const applyManualInventoryDuplicateResolution = async ({
       stockForm: plan.stockForm,
       localPayload,
       actorUserId: conflict.user_id,
+      auditActor: actor,
+      auditSourceEventKeyPrefix,
       clientTimestamp: conflict.client_timestamp,
       existingBatches,
       dbClient,
@@ -3001,6 +3098,8 @@ const applyManualInventoryDuplicateResolution = async ({
       // was recorded earlier, the saved batch was moved first so this entry
       // can keep the requested number.
       forceBatchNumberReassignment: batchResequencing.reordered !== true,
+      auditActor: actor,
+      auditSourceEventKeyPrefix,
       dbClient,
     });
 
@@ -3084,6 +3183,8 @@ const applyManualInventoryDuplicateResolution = async ({
         null,
       allowBatchNumberReassignment: true,
       forceBatchNumberReassignment: false,
+      auditActor: actor,
+      auditSourceEventKeyPrefix,
       dbClient,
     });
 
@@ -3134,6 +3235,8 @@ const applyManualInventoryDuplicateResolution = async ({
         {
           clientTimestamp: conflict.client_timestamp,
           dbClient,
+          auditActor: actor,
+          auditSourceEventKeyPrefix,
         },
       );
       const savedBarcode = normalizeInventoryBarcode(
@@ -3195,6 +3298,8 @@ const applyManualInventoryDuplicateResolution = async ({
           null,
         allowBatchNumberReassignment: true,
         forceBatchNumberReassignment: false,
+        auditActor: actor,
+        auditSourceEventKeyPrefix,
         dbClient,
       });
 

@@ -105,9 +105,9 @@ const styles = {
   filterList: {
     display: "grid",
     gap: "10px",
+    maxHeight: "240px",
     overflowY: "auto",
-    flex: "1 1 auto",
-    minHeight: 0,
+    overscrollBehavior: "contain",
     paddingRight: "4px",
   },
   filterOption: {
@@ -139,7 +139,10 @@ const InventoryFilters = ({ filters, onFilterChange }) => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const selectedStatuses = Array.isArray(filters.status) ? filters.status : [];
   const selectedSortOrder = filters.sortOrder || "newest";
-  const activeFilterCount = selectedStatuses.length + (selectedSortOrder !== "newest" ? 1 : 0);
+  const activeFilterCount =
+    (filters.category !== "All" ? 1 : 0) +
+    selectedStatuses.length +
+    (selectedSortOrder !== "newest" ? 1 : 0);
 
   const handleToggleStatus = (status) => {
     const nextStatuses = selectedStatuses.includes(status)
@@ -150,6 +153,7 @@ const InventoryFilters = ({ filters, onFilterChange }) => {
   };
 
   const handleClearFilters = () => {
+    onFilterChange("category", "All");
     onFilterChange("sortOrder", "newest");
     onFilterChange("status", []);
   };

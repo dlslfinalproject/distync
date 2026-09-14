@@ -84,11 +84,12 @@ const donationAdjustmentCondition = `(
 const transactionLabelConditions = {
   "Stock-Up": `(
     it.transaction_type = ANY($TRANSACTION_TYPES::text[])
+    AND ib.source_type IS DISTINCT FROM 'DONATED'
     AND it.reference_type IS DISTINCT FROM 'DONATION'
   )`,
   Donated: `(
     it.transaction_type = ANY($TRANSACTION_TYPES::text[])
-    AND it.reference_type = 'DONATION'
+    AND (ib.source_type = 'DONATED' OR it.reference_type = 'DONATION')
     AND NOT ${donationAdjustmentCondition}
   )`,
   "Donation Adjustment": donationAdjustmentCondition,
@@ -198,7 +199,7 @@ const getInventoryTransactions = async (filters) => {
   if (filters.search) {
     const parameter = addValue(`%${filters.search}%`);
     conditions.push(
-      `(it.id::text ILIKE ${parameter} OR ib.batch_no ILIKE ${parameter} OR ii.item_name ILIKE ${parameter} OR ii.item_code ILIKE ${parameter} OR it.transaction_type ILIKE ${parameter} OR CASE WHEN it.transaction_type = ANY(ARRAY['INFLOW', 'RETURN', 'ADJUSTMENT']) THEN 'INFLOW' ELSE 'OUTFLOW' END ILIKE ${parameter} OR it.remarks ILIKE ${parameter} OR it.other_status ILIKE ${parameter} OR it.inventory_transaction_reference_no ILIKE ${parameter} OR stock_forms.packaging ILIKE ${parameter} OR COALESCE(d.donor_name, source_donation.donor_name, '') ILIKE ${parameter} OR CASE WHEN ib.source_type = 'DONATED' OR it.reference_type = 'DONATION' THEN 'Donors' ELSE 'Malvar LGU' END ILIKE ${parameter})`,
+      `(it.id::text ILIKE ${parameter} OR ib.batch_no ILIKE ${parameter} OR ii.item_name ILIKE ${parameter} OR ii.item_code ILIKE ${parameter} OR it.transaction_type ILIKE ${parameter} OR CASE WHEN it.transaction_type = ANY(ARRAY['INFLOW', 'RETURN', 'ADJUSTMENT']) THEN 'INFLOW' ELSE 'OUTFLOW' END ILIKE ${parameter} OR it.remarks ILIKE ${parameter} OR it.other_status ILIKE ${parameter} OR it.inventory_transaction_reference_no ILIKE ${parameter} OR stock_forms.packaging ILIKE ${parameter} OR CONCAT_WS(' ', u.first_name, u.last_name) ILIKE ${parameter} OR COALESCE(d.donor_name, source_donation.donor_name, '') ILIKE ${parameter} OR CASE WHEN ib.source_type = 'DONATED' OR it.reference_type = 'DONATION' THEN 'Donors' ELSE 'Malvar LGU' END ILIKE ${parameter})`,
     );
   }
 

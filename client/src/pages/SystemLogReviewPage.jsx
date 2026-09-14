@@ -1,10 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  FiChevronLeft,
-  FiChevronRight,
-  FiEye,
-  FiRefreshCw,
-} from "react-icons/fi";
+import { FiEye, FiRefreshCw } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
 import {
   pageSpacingStyles,
@@ -13,17 +8,21 @@ import {
 import EmptyState from "../components/shared/EmptyState";
 import SearchBar from "../components/shared/SearchBar";
 import DetailsModalShell from "../components/shared/DetailsModalShell";
-import StatusCard from "../components/shared/StatusCard";
+import TablePagination from "../components/shared/TablePagination";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../features/pagination/pagination.mjs";
 import { fetchSystemLogReview } from "../features/system-logs/systemLogService";
 
 const ALL_MODULES_VALUE = "all";
-const AUDIT_PAGE_SIZE = 50;
 const MODULE_FILTER_OPTIONS = [
   { value: ALL_MODULES_VALUE, label: "All" },
   { value: "Inventory", label: "Inventory" },
   { value: "Relief Pack", label: "Relief Pack" },
   { value: "Donation", label: "Donation" },
   { value: "Distribution", label: "Distribution" },
+  { value: "Sync", label: "Sync Center" },
 ];
 const ALL_AUDIT_ACTIONS_VALUE = "all";
 const AUDIT_ACTION_FILTER_OPTIONS = [
@@ -33,13 +32,18 @@ const AUDIT_ACTION_FILTER_OPTIONS = [
     modules: [ALL_MODULES_VALUE, "Inventory", "Relief Pack", "Donation", "Distribution"],
   },
   { value: "item_created", label: "Item Created", modules: ["Inventory"] },
+  { value: "packaging_added", label: "Packaging Added", modules: ["Inventory"] },
   {
     value: "item_details_edited",
     label: "Item Details Edited",
     modules: ["Inventory"],
   },
   { value: "stock_added", label: "Stock Added", modules: ["Inventory"] },
-  { value: "stock_adjusted", label: "Stock Adjusted", modules: ["Inventory"] },
+  {
+    value: "stock_adjusted",
+    label: "Stock Adjusted",
+    modules: ["Inventory"],
+  },
   { value: "written_off", label: "Written Off", modules: ["Inventory", "Donation"] },
   {
     value: "relief_pack_template_created",
@@ -62,6 +66,11 @@ const AUDIT_ACTION_FILTER_OPTIONS = [
     label: "Distributed Items",
     modules: ["Distribution"],
   },
+  {
+    value: "sync_conflict_resolution",
+    label: "Sync Conflict Resolved",
+    modules: ["Sync"],
+  },
 ];
 
 const tableStyles = {
@@ -69,7 +78,7 @@ const tableStyles = {
     width: "100%",
     borderCollapse: "collapse",
     tableLayout: "auto",
-    minWidth: "860px",
+    minWidth: "940px",
   },
   th: {
     padding: "12px 14px",
@@ -93,7 +102,8 @@ const tableStyles = {
     width: "148px",
   },
   moduleColumn: {
-    width: "92px",
+    width: "132px",
+    minWidth: "132px",
   },
   recordColumn: {
     minWidth: "220px",
@@ -128,9 +138,8 @@ const tableStyles = {
     overflowWrap: "anywhere",
     wordBreak: "break-word",
   },
-  strong: {
-    color: "#17324d",
-    fontWeight: 800,
+  actionValue: {
+    fontWeight: 700,
   },
   muted: {
     color: "#60738a",
@@ -195,7 +204,7 @@ const filterStyles = {
   card: {
     ...shellStyles.card,
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
     gap: "16px",
     alignItems: "end",
   },
@@ -224,14 +233,6 @@ const filterStyles = {
     fontWeight: 700,
     letterSpacing: "0.08em",
     textTransform: "uppercase",
-  },
-};
-
-const auditSummaryStyles = {
-  overviewSection: {
-    display: "grid",
-    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-    gap: "16px",
   },
 };
 
@@ -298,7 +299,7 @@ const detailModalStyles = {
   },
   changedValue: {
     color: "#17324d",
-    fontWeight: 800,
+    fontWeight: 700,
   },
   previousValue: {
     color: "#60738a",
@@ -335,7 +336,23 @@ const formatDateTime = (value) => {
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: "Asia/Manila",
   }).format(new Date(value));
+};
+
+const formatBackendEnumText = (value) => {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  return String(value).replace(
+    /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g,
+    (token) =>
+      token
+        .split("_")
+        .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+        .join(" "),
+  );
 };
 
 const formatEntityLabel = (entry) => {
@@ -347,27 +364,240 @@ const formatEntityLabel = (entry) => {
 };
 
 const getRecordLines = (entry) => {
-  if (Array.isArray(entry.record_lines) && entry.record_lines.length) {
-    return entry.record_lines.filter(Boolean);
-  }
+  const lines =
+    Array.isArray(entry.record_lines) && entry.record_lines.length
+      ? entry.record_lines.filter(Boolean)
+      : [formatEntityLabel(entry)];
 
-  return [formatEntityLabel(entry)];
+  return lines.map(formatBackendEnumText);
 };
 
-const getRecordLineStyle = (entry, index) => {
-  if (entry.module === "Distribution") {
-    return tableStyles.strong;
-  }
-
-  return index === 0 ? tableStyles.strong : tableStyles.muted;
-};
-
-const InfoField = ({ label, value }) => (
-  <div>
+const InfoField = ({ label, value, style }) => (
+  <div style={style}>
     <p style={detailModalStyles.label}>{label}</p>
     <p style={detailModalStyles.value}>{value || "--"}</p>
   </div>
 );
+
+const AuditDetailChangesTable = ({ changes, isCreatedRecord }) => {
+  if (!changes.length) {
+    return (
+      <p style={detailModalStyles.emptyText}>
+        No recorded details are available for this audit record.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mayor-audit-trail-detail-table-scroll" style={detailModalStyles.tableWrap}>
+      <table className="mayor-audit-trail-detail-table" style={detailModalStyles.table}>
+        <thead>
+          <tr>
+            <th style={detailModalStyles.th}>Field</th>
+            {isCreatedRecord ? (
+              <th style={detailModalStyles.th}>Created Value</th>
+            ) : (
+              <>
+                <th style={detailModalStyles.th}>Before</th>
+                <th style={detailModalStyles.th}>After</th>
+              </>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {changes.map((change) => (
+            <tr key={change.field}>
+              <td style={detailModalStyles.td}>{change.label}</td>
+              {isCreatedRecord ? (
+                <td style={{ ...detailModalStyles.td, ...detailModalStyles.changedValue }}>
+                  {change.new_value}
+                </td>
+              ) : (
+                <>
+                  <td style={{ ...detailModalStyles.td, ...detailModalStyles.previousValue }}>
+                    {change.previous_value}
+                  </td>
+                  <td style={{ ...detailModalStyles.td, ...detailModalStyles.changedValue }}>
+                    {change.new_value}
+                  </td>
+                </>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+const getDonationItemDetailChanges = (item) => {
+  return [
+    {
+      field: "item_name",
+      label: "Item Name",
+      new_value: item.item_name || "--",
+    },
+    {
+      field: "quantity_received",
+      label: "Quantity Received",
+      new_value: item.quantity_received || "--",
+    },
+    {
+      field: "unit_of_measure",
+      label: "Unit",
+      new_value: item.unit_of_measure || "--",
+    },
+    {
+      field: "packaging",
+      label: "Packaging",
+      new_value: item.packaging || "--",
+    },
+    {
+      field: "batch_no",
+      label: "Batch Number",
+      new_value: item.batch_no || "--",
+    },
+    {
+      field: "expiration_date",
+      label: "Expiration Date",
+      new_value: item.expiration_date || "N/A",
+    },
+    {
+      field: "remarks",
+      label: "Remarks",
+      new_value: item.remarks || "--",
+    },
+  ];
+};
+
+const DonationEntryPackContents = ({ contents }) => {
+  if (!contents.length) {
+    return (
+      <p style={detailModalStyles.emptyText}>
+        No relief pack contents are available for this audit record.
+      </p>
+    );
+  }
+
+  return (
+    <div
+      className="mayor-audit-trail-detail-table-scroll"
+      style={detailModalStyles.tableWrap}
+    >
+      <table className="mayor-audit-trail-detail-table" style={detailModalStyles.table}>
+        <thead>
+          <tr>
+            <th style={detailModalStyles.th}>Item Name</th>
+            <th style={detailModalStyles.th}>Quantity Received</th>
+            <th style={detailModalStyles.th}>Unit</th>
+            <th style={detailModalStyles.th}>Packaging</th>
+            <th style={detailModalStyles.th}>Batch Number</th>
+            <th style={detailModalStyles.th}>Expiration Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {contents.map((content, index) => (
+            <tr key={`${content.itemName || "item"}-${index}`}>
+              <td style={detailModalStyles.td}>{content.itemName || "--"}</td>
+              <td style={detailModalStyles.td}>{content.quantityReceived || "--"}</td>
+              <td style={detailModalStyles.td}>{content.unitOfMeasure || "--"}</td>
+              <td style={detailModalStyles.td}>{content.packaging || "--"}</td>
+              <td style={detailModalStyles.td}>{content.batchNo || "--"}</td>
+              <td style={detailModalStyles.td}>
+                {content.expirationDate || "N/A"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+const DonationEntryItemsDetails = ({ items }) => {
+  const normalizedItems = Array.isArray(items) ? items : [];
+  const looseItems = normalizedItems.filter(
+    (item) => item.donation_type !== "Relief Pack",
+  );
+  const reliefPackItems = normalizedItems.filter(
+    (item) => item.donation_type === "Relief Pack",
+  );
+
+  if (!normalizedItems.length) {
+    return (
+      <p style={detailModalStyles.emptyText}>
+        No received donation items are available for this audit record.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      {looseItems.length > 0 ? (
+        <section
+          className="mayor-audit-trail-detail-section"
+          style={detailModalStyles.sectionCard}
+        >
+          <h3 style={{ margin: 0, color: "#17324d" }}>
+            Donated Items (Loose Item)
+          </h3>
+          <div style={{ display: "grid", gap: "20px", marginTop: "16px" }}>
+            {looseItems.map((item, index) => (
+              <div key={[item.item_name, index].join("-")}>
+                {looseItems.length > 1 ? (
+                  <h4
+                    style={{
+                      margin: index === 0 ? 0 : "4px 0 0",
+                      color: "#17324d",
+                      fontSize: "18px",
+                    }}
+                  >
+                    Donated Item {index + 1}
+                  </h4>
+                ) : null}
+                <AuditDetailChangesTable
+                  changes={getDonationItemDetailChanges(item)}
+                  isCreatedRecord
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {reliefPackItems.length > 0 ? (
+        <section
+          className="mayor-audit-trail-detail-section"
+          style={detailModalStyles.sectionCard}
+        >
+          <h3 style={{ margin: 0, color: "#17324d" }}>Pack Contents</h3>
+          <div style={{ display: "grid", gap: "20px", marginTop: "16px" }}>
+            {reliefPackItems.map((item, index) => (
+              <div key={[item.relief_pack_name, index].join("-")}>
+                {reliefPackItems.length > 1 ? (
+                  <h4
+                    style={{
+                      margin: index === 0 ? 0 : "4px 0 0",
+                      color: "#17324d",
+                      fontSize: "18px",
+                    }}
+                  >
+                    {item.relief_pack_name || `Relief Pack ${index + 1}`}
+                  </h4>
+                ) : null}
+                <DonationEntryPackContents
+                  contents={Array.isArray(item.relief_pack_contents)
+                    ? item.relief_pack_contents
+                    : []}
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </>
+  );
+};
 
 const getChangeHeading = (entry) => {
   if (entry?.action?.includes("CREATE") || entry?.action_label?.includes("Created")) {
@@ -403,6 +633,49 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
   const distributedItems = entry.audit_detail?.distributed_items || [];
   const recordLines = getRecordLines(entry);
   const isCreatedRecord = isCreateAuditAction(entry);
+  const isItemCreatedRecord =
+    entry.entity_type === "INVENTORY_ITEM" &&
+    entry.action === "INVENTORY_ITEM_CREATE";
+  const isPackagingAddedRecord =
+    entry.entity_type === "INVENTORY_ITEM_STOCK_FORM" &&
+    entry.action === "INVENTORY_ITEM_STOCK_FORM_CREATE" &&
+    entry.action_label === "Packaging Added";
+  const isDonationEntryRecord =
+    entry.entity_type === "DONATION" && entry.action === "DONATION_CREATE";
+  const isDonationDetailsEditedRecord =
+    [
+      "DONATION_UPDATE",
+      "DONATION_PUBLIC_NAME_UPDATE",
+      "DONATION_ITEM_UPDATE",
+    ].includes(entry.action) &&
+    ["DONATION", "DONATION_ITEM"].includes(entry.entity_type);
+  const isStockAddedRecord =
+    entry.action_label === "Stock Added" &&
+    ["INVENTORY_BATCH", "INVENTORY_TRANSACTION"].includes(entry.entity_type);
+  const isWrittenOffRecord = entry.action_label === "Written Off";
+  const donationDetails = isDonationEntryRecord
+    ? entry.audit_detail?.donation_details ?? changes
+    : [];
+  const donationItems = isDonationEntryRecord
+    ? entry.audit_detail?.donation_items || []
+    : [];
+  const donationStockAdjustment = isDonationDetailsEditedRecord
+    ? entry.audit_detail?.donation_stock_adjustment || []
+    : [];
+  const itemDetails = isItemCreatedRecord || isPackagingAddedRecord
+    ? entry.audit_detail?.item_details ?? changes
+    : isStockAddedRecord
+      ? entry.audit_detail?.stock_addition || []
+      : changes;
+  const openingStockDetails = isItemCreatedRecord || isPackagingAddedRecord
+    ? entry.audit_detail?.opening_stock || []
+    : [];
+  const openingTransactionDetails = isItemCreatedRecord || isPackagingAddedRecord
+    ? entry.audit_detail?.opening_transaction || []
+    : [];
+  const stockTransactionDetails = isStockAddedRecord
+    ? entry.audit_detail?.stock_transaction || []
+    : [];
 
   return (
     <DetailsModalShell
@@ -420,76 +693,94 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
           <div style={{ ...detailModalStyles.grid, marginTop: "16px" }}>
             <InfoField label="Audit Action" value={formatActionLabel(entry)} />
             <InfoField label="Module" value={entry.module} />
-            <InfoField label="Performed By" value={entry.performed_by} />
-            <InfoField label="Date & Time" value={formatDateTime(entry.timestamp)} />
-          </div>
-        </section>
-
-        <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
-          <h3 style={{ margin: 0, color: "#17324d" }}>Record Information</h3>
-          <div style={{ ...detailModalStyles.grid, marginTop: "16px" }}>
             {recordLines.map((line, index) => (
               <InfoField
-                key={`${entry.id}-detail-record-${index}`}
+                key={`${entry.id}-summary-record-${index}`}
                 label={index === 0 ? "Record" : "Related Detail"}
                 value={line}
+                style={
+                  isWrittenOffRecord && index === 0
+                    ? { gridColumn: "1 / -1" }
+                    : undefined
+                }
               />
             ))}
             {entry.action_detail ? (
               <InfoField label="Summary" value={entry.action_detail} />
             ) : null}
+            <InfoField label="Performed By" value={entry.performed_by} />
+            <InfoField label="Audit Recorded At" value={formatDateTime(entry.timestamp)} />
           </div>
         </section>
 
         <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
-          <h3 style={{ margin: 0, color: "#17324d" }}>{getChangeHeading(entry)}</h3>
-          {changes.length === 0 ? (
-            <p style={detailModalStyles.emptyText}>
-              No field-level changes are available for this audit record.
-            </p>
-          ) : (
-            <div className="mayor-audit-trail-detail-table-scroll" style={detailModalStyles.tableWrap}>
-              <table className="mayor-audit-trail-detail-table" style={detailModalStyles.table}>
-                <thead>
-                  <tr>
-                    <th style={detailModalStyles.th}>Field</th>
-                    {isCreatedRecord ? (
-                      <th style={detailModalStyles.th}>Created Value</th>
-                    ) : (
-                      <>
-                        <th style={detailModalStyles.th}>Before</th>
-                        <th style={detailModalStyles.th}>After</th>
-                      </>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {changes.map((change) => (
-                    <tr key={change.field}>
-                      <td style={detailModalStyles.td}>{change.label}</td>
-                      {isCreatedRecord ? (
-                        <td style={{ ...detailModalStyles.td, ...detailModalStyles.changedValue }}>
-                          {change.new_value}
-                        </td>
-                      ) : (
-                        <>
-                          <td style={{ ...detailModalStyles.td, ...detailModalStyles.previousValue }}>
-                            {change.previous_value}
-                          </td>
-                          <td style={{ ...detailModalStyles.td, ...detailModalStyles.changedValue }}>
-                            {change.new_value}
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <h3 style={{ margin: 0, color: "#17324d" }}>
+            {isDonationEntryRecord || isDonationDetailsEditedRecord
+              ? "Donation Details"
+              : isItemCreatedRecord || isPackagingAddedRecord
+              ? "Item Details"
+              : isStockAddedRecord
+                ? "Stock Addition Details"
+                : getChangeHeading(entry)}
+          </h3>
+          <AuditDetailChangesTable
+            changes={isDonationEntryRecord ? donationDetails : itemDetails}
+            isCreatedRecord={isCreatedRecord}
+          />
+          {isDonationDetailsEditedRecord && donationStockAdjustment.length > 0 ? (
+            <>
+              <h4
+                style={{
+                  margin: "24px 0 0",
+                  color: "#17324d",
+                  fontSize: "18px",
+                }}
+              >
+                Related Stock Adjustment
+              </h4>
+              <AuditDetailChangesTable
+                changes={donationStockAdjustment}
+                isCreatedRecord
+              />
+            </>
+          ) : null}
         </section>
 
-        {itemChanges.length > 0 ? (
+        {isDonationEntryRecord && donationItems.length > 0 ? (
+          <DonationEntryItemsDetails items={donationItems} />
+        ) : null}
+
+        {(isItemCreatedRecord || isPackagingAddedRecord) && openingStockDetails.length > 0 ? (
+          <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
+            <h3 style={{ margin: 0, color: "#17324d" }}>Opening Stock Details</h3>
+            <AuditDetailChangesTable
+              changes={openingStockDetails}
+              isCreatedRecord
+            />
+          </section>
+        ) : null}
+
+        {(isItemCreatedRecord || isPackagingAddedRecord) && openingTransactionDetails.length > 0 ? (
+          <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
+            <h3 style={{ margin: 0, color: "#17324d" }}>Opening Transaction Details</h3>
+            <AuditDetailChangesTable
+              changes={openingTransactionDetails}
+              isCreatedRecord
+            />
+          </section>
+        ) : null}
+
+        {isStockAddedRecord && stockTransactionDetails.length > 0 ? (
+          <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
+            <h3 style={{ margin: 0, color: "#17324d" }}>Stock Transaction Details</h3>
+            <AuditDetailChangesTable
+              changes={stockTransactionDetails}
+              isCreatedRecord
+            />
+          </section>
+        ) : null}
+
+        {!isDonationEntryRecord && itemChanges.length > 0 ? (
           <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
             <h3 style={{ margin: 0, color: "#17324d" }}>Item Breakdown</h3>
             <div className="mayor-audit-trail-detail-table-scroll" style={detailModalStyles.tableWrap}>
@@ -579,20 +870,14 @@ const SystemLogReviewPage = () => {
   const [auditLogs, setAuditLogs] = useState([]);
   const [pagination, setPagination] = useState({
     page: 1,
-    limit: AUDIT_PAGE_SIZE,
+    limit: DEFAULT_TABLE_PAGE_SIZE,
     total_records: 0,
     total_pages: 1,
     has_previous_page: false,
     has_next_page: false,
     retention_years: 5,
   });
-  const [auditSummary, setAuditSummary] = useState({
-    total_matching_records: 0,
-    inventory_records: 0,
-    relief_pack_records: 0,
-    donation_records: 0,
-    distribution_records: 0,
-  });
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -612,6 +897,7 @@ const SystemLogReviewPage = () => {
     auditAction = selectedAuditAction,
     nextDateFrom = dateFrom,
     nextDateTo = dateTo,
+    nextPageSize = pageSize,
   ) => {
     setIsLoading(true);
     setErrorMessage("");
@@ -622,26 +908,17 @@ const SystemLogReviewPage = () => {
         audit_action: auditAction,
         date_from: nextDateFrom,
         date_to: nextDateTo,
-        limit: AUDIT_PAGE_SIZE,
+        limit: nextPageSize,
         module,
         page,
         search,
       });
 
       setAuditLogs(response.audit_logs || []);
-      setAuditSummary(
-        response.summary?.audit_logs || {
-          total_matching_records: response.audit_logs?.length || 0,
-          inventory_records: 0,
-          relief_pack_records: 0,
-          donation_records: 0,
-          distribution_records: 0,
-        },
-      );
       setPagination(
         response.pagination?.audit_logs || {
           page,
-          limit: AUDIT_PAGE_SIZE,
+          limit: nextPageSize,
           total_records: response.audit_logs?.length || 0,
           total_pages: 1,
           has_previous_page: false,
@@ -672,6 +949,7 @@ const SystemLogReviewPage = () => {
     selectedAuditAction,
     dateFrom,
     dateTo,
+    pageSize,
   ]);
 
   const handleSearchChange = (nextSearchTerm) => {
@@ -697,6 +975,34 @@ const SystemLogReviewPage = () => {
 
   const handleDateToChange = (nextDateTo) => {
     setDateTo(nextDateTo);
+    setCurrentPage(1);
+  };
+
+  const hasActiveAuditFilters = Boolean(
+    searchTerm.trim() ||
+      selectedModule !== ALL_MODULES_VALUE ||
+      selectedAuditAction !== ALL_AUDIT_ACTIONS_VALUE ||
+      dateFrom ||
+      dateTo,
+  );
+
+  const handleClearAllFilters = () => {
+    setSearchTerm("");
+    setSelectedModule(ALL_MODULES_VALUE);
+    setSelectedAuditAction(ALL_AUDIT_ACTIONS_VALUE);
+    setDateFrom("");
+    setDateTo("");
+    setCurrentPage(1);
+  };
+
+  const handlePageSizeChange = (nextPageSize) => {
+    const normalizedPageSize = Number(nextPageSize);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(normalizedPageSize)) {
+      return;
+    }
+
+    setPageSize(normalizedPageSize);
     setCurrentPage(1);
   };
 
@@ -770,29 +1076,29 @@ const SystemLogReviewPage = () => {
             min={dateFrom || undefined}
           />
         </label>
-      </section>
 
-      <section className="mayor-audit-trail-summary-grid" style={auditSummaryStyles.overviewSection}>
-        <StatusCard
-          label="Matching Records"
-          value={auditSummary.total_matching_records}
-        />
-        <StatusCard
-          label="Inventory Records"
-          value={auditSummary.inventory_records}
-        />
-        <StatusCard
-          label="Relief Pack Records"
-          value={auditSummary.relief_pack_records}
-        />
-        <StatusCard
-          label="Donation Records"
-          value={auditSummary.donation_records}
-        />
-        <StatusCard
-          label="Distribution Records"
-          value={auditSummary.distribution_records}
-        />
+        {hasActiveAuditFilters ? (
+          <div className="mayor-audit-trail-filter-actions">
+            <button
+              className="mayor-audit-trail-clear-filters"
+              type="button"
+              onClick={handleClearAllFilters}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: "#55718b",
+                padding: "2px 0",
+                fontSize: "13px",
+                fontWeight: 700,
+                cursor: "pointer",
+                textDecoration: "underline",
+                textUnderlineOffset: "3px",
+              }}
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <div className="mayor-audit-trail-toolbar" style={filterStyles.toolbar}>
@@ -800,7 +1106,7 @@ const SystemLogReviewPage = () => {
           <SearchBar
             value={searchTerm}
             onChange={handleSearchChange}
-            placeholder="Search action, module, record, item/barcode, donor, user, or role"
+            placeholder="Search action, item, batch number, donor, relief pack, or user"
           />
         </div>
 
@@ -838,37 +1144,22 @@ const SystemLogReviewPage = () => {
 
       <section className="mayor-audit-trail-records-card" style={shellStyles.card}>
         <div className="mayor-audit-trail-records-toolbar" style={pageSpacingStyles.toolbar}>
-          <div>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Activity Records</h3>
-            <p style={{ ...shellStyles.mutedText, marginTop: "6px" }}>
-              Showing {filteredAuditLogs.length} loaded entries from page{" "}
-              {pagination.page} of {pagination.total_pages}.
-            </p>
-          </div>
-
-          <div className="mayor-audit-trail-paginator" style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-              style={pageHeaderStyles.secondaryButton}
-              disabled={isLoading || !pagination.has_previous_page}
-              aria-label="Previous page"
-              title="Previous page"
-            >
-              <FiChevronLeft />
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrentPage((page) => page + 1)}
-              style={pageHeaderStyles.secondaryButton}
-              disabled={isLoading || !pagination.has_next_page}
-              aria-label="Next page"
-              title="Next page"
-            >
-              <FiChevronRight />
-            </button>
-          </div>
+          <h3 style={{ margin: 0, color: "#17324d" }}>Activity Records</h3>
         </div>
+
+        <TablePagination
+          totalItems={pagination.total_records}
+          currentPage={pagination.page}
+          pageSize={pagination.limit || pageSize}
+          pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={handlePageSizeChange}
+          isVisible={!isLoading && !errorMessage && pagination.total_records > 0}
+          disabled={isLoading}
+          ariaLabel="Audit trail pagination"
+          previousAriaLabel="Go to previous audit trail page"
+          nextAriaLabel="Go to next audit trail page"
+        />
 
         {isLoading ? (
           <EmptyState message="Loading audit trail records..." />
@@ -892,7 +1183,7 @@ const SystemLogReviewPage = () => {
                   return (
                     <tr key={entry.id}>
                       <td style={{ ...tableStyles.td, ...tableStyles.actionColumn, ...tableStyles.wrapCell }}>
-                        <div style={tableStyles.strong}>
+                        <div style={tableStyles.actionValue}>
                           {formatActionLabel(entry)}
                         </div>
                         {entry.action_detail ? (
@@ -904,16 +1195,11 @@ const SystemLogReviewPage = () => {
                       <td style={{ ...tableStyles.td, ...tableStyles.moduleColumn, ...tableStyles.wrapCell }}>{entry.module}</td>
                       <td style={{ ...tableStyles.td, ...tableStyles.recordColumn, ...tableStyles.wrapCell }}>
                         {getRecordLines(entry).map((line, index) => (
-                          <div
-                            key={`${entry.id}-record-${index}`}
-                            style={getRecordLineStyle(entry, index)}
-                          >
-                            {line}
-                          </div>
+                          <div key={`${entry.id}-record-${index}`}>{line}</div>
                         ))}
                       </td>
                       <td style={{ ...tableStyles.td, ...tableStyles.performedByColumn, ...tableStyles.wrapCell }}>
-                        <div style={tableStyles.strong}>{entry.performed_by}</div>
+                        {entry.performed_by}
                       </td>
                       <td style={{ ...tableStyles.td, ...tableStyles.dateColumn, ...tableStyles.centeredColumn }}>
                         {formatDateTime(entry.timestamp)}

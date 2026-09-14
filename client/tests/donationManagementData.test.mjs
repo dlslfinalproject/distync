@@ -82,6 +82,16 @@ test("closed event filters do not preselect an invalid add-donation event", asyn
   );
 });
 
+test("current donation new-item payloads omit parent item activity", async () => {
+  const source = await readSource([
+    "features",
+    "donations",
+    "useDonationManagementModals.js",
+  ]);
+
+  assert.doesNotMatch(source, /is_active:\s*true/);
+});
+
 test("donation toolbar controls call the page filters and modal open handlers", async () => {
   const [pageSource, filtersSource] = await Promise.all([
     readSource(["pages", "DonationManagementPage.jsx"]),
@@ -91,6 +101,7 @@ test("donation toolbar controls call the page filters and modal open handlers", 
   assert.match(filtersSource, /placeholder="Search by donor name or item name"/);
   assert.match(filtersSource, /onChange=\{onDonationSearchChange\}/);
   assert.match(filtersSource, /id="donation-type-filter"[\s\S]*?onChange=/);
+  assert.match(filtersSource, /inlineSelectLabel}>Form<\/span>/);
   assert.match(filtersSource, /title="Filter Records"/);
   assert.match(filtersSource, /onClick=\{onOpenDonationModal\}/);
   assert.match(filtersSource, /onClick=\{onExportDonations\}/);

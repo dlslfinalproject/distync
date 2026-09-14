@@ -38,8 +38,11 @@ const tableStyles = {
     verticalAlign: "middle",
     whiteSpace: "nowrap",
   },
+  disasterEventHeaderCell: {
+    textAlign: "left",
+  },
   disasterEventBodyCell: {
-    textAlign: "center",
+    textAlign: "left",
     verticalAlign: "middle",
     whiteSpace: "normal",
     overflowWrap: "anywhere",
@@ -197,12 +200,12 @@ const DonorTransparencyTab = ({
               </colgroup>
               <thead>
                 <tr>
-                  <th style={tableStyles.headerCell}>Donor Name</th>
+                  <th style={tableStyles.headerCell}>Donor</th>
                   {showDisasterEventColumn ? (
                     <th
                       style={{
                         ...tableStyles.headerCell,
-                        textAlign: "center",
+                        ...tableStyles.disasterEventHeaderCell,
                       }}
                     >
                       Disaster Event

@@ -51,6 +51,16 @@ const tableStyles = {
     minWidth: "180px",
     wordBreak: "normal",
   },
+  donationFormHeaderCell: {
+    width: "130px",
+    minWidth: "130px",
+    padding: "14px 8px",
+  },
+  donationFormBodyCell: {
+    width: "130px",
+    minWidth: "130px",
+    padding: "16px 8px",
+  },
   itemsHeaderCell: {
     width: "21%",
     minWidth: "210px",
@@ -240,7 +250,7 @@ const DonationsTab = ({
   const headerLabels = showDisasterEventColumn
     ? [
         "Donor",
-        "Donation Type",
+        "Donation Form",
         "Disaster Event",
         "Items",
         "Quantity",
@@ -248,7 +258,7 @@ const DonationsTab = ({
       ]
     : [
         "Donor",
-        "Donation Type",
+        "Donation Form",
         "Items",
         "Quantity",
         "Date",
@@ -293,13 +303,15 @@ const DonationsTab = ({
                             ...tableStyles.headerCell,
                             ...tableStyles.itemsHeaderCell,
                           }
-                        : label === "Donation Type" ||
+                        : label === "Donation Form" ||
                             label === "Disaster Event" ||
                             label === "Quantity" ||
                             label === "Date"
                         ? {
                             ...tableStyles.headerCell,
-                            ...(label === "Disaster Event"
+                            ...(label === "Donation Form"
+                              ? tableStyles.donationFormHeaderCell
+                              : label === "Disaster Event"
                               ? tableStyles.disasterEventHeaderCell
                               : label === "Quantity"
                               ? tableStyles.quantityHeaderCell
@@ -351,7 +363,7 @@ const DonationsTab = ({
                       style={{
                         ...tableStyles.bodyCell,
                         ...tableStyles.centeredBodyCell,
-                        ...tableStyles.quantityBodyCell,
+                        ...tableStyles.donationFormBodyCell,
                       }}
                     >
                       {donationTypeLabel}
@@ -390,7 +402,7 @@ const DonationsTab = ({
                       style={{
                         ...tableStyles.bodyCell,
                         ...tableStyles.centeredBodyCell,
-                        ...tableStyles.dateBodyCell,
+                        ...tableStyles.quantityBodyCell,
                       }}
                     >
                       <div style={tableStyles.stackedList}>
@@ -405,6 +417,7 @@ const DonationsTab = ({
                       style={{
                         ...tableStyles.bodyCell,
                         ...tableStyles.centeredBodyCell,
+                        ...tableStyles.dateBodyCell,
                       }}
                     >
                       {formatDonationDateTime(donation.received_at)}

@@ -189,6 +189,7 @@ router.patch(
       const statusCode = error.statusCode || 500;
 
       return res.status(statusCode).json({
+        code: error.code || null,
         message: error.message || "Failed to archive household",
       });
     }
@@ -243,6 +244,7 @@ router.patch(
       const statusCode = error.statusCode || 500;
 
       return res.status(statusCode).json({
+        code: error.code || null,
         message: error.message || "Failed to correct evacuation log",
       });
     }

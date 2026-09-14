@@ -269,12 +269,12 @@ const findMatchingStockFormByBarcode = (item, barcode) => {
     return null;
   }
 
-  return (
-    getItemStockForms(item, { activeOnly: true }).find(
-      (stockForm) =>
-        normalizeInventoryBarcode(stockForm?.barcode) === normalizedBarcode,
-    ) || null
+  const matchingStockForms = getItemStockForms(item, { activeOnly: true }).filter(
+    (stockForm) =>
+      normalizeInventoryBarcode(stockForm?.barcode) === normalizedBarcode,
   );
+
+  return matchingStockForms.length === 1 ? matchingStockForms[0] : null;
 };
 
 const formatPackagingLabel = (packaging) => {
@@ -585,7 +585,7 @@ const InventoryItemFormModal = ({
   );
   const duplicateBarcodeItem =
     mode === "create" && rawTrimmedBarcode
-      ? eligibleExistingItems.find((item) => {
+      ? eligibleExistingItems.some((item) => {
           if (
             matchedExistingItem &&
             String(item?.id) === String(matchedExistingItem.id)
@@ -1211,10 +1211,25 @@ const InventoryItemFormModal = ({
     }
 
     const effectiveBarcode = getEffectiveBarcode(values);
+    const normalizedEffectiveBarcode = normalizeInventoryBarcode(effectiveBarcode);
+    const isUnchangedExistingBarcode =
+      isEditMode &&
+      [
+        itemData?.barcode,
+        itemData?.inventory_item_stock_form?.barcode,
+        matchedExistingStockForm?.barcode,
+      ].some(
+        (existingBarcode) =>
+          normalizeInventoryBarcode(existingBarcode) === normalizedEffectiveBarcode,
+      );
 
     if (!isEditMode && isAddingBarcodeStockForm && isBlank(effectiveBarcode)) {
       nextErrors.barcode = "Barcode is required for this packaging.";
-    } else if (!isBlank(effectiveBarcode) && !isValidInventoryBarcode(effectiveBarcode)) {
+    } else if (
+      !isUnchangedExistingBarcode &&
+      !isBlank(effectiveBarcode) &&
+      !isValidInventoryBarcode(effectiveBarcode)
+    ) {
       nextErrors.barcode = "Barcode must contain 8 to 18 digits.";
     } else if (duplicateBarcodeItem) {
       nextErrors.barcode = duplicateBarcodeMessage;

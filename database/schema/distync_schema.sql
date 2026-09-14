@@ -466,6 +466,7 @@ CREATE TABLE public.inventory_item_stock_forms (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT inventory_item_stock_forms_pkey PRIMARY KEY (id),
+  CONSTRAINT uq_inventory_item_stock_forms_id_item UNIQUE (id, inventory_item_id),
   CONSTRAINT inventory_item_stock_forms_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
   CONSTRAINT inventory_item_stock_forms_barcode_key UNIQUE (barcode)
 );
@@ -499,6 +500,7 @@ CREATE TABLE public.inventory_batches (
   CONSTRAINT inventory_batches_inventory_item_id_batch_no_unique UNIQUE (inventory_item_id, batch_no),
   CONSTRAINT inventory_batches_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id) ON DELETE RESTRICT,
   CONSTRAINT inventory_batches_inventory_item_stock_form_id_fkey FOREIGN KEY (inventory_item_stock_form_id) REFERENCES public.inventory_item_stock_forms(id),
+  CONSTRAINT inventory_batches_stock_form_item_same_fkey FOREIGN KEY (inventory_item_stock_form_id, inventory_item_id) REFERENCES public.inventory_item_stock_forms(id, inventory_item_id) MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION,
   CONSTRAINT inventory_batches_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id) ON DELETE SET NULL
 );
 

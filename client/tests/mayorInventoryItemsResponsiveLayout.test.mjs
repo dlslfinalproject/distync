@@ -36,6 +36,10 @@ test("Mayor inventory items page exposes responsive hooks for toolbar, summary, 
   );
   assert.match(
     cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.inventory-items-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+  );
+  assert.match(
+    cssSource,
     /@media \(max-width: 480px\)[\s\S]*?\.inventory-items-summary-grid > div \{[\s\S]*?height: auto !important;[\s\S]*?padding: 12px 14px !important;/,
   );
   assert.match(
@@ -56,9 +60,11 @@ test("Mayor inventory item table keeps overflow local without hiding columns", a
   assert.match(tableSource, /className="inventory-items-table-cell inventory-items-item-cell"/);
   assert.match(tableSource, /className="inventory-items-item-name-text"/);
   assert.match(tableSource, /title=\{itemName\}/);
+  assert.match(tableSource, /header === "Item" \? styles\.leftCell/);
+  assert.match(tableSource, /itemNameText: \{[\s\S]*?fontWeight: 700/);
   assert.match(tableSource, /overflowX:\s*"auto"/);
   assert.doesNotMatch(tableSource, /overflowX:\s*"hidden"/);
-  assert.match(tableSource, /"Item Name"[\s\S]*?"Category"[\s\S]*?"Total Stock"[\s\S]*?"Stock Forms"[\s\S]*?"Reorder Level"[\s\S]*?"Stock Status"[\s\S]*?"Actions"/);
+  assert.match(tableSource, /"Item(?: Name)?"[\s\S]*?"Category"[\s\S]*?"Total Stock"[\s\S]*?"Stock Forms"[\s\S]*?"Reorder Level"[\s\S]*?"Stock Status"[\s\S]*?"Actions"/);
   assert.match(
     cssSource,
     /\.inventory-items-table-scroll,[\s\S]*?\.inventory-item-detail-table-scroll \{[\s\S]*?overflow-x: auto !important;/,

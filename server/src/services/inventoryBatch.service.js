@@ -132,6 +132,32 @@ const summarizeInventoryBatch = (batch) => {
   return summary;
 };
 
+const summarizeInventoryTransaction = (transaction) =>
+  pickDefined(transaction, [
+    "disaster_event_id",
+    "inventory_batch_id",
+    "transaction_type",
+    "quantity",
+    "reference_type",
+    "reference_id",
+    "inventory_transaction_reference_no",
+    "performed_by",
+    "performed_at",
+    "remarks",
+    "other_status",
+  ]);
+
+const summarizeInventoryItemStockForm = (stockForm) =>
+  pickDefined(stockForm, [
+    "inventory_item_id",
+    "barcode",
+    "packaging",
+    "units_per_packaging",
+    "unit_of_measure",
+    "unit_of_measure_value",
+    "is_active",
+  ]);
+
 const normalizeStockFormDefinition = (batchData, inventoryItem) => {
   const packaging = String(
     batchData.stock_form_packaging || inventoryItem.packaging || "piece",
@@ -506,6 +532,90 @@ const areBatchPackagingDefinitionsEqual = ({
   );
 };
 
+const getInventoryItemsByBarcode = async (barcode, dbClient = pool) => {
+  if (typeof inventoryItemRepository.getInventoryItemsByBarcode === "function") {
+    const matches = await inventoryItemRepository.getInventoryItemsByBarcode(
+      barcode,
+      dbClient,
+    );
+    return Array.isArray(matches) ? matches : [];
+  }
+
+  if (typeof inventoryItemRepository.getInventoryItemByBarcode === "function") {
+    const match = await inventoryItemRepository.getInventoryItemByBarcode(
+      barcode,
+      dbClient,
+    );
+    return match ? [match] : [];
+  }
+
+  return [];
+};
+
+const validateNewBarcodeValue = (barcode) => {
+  if (barcode && !isValidInventoryBarcode(barcode)) {
+    const error = new Error("stock_form_barcode must contain 8 to 18 digits");
+    error.statusCode = 400;
+    throw error;
+  }
+};
+
+const ensureBarcodeOwnerAvailable = async ({
+  barcode,
+  inventoryItem,
+  targetStockForm = null,
+  dbClient,
+}) => {
+  const barcodeOwner =
+    typeof inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode ===
+    "function"
+      ? await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
+          barcode,
+          dbClient || undefined,
+        )
+      : null;
+
+  if (
+    barcodeOwner &&
+    String(barcodeOwner.id) !== String(targetStockForm?.id || "")
+  ) {
+    const existingItem =
+      typeof inventoryItemRepository.getInventoryItemById === "function"
+        ? await inventoryItemRepository.getInventoryItemById(
+            barcodeOwner.inventory_item_id,
+            dbClient || undefined,
+          )
+        : null;
+
+    throw createDuplicateInventoryBarcodeError({
+      existingItem,
+      existingStockForm: barcodeOwner,
+      packagingConflict: true,
+    });
+  }
+
+  if (barcodeOwner) {
+    return barcodeOwner;
+  }
+
+  const legacyItemCandidates = await getInventoryItemsByBarcode(
+    barcode,
+    dbClient,
+  );
+  const conflictingLegacyItems = legacyItemCandidates.filter(
+    (candidate) => String(candidate.id) !== String(inventoryItem.id),
+  );
+
+  if (conflictingLegacyItems.length > 0) {
+    throw createDuplicateInventoryBarcodeError({
+      existingItem:
+        legacyItemCandidates.length === 1 ? conflictingLegacyItems[0] : null,
+    });
+  }
+
+  return null;
+};
+
 const validateBarcodeAssignmentTarget = async ({
   batchData,
   inventoryItem,
@@ -522,6 +632,8 @@ const validateBarcodeAssignmentTarget = async ({
     throw error;
   }
 
+  validateNewBarcodeValue(barcode);
+
   if (String(stockForm.barcode || "").trim()) {
     const error = new Error(
       "This packaging already has a barcode and cannot be reassigned",
@@ -530,46 +642,12 @@ const validateBarcodeAssignmentTarget = async ({
     throw error;
   }
 
-  if (
-    typeof inventoryItemRepository.getInventoryItemByBarcode === "function"
-  ) {
-    const itemBarcodeOwner =
-      await inventoryItemRepository.getInventoryItemByBarcode(
-        barcode,
-        dbClient || undefined,
-      );
-
-    if (
-      itemBarcodeOwner &&
-      String(itemBarcodeOwner.id) !== String(inventoryItem.id)
-    ) {
-      throw createDuplicateInventoryBarcodeError({
-        existingItem: itemBarcodeOwner,
-      });
-    }
-  }
-
-  const barcodeOwner =
-    await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
-      barcode,
-      dbClient || undefined,
-    );
-
-  if (barcodeOwner && String(barcodeOwner.id) !== String(stockForm.id)) {
-    const existingItem =
-      typeof inventoryItemRepository.getInventoryItemById === "function"
-        ? await inventoryItemRepository.getInventoryItemById(
-            barcodeOwner.inventory_item_id,
-            dbClient || undefined,
-          )
-        : null;
-
-    throw createDuplicateInventoryBarcodeError({
-      existingItem,
-      existingStockForm: barcodeOwner,
-      packagingConflict: true,
-    });
-  }
+  await ensureBarcodeOwnerAvailable({
+    barcode,
+    inventoryItem,
+    targetStockForm: stockForm,
+    dbClient,
+  });
 
   const stockFormDefinition = normalizeStockFormDefinition(
     batchData,
@@ -689,18 +767,39 @@ const getInventoryBatchDetail = async (id) => {
   };
 };
 
-const emitInventoryBatchCreatedSideEffects = async (mappedBatch, batchData) => {
+const emitInventoryBatchCreatedSideEffects = async (
+  mappedBatch,
+  batchData,
+  createdStockForm = null,
+) => {
+  const actor =
+    batchData.auditActor || {
+      userId: batchData.created_by,
+      roleCode: "MAYOR",
+    };
+
   await notificationService.emitSafely(() =>
     notificationService.emitBatchAlerts({
       batch: mappedBatch,
     }),
   );
 
+  if (createdStockForm) {
+    await logAuditSafely({
+      actor,
+      action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
+      entityType: "INVENTORY_ITEM_STOCK_FORM",
+      entityId: createdStockForm.id,
+      oldValues: {},
+      newValues: {
+        ...summarizeInventoryItemStockForm(createdStockForm),
+        is_additional_packaging: true,
+      },
+    });
+  }
+
   await logAuditSafely({
-    actor: {
-      userId: batchData.created_by,
-      roleCode: "MAYOR",
-    },
+    actor,
     action: "INVENTORY_BATCH_CREATE",
     entityType: "INVENTORY_BATCH",
     entityId: mappedBatch.id,
@@ -708,12 +807,22 @@ const emitInventoryBatchCreatedSideEffects = async (mappedBatch, batchData) => {
     newValues: summarizeInventoryBatch(mappedBatch),
   });
 
+  if (mappedBatch.__createdInflowTransaction) {
+    await logAuditSafely({
+      actor,
+      action: "INVENTORY_TRANSACTION_CREATE",
+      entityType: "INVENTORY_TRANSACTION",
+      entityId: mappedBatch.__createdInflowTransaction.id,
+      oldValues: {},
+      newValues: summarizeInventoryTransaction(
+        mappedBatch.__createdInflowTransaction,
+      ),
+    });
+  }
+
   if (batchData.inventory_item_reorder_level !== undefined) {
     await logAuditSafely({
-      actor: {
-        userId: batchData.created_by,
-        roleCode: "MAYOR",
-      },
+      actor,
       action: "INVENTORY_ITEM_REORDER_LEVEL_UPDATE",
       entityType: "INVENTORY_ITEM",
       entityId: batchData.inventory_item_id,
@@ -757,35 +866,6 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
   );
 
   if (
-    normalizedStockFormBarcode &&
-    !isValidInventoryBarcode(normalizedStockFormBarcode)
-  ) {
-    const error = new Error("stock_form_barcode must contain 8 to 18 digits");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (
-    normalizedStockFormBarcode &&
-    typeof inventoryItemRepository.getInventoryItemByBarcode === "function"
-  ) {
-    const itemBarcodeOwner =
-      await inventoryItemRepository.getInventoryItemByBarcode(
-        normalizedStockFormBarcode,
-        dbClient || undefined,
-      );
-
-    if (
-      itemBarcodeOwner &&
-      String(itemBarcodeOwner.id) !== String(inventoryItem.id)
-    ) {
-      throw createDuplicateInventoryBarcodeError({
-        existingItem: itemBarcodeOwner,
-      });
-    }
-  }
-
-  if (
     batchData.inventory_item_reorder_level !== undefined &&
     (!Number.isInteger(batchData.inventory_item_reorder_level) ||
       batchData.inventory_item_reorder_level <= 0)
@@ -799,6 +879,7 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
 
   let resolvedStockFormId = batchData.inventory_item_stock_form_id || null;
   let barcodeAssignmentTarget = null;
+  let createdStockForm = null;
 
   if (resolvedStockFormId) {
     const stockForm =
@@ -916,39 +997,6 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
         ) || null
       : null;
 
-    if (
-      stockFormDefinition?.barcode &&
-      typeof inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode ===
-        "function"
-    ) {
-      const barcodeOwner =
-        await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
-          stockFormDefinition.barcode,
-          dbClient || undefined,
-        );
-
-      if (
-        barcodeOwner &&
-        (barcodeOwner.is_active === false ||
-          String(barcodeOwner.inventory_item_id) !== String(inventoryItem.id) ||
-          !areInventoryStockFormDefinitionsEqual(barcodeOwner, stockFormDefinition))
-      ) {
-        const existingItem =
-          typeof inventoryItemRepository.getInventoryItemById === "function"
-            ? await inventoryItemRepository.getInventoryItemById(
-                barcodeOwner.inventory_item_id,
-                dbClient || undefined,
-              )
-            : null;
-
-        throw createDuplicateInventoryBarcodeError({
-          existingItem,
-          existingStockForm: barcodeOwner,
-          packagingConflict: true,
-        });
-      }
-    }
-
     if (stockFormDefinition) {
       if (matchingStockForm) {
         const existingStockFormBarcode = normalizeInventoryBarcode(
@@ -977,7 +1025,16 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
           });
         }
       } else {
-        const createdStockForm =
+        validateNewBarcodeValue(stockFormDefinition.barcode);
+        if (stockFormDefinition.barcode) {
+          await ensureBarcodeOwnerAvailable({
+            barcode: stockFormDefinition.barcode,
+            inventoryItem,
+            dbClient,
+          });
+        }
+
+        createdStockForm =
           await inventoryItemStockFormRepository.insertInventoryItemStockForm(
             stockFormDefinition,
             dbClient || undefined,
@@ -1165,10 +1222,11 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
     inflowTransaction.performed_at = batchData.received_at;
   }
 
-  await inventoryTransactionRepository.insertInventoryTransaction(
-    inflowTransaction,
-    dbClient || undefined,
-  );
+  const createdInflowTransaction =
+    await inventoryTransactionRepository.insertInventoryTransaction(
+      inflowTransaction,
+      dbClient || undefined,
+    );
 
   await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
     batchData.inventory_item_id,
@@ -1187,8 +1245,76 @@ const createInventoryBatchWithoutTransaction = async (batchData) => {
     mappedBatch.requested_batch_no = requestedBatchNo;
   }
 
+  Object.defineProperty(mappedBatch, "__createdInflowTransaction", {
+    configurable: true,
+    enumerable: false,
+    value: createdInflowTransaction || null,
+  });
+  Object.defineProperty(mappedBatch, "__createdStockForm", {
+    configurable: true,
+    enumerable: false,
+    value: createdStockForm || null,
+  });
+
+  if (batchData.auditActor && dbClient) {
+    const sourceEventKeyPrefix = batchData.auditSourceEventKeyPrefix;
+
+    if (createdStockForm) {
+      await logAuditSafely({
+        actor: batchData.auditActor,
+        action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
+        entityType: "INVENTORY_ITEM_STOCK_FORM",
+        entityId: createdStockForm.id,
+        oldValues: {},
+        newValues: {
+          ...summarizeInventoryItemStockForm(createdStockForm),
+          is_additional_packaging: true,
+        },
+        sourceEventKey: sourceEventKeyPrefix
+          ? `${sourceEventKeyPrefix}:STOCK_FORM`
+          : null,
+        throwOnError: true,
+        dbClient,
+      });
+    }
+
+    await logAuditSafely({
+      actor: batchData.auditActor,
+      action: "INVENTORY_BATCH_CREATE",
+      entityType: "INVENTORY_BATCH",
+      entityId: mappedBatch.id,
+      oldValues: {},
+      newValues: summarizeInventoryBatch(mappedBatch),
+      sourceEventKey: sourceEventKeyPrefix
+        ? `${sourceEventKeyPrefix}:BATCH`
+        : null,
+      throwOnError: true,
+      dbClient,
+    });
+
+    if (createdInflowTransaction) {
+      await logAuditSafely({
+        actor: batchData.auditActor,
+        action: "INVENTORY_TRANSACTION_CREATE",
+        entityType: "INVENTORY_TRANSACTION",
+        entityId: createdInflowTransaction.id,
+        oldValues: {},
+        newValues: summarizeInventoryTransaction(createdInflowTransaction),
+        sourceEventKey: sourceEventKeyPrefix
+          ? `${sourceEventKeyPrefix}:TRANSACTION`
+          : null,
+        throwOnError: true,
+        dbClient,
+      });
+    }
+  }
+
   if (!dbClient) {
-    await emitInventoryBatchCreatedSideEffects(mappedBatch, batchData);
+    await emitInventoryBatchCreatedSideEffects(
+      mappedBatch,
+      batchData,
+      createdStockForm,
+    );
   }
 
   return mappedBatch;
@@ -1240,7 +1366,11 @@ const createInventoryBatch = async (batchData) => {
     client.release();
   }
 
-  await emitInventoryBatchCreatedSideEffects(mappedBatch, batchData);
+  await emitInventoryBatchCreatedSideEffects(
+    mappedBatch,
+    batchData,
+    mappedBatch.__createdStockForm,
+  );
   return mappedBatch;
 };
 

@@ -19,6 +19,7 @@ const MOVING_AVERAGE_WINDOW = 7;
 const EXPONENTIAL_SMOOTHING_ALPHA = 0.4;
 const FORECAST_ELIGIBLE_SOURCE_TYPES = Object.freeze(["LGU", "DONATED"]);
 const FORECAST_NEAR_EXPIRY_EXCLUSION_DAYS = 30;
+const LEGACY_FORECAST_INVENTORY_ITEM_COUNT_KEY = "active_inventory_item_count";
 const ANALYTICS_SERVICE_URL =
   process.env.ANALYTICS_SERVICE_URL || "http://localhost:8000";
 const ANALYTICS_TIMEOUT_MS = Number.parseInt(
@@ -31,6 +32,35 @@ if (process.env.NODE_ENV === "production" && !process.env.ANALYTICS_SERVICE_URL)
     "ANALYTICS_SERVICE_URL is required in production so forecasting does not target localhost.",
   );
 }
+
+const resolveInventoryItemCount = (eventContext, fallbackCount = null) => {
+  if (fallbackCount !== null && fallbackCount !== undefined) {
+    return Number(fallbackCount || 0);
+  }
+
+  const canonicalCount = eventContext?.inventory_item_count;
+
+  if (canonicalCount !== undefined && canonicalCount !== null) {
+    return Number(canonicalCount || 0);
+  }
+
+  return Number(eventContext?.[LEGACY_FORECAST_INVENTORY_ITEM_COUNT_KEY] || 0);
+};
+
+const buildInventoryItemCountCompatibility = (
+  eventContext,
+  fallbackCount = null,
+) => {
+  const inventoryItemCount = resolveInventoryItemCount(
+    eventContext,
+    fallbackCount,
+  );
+
+  return {
+    inventory_item_count: inventoryItemCount,
+    [LEGACY_FORECAST_INVENTORY_ITEM_COUNT_KEY]: inventoryItemCount,
+  };
+};
 
 const normalizeAnalyticsServiceUrl = (value) => {
   const normalizedValue = String(value || "").trim().replace(/\/+$/, "");
@@ -113,9 +143,9 @@ const buildForecastReadinessWarnings = ({
   forecastItems = null,
 }) => {
   const warnings = [];
-  const activeInventoryItemCount = Array.isArray(forecastItems)
+  const inventoryItemCount = Array.isArray(forecastItems)
     ? forecastItems.length
-    : Number(eventContext?.active_inventory_item_count || 0);
+    : resolveInventoryItemCount(eventContext);
   const unclaimedEligibleHouseholdCount = Number(
     eventContext?.unclaimed_eligible_household_count || 0,
   );
@@ -124,12 +154,12 @@ const buildForecastReadinessWarnings = ({
   );
   const demandRowCount = Array.isArray(demandRows) ? demandRows.length : 0;
 
-  if (activeInventoryItemCount <= 0) {
+  if (inventoryItemCount <= 0) {
     warnings.push({
-      code: "NO_ACTIVE_INVENTORY_ITEMS",
+      code: "NO_INVENTORY_ITEMS",
       severity: "WARNING",
       message:
-        "No active inventory items are available, so the forecast has no item targets.",
+        "No inventory items are available, so the forecast has no item targets.",
     });
   }
 
@@ -326,6 +356,7 @@ const buildForecastDashboard = ({
   eventContext,
   usageTrend,
   readinessWarnings = [],
+  inventoryItemCount = null,
 }) => {
   const enrichedResults = [...(forecastResults || [])].sort(
     (left, right) => right.forecasted_usage - left.forecasted_usage,
@@ -411,9 +442,7 @@ const buildForecastDashboard = ({
         eventContext?.distribution_transaction_count || 0,
       ),
       total_released_quantity: Number(eventContext?.total_released_quantity || 0),
-      active_inventory_item_count: Number(
-        eventContext?.active_inventory_item_count || 0,
-      ),
+      ...buildInventoryItemCountCompatibility(eventContext, inventoryItemCount),
       active_standard_pack_count: Number(
         eventContext?.active_standard_pack_count || 0,
       ),
@@ -563,6 +592,7 @@ const mapStoredForecastRun = (forecastRun, resultRows) => {
       daily_forecast: Number(parsedNotes.daily_forecast || 0),
     };
   });
+  const eventContext = forecastRun.parameters_json?.event_context || {};
 
   return {
     forecast_run: {
@@ -616,9 +646,7 @@ const mapStoredForecastRun = (forecastRun, resultRows) => {
         total_released_quantity: Number(
           forecastRun.parameters_json?.event_context?.total_released_quantity || 0,
         ),
-        active_inventory_item_count: Number(
-          forecastRun.parameters_json?.event_context?.active_inventory_item_count || 0,
-        ),
+        ...buildInventoryItemCountCompatibility(eventContext),
         active_standard_pack_count: Number(
           forecastRun.parameters_json?.event_context?.active_standard_pack_count || 0,
         ),
@@ -1071,6 +1099,7 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
     eventContext,
     usageTrend: usageTrendRows,
     readinessWarnings,
+    inventoryItemCount: forecastItems.length,
   });
   const client = await pool.connect();
 
@@ -1125,8 +1154,9 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
             total_released_quantity: Number(
               eventContext?.total_released_quantity || 0,
             ),
-            active_inventory_item_count: Number(
-              forecastItems.length || eventContext?.active_inventory_item_count || 0,
+            ...buildInventoryItemCountCompatibility(
+              eventContext,
+              forecastItems.length,
             ),
             active_standard_pack_count: Number(
               eventContext?.active_standard_pack_count || 0,
@@ -1256,9 +1286,7 @@ const getInventoryForecastContext = async (disasterEventId) => {
         eventContext?.distribution_transaction_count || 0,
       ),
       total_released_quantity: Number(eventContext?.total_released_quantity || 0),
-      active_inventory_item_count: Number(
-        eventContext?.active_inventory_item_count || 0,
-      ),
+      ...buildInventoryItemCountCompatibility(eventContext),
       active_standard_pack_count: Number(
         eventContext?.active_standard_pack_count || 0,
       ),

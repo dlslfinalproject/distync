@@ -330,7 +330,7 @@ const DonationDetailModal = ({
               style={{ ...modalStyles.infoGrid, marginTop: "16px" }}
             >
               <div>
-                <p style={modalStyles.label}>Donation Type</p>
+                <p style={modalStyles.label}>Donation Form</p>
                 <p style={modalStyles.value}>{donationPresentation.donationType}</p>
               </div>
               <div>

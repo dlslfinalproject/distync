@@ -21,10 +21,13 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 const parseJsonResponse = async (response, fallbackMessage) => {
-  const payload = await response.json();
+  const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(payload.message || fallbackMessage);
+    const error = new Error(payload.message || fallbackMessage);
+    error.statusCode = response.status;
+    error.code = payload.code || payload.error || "";
+    throw error;
   }
 
   return payload;
@@ -243,6 +246,11 @@ export const mapMasterlistRow = (household, households = [], options = {}) => {
     sector_codes: [...new Set(sectorCodes)],
     current_stay_type: household.current_stay_type || null,
     contact_number: household.contact_number || null,
+    disaster_event_id:
+      household.disaster_event?.id ||
+      household.disaster_event_id ||
+      options.disasterEventId ||
+      null,
     barangay: household.barangay || null,
     local_duplicate_profile: buildLocalDuplicateProfile({
       household,

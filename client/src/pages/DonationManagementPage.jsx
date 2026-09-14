@@ -1451,7 +1451,7 @@ const DonationManagementPage = () => {
                     htmlFor="received-donations-export-type"
                     style={exportFilterStyles.label}
                   >
-                    Donation Type
+                    Donation Form
                   </label>
                   <select
                     id="received-donations-export-type"

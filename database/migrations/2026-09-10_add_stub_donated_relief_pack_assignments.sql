@@ -50,3 +50,4 @@ CREATE INDEX IF NOT EXISTS stub_donated_relief_pack_assignments_stub_status_idx
   ON public.stub_donated_relief_pack_assignments (stub_id, assignment_status);
 
 COMMIT;
+  

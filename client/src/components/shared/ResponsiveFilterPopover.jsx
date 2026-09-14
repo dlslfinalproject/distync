@@ -47,6 +47,9 @@ export const filterSurfaceStyles = {
   list: {
     display: "grid",
     gap: "10px",
+    maxHeight: "240px",
+    overflowY: "auto",
+    overscrollBehavior: "contain",
     minHeight: 0,
     paddingRight: "4px",
   },
@@ -114,7 +117,7 @@ const mobilePanelStyle = {
   position: "relative",
   width: "100%",
   maxWidth: "520px",
-  maxHeight: "min(82dvh, calc(100vh - 24px))",
+  maxHeight: "min(86dvh, calc(100dvh - 24px))",
   borderRadius: "18px",
 };
 
@@ -166,7 +169,7 @@ const ResponsiveFilterPopover = ({
     top: 0,
     left: 0,
     width: FILTER_PANEL_WIDTH,
-    maxHeight: 320,
+    maxHeight: "calc(100vh - 32px)",
     placement: "bottom",
   });
   const [isMobile, setIsMobile] = useState(false);

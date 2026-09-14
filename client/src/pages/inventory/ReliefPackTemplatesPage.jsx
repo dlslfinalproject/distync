@@ -416,9 +416,9 @@ const reliefPackPageStyles = {
   filterList: {
     display: "grid",
     gap: "10px",
+    maxHeight: "240px",
     overflowY: "auto",
-    flex: "1 1 auto",
-    minHeight: 0,
+    overscrollBehavior: "contain",
     paddingRight: "4px",
   },
   filterOption: {
@@ -574,6 +574,9 @@ const tableStyles = {
   itemName: {
     fontWeight: 400,
   },
+  reliefPackName: {
+    fontWeight: 700,
+  },
   itemQuantity: {
     color: "#6b8298",
     fontSize: "14px",
@@ -604,10 +607,10 @@ const tableStyles = {
     width: "12%",
   },
   ruleCell: {
-    width: "130px",
+    width: "180px",
   },
   applicabilityCell: {
-    width: "140px",
+    width: "180px",
   },
   statusCell: {
     width: "88px",
@@ -2015,6 +2018,12 @@ const ReliefPackTemplatesPage = () => {
   const activeFilterCount =
     selectedAdvancedFilters.length +
     (selectedSortOrder !== "oldest" ? 1 : 0);
+  const hasActiveReliefPackFilters = Boolean(
+    filters.packType !== "All" ||
+      selectedStatusFilter !== "all" ||
+      (activeTab === "relief-packs" &&
+        (selectedDisasterEventId || selectedBarangayId)),
+  );
 
   const loadReliefPackPage = async ({
     silent = false,
@@ -2691,13 +2700,29 @@ const ReliefPackTemplatesPage = () => {
     handleFilterChange("disasterTypes", nextDisasterTypeFilters);
   };
 
-  const handleClearAdvancedFilters = () => {
+  const handleClearAllFilters = () => {
     setFilters((currentFilters) => ({
       ...currentFilters,
-      availability: [],
-      disasterTypes: [],
-      sortOrder: "oldest",
+      packType: "All",
+      status: "all",
     }));
+    if (activeTab === "relief-packs") {
+      setSelectedDisasterEventId("");
+      setSelectedBarangayId("");
+    }
+    setReliefPackCurrentPage(1);
+    setCustomizationCurrentPage(1);
+  };
+
+  const handleClearPopoverFilters = () => {
+    setFilters((currentFilters) => ({
+      ...currentFilters,
+      sortOrder: "oldest",
+      ...(activeTab === "customization"
+        ? { disasterTypes: [] }
+        : { availability: [] }),
+    }));
+    setIsFilterOpen(false);
   };
 
   const handleOpenDetailModal = (template, viewContext = "relief-packs") => {
@@ -2901,10 +2926,24 @@ const ReliefPackTemplatesPage = () => {
             </div>
           </div>
         </div>
+
+        {hasActiveReliefPackFilters ? (
+          <div className="mayor-relief-pack-filter-actions">
+            <button
+              className="mayor-relief-pack-clear-filters"
+              type="button"
+              onClick={handleClearAllFilters}
+              style={reliefPackPageStyles.clearAction}
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <div
         className="mayor-relief-pack-toolbar"
+        data-active-tab={activeTab}
         style={reliefPackPageStyles.customizationToolbar}
       >
         <div
@@ -3022,7 +3061,7 @@ const ReliefPackTemplatesPage = () => {
                 <div style={reliefPackPageStyles.filterActions}>
                   <button
                     type="button"
-                    onClick={handleClearAdvancedFilters}
+                    onClick={handleClearPopoverFilters}
                     style={reliefPackPageStyles.clearAction}
                   >
                     Clear
@@ -3298,7 +3337,7 @@ const ReliefPackTemplatesPage = () => {
                           ...tableStyles.nameCell,
                         }}
                       >
-                        Name
+                        Relief Pack
                       </th>
                       <th
                         style={{
@@ -3341,7 +3380,7 @@ const ReliefPackTemplatesPage = () => {
                           ...tableStyles.applicabilityCell,
                         }}
                       >
-                        Applies To
+                        Disaster Type
                       </th>
                       <th
                         className="mayor-relief-pack-template-status-cell"
@@ -3376,7 +3415,10 @@ const ReliefPackTemplatesPage = () => {
                             ...tableStyles.nameCell,
                           }}
                         >
-                          <div className="mayor-relief-pack-template-name">
+                          <div
+                            className="mayor-relief-pack-template-name"
+                            style={tableStyles.reliefPackName}
+                          >
                             {template.name}
                           </div>
                         </td>

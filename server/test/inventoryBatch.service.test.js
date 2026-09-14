@@ -522,6 +522,186 @@ test("createInventoryBatch creates a new barcode stock form for a new packaging 
   assert.equal(insertedBatchPayload.inventory_item_stock_form_id, "stock-form-barcode");
 });
 
+test("createInventoryBatch audits an additional packaging separately from stock added", async () => {
+  const auditPayloads = [];
+  let insertedStockFormPayload = null;
+
+  const stubs = baseStubs({
+    insertInventoryBatch: async (batchData) => ({
+      id: "batch-created",
+      ...batchData,
+    }),
+    getInventoryBatchById: async () => ({
+      id: "batch-created",
+      inventory_item_id: "item-1",
+      inventory_item_stock_form_id: "stock-form-box",
+      batch_no: "BOX-BATCH-001",
+      source_type: "LGU",
+      quantity_received: 20,
+      quantity_available: 20,
+      expiration_date: null,
+      received_at: "2026-08-09T00:00:00.000Z",
+      status: "AVAILABLE",
+      created_by: "user-1",
+      item_code: "RICE",
+      item_name: "Rice",
+      category: "Food",
+      unit_of_measure: "pc",
+      barcode: null,
+      stock_form_barcode: "123456789012",
+      stock_form_packaging: "box",
+      stock_form_units_per_packaging: 10,
+      stock_form_unit_of_measure: "pc",
+      stock_form_unit_of_measure_value: 1,
+      stock_form_is_active: true,
+      is_active: true,
+    }),
+  });
+
+  stubs[stockFormRepositoryPath] = {
+    ...stubs[stockFormRepositoryPath],
+    getInventoryItemStockFormsByItemId: async () => [
+      {
+        id: "stock-form-piece",
+        inventory_item_id: "item-1",
+        barcode: null,
+        packaging: "piece",
+        units_per_packaging: 1,
+        unit_of_measure: "pc",
+        unit_of_measure_value: 1,
+        is_active: true,
+      },
+    ],
+    insertInventoryItemStockForm: async (stockFormData) => {
+      insertedStockFormPayload = stockFormData;
+      return {
+        id: "stock-form-box",
+        ...stockFormData,
+      };
+    },
+  };
+  stubs[systemLogPath] = {
+    ...stubs[systemLogPath],
+    logAuditSafely: async (payload) => {
+      auditPayloads.push(payload);
+    },
+  };
+
+  await withStubbedInventoryBatchService(
+    stubs,
+    async ({ createInventoryBatch }) => {
+      await createInventoryBatch({
+        inventory_item_id: "item-1",
+        batch_no: "BOX-BATCH-001",
+        source_type: "LGU",
+        quantity_received: 20,
+        stock_form_barcode: "123456789012",
+        stock_form_packaging: "box",
+        stock_form_units_per_packaging: 10,
+        stock_form_unit_of_measure: "pc",
+        stock_form_unit_of_measure_value: 1,
+        created_by: "user-1",
+      });
+    },
+  );
+
+  assert.equal(insertedStockFormPayload.packaging, "box");
+  assert.deepEqual(
+    auditPayloads.map(({ action, entityType }) => ({ action, entityType })),
+    [
+      {
+        action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
+        entityType: "INVENTORY_ITEM_STOCK_FORM",
+      },
+      { action: "INVENTORY_BATCH_CREATE", entityType: "INVENTORY_BATCH" },
+      {
+        action: "INVENTORY_TRANSACTION_CREATE",
+        entityType: "INVENTORY_TRANSACTION",
+      },
+    ],
+  );
+  assert.equal(auditPayloads[0].newValues.is_additional_packaging, true);
+});
+
+test("createInventoryBatch rejects a short barcode for a genuinely new stock form", async () => {
+  let insertStockFormCalled = false;
+
+  await withStubbedInventoryBatchService(
+    {
+      ...baseStubs(),
+      [stockFormRepositoryPath]: {
+        ...baseStubs()[stockFormRepositoryPath],
+        getInventoryItemStockFormsByItemId: async () => [],
+        insertInventoryItemStockForm: async () => {
+          insertStockFormCalled = true;
+          return { id: "should-not-create" };
+        },
+      },
+    },
+    async ({ createInventoryBatch }) => {
+      await assert.rejects(
+        createInventoryBatch({
+          inventory_item_id: "item-1",
+          batch_no: "SHORT-BARCODE-001",
+          source_type: "LGU",
+          quantity_received: 1,
+          stock_form_barcode: "00 1234",
+          stock_form_packaging: "box",
+          stock_form_units_per_packaging: 12,
+          stock_form_unit_of_measure: "pc",
+          stock_form_unit_of_measure_value: 1,
+        }),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.equal(error.message, "stock_form_barcode must contain 8 to 18 digits");
+          return true;
+        },
+      );
+    },
+  );
+
+  assert.equal(insertStockFormCalled, false);
+});
+
+test("createInventoryBatch can restock an existing historical short-barcode form unchanged", async () => {
+  const existingStockForm = {
+    id: "stock-form-legacy",
+    inventory_item_id: "item-1",
+    barcode: "001234",
+    packaging: "piece",
+    units_per_packaging: 1,
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    is_active: true,
+  };
+
+  await withStubbedInventoryBatchService(
+    {
+      ...baseStubs(),
+      [stockFormRepositoryPath]: {
+        ...baseStubs()[stockFormRepositoryPath],
+        getInventoryItemStockFormById: async () => existingStockForm,
+      },
+    },
+    async ({ createInventoryBatch }) => {
+      const batch = await createInventoryBatch({
+        inventory_item_id: "item-1",
+        inventory_item_stock_form_id: existingStockForm.id,
+        batch_no: "LEGACY-BARCODE-001",
+        source_type: "LGU",
+        quantity_received: 1,
+        stock_form_barcode: "00 1234",
+        stock_form_packaging: "piece",
+        stock_form_units_per_packaging: 1,
+        stock_form_unit_of_measure: "pc",
+        stock_form_unit_of_measure_value: 1,
+      });
+
+      assert.equal(batch.id, "batch-created");
+    },
+  );
+});
+
 test("createInventoryBatch automatically assigns a scanned barcode to selected matching packaging", async () => {
   const transactionEvents = [];
   const existingStockForm = {

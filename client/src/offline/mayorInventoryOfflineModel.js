@@ -1,8 +1,10 @@
 import { LOCAL_SYNC_STATUS } from "./syncStatusConstants.js";
 import { normalizeInventoryBarcode } from "../features/inventory-items/inventoryBarcode.js";
+import { findInventoryItemBarcodeMatch } from "../features/inventory-items/inventoryBarcodeLookup.js";
 import {
   buildQueuedInventoryItem,
   buildQueuedInventoryStockForm,
+  getInventoryBatchProjectionItemId,
 } from "../features/inventory-items/inventoryItemSync.js";
 
 export const MAYOR_INVENTORY_CACHE_VERSION = 2;
@@ -111,7 +113,7 @@ export const buildMayorInventoryItemDetailFromLocalGraph = ({
 export const buildQueuedInventoryBatch = (entry = {}, inventoryItems = []) => {
   const payload = entry.payload || {};
   const availableItems = Array.isArray(inventoryItems) ? inventoryItems : [];
-  const inventoryItemId = normalizeId(payload.inventory_item_id);
+  const inventoryItemId = getInventoryBatchProjectionItemId(entry);
   const inventoryItem =
     availableItems.find((item) => normalizeId(item?.id) === inventoryItemId) ||
     null;
@@ -132,7 +134,9 @@ export const buildQueuedInventoryBatch = (entry = {}, inventoryItems = []) => {
       payload.inventory_item_stock_form_id || stockForm?.id || null,
     inventory_item: inventoryItem,
     inventory_item_stock_form: stockForm,
-    stock_form_barcode: payload.stock_form_barcode || stockForm?.barcode || null,
+    stock_form_barcode:
+      normalizeInventoryBarcode(payload.stock_form_barcode || stockForm?.barcode) ||
+      null,
     stock_form_packaging:
       payload.stock_form_packaging || stockForm?.packaging || null,
     stock_form_units_per_packaging:
@@ -191,7 +195,8 @@ export const buildQueuedInventoryItemOpeningBatch = (
     inventory_item_stock_form_id: stockForm?.id || null,
     inventory_item: inventoryItem,
     inventory_item_stock_form: stockForm,
-    stock_form_barcode: stockForm?.barcode || payload.barcode || null,
+    stock_form_barcode:
+      normalizeInventoryBarcode(stockForm?.barcode || payload.barcode) || null,
     stock_form_packaging: stockForm?.packaging || packaging,
     stock_form_units_per_packaging:
       stockForm?.units_per_packaging || unitsPerPackaging || null,
@@ -228,7 +233,7 @@ export const mergeInventoryBatchesWithSyncStatus = ({
             (value) => normalizeId(value) && normalizeId(value) === normalizeId(batch.id),
           ) ||
             getInventoryBatchIdentity({
-              inventory_item_id: entry.payload?.inventory_item_id,
+              inventory_item_id: getInventoryBatchProjectionItemId(entry),
               batch_no: entry.payload?.batch_no || entry.entityLocalId,
             }) === getInventoryBatchIdentity(batch)),
       );
@@ -315,37 +320,7 @@ export const buildNextInventoryBatchNumber = (item, relatedBatches = []) => {
 };
 
 export const findMayorInventoryItemByBarcode = (inventoryItems = [], barcode) => {
-  const normalizedBarcode = normalizeInventoryBarcode(barcode);
+  const match = findInventoryItemBarcodeMatch(inventoryItems, barcode);
 
-  if (!normalizedBarcode) {
-    return null;
-  }
-
-  for (const item of Array.isArray(inventoryItems) ? inventoryItems : []) {
-    if (item?.is_active === false) {
-      continue;
-    }
-
-    const stockForm = (Array.isArray(item?.stock_forms) ? item.stock_forms : []).find(
-      (candidate) =>
-        candidate?.is_active !== false &&
-        normalizeInventoryBarcode(candidate?.barcode) === normalizedBarcode,
-    );
-
-    if (stockForm) {
-      return { item, stockForm };
-    }
-
-    if (normalizeInventoryBarcode(item?.barcode) === normalizedBarcode) {
-      return {
-        item,
-        stockForm:
-          (Array.isArray(item?.stock_forms) ? item.stock_forms : []).find(
-            (candidate) => candidate?.is_active !== false,
-          ) || null,
-      };
-    }
-  }
-
-  return null;
+  return match?.ambiguous || match?.inactive ? null : match;
 };

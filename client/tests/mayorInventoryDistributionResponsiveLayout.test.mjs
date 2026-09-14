@@ -16,11 +16,29 @@ test("Mayor inventory distribution page exposes scoped responsive hooks", async 
 
   assert.match(pageSource, /className="inventory-distribution-page"/);
   assert.match(pageSource, /className="inventory-distribution-tabs"/);
+  assert.match(pageSource, /const scopeCardStyles = \{/);
+  assert.match(pageSource, /padding: 0,[\s\S]*?boxSizing: "border-box"/);
+  assert.match(pageSource, /className="inventory-distribution-filter-content"/);
+  assert.doesNotMatch(pageSource, /hasActiveDistributionFilters/);
+  assert.doesNotMatch(pageSource, /className="inventory-distribution-filter-actions"/);
+  assert.doesNotMatch(pageSource, /className="inventory-distribution-clear-filters"/);
+  assert.match(pageSource, /aria-label="Inventory distribution event scope"/);
+  assert.match(pageSource, /role="tab"/);
+  assert.match(pageSource, /Disaster Event/);
+  assert.doesNotMatch(
+    pageSource,
+    /\{activeTab === "active" \? "Active" : "Ended"\} Disaster Event/,
+  );
   assert.match(pageSource, /className="inventory-distribution-filter-grid"/);
   assert.match(pageSource, /className="inventory-distribution-summary-grid"/);
   assert.match(pageSource, /className="inventory-distribution-toolbar"/);
   assert.match(pageSource, /className="inventory-distribution-search-wrap"/);
   assert.match(pageSource, /className="inventory-distribution-toolbar-controls"/);
+  assert.match(pageSource, /Period: \{formatReliefPeriod\(selectedDisasterEvent\)\}/);
+  assert.doesNotMatch(
+    pageSource,
+    /<StatusPill status=\{selectedDisasterEvent\.status\} \/>/,
+  );
   assert.doesNotMatch(pageSource, /overflowX:\s*"hidden"/);
   assert.match(
     cssSource,
@@ -32,8 +50,21 @@ test("Mayor inventory distribution page exposes scoped responsive hooks", async 
   );
   assert.match(
     cssSource,
-    /@media \(max-width: 480px\)[\s\S]*?\.inventory-distribution-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+    /@media \(max-width: 480px\)[\s\S]*?\.inventory-distribution-summary-grid \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
   );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.inventory-distribution-summary-grid[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
+  );
+  assert.match(
+    cssSource,
+    /\.inventory-distribution-tabs > button:hover:not\(:disabled\)[\s\S]*?\.inventory-distribution-tabs > button:focus-visible/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.inventory-distribution-tabs button \{[\s\S]*?flex: 0 0 auto;[\s\S]*?min-height: 48px;/,
+  );
+  assert.doesNotMatch(cssSource, /\.inventory-distribution-filter-actions/);
 });
 
 test("Mayor inventory distribution table keeps overflow local and preserves columns", async () => {
@@ -53,6 +84,7 @@ test("Mayor inventory distribution table keeps overflow local and preserves colu
     tableSource,
     /Family Head[\s\S]*?Sectors[\s\S]*?Relief Pack[\s\S]*?Status[\s\S]*?Authorized By[\s\S]*?Action/,
   );
+  assert.match(tableSource, /<div style=\{\{ fontWeight: 700 \}\}>\{row\.family_head_name\}<\/div>/);
   assert.match(tableSource, /reliefPackColumn: \{\s*width: "260px"/);
   assert.match(tableSource, /reliefPackColumnWide: \{\s*width: "260px"/);
   assert.match(tableSource, /statusColumn: \{\s*width: "170px"/);

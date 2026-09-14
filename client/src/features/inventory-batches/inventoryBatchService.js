@@ -4,6 +4,7 @@ import {
 } from "../../offline/syncService";
 import { getMayorInventoryCacheSnapshot } from "../../offline/mayorInventoryCache.js";
 import { coalesceInventoryRead } from "../inventory/shared/inventoryReadCoordinator.js";
+import { normalizeInventoryBarcode } from "../inventory-items/inventoryBarcode.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -179,6 +180,17 @@ export const exportInventoryBatches = async (format = "csv", filters = {}) => {
 };
 
 export const createInventoryBatch = async (payload) => {
+  if (
+    payload &&
+    Object.prototype.hasOwnProperty.call(payload, "stock_form_barcode")
+  ) {
+    payload = {
+      ...payload,
+      stock_form_barcode:
+        normalizeInventoryBarcode(payload.stock_form_barcode) || null,
+    };
+  }
+
   return performSyncableMutation({
     moduleName: "mayor-inventory",
     actionKey: "INVENTORY_BATCH_CREATE",

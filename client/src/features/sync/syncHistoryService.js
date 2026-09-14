@@ -1,3 +1,5 @@
+import { normalizeInventoryBarcode } from "../inventory-items/inventoryBarcode.js";
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
@@ -52,6 +54,10 @@ export const resolveSyncConflict = async (
   conflictId,
   { action, reason, replacementBarcode = null, resolutionPayload = null },
 ) => {
+  const normalizedReplacementBarcode =
+    replacementBarcode === undefined || replacementBarcode === null
+      ? null
+      : normalizeInventoryBarcode(replacementBarcode) || null;
   const response = await fetch(
     `${API_BASE_URL}/api/v1/sync/conflicts/${conflictId}/resolve`,
     {
@@ -62,7 +68,7 @@ export const resolveSyncConflict = async (
       body: JSON.stringify({
         action,
         reason,
-        replacement_barcode: replacementBarcode || null,
+        replacement_barcode: normalizedReplacementBarcode,
         resolution_payload: resolutionPayload || null,
       }),
     },

@@ -51,6 +51,9 @@ test("Mayor offline blocked routes replace page data and technical errors with t
   assert.match(syncPage, /isSyncTabUnavailableOffline/);
   assert.match(syncPage, /disabled=\{isSyncTabUnavailableOffline\(isOnline, tab\.value\)\}/);
   assert.match(syncPage, /setActiveSyncTab\("QUEUE"\)/);
-  assert.match(syncPage, /setSyncHistory\(\{ transactions: \[\], conflicts: \[\] \}\)/);
+  assert.match(
+    syncPage,
+    /setSyncHistory\(\{ transactions: \[\], conflicts: \[\], pagination: null \}\)/,
+  );
   assert.match(syncPage, /fetchSyncHistory/);
 });

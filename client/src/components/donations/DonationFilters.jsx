@@ -131,9 +131,9 @@ const toolbarStyles = {
   filterList: {
     display: "grid",
     gap: "10px",
+    maxHeight: "240px",
     overflowY: "auto",
-    flex: "1 1 auto",
-    minHeight: 0,
+    overscrollBehavior: "contain",
     paddingRight: "4px",
   },
   filterOption: {
@@ -198,7 +198,9 @@ const DonationFilters = ({
   const selectedTransparencySortOrder =
     transparencyToolbarFilters?.sortOrder || "newest";
   const donationActiveFilterCount =
-    selectedDonorTypes.length + (selectedSortOrder !== "newest" ? 1 : 0);
+    (donationTypeFilter ? 1 : 0) +
+    selectedDonorTypes.length +
+    (selectedSortOrder !== "newest" ? 1 : 0);
   const transparencyActiveFilterCount =
     selectedTransparencyMovements.length +
     (selectedTransparencySortOrder !== "newest" ? 1 : 0);
@@ -232,6 +234,7 @@ const DonationFilters = ({
 
     onDonationToolbarFilterChange?.("sortOrder", "newest");
     onDonationToolbarFilterChange?.("donorTypes", []);
+    onDonationTypeFilterChange?.("");
   };
 
   return (
@@ -283,6 +286,7 @@ const DonationFilters = ({
         >
           <div
             className="mayor-donation-management-toolbar"
+            data-toolbar-tab="donations"
             style={toolbarStyles.row}
           >
             <div
@@ -305,7 +309,7 @@ const DonationFilters = ({
                 className="mayor-donation-management-type-filter"
                 style={toolbarStyles.inlineSelectWrap}
               >
-                <span style={toolbarStyles.inlineSelectLabel}>Type</span>
+                <span style={toolbarStyles.inlineSelectLabel}>Form</span>
                 <select
                   id="donation-type-filter"
                   value={donationTypeFilter}
@@ -399,6 +403,7 @@ const DonationFilters = ({
                 {canManageDonations ? (
                   <button
                     type="button"
+                    className="mayor-donation-management-add-button"
                     onClick={onOpenDonationModal}
                     style={pageHeaderStyles.primaryButton}
                   >
@@ -435,6 +440,7 @@ const DonationFilters = ({
                 {canManageDonations ? (
                   <button
                     type="button"
+                    className="mayor-donation-management-export-button"
                     onClick={onExportDonations}
                     style={pageHeaderStyles.secondaryButton}
                   >
@@ -456,7 +462,11 @@ const DonationFilters = ({
             gap: "16px",
           }}
         >
-          <div className="mayor-donation-management-toolbar" style={toolbarStyles.row}>
+          <div
+            className="mayor-donation-management-toolbar"
+            data-toolbar-tab="transparency"
+            style={toolbarStyles.row}
+          >
             <div
               className="mayor-donation-management-search-wrap"
               style={toolbarStyles.searchWrap}
@@ -557,6 +567,7 @@ const DonationFilters = ({
                 {canManageDonations ? (
                   <button
                     type="button"
+                    className="mayor-donation-management-export-button"
                     onClick={onOpenTransparencyExport}
                     style={pageHeaderStyles.secondaryButton}
                     disabled={Boolean(isExportingTransparency)}

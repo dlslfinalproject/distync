@@ -10,7 +10,6 @@ import InventoryDistributionDetailModal from "../../components/inventory-distrib
 import MswdoExportModal from "../../components/mswdo-masterlist/MswdoExportModal";
 import SearchBar from "../../components/shared/SearchBar";
 import StatusCard from "../../components/shared/StatusCard";
-import StatusPill from "../../components/shared/StatusPill";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import ResponsiveFilterPopover from "../../components/shared/ResponsiveFilterPopover";
 import { useInventoryDistribution } from "../../features/inventory-distribution/useInventoryDistribution";
@@ -114,9 +113,9 @@ const filterPanelStyles = {
   list: {
     display: "grid",
     gap: "10px",
+    maxHeight: "240px",
     overflowY: "auto",
-    flex: "1 1 auto",
-    minHeight: 0,
+    overscrollBehavior: "contain",
     paddingRight: "4px",
   },
   option: {
@@ -179,16 +178,51 @@ const layoutStyles = {
   },
 };
 
+const scopeCardStyles = {
+  ...shellStyles.card,
+  padding: 0,
+  boxSizing: "border-box",
+};
+
+const scopeTabListStyles = {
+  alignItems: "stretch",
+  borderBottom: "1px solid #d6e2ef",
+  backgroundColor: "#fbfdff",
+  borderTopLeftRadius: "17px",
+  borderTopRightRadius: "17px",
+  display: "flex",
+  flexWrap: "nowrap",
+  gap: "4px",
+  overflowX: "auto",
+  padding: "8px clamp(14px, 2vw, 24px) 0",
+  minHeight: "56px",
+  WebkitOverflowScrolling: "touch",
+};
+
+const scopeFilterContentStyles = {
+  boxSizing: "border-box",
+  padding: "clamp(18px, 2vw, 24px)",
+};
+
 const scopeTabButtonStyles = (isActive) => ({
-  padding: "12px 24px",
+  alignItems: "center",
+  boxSizing: "border-box",
   border: "none",
-  background: "none",
-  fontSize: "14px",
-  fontWeight: 700,
-  textTransform: "uppercase",
-  color: isActive ? "#17324d" : "#6b8298",
   borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
+  background: "none",
+  color: isActive ? "#17324d" : "#6b8298",
   cursor: "pointer",
+  display: "inline-flex",
+  fontSize: "14px",
+  fontFamily: "inherit",
+  fontWeight: 700,
+  justifyContent: "center",
+  letterSpacing: "0.01em",
+  lineHeight: 1.3,
+  minHeight: "48px",
+  padding: "11px 16px",
+  transition: "color 160ms ease, border-color 160ms ease",
+  whiteSpace: "nowrap",
 });
 
 const distributionStatusOptions = [
@@ -316,8 +350,19 @@ const InventoryDistributionPage = () => {
   }, [selectedBarangayId, selectedDisasterEventId]);
 
   const activeFilterCount = useMemo(() => {
-    return selectedSectorIds.length + (selectedSortOrder !== "oldest" ? 1 : 0);
-  }, [selectedSectorIds.length, selectedSortOrder]);
+    return (
+      (selectedStatus ? 1 : 0) +
+      selectedSectorIds.length +
+      (selectedSortOrder !== "oldest" ? 1 : 0)
+    );
+  }, [selectedSectorIds.length, selectedSortOrder, selectedStatus]);
+
+  const handleClearPopoverFilters = () => {
+    setSelectedStatus("");
+    setSelectedSectorIds([]);
+    setSelectedSortOrder("oldest");
+    setIsFilterOpen(false);
+  };
 
   const summaryCards = useMemo(() => {
     const issuedLabel =
@@ -643,19 +688,17 @@ const InventoryDistributionPage = () => {
       <PageHeader title="INVENTORY DISTRIBUTION MANAGEMENT" />
 
       <div style={layoutStyles.stack}>
-        <section className="inventory-distribution-scope-card" style={shellStyles.card}>
+        <section className="inventory-distribution-scope-card" style={scopeCardStyles}>
           <div
             className="inventory-distribution-tabs"
-            style={{
-              display: "flex",
-              borderBottom: "1px solid #d6e2ef",
-              marginBottom: "24px",
-              gap: "8px",
-              flexWrap: "wrap",
-            }}
+            role="tablist"
+            aria-label="Inventory distribution event scope"
+            style={scopeTabListStyles}
           >
             <button
               type="button"
+              role="tab"
+              aria-selected={activeTab === "active"}
               onClick={() => handleEventScopeChange("active")}
               style={scopeTabButtonStyles(activeTab === "active")}
             >
@@ -663,6 +706,8 @@ const InventoryDistributionPage = () => {
             </button>
             <button
               type="button"
+              role="tab"
+              aria-selected={activeTab === "ended"}
               onClick={() => handleEventScopeChange("ended")}
               style={scopeTabButtonStyles(activeTab === "ended")}
             >
@@ -671,76 +716,82 @@ const InventoryDistributionPage = () => {
           </div>
 
           <div
-            className="inventory-distribution-filter-grid"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "16px",
-              alignItems: "end",
-            }}
+            className="inventory-distribution-filter-content"
+            style={scopeFilterContentStyles}
           >
-            <div className="inventory-distribution-filter-field">
-              <label
-                htmlFor="inventory-distribution-event"
-                style={filterStyles.label}
-              >
-                {activeTab === "active" ? "Active" : "Ended"} Disaster Event
-              </label>
-              <div style={filterStyles.selectWrap}>
-                <select
-                  id="inventory-distribution-event"
-                  value={selectedDisasterEventId}
-                  onChange={(event) =>
-                    setSelectedDisasterEventId(event.target.value)
-                  }
-                  disabled={isLoadingFilters}
-                  style={filterStyles.field}
+            <div
+              className="inventory-distribution-filter-grid"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "16px",
+                alignItems: "end",
+              }}
+            >
+              <div className="inventory-distribution-filter-field">
+                <label
+                  htmlFor="inventory-distribution-event"
+                  style={filterStyles.label}
                 >
-                  <option value="">
-                    {selectedBarangayId && scopedDisasterEvents.length === 0
-                      ? `No ${activeTab === "active" ? "active" : "ended"} events for this barangay`
-                      : `Select ${activeTab === "active" ? "active" : "ended"} disaster event`}
-                  </option>
-                  {scopedDisasterEvents.map((event) => (
-                    <option key={event.id} value={event.id}>
-                      {event.title}
+                  Disaster Event
+                </label>
+                <div style={filterStyles.selectWrap}>
+                  <select
+                    id="inventory-distribution-event"
+                    value={selectedDisasterEventId}
+                    onChange={(event) =>
+                      setSelectedDisasterEventId(event.target.value)
+                    }
+                    disabled={isLoadingFilters}
+                    style={filterStyles.field}
+                  >
+                    <option value="">
+                      {selectedBarangayId && scopedDisasterEvents.length === 0
+                        ? `No ${activeTab === "active" ? "active" : "ended"} events for this barangay`
+                        : `Select ${activeTab === "active" ? "active" : "ended"} disaster event`}
                     </option>
-                  ))}
-                </select>
-                <span style={filterStyles.selectIcon}>
-                  <FiChevronDown size={16} />
-                </span>
+                    {scopedDisasterEvents.map((event) => (
+                      <option key={event.id} value={event.id}>
+                        {event.title}
+                      </option>
+                    ))}
+                  </select>
+                  <span style={filterStyles.selectIcon}>
+                    <FiChevronDown size={16} />
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div className="inventory-distribution-filter-field">
-              <label
-                htmlFor="inventory-distribution-barangay"
-                style={filterStyles.label}
-              >
-                Barangay
-              </label>
-              <div style={filterStyles.selectWrap}>
-                <select
-                  id="inventory-distribution-barangay"
-                  value={selectedBarangayId}
-                  onChange={(event) => setSelectedBarangayId(event.target.value)}
-                  disabled={isLoadingFilters}
-                  style={filterStyles.field}
+              <div className="inventory-distribution-filter-field">
+                <label
+                  htmlFor="inventory-distribution-barangay"
+                  style={filterStyles.label}
                 >
-                  <option value="">All Barangays</option>
-                  {selectableBarangays.map((barangay) => (
-                    <option key={barangay.id} value={barangay.id}>
-                      {barangay.name}
-                    </option>
-                  ))}
-                </select>
-                <span style={filterStyles.selectIcon}>
-                  <FiChevronDown size={16} />
-                </span>
+                  Barangay
+                </label>
+                <div style={filterStyles.selectWrap}>
+                  <select
+                    id="inventory-distribution-barangay"
+                    value={selectedBarangayId}
+                    onChange={(event) => setSelectedBarangayId(event.target.value)}
+                    disabled={isLoadingFilters}
+                    style={filterStyles.field}
+                  >
+                    <option value="">All Barangays</option>
+                    {selectableBarangays.map((barangay) => (
+                      <option key={barangay.id} value={barangay.id}>
+                        {barangay.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span style={filterStyles.selectIcon}>
+                    <FiChevronDown size={16} />
+                  </span>
+                </div>
               </div>
             </div>
           </div>
+
         </section>
 
         {selectedDisasterEvent ? (
@@ -752,7 +803,6 @@ const InventoryDistributionPage = () => {
 
               <div className="inventory-distribution-event-meta" style={layoutStyles.eventInfoRow}>
                 <span>Period: {formatReliefPeriod(selectedDisasterEvent)}</span>
-                <StatusPill status={selectedDisasterEvent.status} />
               </div>
             </div>
           </section>
@@ -904,10 +954,7 @@ const InventoryDistributionPage = () => {
                   <div style={filterPanelStyles.actions}>
                     <button
                       type="button"
-                      onClick={() => {
-                        setSelectedSectorIds([]);
-                        setSelectedSortOrder("oldest");
-                      }}
+                      onClick={handleClearPopoverFilters}
                       style={filterPanelStyles.clearAction}
                     >
                       Clear

@@ -49,6 +49,13 @@ const loadServiceWithMocks = (repositoryOverrides = {}, dbOverrides = {}) => {
     findPotentialDuplicatePersonMatches: async () => [],
     findActiveCrossEventFamilyHeadMatches: async () => [],
     getActiveHouseholdSuccessorById: async () => null,
+    getHouseholdLifecycleDependencies: async () => ({
+      has_open_attendance: false,
+      has_reserved_assignments: false,
+    }),
+    getEvacuationLogByIdForHousehold: async () => null,
+    getEvacuationCenterById: async () => null,
+    updateEvacuationLogCorrection: async () => null,
     ...repositoryOverrides,
   };
   if (!mockRepository.getHouseholdSummaryByIdForUpdate) {
@@ -1490,10 +1497,6 @@ test("BRG-SC-06-H01 TEST B rejects foreign already-departed Barangay household b
       events.push("LATEST_ATTENDANCE");
       throw new Error("Foreign already-departed household must not expose duplicate state");
     },
-    updateHouseholdDepartureTimestamp: async () => {
-      events.push("REWRITE_DEPARTURE_TIME");
-      throw new Error("Foreign duplicate must not rewrite departure timestamp");
-    },
   });
 
   try {
@@ -1538,7 +1541,7 @@ test("BRG-SC-06-H01 TEST B rejects foreign already-departed Barangay household b
     incomingTime: "2026-08-09T03:30:00.000Z",
   },
 ].forEach(({ label, incomingTime }) => {
-  test(`BRG-SC-06-H02 ${label} duplicate departure preserves earliest original occurrence`, async () => {
+  test(`BRG-SC-06-H02 ${label} duplicate departure preserves first accepted terminal history`, async () => {
     const events = [];
     const acceptedAttendance = {
       id: "accepted-log-1",
@@ -1578,10 +1581,6 @@ test("BRG-SC-06-H01 TEST B rejects foreign already-departed Barangay household b
         events.push("MARK_DEPARTURE");
         throw new Error("Duplicate departure must not mark departure again");
       },
-      updateHouseholdDepartureTimestamp: async (_householdId, departureTime) => {
-        events.push("REWRITE_DEPARTURE_TIME");
-        return [{ ...acceptedAttendance, time_out: departureTime }];
-      },
       archiveHousehold: async () => {
         events.push("ARCHIVE");
         throw new Error("Duplicate departure must not archive again");
@@ -1610,16 +1609,9 @@ test("BRG-SC-06-H01 TEST B rejects foreign already-departed Barangay household b
           assert.equal(error.statusCode, 409);
           assert.equal(error.code, "DUPLICATE_HOUSEHOLD_DEPARTURE");
           assert.equal(error.entityServerId, "household-local-archived");
-          assert.equal(
-            error.incomingDepartureWasEarlier,
-            label === "earlier",
-          );
-          assert.deepEqual(
-            error.serverPayload,
-            label === "earlier"
-              ? { ...acceptedAttendance, time_out: incomingTime }
-              : acceptedAttendance,
-          );
+          assert.equal(error.incomingDepartureWasEarlier, false);
+          assert.equal(error.incomingDepartureTime, null);
+          assert.deepEqual(error.serverPayload, acceptedAttendance);
           return true;
         },
       );
@@ -1628,12 +1620,535 @@ test("BRG-SC-06-H01 TEST B rejects foreign already-departed Barangay household b
         "SUMMARY",
         "LOCK:true",
         "LATEST:household-local-archived:true",
-        ...(label === "earlier" ? ["REWRITE_DEPARTURE_TIME"] : []),
       ]);
     } finally {
       harness.restore();
     }
   });
+});
+
+test("HH-ATT-001 direct archive rejects an open arrival before any mutation", async () => {
+  const events = [];
+  const household = {
+    id: "household-archive-open",
+    disaster_event_id: "event-1",
+    barangay_id: "barangay-a",
+    is_active: true,
+  };
+  const fakeClient = {
+    query: async (query) => {
+      events.push(String(query).trim());
+      return { rows: [] };
+    },
+    release: () => events.push("RELEASE"),
+  };
+  const harness = loadServiceWithMocks(
+    {
+      getHouseholdSummaryByIdForUpdate: async () => {
+        events.push("LOCK");
+        return household;
+      },
+      getActiveEvacuationLogsByHouseholdId: async () => {
+        events.push("ACTIVE_LOGS");
+        return [{ id: "open-log", status: "PRESENT", time_out: null }];
+      },
+      archiveHousehold: async () => {
+        throw new Error("Open arrivals must block direct archive mutation");
+      },
+      deactivateEvacueesByHouseholdId: async () => {
+        throw new Error("Open arrivals must block member mutation");
+      },
+    },
+    { connect: async () => fakeClient },
+  );
+
+  try {
+    await assert.rejects(
+      harness.service.archiveHousehold({
+        householdId: household.id,
+        requester: {
+          userId: "barangay-user-a",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-a",
+        },
+        archiveData: { archive_remarks: "Legacy archive request" },
+      }),
+      (error) => {
+        assert.equal(error.statusCode, 400);
+        assert.equal(error.code, "HOUSEHOLD_DEPARTURE_REQUIRED");
+        return true;
+      },
+    );
+
+    assert.deepEqual(events, [
+      "BEGIN",
+      "LOCK",
+      "ACTIVE_LOGS",
+      "ROLLBACK",
+      "RELEASE",
+    ]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("HH-ATT-001 direct archive blocks a foreign Barangay before lifecycle reads", async () => {
+  const events = [];
+  const fakeClient = {
+    query: async (query) => {
+      events.push(String(query).trim());
+      return { rows: [] };
+    },
+    release: () => events.push("RELEASE"),
+  };
+  const harness = loadServiceWithMocks(
+    {
+      getHouseholdSummaryByIdForUpdate: async () => {
+        events.push("LOCK");
+        return {
+          id: "household-archive-foreign",
+          barangay_id: "barangay-foreign",
+          is_active: true,
+        };
+      },
+      getActiveEvacuationLogsByHouseholdId: async () => {
+        throw new Error("Foreign archive must not inspect lifecycle state");
+      },
+      getHouseholdLifecycleDependencies: async () => {
+        throw new Error("Foreign archive must not inspect dependencies");
+      },
+      archiveHousehold: async () => {
+        throw new Error("Foreign archive must not mutate the household");
+      },
+      deactivateEvacueesByHouseholdId: async () => {
+        throw new Error("Foreign archive must not mutate members");
+      },
+    },
+    { connect: async () => fakeClient },
+  );
+
+  try {
+    await assert.rejects(
+      harness.service.archiveHousehold({
+        householdId: "household-archive-foreign",
+        requester: {
+          userId: "barangay-user-a",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-a",
+        },
+        archiveData: {},
+      }),
+      (error) => {
+        assert.equal(error.statusCode, 403);
+        return true;
+      },
+    );
+
+    assert.deepEqual(events, ["BEGIN", "LOCK", "ROLLBACK", "RELEASE"]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("HH-ATT-001 direct archive rejects reserved assignments without releasing them", async () => {
+  const events = [];
+  const household = {
+    id: "household-archive-reserved",
+    disaster_event_id: "event-1",
+    barangay_id: "barangay-a",
+    is_active: true,
+  };
+  const fakeClient = {
+    query: async (query) => {
+      events.push(String(query).trim());
+      return { rows: [] };
+    },
+    release: () => events.push("RELEASE"),
+  };
+  const harness = loadServiceWithMocks(
+    {
+      getHouseholdSummaryByIdForUpdate: async () => household,
+      getActiveEvacuationLogsByHouseholdId: async () => [],
+      getHouseholdLifecycleDependencies: async () => {
+        events.push("DEPENDENCIES");
+        return {
+          has_open_attendance: false,
+          has_reserved_assignments: true,
+        };
+      },
+      archiveHousehold: async () => {
+        throw new Error("Reserved assignments must block direct archive mutation");
+      },
+      deactivateEvacueesByHouseholdId: async () => {
+        throw new Error("Reserved assignments must block member mutation");
+      },
+    },
+    { connect: async () => fakeClient },
+  );
+
+  try {
+    await assert.rejects(
+      harness.service.archiveHousehold({
+        householdId: household.id,
+        requester: {
+          userId: "barangay-user-a",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-a",
+        },
+        archiveData: {},
+      }),
+      (error) => {
+        assert.equal(error.code, "HOUSEHOLD_DEPARTURE_REQUIRED");
+        return true;
+      },
+    );
+
+    assert.deepEqual(events, [
+      "BEGIN",
+      "DEPENDENCIES",
+      "ROLLBACK",
+      "RELEASE",
+    ]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("HH-ATT-001 direct archive permits a no-open non-reserved occurrence atomically", async () => {
+  const events = [];
+  const household = {
+    id: "household-archive-safe",
+    disaster_event_id: "event-1",
+    barangay_id: "barangay-a",
+    family_head_first_name: "Safe",
+    family_head_last_name: "Archive",
+    is_active: true,
+  };
+  const archivedHousehold = { ...household, is_active: false };
+  const fakeClient = {
+    query: async (query) => {
+      events.push(String(query).trim());
+      return { rows: [] };
+    },
+    release: () => events.push("RELEASE"),
+  };
+  const harness = loadServiceWithMocks(
+    {
+      getHouseholdSummaryByIdForUpdate: async () => household,
+      getHouseholdSummaryById: async () => {
+        events.push("RESPONSE_SUMMARY");
+        return archivedHousehold;
+      },
+      getActiveEvacuationLogsByHouseholdId: async () => [],
+      getHouseholdLifecycleDependencies: async () => ({
+        has_open_attendance: false,
+        has_reserved_assignments: false,
+      }),
+      archiveHousehold: async () => {
+        events.push("ARCHIVE");
+        return archivedHousehold;
+      },
+      deactivateEvacueesByHouseholdId: async () => {
+        events.push("DEACTIVATE");
+        return [{ id: "member-1" }];
+      },
+      getEvacueesByHouseholdId: async () => {
+        events.push("MEMBERS");
+        return [];
+      },
+      getEvacueeSectorAssignmentsByHouseholdId: async () => [],
+      getHouseholdSectorAssignmentsByHouseholdId: async () => [],
+      getStubByHouseholdId: async () => null,
+      getLatestAttendanceByHouseholdId: async () => null,
+      getLatestDistributionTransactionByStubId: async () => null,
+      getLatestHouseholdPrivacyConsentByHouseholdId: async () => null,
+    },
+    { connect: async () => fakeClient },
+  );
+
+  try {
+    const result = await harness.service.archiveHousehold({
+      householdId: household.id,
+      requester: {
+        userId: "barangay-user-a",
+        roleCode: "BARANGAY",
+        defaultBarangayId: "barangay-a",
+      },
+      archiveData: {},
+    });
+
+    assert.equal(result.status, "ARCHIVED");
+    assert.equal(result.archived_members_count, 1);
+    assert.equal(result.household.is_active, false);
+    assert.deepEqual(events.slice(0, 6), [
+      "BEGIN",
+      "ARCHIVE",
+      "DEACTIVATE",
+      "RESPONSE_SUMMARY",
+      "MEMBERS",
+      "COMMIT",
+    ]);
+    assert.equal(events.at(-1), "RELEASE");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("HH-ATT-002 terminal attendance rejects ordinary correction without audit or mutation", async () => {
+  const events = [];
+  const fakeClient = {
+    query: async (query) => {
+      events.push(String(query).trim());
+      return { rows: [] };
+    },
+    release: () => events.push("RELEASE"),
+  };
+  const harness = loadServiceWithMocks(
+    {
+      getHouseholdSummaryByIdForUpdate: async () => {
+        events.push("LOCK_HOUSEHOLD");
+        return {
+          id: "household-history",
+          barangay_id: "barangay-a",
+          is_active: true,
+        };
+      },
+      getEvacuationLogByIdForHouseholdForUpdate: async () => {
+        events.push("LOCK_ATTENDANCE");
+        return {
+          id: "log-history",
+          household_id: "household-history",
+          status: "LEFT",
+          time_in: "2026-08-09T01:00:00.000Z",
+          time_out: "2026-08-09T03:00:00.000Z",
+        };
+      },
+      updateEvacuationLogCorrection: async () => {
+        throw new Error("Terminal attendance must not be updated");
+      },
+    },
+    { connect: async () => fakeClient },
+  );
+
+  try {
+    await assert.rejects(
+      harness.service.correctEvacuationLog({
+        householdId: "household-history",
+        evacuationLogId: "log-history",
+        requester: {
+          userId: "barangay-user-a",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-a",
+        },
+        correctionData: {
+          status: "PRESENT",
+          correction_remarks: "Attempted reopen",
+        },
+      }),
+      (error) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.code, "HISTORICAL_ATTENDANCE_IMMUTABLE");
+        return true;
+      },
+    );
+
+    assert.deepEqual(events, [
+      "BEGIN",
+      "LOCK_HOUSEHOLD",
+      "LOCK_ATTENDANCE",
+      "ROLLBACK",
+      "RELEASE",
+    ]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("HH-ATT-002 current attendance correction remains supported and keeps ordered time", async () => {
+  const events = [];
+  const fakeClient = {
+    query: async (query) => {
+      events.push(String(query).trim());
+      return { rows: [] };
+    },
+    release: () => events.push("RELEASE"),
+  };
+  const updatedLog = {
+    id: "log-current",
+    household_id: "household-current",
+    status: "LEFT",
+    time_in: "2026-08-09T03:00:00.000Z",
+    time_out: "2026-08-09T03:00:00.000Z",
+    evacuation_center_id: "center-1",
+    remarks: "Corrected departure",
+  };
+  const harness = loadServiceWithMocks(
+    {
+      getHouseholdSummaryByIdForUpdate: async () => {
+        events.push("LOCK_HOUSEHOLD");
+        return {
+          id: "household-current",
+          barangay_id: "barangay-a",
+          family_head_first_name: "Current",
+          family_head_last_name: "Household",
+          is_active: true,
+        };
+      },
+      getEvacuationLogByIdForHouseholdForUpdate: async () => {
+        events.push("LOCK_ATTENDANCE");
+        return {
+          ...updatedLog,
+          status: "PRESENT",
+          time_out: null,
+          remarks: null,
+        };
+      },
+      updateEvacuationLogCorrection: async (_id, _data, dbClient) => {
+        assert.equal(dbClient, fakeClient);
+        events.push("UPDATE_ATTENDANCE");
+        return updatedLog;
+      },
+    },
+    { connect: async () => fakeClient },
+  );
+
+  try {
+    const result = await harness.service.correctEvacuationLog({
+      householdId: "household-current",
+      evacuationLogId: "log-current",
+      requester: {
+        userId: "barangay-user-a",
+        roleCode: "BARANGAY",
+        defaultBarangayId: "barangay-a",
+      },
+      correctionData: {
+        status: "LEFT",
+        correction_remarks: "Corrected departure",
+      },
+    });
+
+    assert.equal(result.status, "LEFT");
+    assert.equal(result.time_out, "2026-08-09T03:00:00.000Z");
+    assert.deepEqual(events, [
+      "BEGIN",
+      "LOCK_HOUSEHOLD",
+      "LOCK_ATTENDANCE",
+      "UPDATE_ATTENDANCE",
+      "COMMIT",
+      "RELEASE",
+    ]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("HH-ATT-002 Barangay correction remains scoped to its own occurrence", async () => {
+  const events = [];
+  const fakeClient = {
+    query: async (query) => {
+      events.push(String(query).trim());
+      return { rows: [] };
+    },
+    release: () => events.push("RELEASE"),
+  };
+  const harness = loadServiceWithMocks(
+    {
+      getHouseholdSummaryByIdForUpdate: async () => {
+        events.push("LOCK_HOUSEHOLD");
+        return {
+          id: "household-foreign",
+          barangay_id: "barangay-foreign",
+          is_active: true,
+        };
+      },
+      getEvacuationLogByIdForHouseholdForUpdate: async () => {
+        throw new Error("Foreign correction must not inspect attendance");
+      },
+      updateEvacuationLogCorrection: async () => {
+        throw new Error("Foreign correction must not mutate attendance");
+      },
+    },
+    { connect: async () => fakeClient },
+  );
+
+  try {
+    await assert.rejects(
+      harness.service.correctEvacuationLog({
+        householdId: "household-foreign",
+        evacuationLogId: "log-foreign",
+        requester: {
+          userId: "barangay-user-a",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-a",
+        },
+        correctionData: { status: "PRESENT" },
+      }),
+      (error) => {
+        assert.equal(error.statusCode, 403);
+        return true;
+      },
+    );
+
+    assert.deepEqual(events, [
+      "BEGIN",
+      "LOCK_HOUSEHOLD",
+      "ROLLBACK",
+      "RELEASE",
+    ]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("HH-ATT-008 blocks cross-Barangay authority rewrite when dependent history exists", async () => {
+  const events = [];
+  const externalClient = { query: async () => ({ rows: [] }) };
+  const harness = loadServiceWithMocks({
+    getHouseholdSummaryByIdForUpdate: async (_householdId, dbClient) => {
+      assert.equal(dbClient, externalClient);
+      events.push("LOCK_HOUSEHOLD");
+      return {
+        id: "household-authority",
+        is_active: true,
+      };
+    },
+    getHouseholdLifecycleDependencies: async (_householdId, dbClient) => {
+      assert.equal(dbClient, externalClient);
+      events.push("DEPENDENCIES");
+      return {
+        has_evacuees: true,
+        has_attendance: true,
+        has_open_attendance: false,
+        has_consent: true,
+        has_household_sectors: false,
+        has_evacuee_sectors: false,
+        has_stubs: true,
+        has_assignments: true,
+        has_reserved_assignments: false,
+        has_distributions: true,
+      };
+    },
+    replaceHouseholdRegistrationAuthority: async () => {
+      throw new Error("Dependent authority rewrite must remain review-only");
+    },
+  });
+
+  try {
+    const result =
+      await harness.service.reconcileCrossBarangayDuplicateWithEarlierRegistration({
+        householdId: "household-authority",
+        registrationData: {
+          registered_at: "2026-08-08T01:00:00.000Z",
+          family_head: { first_name: "Incoming" },
+        },
+        dbClient: externalClient,
+      });
+
+    assert.equal(result, null);
+    assert.deepEqual(events, ["LOCK_HOUSEHOLD", "DEPENDENCIES"]);
+  } finally {
+    harness.restore();
+  }
 });
 
 test("BRG-SC-06-H01 TEST C keeps same-Barangay departure success unchanged", async () => {

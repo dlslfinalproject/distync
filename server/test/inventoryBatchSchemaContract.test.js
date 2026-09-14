@@ -91,8 +91,24 @@ test("canonical inventory batch schema preserves constraints and proven indexes"
     (schema.match(/\bidx_inventory_batches_inventory_item_id\b/g) || []).length,
     1,
   );
+  assert.match(
+    schema,
+    /CONSTRAINT uq_inventory_item_stock_forms_id_item UNIQUE \(id, inventory_item_id\)/i,
+  );
+  assert.match(
+    tableBlock,
+    /CONSTRAINT inventory_batches_stock_form_item_same_fkey FOREIGN KEY \(inventory_item_stock_form_id, inventory_item_id\) REFERENCES public\.inventory_item_stock_forms\(id, inventory_item_id\) MATCH SIMPLE ON UPDATE NO ACTION ON DELETE NO ACTION/i,
+  );
+  assert.match(
+    tableBlock,
+    /inventory_item_stock_form_id uuid,\s+batch_no character varying\(100\) NOT NULL/i,
+  );
   assert.doesNotMatch(schema, /\binventory_batches_status_check\b/i);
   assert.doesNotMatch(schema, /CREATE INDEX idx_inventory_batches_status/i);
+  assert.doesNotMatch(
+    schema,
+    /CREATE INDEX [^;]*inventory_batches[^;]*inventory_item_stock_form_id/i,
+  );
 });
 
 test("canonical inventory batch schema preserves stock-version and excludes unresolved live-only status index", () => {

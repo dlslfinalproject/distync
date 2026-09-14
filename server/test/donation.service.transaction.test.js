@@ -109,12 +109,14 @@ const withStubbedDonationService = async (overrides, runTest) => {
     insertedBatches: [],
     insertedTransactions: [],
     donatedPackAssignmentCalls: [],
+    auditLogs: [],
   };
   const client = buildClient(events);
   const donationRecord = {
     id: "donation-1",
     disaster_event_id: "event-1",
     donor_name: "Test Donor",
+    donor_name_public: false,
     donor_type: "INDIVIDUAL",
     donor_type_other: null,
     contact_information: null,
@@ -165,6 +167,56 @@ const withStubbedDonationService = async (overrides, runTest) => {
         insertDonation: async () => ({ id: "donation-1" }),
         getDonationByIdForUpdate: async () => donationRecord,
         getDonationById: async () => donationRecord,
+        updateDonation: async () => {},
+        renameDonorAcrossDonations: async () => [],
+        syncDonationInventoryTransactions: async () => {},
+        getDonationItemByIdForUpdate: async () => ({
+          id: "donation-item-1",
+          donation_id: "donation-1",
+          inventory_item_id: "inventory-item-1",
+          inventory_batch_id: "batch-1",
+          quantity_received: 5,
+          remarks: null,
+        }),
+        getDonationItemById: async () => ({
+          id: "donation-item-1",
+          donation_id: "donation-1",
+          inventory_item_id: "inventory-item-1",
+          inventory_batch_id: "batch-1",
+          quantity_received: 5,
+          remarks: null,
+          item_code: inventoryItem.item_code,
+          item_name: inventoryItem.item_name,
+          category: inventoryItem.category,
+          unit_of_measure: inventoryItem.unit_of_measure,
+          reorder_level: null,
+          item_total_stock: 5,
+          inventory_item_stock_form_id: "stock-form-1",
+          batch_no: "DON-INV-RICE-001-BATCH-001",
+          source_type: "DONATED",
+          quantity_available: 5,
+          expiration_date: null,
+          storage_location: null,
+          stock_form_barcode: null,
+          stock_form_packaging: "piece",
+          stock_form_units_per_packaging: 1,
+          stock_form_unit_of_measure: "pc",
+          stock_form_unit_of_measure_value: 1,
+        }),
+        getInventoryBatchByIdForUpdate: async () => ({
+          id: "batch-1",
+          inventory_item_id: "inventory-item-1",
+          batch_no: "DON-INV-RICE-001-BATCH-001",
+          source_type: "DONATED",
+          quantity_received: 5,
+          quantity_available: 5,
+          expiration_date: null,
+          storage_location: null,
+          status: "AVAILABLE",
+          created_by: "user-1",
+        }),
+        updateInventoryBatchStock: async () => {},
+        updateDonationItem: async () => {},
         getDonationItemsByDonationId: async () =>
           calls.insertedDonationItems.map((item) => ({
             id: item.id,
@@ -328,7 +380,9 @@ const withStubbedDonationService = async (overrides, runTest) => {
       filename: systemLogPath,
       loaded: true,
       exports: {
-        logAuditSafely: async () => {},
+        logAuditSafely: async (payload) => {
+          calls.auditLogs.push(payload);
+        },
         pickDefined: (value, keys) =>
           keys.reduce((result, key) => {
             if (value?.[key] !== undefined) {
@@ -421,6 +475,7 @@ test("donation creation reuses one staged inventory item for duplicate names", a
     );
 
     assert.equal(calls.createdInventoryItems.length, 1);
+    assert.equal(calls.createdInventoryItems[0].payload.is_active, undefined);
     assert.deepEqual(
       calls.insertedDonationItems.map((item) => item.inventory_item_id),
       ["inventory-item-1", "inventory-item-1"],
@@ -440,6 +495,134 @@ test("donation creation reuses one staged inventory item for duplicate names", a
     assert.ok(events.includes("COMMIT"));
     assert.equal(events.includes("ROLLBACK"), false);
   });
+});
+
+test("donation creation ignores a legacy false parent item activity value", async () => {
+  await withStubbedDonationService({}, async (service, { calls }) => {
+    const payload = buildDonationPayload([buildDonationItemPayload(5)]);
+    payload.items[0].new_inventory_item.is_active = false;
+
+    await service.createDonation(payload, {
+      userId: "user-1",
+      roleCode: "MAYOR",
+    });
+
+    assert.equal(calls.createdInventoryItems.length, 1);
+    assert.equal(calls.createdInventoryItems[0].payload.is_active, undefined);
+  });
+});
+
+test("donation existing-item receipt reuses a historical short-barcode stock form", async () => {
+  await withStubbedDonationService({}, async (service, { calls }) => {
+    const donation = await service.createDonation(
+      buildDonationPayload([
+        {
+          ...buildDonationItemPayload(5),
+          inventory_item_id: "inventory-item-1",
+          new_inventory_item: null,
+          stock_form_barcode: "00 1234",
+        },
+      ]),
+      { userId: "user-1", roleCode: "MAYOR" },
+    );
+
+    assert.equal(donation.id, "donation-1");
+    assert.equal(calls.insertedBatches[0].inventory_item_stock_form_id, "stock-form-1");
+  });
+});
+
+test("donation existing-item receipt validates a new stock-form barcode before insert", async () => {
+  let insertStockFormCalled = false;
+
+  await withStubbedDonationService(
+    {
+      inventoryItemStockFormRepository: {
+        getInventoryItemStockFormByDefinition: async () => null,
+        insertInventoryItemStockForm: async () => {
+          insertStockFormCalled = true;
+          return { id: "should-not-create" };
+        },
+      },
+    },
+    async (service) => {
+      await assert.rejects(
+        service.createDonation(
+          buildDonationPayload([
+            {
+              ...buildDonationItemPayload(5),
+              inventory_item_id: "inventory-item-1",
+              new_inventory_item: null,
+              stock_form_barcode: "00 1234",
+              stock_form_packaging: "box",
+              stock_form_units_per_packaging: 12,
+            },
+          ]),
+          { userId: "user-1", roleCode: "MAYOR" },
+        ),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.equal(error.message, "stock_form_barcode must contain 8 to 18 digits");
+          return true;
+        },
+      );
+    },
+  );
+
+  assert.equal(insertStockFormCalled, false);
+});
+
+test("donation existing-item receipt prechecks canonical barcode ownership before creating a stock form", async () => {
+  let insertStockFormCalled = false;
+
+  await withStubbedDonationService(
+    {
+      inventoryItemStockFormRepository: {
+        getInventoryItemStockFormByDefinition: async () => null,
+        getInventoryItemStockFormByBarcode: async () => ({
+          id: "stock-form-other",
+          inventory_item_id: "inventory-item-other",
+          barcode: "00123456",
+          packaging: "box",
+          units_per_packaging: 12,
+          unit_of_measure: "pc",
+          unit_of_measure_value: 1,
+          is_active: true,
+        }),
+        insertInventoryItemStockForm: async () => {
+          insertStockFormCalled = true;
+          return { id: "should-not-create" };
+        },
+      },
+    },
+    async (service) => {
+      await assert.rejects(
+        service.createDonation(
+          buildDonationPayload([
+            {
+              ...buildDonationItemPayload(5),
+              inventory_item_id: "inventory-item-1",
+              new_inventory_item: null,
+              stock_form_barcode: "00 1234 56",
+              stock_form_packaging: "box",
+              stock_form_units_per_packaging: 12,
+            },
+          ]),
+          { userId: "user-1", roleCode: "MAYOR" },
+        ),
+        (error) => {
+          assert.equal(error.code, "DUPLICATE_INVENTORY_BARCODE");
+          assert.equal(error.statusCode, 409);
+          assert.equal(
+            error.message,
+            "This barcode is already assigned to another packaging",
+          );
+          return true;
+        },
+      );
+    },
+  );
+
+  assert.equal(insertStockFormCalled, false);
 });
 
 test("donor name publication updates only the visibility flag and commits", async () => {
@@ -594,6 +777,236 @@ test("donation validation accepts and normalizes staged inventory definitions", 
   assert.equal(
     request.validatedBody.items[0].new_inventory_item.skip_opening_stock,
     true,
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      request.validatedBody.items[0].new_inventory_item,
+      "is_active",
+    ),
+    false,
+  );
+});
+
+test("donation validation accepts legacy parent activity values without normalizing them", () => {
+  for (const legacyIsActive of [true, false]) {
+    const request = {
+      body: {
+        ...buildDonationPayload([]),
+        disaster_event_id: "00000000-0000-4000-8000-000000000001",
+        items: [
+          {
+            ...buildDonationItemPayload(5),
+            new_inventory_item: buildNewInventoryItem({
+              is_active: legacyIsActive,
+            }),
+          },
+        ],
+      },
+    };
+    let nextCalled = false;
+    const response = {
+      status: () => response,
+      json: () => response,
+    };
+
+    donationValidator.validateDonationPayload(request, response, () => {
+      nextCalled = true;
+    });
+
+    assert.equal(nextCalled, true);
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(
+        request.validatedBody.items[0].new_inventory_item,
+        "is_active",
+      ),
+      false,
+    );
+  }
+});
+
+test("donation update audit stores matching editable before and after snapshots", async () => {
+  const previousDonation = {
+    id: "donation-1",
+    disaster_event_id: "event-1",
+    donor_name: "Test Donor",
+    donor_name_public: false,
+    donor_type: "INDIVIDUAL",
+    donor_type_other: null,
+    contact_information: "Old contact",
+    received_by: "user-1",
+    received_at: "2026-09-03T08:00:00.000Z",
+    status: "RECEIVED",
+    remarks: "Original remarks",
+  };
+  const updatedDonation = {
+    ...previousDonation,
+    donor_name: "Updated Donor",
+    contact_information: "New contact",
+    remarks: "Updated remarks",
+    disaster_event_title: "Test Event",
+  };
+
+  await withStubbedDonationService(
+    {
+      donationRepository: {
+        getDonationByIdForUpdate: async () => previousDonation,
+        getDonationById: async () => updatedDonation,
+      },
+    },
+    async (service, { calls }) => {
+      const payload = {
+        ...buildDonationPayload([]),
+        donor_name: "Updated Donor",
+        contact_information: "New contact",
+        remarks: "Updated remarks",
+      };
+
+      await service.updateDonation(
+        "donation-1",
+        payload,
+        { userId: "user-1", roleCode: "MAYOR" },
+      );
+
+      const audit = calls.auditLogs.find(
+        (entry) => entry.action === "DONATION_UPDATE",
+      );
+
+      assert.ok(audit);
+      assert.deepEqual(audit.oldValues, {
+        disaster_event_id: "event-1",
+        donor_name: "Test Donor",
+        donor_name_public: false,
+        donor_type: "INDIVIDUAL",
+        donor_type_other: null,
+        contact_information: "Old contact",
+        received_at: "2026-09-03T08:00:00.000Z",
+        status: "RECEIVED",
+        remarks: "Original remarks",
+        disaster_event_title: "Test Event",
+      });
+      assert.deepEqual(audit.newValues, {
+        disaster_event_id: "event-1",
+        donor_name: "Updated Donor",
+        donor_name_public: false,
+        donor_type: "INDIVIDUAL",
+        donor_type_other: null,
+        contact_information: "New contact",
+        received_at: "2026-09-03T08:00:00.000Z",
+        status: "RECEIVED",
+        remarks: "Updated remarks",
+        disaster_event_title: "Test Event",
+      });
+      assert.equal(audit.oldValues.items, undefined);
+      assert.equal(audit.newValues.items, undefined);
+    },
+  );
+});
+
+test("donation update does not create an audit row when no donation field changed", async () => {
+  await withStubbedDonationService({}, async (service, { calls }) => {
+    await service.updateDonation(
+      "donation-1",
+      buildDonationPayload([]),
+      { userId: "user-1", roleCode: "MAYOR" },
+    );
+
+    assert.equal(
+      calls.auditLogs.some((entry) => entry.action === "DONATION_UPDATE"),
+      false,
+    );
+  });
+});
+
+test("donation item update does not create an audit row when no item field changed", async () => {
+  await withStubbedDonationService({}, async (service, { calls }) => {
+    await service.updateDonationItem(
+      "donation-item-1",
+      {
+        quantity_received: 5,
+        remarks: null,
+        expiration_date: null,
+        storage_location: null,
+      },
+      "user-1",
+    );
+
+    assert.equal(
+      calls.auditLogs.some((entry) => entry.action === "DONATION_ITEM_UPDATE"),
+      false,
+    );
+  });
+});
+
+test("donation validation normalizes an existing-item legacy stock-form barcode without enforcing new-assignment length", () => {
+  const request = {
+    body: {
+      ...buildDonationPayload([
+        {
+          ...buildDonationItemPayload(5),
+          new_inventory_item: null,
+          inventory_item_id: "00000000-0000-4000-8000-000000000002",
+          stock_form_barcode: "00 1234",
+        },
+      ]),
+      disaster_event_id: "00000000-0000-4000-8000-000000000001",
+    },
+  };
+  let nextCalled = false;
+  let responseStatus = null;
+  const response = {
+    status(statusCode) {
+      responseStatus = statusCode;
+      return this;
+    },
+    json() {
+      return this;
+    },
+  };
+
+  donationValidator.validateDonationPayload(request, response, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(responseStatus, null);
+  assert.equal(request.validatedBody.items[0].stock_form_barcode, "001234");
+});
+
+test("donation validation rejects a short barcode in an unambiguously new inventory item", () => {
+  const request = {
+    body: {
+      ...buildDonationPayload([
+        {
+          ...buildDonationItemPayload(5),
+          new_inventory_item: buildNewInventoryItem({ barcode: "001234" }),
+        },
+      ]),
+      disaster_event_id: "00000000-0000-4000-8000-000000000001",
+    },
+  };
+  let nextCalled = false;
+  let responseStatus = null;
+  let responsePayload = null;
+  const response = {
+    status(statusCode) {
+      responseStatus = statusCode;
+      return this;
+    },
+    json(payload) {
+      responsePayload = payload;
+      return this;
+    },
+  };
+
+  donationValidator.validateDonationPayload(request, response, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(responseStatus, 400);
+  assert.equal(
+    responsePayload.message,
+    "items[0].new_inventory_item.barcode must contain 8 to 18 digits",
   );
 });
 

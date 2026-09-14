@@ -615,6 +615,16 @@ const getDashboardFromSources = ({
   );
 };
 
+const resolveInventoryItemCount = (summary = {}) => {
+  const canonicalCount = summary?.inventory_item_count;
+
+  return Number(
+    canonicalCount !== undefined && canonicalCount !== null
+      ? canonicalCount
+      : summary?.active_inventory_item_count || 0,
+  );
+};
+
 const getResultRowsFromSources = ({ forecastRunData, forecastHistoryDetails }) => {
   if (forecastHistoryDetails?.results?.length) {
     return forecastHistoryDetails.results;
@@ -1168,6 +1178,10 @@ const ForecastingPanel = ({
   );
 
   const eventSummary = activeDashboard?.summary || {};
+  const hasInventoryItemCount =
+    eventSummary.inventory_item_count !== undefined ||
+    eventSummary.active_inventory_item_count !== undefined;
+  const inventoryItemCount = resolveInventoryItemCount(eventSummary);
   const eventInfo =
     activeDashboard?.disaster_event || forecastContext?.disaster_event || null;
   const selectedForecastEvent = useMemo(
@@ -1195,7 +1209,10 @@ const ForecastingPanel = ({
     [];
   const hasReadinessWarning = (code) =>
     readinessWarnings.some((warning) => warning?.code === code);
-  const hasNoForecastTargets = hasReadinessWarning("NO_ACTIVE_INVENTORY_ITEMS");
+  const hasNoForecastTargets =
+    hasReadinessWarning("NO_INVENTORY_ITEMS") ||
+    hasReadinessWarning("NO_ACTIVE_INVENTORY_ITEMS") ||
+    (hasInventoryItemCount && inventoryItemCount <= 0);
   const hasNoUnclaimedEligibleFamilies = hasReadinessWarning(
     "NO_UNCLAIMED_ELIGIBLE_FAMILIES",
   );
@@ -1391,7 +1408,7 @@ const ForecastingPanel = ({
 
   return (
     <div style={panelStyles.page}>
-      <section style={shellStyles.card}>
+      <section className="mayor-inventory-forecast-filter-card" style={shellStyles.card}>
         <div style={panelStyles.controlGrid}>
           <div>
             <label
@@ -1444,11 +1461,16 @@ const ForecastingPanel = ({
           </select>
           </div>
         </div>
+
       </section>
 
-      <div style={panelStyles.forecastActionRow}>
+      <div
+        className="mayor-inventory-forecast-action-row"
+        style={panelStyles.forecastActionRow}
+      >
         <button
           type="button"
+          className="mayor-inventory-forecast-run-button"
           onClick={onRunForecast}
           disabled={isRunningForecast || !selectedForecastEventId}
           style={{
@@ -1467,6 +1489,7 @@ const ForecastingPanel = ({
         </button>
         <button
           type="button"
+          className="mayor-inventory-forecast-export-button"
           onClick={onOpenExportModal}
           disabled={!selectedForecastEventId || isForecastLoading || isRunningForecast}
           style={{
@@ -1584,7 +1607,10 @@ const ForecastingPanel = ({
         </div>
 
         <div style={{ display: "grid", alignItems: "stretch" }}>
-          <div style={panelStyles.statGrid}>
+          <div
+            className="mayor-inventory-forecast-stat-grid"
+            style={panelStyles.statGrid}
+          >
             {forecastCards.map((card) => (
               <button
                 key={card.label}
@@ -1637,7 +1663,7 @@ const ForecastingPanel = ({
             {!resultRows.length ? (
               <p style={{ ...panelStyles.emptyState, marginTop: "14px" }}>
                 {hasNoForecastTargets
-                  ? "No active inventory items are available to forecast."
+                  ? "No inventory items are available to forecast."
                   : hasNoAssignedPackDemand
                     ? "Eligible families exist, but no assigned relief pack item demand is available."
                     : "Run a forecast to identify the highest-priority stock-up items."}
@@ -1785,7 +1811,7 @@ const ForecastingPanel = ({
             {!donorNeedRows.length ? (
               <p style={{ ...panelStyles.emptyState, marginTop: "14px" }}>
                 {hasNoForecastTargets
-                  ? "No donor requests can be prepared because no active inventory items are available."
+                  ? "No donor requests can be prepared because no inventory items are available."
                   : hasNoAssignedPackDemand
                     ? "No donor requests can be prepared from assigned packs until relief pack item demand is configured."
                     : modelHasResults
