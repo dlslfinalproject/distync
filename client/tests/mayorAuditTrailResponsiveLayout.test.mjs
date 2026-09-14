@@ -66,7 +66,11 @@ test("Mayor audit trail tables keep horizontal overflow local and paginator outs
   assert.match(pageSource, /const isWrittenOffRecord = entry\.action_label === "Written Off";/);
   assert.match(
     pageSource,
-    /isWrittenOffRecord && index === 0[\s\S]*?gridColumn: "1 \/ -1"/,
+    /isWrittenOffRecord && index === 0[\s\S]*?mayor-audit-trail-written-off-record/,
+  );
+  assert.match(
+    cssSource,
+    /\.mayor-audit-trail-written-off-record \{[\s\S]*?grid-column: 1 \/ -1;[\s\S]*?@media \(min-width: 769px\)[\s\S]*?grid-column: 3 \/ -1;/,
   );
   assert.doesNotMatch(pageSource, /value: "donation_adjustment"/);
   assert.match(pageSource, />\s*Opening Stock Details\s*</);

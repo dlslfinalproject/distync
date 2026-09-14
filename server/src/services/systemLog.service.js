@@ -428,6 +428,63 @@ const formatAuditDonorType = (value) => {
   );
 };
 
+const RELIEF_PACK_DISASTER_TYPE_LABELS = [
+  "Typhoon",
+  "Flood",
+  "Earthquake",
+  "Landslide",
+  "Volcanic Eruption",
+  "Storm Surge",
+  "Drought / El Niño",
+  "Tsunami",
+  "Fire",
+  "Other",
+];
+
+const formatReliefPackDisasterType = (value) => {
+  const normalizedValue = String(value || "").trim();
+
+  if (!normalizedValue) {
+    return null;
+  }
+
+  return (
+    RELIEF_PACK_DISASTER_TYPE_LABELS.find(
+      (label) => label.toLowerCase() === normalizedValue.toLowerCase(),
+    ) || formatAuditStatus(normalizedValue)
+  );
+};
+
+const formatReliefPackDisasterTypes = (
+  value,
+  { appliesToAllDisasters = false } = {},
+) => {
+  if (appliesToAllDisasters) {
+    return "All disaster types";
+  }
+
+  const disasterTypes = Array.isArray(value)
+    ? value
+    : value === undefined || value === null || value === ""
+      ? []
+      : [value];
+  const formattedDisasterTypes = disasterTypes
+    .map((entry) => {
+      if (entry && typeof entry === "object") {
+        return formatReliefPackDisasterType(
+          entry.disaster_type || entry.name || entry.label,
+        );
+      }
+
+      return formatReliefPackDisasterType(entry);
+    })
+    .filter(Boolean);
+
+  return formattedDisasterTypes.length
+    ? Array.from(new Set(formattedDisasterTypes)).join(", ")
+    : "--";
+};
+
 const formatAuditValue = (fieldName, value) => {
   if (
     fieldName === "expiration_date" &&
@@ -512,6 +569,53 @@ const formatAuditValue = (fieldName, value) => {
   return String(value);
 };
 
+const buildReliefPackTemplateCreatedChanges = (row) => {
+  const values = row.new_values_json || {};
+  const changes = [];
+  const addChange = (field, label, newValue) => {
+    changes.push({
+      field,
+      label,
+      previous_value: "--",
+      new_value:
+        newValue === undefined || newValue === null || newValue === ""
+          ? "--"
+          : String(newValue),
+    });
+  };
+
+  addChange("name", "Pack Name", values.name);
+
+  if (values.based_on_family_size) {
+    addChange("family_size_covered", "Family Size Covered", values.description);
+  }
+
+  addChange(
+    "sector_match",
+    "Sector Match",
+    formatAuditValue("based_on_sector", values.based_on_sector),
+  );
+  addChange(
+    "is_additional_pack",
+    "Pack Type",
+    formatAuditValue("is_additional_pack", values.is_additional_pack),
+  );
+  addChange(
+    "disaster_types",
+    "Disaster Types",
+    formatReliefPackDisasterTypes(values.disaster_types, {
+      appliesToAllDisasters: values.applies_to_all_disasters === true,
+    }),
+  );
+  addChange(
+    "is_active",
+    "Template Status",
+    formatAuditValue("is_active", values.is_active),
+  );
+
+  return changes;
+};
+
 const buildAuditDetailChanges = (row) => {
   const oldValues = row.old_values_json || {};
   const newValues = row.new_values_json || {};
@@ -579,7 +683,6 @@ const buildAuditDetailItemChanges = (row) => {
             ? String(nextQuantity)
             : "--",
         unit_of_measure: item.unit_of_measure || "",
-        remarks: item.remarks || "",
         change_type: previousItem ? (nextItem ? "Updated" : "Removed") : "Added",
       };
     })
@@ -1340,7 +1443,12 @@ const buildDistributionItemDetails = (row) =>
   }));
 
 const buildAuditDetail = (row, relatedRows = []) => {
-  const changes = buildAuditDetailChanges(row);
+  const isReliefPackTemplateCreated =
+    row.entity_type === "RELIEF_PACK_TEMPLATE" &&
+    row.action === "RELIEF_PACK_TEMPLATE_CREATE";
+  const changes = isReliefPackTemplateCreated
+    ? buildReliefPackTemplateCreatedChanges(row)
+    : buildAuditDetailChanges(row);
   const detailChanges =
     row.entity_type === "DONATION_ITEM" &&
     row.action === "DONATION_ITEM_UPDATE"
