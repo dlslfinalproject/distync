@@ -14,6 +14,7 @@ import {
   updateSyncEntryStatus,
 } from "./syncQueue.js";
 import { reconcileOfflineStubCacheForSyncResult } from "../features/stubs/stubCache.js";
+import { reconcileCachedMasterlistDeparture } from "./masterlistCache.js";
 
 const API_BASE_URL =
   import.meta.env?.VITE_API_BASE_URL || "http://localhost:5000";
@@ -219,6 +220,7 @@ const flushSelectedSyncEntries = async (
   const nonRetryableIds = [];
   const conflictIds = [];
   const pendingIds = [];
+  const syncedEntries = [];
   const locallyFinalizedIds = new Set();
   let entriesToSync = [];
 
@@ -299,6 +301,7 @@ const flushSelectedSyncEntries = async (
 
       if (resultStatus === LOCAL_SYNC_STATUS.SYNCED) {
         syncedIds.push(entry.id);
+        syncedEntries.push(entry);
       } else if (resultStatus === LOCAL_SYNC_STATUS.CONFLICT) {
         conflictIds.push(entry.id);
       } else if (resultStatus === LOCAL_SYNC_STATUS.PENDING) {
@@ -351,9 +354,44 @@ const flushSelectedSyncEntries = async (
       locallyFinalizedIds.add(entry.id);
 
       await reconcileOfflineStubCacheForSyncResult(entry, result);
+
+      if (
+        entry.actionKey === "HOUSEHOLD_DEPART" &&
+        entry.entityType === "HOUSEHOLD" &&
+        resultStatus === LOCAL_SYNC_STATUS.SYNCED
+      ) {
+        const payload = entry.payload || {};
+        const latestAttendance =
+          result?.data?.household?.latest_attendance ||
+          result?.data?.household?.latestAttendance ||
+          result?.data?.latest_attendance ||
+          null;
+        await reconcileCachedMasterlistDeparture({
+          disasterEventId: payload.disaster_event_id,
+          barangayId: entry.barangayId || payload.barangay_id,
+          householdId:
+            result?.data?.household?.id ||
+            result?.data?.household?.household_id ||
+            entry.entityServerId ||
+            entry.entityLocalId,
+          departureTime: latestAttendance?.time_out || entry.clientTimestamp,
+        });
+      }
     }
 
     await clearSyncedEntries();
+
+    const syncedDepartures = syncedEntries.filter(
+      (entry) =>
+        entry.actionKey === "HOUSEHOLD_DEPART" &&
+        entry.entityType === "HOUSEHOLD",
+    );
+    if (syncedDepartures.length > 0) {
+      notifySyncListeners({
+        type: "masterlist-reconciliation",
+        entries: syncedDepartures,
+      });
+    }
 
     const failedCount = failedIds.length;
     const conflictCount = conflictIds.length;
