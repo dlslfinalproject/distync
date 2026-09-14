@@ -95,6 +95,9 @@ test("getAuditLogs includes finalized distribution claim audit rows", async () =
   assert.match(capturedQuery, /DISTRIBUTION_RECORD/);
   assert.match(capturedQuery, /DISTRIBUTION_QR_CLAIM/);
   assert.match(capturedQuery, /distribution_items_json/);
+  assert.match(capturedQuery, /FROM audit_logs transaction_audit/);
+  assert.match(capturedQuery, /transaction_audit\.new_values_json->>'inventory_batch_id'/);
+  assert.match(capturedQuery, /transaction_audit\.new_values_json->>'reference_type'/);
 });
 
 test("getAuditLogs applies five-year retention and page offset", async () => {

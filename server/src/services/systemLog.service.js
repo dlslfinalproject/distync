@@ -229,6 +229,7 @@ const DATE_DETAIL_FIELDS = new Set([
   "received_at",
   "performed_at",
 ]);
+const AUDIT_DISPLAY_TIME_ZONE = "Asia/Manila";
 
 const formatInventoryStatusType = (value) => {
   const normalizedValue = String(value || "").trim().toUpperCase();
@@ -304,6 +305,7 @@ const formatAuditDateTime = (value) => {
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: AUDIT_DISPLAY_TIME_ZONE,
   }).format(parsedDate);
 };
 
@@ -322,6 +324,7 @@ const formatAuditDate = (value) => {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: AUDIT_DISPLAY_TIME_ZONE,
   }).format(parsedDate);
 };
 

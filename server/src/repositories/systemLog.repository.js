@@ -684,6 +684,25 @@ const getAuditLogs = async (
             LIKE '%donation adjustment%'
         )
       )
+      -- A regular stock-in creates both an inventory batch and an inventory
+      -- transaction audit row. The transaction is the user-facing Stock Added
+      -- event; keep the batch row only when its transaction audit is missing.
+      AND NOT (
+        al.entity_type = 'INVENTORY_BATCH'
+        AND al.action = 'INVENTORY_BATCH_CREATE'
+        AND EXISTS (
+          SELECT 1
+          FROM audit_logs transaction_audit
+          WHERE transaction_audit.entity_type = 'INVENTORY_TRANSACTION'
+            AND transaction_audit.action = 'INVENTORY_TRANSACTION_CREATE'
+            AND transaction_audit.new_values_json->>'transaction_type' = 'INFLOW'
+            AND COALESCE(
+              transaction_audit.new_values_json->>'reference_type',
+              ''
+            ) <> 'DONATION'
+            AND transaction_audit.new_values_json->>'inventory_batch_id' = al.entity_id::text
+        )
+      )
       AND (
         (
           (

@@ -295,6 +295,7 @@ test("item creation details include related opening stock and transaction sectio
         year: "numeric",
         hour: "numeric",
         minute: "2-digit",
+        timeZone: "Asia/Manila",
       }).format(new Date("2026-08-11T01:30:00.020Z"));
 
       assert.deepEqual(
@@ -429,6 +430,7 @@ test("packaging added details include the new packaging and its opening stock", 
         year: "numeric",
         hour: "numeric",
         minute: "2-digit",
+        timeZone: "Asia/Manila",
       }).format(new Date("2026-08-11T01:30:00.020Z"));
 
       assert.equal(entry.action_label, "Packaging Added");
@@ -521,6 +523,7 @@ test("stock added details focus on the added stock and inflow transaction", asyn
         year: "numeric",
         hour: "numeric",
         minute: "2-digit",
+        timeZone: "Asia/Manila",
       }).format(new Date("2026-08-11T01:45:00.000Z"));
 
       assert.equal(entry.action_label, "Stock Added");
@@ -869,6 +872,7 @@ test("donation details edited includes the related stock adjustment", async () =
         year: "numeric",
         hour: "numeric",
         minute: "2-digit",
+        timeZone: "Asia/Manila",
       }).format(new Date("2026-08-11T02:10:00.000Z"));
 
       assert.deepEqual(
