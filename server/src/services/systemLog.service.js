@@ -561,7 +561,6 @@ const buildDonationItemDetails = (row) => {
         item_name: itemDetails.itemName,
         relief_pack_name: null,
         relief_pack_quantity: null,
-        contents: [],
         quantity_received: itemDetails.quantityReceived,
         unit_of_measure: itemDetails.unitOfMeasure,
         packaging: itemDetails.packaging,
@@ -584,7 +583,7 @@ const buildDonationItemDetails = (row) => {
           reliefPack.packQuantity === null
             ? "--"
             : String(reliefPack.packQuantity),
-        contents: [],
+        relief_pack_contents: [],
         quantity_received: "--",
         unit_of_measure: "pack(s)",
         packaging: "--",
@@ -596,7 +595,7 @@ const buildDonationItemDetails = (row) => {
       detailRows.push(reliefPackRow);
     }
 
-    reliefPackRow.contents.push(itemDetails);
+    reliefPackRow.relief_pack_contents.push(itemDetails);
   });
 
   return detailRows;

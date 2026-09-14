@@ -467,9 +467,13 @@ const ACTION_HANDLERS = {
     roles: [ROLE_CODES.MAYOR],
     getCurrentRecord: async ({ entityServerId, dbClient }) =>
       inventoryItemRepository.getInventoryItemById(entityServerId, dbClient),
-    execute: async ({ entityServerId, payload, auth, dbClient }) =>
+    execute: async ({ entityServerId, payload, auth, dbClient, entry }) =>
       inventoryItemService.updateInventoryItem(entityServerId, payload, auth, {
         dbClient,
+        auditActor: auth,
+        auditSourceEventKeyPrefix: entry?.client_sync_id
+          ? `SYNC:${entry.client_sync_id}:INVENTORY_ITEM_UPDATE`
+          : null,
       }),
   },
   INVENTORY_BATCH_CREATE: {

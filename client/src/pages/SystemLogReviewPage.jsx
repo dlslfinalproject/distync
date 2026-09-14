@@ -429,8 +429,111 @@ const AuditDetailChangesTable = ({ changes, isCreatedRecord }) => {
   );
 };
 
-const DonationEntryItemsTable = ({ items }) => {
-  if (!items.length) {
+const getDonationItemDetailChanges = (item) => {
+  return [
+    {
+      field: "item_name",
+      label: "Item Name",
+      new_value: item.item_name || "--",
+    },
+    {
+      field: "quantity_received",
+      label: "Quantity Received",
+      new_value: item.quantity_received || "--",
+    },
+    {
+      field: "unit_of_measure",
+      label: "Unit",
+      new_value: item.unit_of_measure || "--",
+    },
+    {
+      field: "packaging",
+      label: "Packaging",
+      new_value: item.packaging || "--",
+    },
+    {
+      field: "batch_no",
+      label: "Batch Number",
+      new_value: item.batch_no || "--",
+    },
+    {
+      field: "expiration_date",
+      label: "Expiration Date",
+      new_value: item.expiration_date || "--",
+    },
+    {
+      field: "remarks",
+      label: "Remarks",
+      new_value: item.remarks || "--",
+    },
+  ];
+};
+
+const getReliefPackDetailChanges = (item) => [
+  {
+    field: "relief_pack_name",
+    label: "Relief Pack Name",
+    new_value: item.relief_pack_name || "--",
+  },
+  {
+    field: "relief_pack_quantity",
+    label: "Number of Relief Packs Received",
+    new_value: item.relief_pack_quantity || "--",
+  },
+];
+
+const DonationEntryPackContents = ({ contents }) => {
+  if (!contents.length) {
+    return (
+      <p style={detailModalStyles.emptyText}>
+        No relief pack contents are available for this audit record.
+      </p>
+    );
+  }
+
+  return (
+    <div
+      className="mayor-audit-trail-detail-table-scroll"
+      style={detailModalStyles.tableWrap}
+    >
+      <table className="mayor-audit-trail-detail-table" style={detailModalStyles.table}>
+        <thead>
+          <tr>
+            <th style={detailModalStyles.th}>Item Name</th>
+            <th style={detailModalStyles.th}>Quantity Received</th>
+            <th style={detailModalStyles.th}>Unit</th>
+            <th style={detailModalStyles.th}>Packaging</th>
+            <th style={detailModalStyles.th}>Batch Number</th>
+            <th style={detailModalStyles.th}>Expiration Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {contents.map((content, index) => (
+            <tr key={`${content.itemName || "item"}-${index}`}>
+              <td style={detailModalStyles.td}>{content.itemName || "--"}</td>
+              <td style={detailModalStyles.td}>{content.quantityReceived || "--"}</td>
+              <td style={detailModalStyles.td}>{content.unitOfMeasure || "--"}</td>
+              <td style={detailModalStyles.td}>{content.packaging || "--"}</td>
+              <td style={detailModalStyles.td}>{content.batchNo || "--"}</td>
+              <td style={detailModalStyles.td}>{content.expirationDate || "--"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+const DonationEntryItemsDetails = ({ items }) => {
+  const normalizedItems = Array.isArray(items) ? items : [];
+  const looseItems = normalizedItems.filter(
+    (item) => item.donation_type !== "Relief Pack",
+  );
+  const reliefPackItems = normalizedItems.filter(
+    (item) => item.donation_type === "Relief Pack",
+  );
+
+  if (!normalizedItems.length) {
     return (
       <p style={detailModalStyles.emptyText}>
         No received donation items are available for this audit record.
@@ -439,60 +542,83 @@ const DonationEntryItemsTable = ({ items }) => {
   }
 
   return (
-    <div className="mayor-audit-trail-detail-table-scroll" style={detailModalStyles.tableWrap}>
-      <table className="mayor-audit-trail-detail-table" style={detailModalStyles.table}>
-        <thead>
-          <tr>
-            <th style={detailModalStyles.th}>Donation Type</th>
-            <th style={detailModalStyles.th}>Item / Relief Pack</th>
-            <th style={detailModalStyles.th}>Contents</th>
-            <th style={detailModalStyles.th}>Quantity Received</th>
-            <th style={detailModalStyles.th}>Unit</th>
-            <th style={detailModalStyles.th}>Packaging</th>
-            <th style={detailModalStyles.th}>Batch Number</th>
-            <th style={detailModalStyles.th}>Expiration Date</th>
-            <th style={detailModalStyles.th}>Remarks</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item, index) => {
-            const contents = Array.isArray(item.contents) ? item.contents : [];
-            const isReliefPack = item.donation_type === "Relief Pack";
+    <>
+      {looseItems.length > 0 ? (
+        <section
+          className="mayor-audit-trail-detail-section"
+          style={detailModalStyles.sectionCard}
+        >
+          <h3 style={{ margin: 0, color: "#17324d" }}>
+            Donated Items (Loose Item)
+          </h3>
+          <div style={{ display: "grid", gap: "20px", marginTop: "16px" }}>
+            {looseItems.map((item, index) => (
+              <div key={[item.item_name, index].join("-")}>
+                {looseItems.length > 1 ? (
+                  <h4
+                    style={{
+                      margin: index === 0 ? 0 : "4px 0 0",
+                      color: "#17324d",
+                      fontSize: "18px",
+                    }}
+                  >
+                    Donated Item {index + 1}
+                  </h4>
+                ) : null}
+                <AuditDetailChangesTable
+                  changes={getDonationItemDetailChanges(item)}
+                  isCreatedRecord
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
-            return (
-              <tr key={`${item.relief_pack_name || item.item_name}-${index}`}>
-                <td style={detailModalStyles.td}>{item.donation_type}</td>
-                <td style={detailModalStyles.td}>
-                  {item.relief_pack_name || item.item_name || "--"}
-                </td>
-                <td style={detailModalStyles.td}>
-                  {contents.length
-                    ? contents.map((content, contentIndex) => (
-                        <div key={`${content.itemName}-${contentIndex}`}>
-                          {content.itemName} — {content.quantityReceived}{" "}
-                          {content.unitOfMeasure}
-                        </div>
-                      ))
-                    : "--"}
-                </td>
-                <td style={{ ...detailModalStyles.td, ...detailModalStyles.changedValue }}>
-                  {isReliefPack
-                    ? item.relief_pack_quantity
-                    : item.quantity_received}
-                </td>
-                <td style={detailModalStyles.td}>
-                  {isReliefPack ? "pack(s)" : item.unit_of_measure || "--"}
-                </td>
-                <td style={detailModalStyles.td}>{item.packaging || "--"}</td>
-                <td style={detailModalStyles.td}>{item.batch_no || "--"}</td>
-                <td style={detailModalStyles.td}>{item.expiration_date || "--"}</td>
-                <td style={detailModalStyles.td}>{item.remarks || "--"}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+      {reliefPackItems.length > 0 ? (
+        <section
+          className="mayor-audit-trail-detail-section"
+          style={detailModalStyles.sectionCard}
+        >
+          <h3 style={{ margin: 0, color: "#17324d" }}>Relief Pack Details</h3>
+          <div style={{ display: "grid", gap: "20px", marginTop: "16px" }}>
+            {reliefPackItems.map((item, index) => (
+              <div key={[item.relief_pack_name, index].join("-")}>
+                {reliefPackItems.length > 1 ? (
+                  <h4
+                    style={{
+                      margin: index === 0 ? 0 : "4px 0 0",
+                      color: "#17324d",
+                      fontSize: "18px",
+                    }}
+                  >
+                    Relief Pack {index + 1}
+                  </h4>
+                ) : null}
+                <AuditDetailChangesTable
+                  changes={getReliefPackDetailChanges(item)}
+                  isCreatedRecord
+                />
+                <h4
+                  style={{
+                    margin: "24px 0 0",
+                    color: "#17324d",
+                    fontSize: "18px",
+                  }}
+                >
+                  Pack Contents
+                </h4>
+                <DonationEntryPackContents
+                  contents={Array.isArray(item.relief_pack_contents)
+                    ? item.relief_pack_contents
+                    : []}
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </>
   );
 };
 
@@ -614,20 +740,6 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
             changes={isDonationEntryRecord ? donationDetails : itemDetails}
             isCreatedRecord={isCreatedRecord}
           />
-          {isDonationEntryRecord && donationItems.length > 0 ? (
-            <>
-              <h4
-                style={{
-                  margin: "24px 0 0",
-                  color: "#17324d",
-                  fontSize: "18px",
-                }}
-              >
-                Donation Items
-              </h4>
-              <DonationEntryItemsTable items={donationItems} />
-            </>
-          ) : null}
           {isDonationDetailsEditedRecord && donationStockAdjustment.length > 0 ? (
             <>
               <h4
@@ -646,6 +758,10 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
             </>
           ) : null}
         </section>
+
+        {isDonationEntryRecord && donationItems.length > 0 ? (
+          <DonationEntryItemsDetails items={donationItems} />
+        ) : null}
 
         {(isItemCreatedRecord || isPackagingAddedRecord) && openingStockDetails.length > 0 ? (
           <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>

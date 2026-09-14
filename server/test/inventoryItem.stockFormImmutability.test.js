@@ -291,6 +291,35 @@ test("referenced stock-form definition fields copy on write independently", asyn
   }
 });
 
+test("copy-on-write packaging creation is recorded as Packaging Added", async () => {
+  const formA = makeStockForm("form-a");
+  const harness = createHarness({
+    stockForms: [formA],
+    referencedStockFormIds: [formA.id],
+  });
+
+  await runUpdate(
+    harness,
+    buildUpdatePayload(harness.state.item, {
+      packaging: "sack",
+      quantity: 24,
+    }),
+  );
+
+  const packagingAudit = harness.calls.audit.find(
+    (auditEntry) =>
+      auditEntry.action === "INVENTORY_ITEM_STOCK_FORM_CREATE" &&
+      auditEntry.entityType === "INVENTORY_ITEM_STOCK_FORM",
+  );
+
+  assert.ok(packagingAudit);
+  assert.equal(packagingAudit.entityId, "form-2");
+  assert.equal(packagingAudit.newValues.packaging, "sack");
+  assert.equal(packagingAudit.newValues.units_per_packaging, 24);
+  assert.equal(packagingAudit.newValues.is_additional_packaging, true);
+  assert.equal(packagingAudit.throwOnError, true);
+});
+
 test("an exact active requested form is reused instead of creating a duplicate", async () => {
   const formA = makeStockForm("form-a");
   const formB = makeStockForm("form-b", {

@@ -656,7 +656,6 @@ test("donation entry details include loose item donation information", async () 
           item_name: "Acer Charger",
           relief_pack_name: null,
           relief_pack_quantity: null,
-          contents: [],
           quantity_received: "200",
           unit_of_measure: "pc",
           packaging: "box",
@@ -669,7 +668,7 @@ test("donation entry details include loose item donation information", async () 
   );
 });
 
-test("donation entry details group relief pack contents and pack quantity", async () => {
+test("donation entry details group relief pack details and pack quantity", async () => {
   await withMockRepository(
     {
       getAuditLogs: async () => [
@@ -742,7 +741,8 @@ test("donation entry details group relief pack contents and pack quantity", asyn
       assert.equal(reliefPack.donation_type, "Relief Pack");
       assert.equal(reliefPack.relief_pack_name, "Family Food Pack");
       assert.equal(reliefPack.relief_pack_quantity, "20");
-      assert.deepEqual(reliefPack.contents, [
+      assert.equal(reliefPack.contents, undefined);
+      assert.deepEqual(reliefPack.relief_pack_contents, [
         {
           itemName: "Rice",
           quantityReceived: "100",

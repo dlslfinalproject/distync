@@ -1722,13 +1722,41 @@ const updateInventoryItem = async (id, itemData, actor = null, options = {}) => 
         id,
         client,
       );
-    await resolveStockFormForInventoryItemUpdate({
+    const resolvedStockForm = await resolveStockFormForInventoryItemUpdate({
       existingItem,
       updatedItem,
       itemData: inventoryItemToUpdate,
       existingStockForms,
       dbClient: client,
     });
+
+    const createdAdditionalPackaging =
+      existingStockForms.length > 0 &&
+      resolvedStockForm &&
+      !existingStockForms.some(
+        (stockForm) => String(stockForm?.id) === String(resolvedStockForm.id),
+      )
+        ? resolvedStockForm
+        : null;
+
+    if (createdAdditionalPackaging) {
+      await logAuditSafely({
+        actor: options.auditActor || actor,
+        action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
+        entityType: "INVENTORY_ITEM_STOCK_FORM",
+        entityId: createdAdditionalPackaging.id,
+        oldValues: {},
+        newValues: {
+          ...summarizeInventoryItemStockForm(createdAdditionalPackaging),
+          is_additional_packaging: true,
+        },
+        sourceEventKey: options.auditSourceEventKeyPrefix
+          ? `${options.auditSourceEventKeyPrefix}:STOCK_FORM`
+          : null,
+        throwOnError: true,
+        dbClient: client,
+      });
+    }
 
     if (existingItem.reorder_level !== updatedItem.reorder_level) {
       await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
