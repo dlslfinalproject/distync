@@ -936,6 +936,9 @@ const AnomalyDetailModal = ({
                 reviewErrors.reviewStatus ? reviewOutcomeErrorId : "",
               ].filter(Boolean).join(" ")}
               aria-invalid={Boolean(reviewErrors.reviewStatus)}
+              data-error-anchor={
+                reviewErrors.reviewStatus ? "true" : undefined
+              }
             >
               <legend style={labelStyles}>
                 {hasSavedReview ? "Edit Review" : "Record Review"}

@@ -6,6 +6,7 @@ import {
   isValidInventoryBarcode,
   normalizeInventoryBarcode,
 } from "../../features/inventory-items/inventoryBarcode";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
 
 const COLORS = {
   muted: "#6b8298",
@@ -291,6 +292,7 @@ const InventoryItemScanModal = ({
   onInputChange,
 }) => {
   const barcodeInputRef = useRef(null);
+  const scanModalRef = useRef(null);
   const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
@@ -395,6 +397,7 @@ const InventoryItemScanModal = ({
 
   const handleSubmit = () => {
     if (!validateScanForm()) {
+      scheduleScrollToFirstError(scanModalRef);
       return;
     }
 
@@ -403,7 +406,11 @@ const InventoryItemScanModal = ({
 
   return (
     <div className="inventory-item-scan-modal-backdrop" style={scanModalOverlayStyle}>
-      <div className="inventory-item-scan-modal" style={scanModalStyle}>
+      <div
+        ref={scanModalRef}
+        className="inventory-item-scan-modal"
+        style={scanModalStyle}
+      >
         <div className="inventory-item-scan-modal-topbar" style={styles.scanModalHeader}>
           <div>
             <h3 style={styles.scanModalTitle}>

@@ -23,6 +23,7 @@ import {
   ROLE_CODES,
   updateAuthenticatedSessionUser,
 } from "../../utils/roleSession";
+import { scrollToErrorElement } from "../../utils/scrollToFirstError";
 import {
   BARANGAY_SETTINGS_SECTIONS,
   EDITABLE_BARANGAY_SECTION_KEYS,
@@ -1177,7 +1178,15 @@ const RoleSettingsPage = () => {
             lastName: `${fieldIdPrefix}-profile-last-name`,
             contactNumber: `${fieldIdPrefix}-profile-contact`,
           };
-          document.getElementById(fieldIdMap[firstInvalidField])?.focus();
+          const firstInvalidElement = document.getElementById(
+            fieldIdMap[firstInvalidField],
+          );
+
+          if (isMayorRole) {
+            scrollToErrorElement(firstInvalidElement);
+          } else {
+            firstInvalidElement?.focus();
+          }
         }
 
         setToast({

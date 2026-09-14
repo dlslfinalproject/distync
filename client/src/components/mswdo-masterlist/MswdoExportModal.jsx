@@ -169,6 +169,7 @@ const formatDisasterEventTitle = (event) =>
 
 const MswdoExportModal = ({
   isOpen,
+  modalRef,
   title = "Evacuee Masterlist Report",
   isSubmitting,
   disasterEvents,
@@ -236,7 +237,7 @@ const MswdoExportModal = ({
 
   return (
     <div className={overlayClassName} style={overlayStyles}>
-      <div className={modalClassName} style={modalStyles}>
+      <div ref={modalRef} className={modalClassName} style={modalStyles}>
         <div
           style={{
             display: "flex",
@@ -387,6 +388,9 @@ const MswdoExportModal = ({
 
             <div
               className={chipGridClassName}
+              data-error-anchor={
+                validationErrors.sectors ? "true" : undefined
+              }
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -456,6 +460,9 @@ const MswdoExportModal = ({
 
               <div
                 className={chipGridClassName}
+                data-error-anchor={
+                  validationErrors.barangays ? "true" : undefined
+                }
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",

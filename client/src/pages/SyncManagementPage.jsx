@@ -52,6 +52,7 @@ import {
   isSyncIdempotencyMismatch,
   SYNC_PRESENTATION_MESSAGES,
 } from "../offline/syncStatus.js";
+import { scrollToErrorElement } from "../utils/scrollToFirstError";
 import {
   DEFAULT_TABLE_PAGE_SIZE,
   getTablePaginationState,
@@ -1583,6 +1584,11 @@ const SyncManagementPage = () => {
       !trimmedReason
     ) {
       setResolutionReasonError("Review note is required.");
+      if (isMayorPortal && typeof document !== "undefined") {
+        scrollToErrorElement(
+          document.getElementById("sync-conflict-review-note"),
+        );
+      }
       return;
     }
 

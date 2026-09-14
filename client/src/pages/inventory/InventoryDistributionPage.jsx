@@ -25,6 +25,7 @@ import {
   downloadExportFile,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
 
 const filterStyles = {
   field: {
@@ -312,6 +313,7 @@ const InventoryDistributionPage = () => {
     useState("");
   const distributionDetailRequestIdRef = React.useRef(0);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const exportModalRef = React.useRef(null);
   const [isExporting, setIsExporting] = useState(false);
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
   const [selectedExportDisasterEventId, setSelectedExportDisasterEventId] =
@@ -559,6 +561,7 @@ const InventoryDistributionPage = () => {
 
     if (nextErrors.sectors || nextErrors.barangays) {
       setExportValidationErrors(nextErrors);
+      scheduleScrollToFirstError(exportModalRef);
       return;
     }
 
@@ -1018,6 +1021,7 @@ const InventoryDistributionPage = () => {
         />
 
         <MswdoExportModal
+          modalRef={exportModalRef}
           isOpen={isExportModalOpen}
           overlayClassName="inventory-distribution-export-modal-backdrop"
           modalClassName="inventory-distribution-export-modal"

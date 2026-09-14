@@ -316,12 +316,6 @@ const detailModalStyles = {
     fontSize: "14px",
     lineHeight: 1.5,
   },
-  comparisonNote: {
-    margin: "12px 0 0",
-    color: "#69839c",
-    fontSize: "14px",
-    lineHeight: 1.5,
-  },
   comparisonGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))",
@@ -572,9 +566,6 @@ const SyncRecordComparisonDetails = ({ comparison }) => {
       style={detailModalStyles.sectionCard}
     >
       <h3 style={{ margin: 0, color: "#17324d" }}>Record Comparison</h3>
-      {comparison.note ? (
-        <p style={detailModalStyles.comparisonNote}>{comparison.note}</p>
-      ) : null}
       <div style={detailModalStyles.comparisonGrid}>
         {records.map((record, index) => (
           <div

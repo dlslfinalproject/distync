@@ -340,6 +340,23 @@ test("getAuditLogs scopes Sync Conflict Resolved to Mayor inventory conflicts", 
   assert.doesNotMatch(capturedQuery, /'STUB'/);
 });
 
+test("getAuditLogs excludes passive Sync Conflict Reviewed records", async () => {
+  let capturedQuery = "";
+
+  await withMockPool(
+    async (query) => {
+      capturedQuery = query;
+      return { rows: [] };
+    },
+    async ({ getAuditLogs }) => {
+      await getAuditLogs({ module: "Sync", limit: 50, page: 1 });
+    },
+  );
+
+  assert.match(capturedQuery, /al\.action = 'SYNC_CONFLICT_RESOLUTION'/);
+  assert.doesNotMatch(capturedQuery, /SYNC_CONFLICT_REVIEW/);
+});
+
 test("getAuditLogs includes write-offs for both inventory sources", async () => {
   let capturedQuery = "";
   let capturedValues = [];
