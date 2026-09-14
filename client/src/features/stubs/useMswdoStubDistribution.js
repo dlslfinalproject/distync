@@ -6,7 +6,10 @@ import {
   fetchDisasterEvents,
   fetchMswdoSectors,
 } from "../mswdo-masterlist/mswdoMasterlistService";
-import { fetchBarangayStubDashboard } from "./stubService";
+import {
+  fetchBarangayStubDashboard,
+  fetchMunicipalStubDashboard,
+} from "./stubService";
 import { getPendingLocalStubRows } from "./stubOfflineRows";
 import { getCachedStubRowsForScope } from "./stubCache.js";
 import { readMswdoOfflineSnapshot } from "../offline/mswdoOfflinePreparation.js";
@@ -21,6 +24,15 @@ import {
   readOperationalDisasterEventId,
   resolveOperationalDisasterEventId,
 } from "../disaster-events/operationalDisasterEventSelection";
+import {
+  getVisibleSyncQueueEntries,
+} from "../../offline/syncQueue.js";
+import {
+  sortPresentedStubRows,
+  withStubPresentationStatus,
+} from "./stubPresentation.js";
+
+export const ALL_BARANGAYS = "__ALL_BARANGAYS__";
 
 const emptyMetrics = {
   total_issued_stubs: 0,
@@ -63,6 +75,9 @@ const getMappedRows = (stubRows) =>
     queue_time_in: stubRow.queue_time_in || "",
     latest_attendance_status: stubRow.latest_attendance_status || "",
     latest_attendance_time_out: stubRow.latest_attendance_time_out || null,
+    is_active: stubRow.is_active !== false && stubRow.household?.is_active !== false,
+    is_local_only: Boolean(stubRow.is_local_only),
+    presentation_status: stubRow.presentation_status || "",
     unclaimed_queue_position: stubRow.unclaimed_queue_position || null,
     relief_pack_name: stubRow.relief_pack_name || "--",
     assigned_relief_packs: Array.isArray(stubRow.assigned_relief_packs)
@@ -107,7 +122,7 @@ const getDisplayedRows = (rows, searchTerm, selectedSectorIds, selectedStubStatu
       return false;
     }
 
-    if (!matchesStubStatusFilter(row.status, normalizedStubStatus)) {
+    if (!matchesStubStatusFilter(row.presentation_status || row.status, normalizedStubStatus)) {
       return false;
     }
 
@@ -288,6 +303,9 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     const loadDistributionData = async () => {
       const requestSeq = dataRequestSeqRef.current + 1;
       dataRequestSeqRef.current = requestSeq;
+      const selectedEvent = disasterEvents.find(
+        (event) => event.id === selectedDisasterEventId,
+      );
 
       if (
         !isEventSelectionResolved ||
@@ -306,18 +324,31 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
       setErrorMessage("");
 
       try {
+        const isAllBarangays = selectedBarangayId === ALL_BARANGAYS;
+
         if (typeof navigator !== "undefined" && navigator.onLine === false) {
           const cachedRows = await getCachedStubRowsForScope({ disasterEventId: selectedDisasterEventId, currentBarangayId: selectedBarangayId });
           if (!cachedRows.length) throw new Error("This disaster event has no prepared offline relief stubs for the selected Barangay.");
-          const rows = cachedRows.filter((row) => String(row.barangay?.id || row.barangay_id || selectedBarangayId) === String(selectedBarangayId));
-          setDashboard({ metrics: { ...emptyMetrics, total_issued_stubs: rows.length, claimed_stubs: rows.filter((row) => row.status === "CLAIMED").length, unclaimed_stubs: rows.filter((row) => row.status === "ISSUED").length, beneficiary_families: new Set(rows.map((row) => row.household_id)).size }, data: rows });
+          const rows = isAllBarangays
+            ? cachedRows
+            : cachedRows.filter((row) => String(row.barangay?.id || row.barangay_id || "") === String(selectedBarangayId));
+          const syncQueueEntries = await getVisibleSyncQueueEntries();
+          const presentedRows = rows.map((row) =>
+            withStubPresentationStatus(row, syncQueueEntries, {
+              disasterEventId: selectedDisasterEventId,
+              barangayId: isAllBarangays ? "" : selectedBarangayId,
+            }),
+          );
+          setDashboard({ metrics: { ...emptyMetrics, total_issued_stubs: presentedRows.length, claimed_stubs: presentedRows.filter((row) => row.presentation_status === "CLAIMED").length, unclaimed_stubs: presentedRows.filter((row) => row.presentation_status === "FOR_CLAIM").length, beneficiary_families: new Set(presentedRows.map((row) => row.household_id)).size }, data: sortPresentedStubRows(presentedRows) });
           setPendingLocalRows([]);
           return;
         }
-        const dashboardPayload = await fetchBarangayStubDashboard({
-          disasterEventId: selectedDisasterEventId,
-          barangayId: selectedBarangayId,
-        });
+        const dashboardPayload = isAllBarangays && selectedEvent?.status === "ACTIVE"
+          ? await fetchMunicipalStubDashboard({ disasterEventId: selectedDisasterEventId })
+          : await fetchBarangayStubDashboard({
+              disasterEventId: selectedDisasterEventId,
+              barangayId: selectedBarangayId,
+            });
 
         if (!isMounted) {
           return;
@@ -328,7 +359,7 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
           : [];
         const localRows = await getPendingLocalStubRows({
           disasterEventId: selectedDisasterEventId,
-          barangayId: selectedBarangayId,
+          barangayId: isAllBarangays ? "" : selectedBarangayId,
           sectorOptions: sectors,
           existingHouseholdIds: serverRows.map(
             (row) => row.household?.id || row.household_id,
@@ -339,16 +370,32 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
           return;
         }
 
+        const syncQueueEntries = await getVisibleSyncQueueEntries();
+        const scopedServerRows = isAllBarangays
+          ? serverRows
+          : serverRows.filter((row) => String(row.barangay_id || row.barangay?.id || "") === String(selectedBarangayId));
+        const presentedRows = scopedServerRows.map((row) =>
+          withStubPresentationStatus(row, syncQueueEntries, {
+            disasterEventId: selectedDisasterEventId,
+            barangayId: isAllBarangays ? "" : selectedBarangayId,
+          }),
+        );
         setDashboard({
-          metrics: dashboardPayload.metrics || emptyMetrics,
-          data: serverRows,
+          metrics: dashboardPayload.metrics || {
+            ...emptyMetrics,
+            total_issued_stubs: presentedRows.length,
+            claimed_stubs: presentedRows.filter((row) => row.presentation_status === "CLAIMED").length,
+            unclaimed_stubs: presentedRows.filter((row) => row.presentation_status === "FOR_CLAIM").length,
+            beneficiary_families: new Set(presentedRows.map((row) => row.household_id || row.household?.id)).size,
+          },
+          data: sortPresentedStubRows(presentedRows),
         });
         setPendingLocalRows(localRows);
       } catch (error) {
         if (isMounted) {
           const localRows = await getPendingLocalStubRows({
             disasterEventId: selectedDisasterEventId,
-            barangayId: selectedBarangayId,
+            barangayId: selectedBarangayId === ALL_BARANGAYS ? "" : selectedBarangayId,
             sectorOptions: sectors,
           });
 
@@ -378,14 +425,19 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     isEventSelectionResolved,
     isLoadingFilters,
     reloadKey,
+    disasterEvents,
     sectors,
     selectedBarangayId,
     selectedDisasterEventId,
   ]);
 
   const rows = useMemo(() => {
-    return [...pendingLocalRows, ...getMappedRows(dashboard.data || [])];
+    return sortPresentedStubRows([...pendingLocalRows, ...getMappedRows(dashboard.data || [])]);
   }, [dashboard.data, pendingLocalRows]);
+
+  const selectedDisasterEvent = useMemo(() => {
+    return disasterEvents.find((event) => event.id === selectedDisasterEventId) || null;
+  }, [disasterEvents, selectedDisasterEventId]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -436,12 +488,6 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     ];
   }, [dashboard.metrics]);
 
-  const selectedDisasterEvent = useMemo(() => {
-    return (
-      disasterEvents.find((event) => event.id === selectedDisasterEventId) || null
-    );
-  }, [disasterEvents, selectedDisasterEventId]);
-
   const selectableBarangays = useMemo(() => {
     const affectedBarangayIds = getAffectedBarangayIds(selectedDisasterEvent);
 
@@ -464,14 +510,16 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
       return;
     }
 
-    const isSelectedBarangayAvailable = selectableBarangays.some(
+    const isSelectedBarangayAvailable =
+      (selectedBarangayId === ALL_BARANGAYS && selectedDisasterEvent?.status === "ACTIVE") ||
+      selectableBarangays.some(
       (barangay) => barangay.id === selectedBarangayId,
-    );
+      );
 
     if (!isSelectedBarangayAvailable) {
       setSelectedBarangayId(selectableBarangays[0].id);
     }
-  }, [selectableBarangays, selectedBarangayId, selectedDisasterEventId]);
+  }, [selectableBarangays, selectedBarangayId, selectedDisasterEvent, selectedDisasterEventId]);
 
   return {
     disasterEvents,

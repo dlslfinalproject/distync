@@ -39,6 +39,11 @@ import {
 import { readOperationalDisasterEventScope } from "../../features/disaster-events/operationalDisasterEventSelection";
 import { ROLE_CODES } from "../../utils/roleSession";
 import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
+import {
+  comparePresentedStubRows,
+  STUB_PRESENTATION_STATUSES,
+} from "../../features/stubs/stubPresentation.js";
+import { ALL_BARANGAYS } from "../../features/stubs/useMswdoStubDistribution";
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
@@ -108,13 +113,16 @@ const formatDisasterEventTitle = (event) =>
   String(event?.title || "").trim() || "No disaster event selected";
 
 const stubStatusOptions = [
-  { value: STATUS_FILTERS.CLAIMED, label: "Claimed" },
+  { value: STATUS_FILTERS.ALL, label: "All" },
   { value: STATUS_FILTERS.UNCLAIMED, label: "For Claim" },
+  { value: STATUS_FILTERS.CLAIMED, label: "Claimed" },
+  { value: STATUS_FILTERS.NOT_PRESENT, label: "Unclaimed" },
 ];
 
 const isSelectableClaimStubRow = (row) =>
   row?.status === "ISSUED" &&
   !row?.is_local_only &&
+  row?.presentation_status === STUB_PRESENTATION_STATUSES.FOR_CLAIM &&
   isCurrentlyPresentStubRow(row);
 
 const getStubSortTime = (row) => {
@@ -131,6 +139,9 @@ const getStubSortTime = (row) => {
 
 const sortStubRows = (rows, sortOrder = DEFAULT_STUB_SORT_ORDER) =>
   [...rows].sort((left, right) => {
+    const presentationComparison = comparePresentedStubRows(left, right);
+    if (presentationComparison) return presentationComparison;
+
     if (sortOrder === "az" || sortOrder === "za") {
       const leftName = String(left.family_head_name || "");
       const rightName = String(right.family_head_name || "");
@@ -139,10 +150,7 @@ const sortStubRows = (rows, sortOrder = DEFAULT_STUB_SORT_ORDER) =>
       return sortOrder === "za" ? -comparison : comparison;
     }
 
-    const leftTime = getStubSortTime(left);
-    const rightTime = getStubSortTime(right);
-
-    return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+    return 0;
   });
 
 const buildStubPrintRoute = ({
@@ -909,6 +917,7 @@ const StubDistributionPage = () => {
                   {barangay.name}
                 </option>
               ))}
+              <option value={ALL_BARANGAYS}>All Barangays</option>
             </select>
           </div>
         </div>
