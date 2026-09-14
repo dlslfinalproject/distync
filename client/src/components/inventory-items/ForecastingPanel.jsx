@@ -11,6 +11,7 @@ import {
   FiPlusCircle,
   FiTrendingUp,
 } from "react-icons/fi";
+import { getForecastModelRecommendation } from "../../features/inventory-items/inventoryItemExportOptions";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 
@@ -1169,6 +1170,21 @@ const ForecastingPanel = ({
   const eventSummary = activeDashboard?.summary || {};
   const eventInfo =
     activeDashboard?.disaster_event || forecastContext?.disaster_event || null;
+  const selectedForecastEvent = useMemo(
+    () =>
+      (Array.isArray(forecastEvents) ? forecastEvents : []).find(
+        (event) => event.id === selectedForecastEventId,
+      ) || null,
+    [forecastEvents, selectedForecastEventId],
+  );
+  const suggestedModel = useMemo(
+    () =>
+      getForecastModelRecommendation({
+        event: selectedForecastEvent,
+        forecastContext,
+      }),
+    [forecastContext, selectedForecastEvent],
+  );
   const recommendationRows = activeDashboard?.recommendations || [];
   const usageTrendRows = activeDashboard?.charts?.inventory_usage_trend || [];
   const demandRows = activeDashboard?.charts?.forecasted_demand || [];
@@ -1418,9 +1434,14 @@ const ForecastingPanel = ({
               {forecastModelOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
-                </option>
-              ))}
-            </select>
+                  {selectedForecastEvent &&
+                  !isForecastContextLoading &&
+                  option.value === suggestedModel.modelName
+                    ? " (Suggested Model)"
+                    : ""}
+              </option>
+            ))}
+          </select>
           </div>
         </div>
       </section>
