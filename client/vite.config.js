@@ -161,8 +161,10 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           assetFileNames: (assetInfo) =>
-            assetInfo.name === "distync-logo-cropped.png"
-              ? "assets/distync-logo-cropped.png"
+            ["distync-logo.png", "distync-logo-cropped.png"].includes(
+              assetInfo.name,
+            )
+              ? `assets/${assetInfo.name}`
               : "assets/[name]-[hash][extname]",
         },
       },
