@@ -372,8 +372,8 @@ const getRecordLines = (entry) => {
   return lines.map(formatBackendEnumText);
 };
 
-const InfoField = ({ label, value }) => (
-  <div>
+const InfoField = ({ label, value, style }) => (
+  <div style={style}>
     <p style={detailModalStyles.label}>{label}</p>
     <p style={detailModalStyles.value}>{value || "--"}</p>
   </div>
@@ -460,7 +460,7 @@ const getDonationItemDetailChanges = (item) => {
     {
       field: "expiration_date",
       label: "Expiration Date",
-      new_value: item.expiration_date || "No expiration date recorded",
+      new_value: item.expiration_date || "N/A",
     },
     {
       field: "remarks",
@@ -504,7 +504,7 @@ const DonationEntryPackContents = ({ contents }) => {
               <td style={detailModalStyles.td}>{content.packaging || "--"}</td>
               <td style={detailModalStyles.td}>{content.batchNo || "--"}</td>
               <td style={detailModalStyles.td}>
-                {content.expirationDate || "No expiration date recorded"}
+                {content.expirationDate || "N/A"}
               </td>
             </tr>
           ))}
@@ -652,6 +652,7 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
   const isStockAddedRecord =
     entry.action_label === "Stock Added" &&
     ["INVENTORY_BATCH", "INVENTORY_TRANSACTION"].includes(entry.entity_type);
+  const isWrittenOffRecord = entry.action_label === "Written Off";
   const donationDetails = isDonationEntryRecord
     ? entry.audit_detail?.donation_details ?? changes
     : [];
@@ -697,6 +698,11 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
                 key={`${entry.id}-summary-record-${index}`}
                 label={index === 0 ? "Record" : "Related Detail"}
                 value={line}
+                style={
+                  isWrittenOffRecord && index === 0
+                    ? { gridColumn: "1 / -1" }
+                    : undefined
+                }
               />
             ))}
             {entry.action_detail ? (

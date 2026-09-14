@@ -169,6 +169,42 @@ test("getSystemLogReview passes audit pagination and returns metadata", async ()
   );
 });
 
+test("item detail edit records use the pre-edit item name", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-item-edit-record-1",
+          action: "INVENTORY_ITEM_UPDATE",
+          entity_type: "INVENTORY_ITEM",
+          entity_id: "item-1",
+          role_code: "MAYOR",
+          old_values_json: {
+            item_name: "Gardenias",
+            item_code: "INV-GARDENIA-001",
+          },
+          new_values_json: {
+            item_name: "Gardenia",
+            item_code: "INV-GARDENIA-001",
+          },
+          created_at: "2026-08-11T01:30:00.000Z",
+          first_name: "Maria",
+          last_name: "Santos",
+          inventory_item_name: "Gardenia",
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const [entry] = result.audit_logs;
+
+      assert.equal(entry.action_label, "Item Details Edited");
+      assert.deepEqual(entry.record_lines, ["Gardenias"]);
+    },
+  );
+});
+
 test("audit item details omit redundant perishable status and trim unit value decimals", async () => {
   await withMockRepository(
     {
@@ -566,6 +602,84 @@ test("stock added details focus on the added stock and inflow transaction", asyn
   );
 });
 
+test("written-off audits cover LGU and donated loose-item inventory", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-write-off-lgu-1",
+          action: "INVENTORY_TRANSACTION_CREATE",
+          entity_type: "INVENTORY_TRANSACTION",
+          entity_id: "transaction-lgu-1",
+          role_code: "MAYOR",
+          old_values_json: {},
+          new_values_json: {
+            transaction_type: "DAMAGED",
+            quantity: 3,
+            reference_type: "MANUAL",
+            remarks: "Damaged stock",
+          },
+          created_at: "2026-08-11T02:00:00.000Z",
+          first_name: "Maria",
+          last_name: "Santos",
+          inventory_item_name: "Rice",
+          inventory_batch_no: "BATCH-RICE-001",
+          inventory_transaction_reference_type: "MANUAL",
+        },
+        {
+          id: "audit-write-off-donation-1",
+          action: "INVENTORY_TRANSACTION_CREATE",
+          entity_type: "INVENTORY_TRANSACTION",
+          entity_id: "transaction-donation-1",
+          role_code: "MAYOR",
+          old_values_json: {},
+          new_values_json: {
+            transaction_type: "EXPIRED",
+            quantity: 2,
+            reference_type: "DONATION",
+            remarks: "Expired donated stock",
+          },
+          created_at: "2026-08-11T02:01:00.000Z",
+          first_name: "Maria",
+          last_name: "Santos",
+          donation_donor_name: "Donor One",
+          donation_items_json: [
+            {
+              item_name: "Canned Goods",
+              quantity_received: 2,
+              unit_of_measure: "pcs",
+            },
+          ],
+          inventory_item_name: "Canned Goods",
+          inventory_batch_no: "DON-CANNED-BATCH-001",
+          inventory_transaction_reference_type: "DONATION",
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const lguEntry = result.audit_logs.find(
+        ({ id }) => id === "audit-write-off-lgu-1",
+      );
+      const donatedEntry = result.audit_logs.find(
+        ({ id }) => id === "audit-write-off-donation-1",
+      );
+
+      assert.equal(lguEntry.action_label, "Written Off");
+      assert.equal(lguEntry.module, "Inventory");
+      assert.deepEqual(lguEntry.record_lines, ["Rice", "BATCH-RICE-001"]);
+
+      assert.equal(donatedEntry.action_label, "Written Off");
+      assert.equal(donatedEntry.module, "Donation");
+      assert.deepEqual(donatedEntry.record_lines, [
+        "Donor One",
+        "Canned Goods (2 pcs)",
+      ]);
+    },
+  );
+});
+
 test("donation entry details include loose item donation information", async () => {
   await withMockRepository(
     {
@@ -668,7 +782,7 @@ test("donation entry details include loose item donation information", async () 
           unit_of_measure: "pc",
           packaging: "box",
           batch_no: "DONATION-001",
-          expiration_date: "No expiration date recorded",
+          expiration_date: "N/A",
           remarks: "Received donation stock for Acer Charger from Acer Company",
         },
       ]);
@@ -785,7 +899,7 @@ test("donation entry details group relief pack details and pack quantity", async
           unitOfMeasure: "kg",
           packaging: "sack",
           batchNo: "--",
-          expirationDate: "No expiration date recorded",
+          expirationDate: "N/A",
         },
         {
           itemName: "Nature Spring Water",
@@ -793,7 +907,7 @@ test("donation entry details group relief pack details and pack quantity", async
           unitOfMeasure: "pc",
           packaging: "piece",
           batchNo: "--",
-          expirationDate: "No expiration date recorded",
+          expirationDate: "N/A",
         },
       ]);
     },
@@ -973,6 +1087,86 @@ test("donation details edited shows donation-level changes before and after", as
             label: "Remarks",
             previous_value: "Original remarks",
             new_value: "Updated remarks",
+          },
+        ],
+      );
+    },
+  );
+});
+
+test("legacy donation edit snapshots show available one-sided changes", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-donation-edit-legacy-1",
+          action: "DONATION_UPDATE",
+          entity_type: "DONATION",
+          entity_id: "donation-legacy-1",
+          role_code: "MAYOR",
+          old_values_json: {
+            donor_name: "Legacy Donor",
+            donor_type: "NGO",
+            received_at: "2026-08-08T00:00:00.000Z",
+            status: "RECEIVED",
+            remarks: null,
+          },
+          new_values_json: {
+            donor_name: "Legacy Donor",
+            donor_type: "NGO",
+            received_at: "2026-08-08T00:00:00.000Z",
+            status: "RECEIVED",
+            remarks: null,
+            item_count: 2,
+            total_quantity_received: 300,
+            items: [
+              {
+                item_name: "Gardenia",
+                quantity_received: 100,
+              },
+              {
+                item_name: "Gatorade",
+                quantity_received: 200,
+              },
+            ],
+          },
+          created_at: "2026-08-08T02:10:00.000Z",
+          first_name: "Maria",
+          last_name: "Santos",
+          donation_donor_name: "Legacy Donor",
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const [entry] = result.audit_logs;
+
+      assert.equal(
+        entry.action_detail,
+        "Edited: Number of Items, Total Quantity Received",
+      );
+      assert.deepEqual(
+        entry.audit_detail.changes.map(
+          ({ field, label, previous_value, new_value }) => ({
+            field,
+            label,
+            previous_value,
+            new_value,
+          }),
+        ),
+        [
+          {
+            field: "item_count",
+            label: "Number of Items",
+            previous_value: "--",
+            new_value: "2",
+          },
+          {
+            field: "total_quantity_received",
+            label: "Total Quantity Received",
+            previous_value: "--",
+            new_value: "300",
           },
         ],
       );

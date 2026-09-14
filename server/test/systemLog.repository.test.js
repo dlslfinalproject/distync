@@ -306,6 +306,33 @@ test("getAuditLogs filters Packaging Added to additional packaging records", asy
   assert.deepEqual(capturedValues, [50, 0]);
 });
 
+test("getAuditLogs includes write-offs for both inventory sources", async () => {
+  let capturedQuery = "";
+  let capturedValues = [];
+
+  await withMockPool(
+    async (query, values) => {
+      capturedQuery = query;
+      capturedValues = values;
+      return { rows: [] };
+    },
+    async ({ getAuditLogs }) => {
+      await getAuditLogs({
+        auditAction: "written_off",
+        limit: 50,
+        page: 1,
+      });
+    },
+  );
+
+  assert.match(capturedQuery, /al\.entity_type = 'INVENTORY_TRANSACTION'/);
+  assert.match(capturedQuery, /al\.new_values_json->>'transaction_type' IN \(/);
+  assert.match(capturedQuery, /'EXPIRED'/);
+  assert.match(capturedQuery, /'DAMAGED'/);
+  assert.match(capturedQuery, /'OTHER'/);
+  assert.deepEqual(capturedValues, [50, 0]);
+});
+
 test("getAuditLogs applies inclusive date range filter before paging", async () => {
   let capturedQuery = "";
   let capturedValues = [];

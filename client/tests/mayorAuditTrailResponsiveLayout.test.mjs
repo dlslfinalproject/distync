@@ -59,10 +59,15 @@ test("Mayor audit trail tables keep horizontal overflow local and paginator outs
   assert.match(pageSource, /Donation Entry/);
   assert.match(pageSource, /Donation Details/);
   assert.match(pageSource, /Donation Details Edited/);
-  assert.match(pageSource, /Donation Items/);
+  assert.match(pageSource, /Donated Items \(Loose Item\)/);
   assert.match(pageSource, /DonationEntryItemsDetails/);
   assert.doesNotMatch(pageSource, />\s*Contents\s*</);
   assert.match(pageSource, /Related Stock Adjustment/);
+  assert.match(pageSource, /const isWrittenOffRecord = entry\.action_label === "Written Off";/);
+  assert.match(
+    pageSource,
+    /isWrittenOffRecord && index === 0[\s\S]*?gridColumn: "1 \/ -1"/,
+  );
   assert.doesNotMatch(pageSource, /value: "donation_adjustment"/);
   assert.match(pageSource, />\s*Opening Stock Details\s*</);
   assert.match(pageSource, />\s*Opening Transaction Details\s*</);

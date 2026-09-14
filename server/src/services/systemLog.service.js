@@ -64,8 +64,8 @@ const DONATION_FIELD_LABELS = {
   received_at: "Received Date",
   status: "Status",
   remarks: "Remarks",
-  item_count: "Donation Items",
-  total_quantity_received: "Donation Items",
+  item_count: "Number of Items",
+  total_quantity_received: "Total Quantity Received",
   items: "Donation Items",
 };
 
@@ -85,7 +85,9 @@ const DONATION_ITEM_FIELD_LABELS = {
   remarks: "Item Remarks",
 };
 
-const DONATION_EDIT_AUDIT_FIELDS = Object.keys(DONATION_FIELD_LABELS);
+const DONATION_EDIT_AUDIT_FIELDS = Object.keys(DONATION_FIELD_LABELS).filter(
+  (fieldName) => fieldName !== "items",
+);
 const DONATION_ITEM_EDIT_AUDIT_FIELDS = Object.keys(DONATION_ITEM_FIELD_LABELS);
 
 const INVENTORY_WRITE_OFF_TYPES = new Set([
@@ -256,6 +258,7 @@ const DATE_DETAIL_FIELDS = new Set([
   "performed_at",
 ]);
 const AUDIT_DISPLAY_TIME_ZONE = "Asia/Manila";
+const NOT_APPLICABLE_EXPIRATION_DATE = "N/A";
 
 const formatInventoryStatusType = (value) => {
   const normalizedValue = String(value || "").trim().toUpperCase();
@@ -303,17 +306,35 @@ const getComparableAuditFields = (row, allowedFields) => {
 
   const oldValues = row.old_values_json || {};
   const newValues = row.new_values_json || {};
-
-  return allowedFields.filter(
+  const fieldsPresentInBoth = allowedFields.filter(
     (fieldName) =>
       Object.prototype.hasOwnProperty.call(oldValues, fieldName) &&
       Object.prototype.hasOwnProperty.call(newValues, fieldName),
   );
+  const changedFieldsPresentInBoth = fieldsPresentInBoth.filter(
+    (fieldName) =>
+      normalizeComparableAuditValue(oldValues[fieldName]) !==
+      normalizeComparableAuditValue(newValues[fieldName]),
+  );
+
+  if (changedFieldsPresentInBoth.length) {
+    return fieldsPresentInBoth;
+  }
+
+  const fieldsPresentInOnlyOneSnapshot = allowedFields.filter(
+    (fieldName) =>
+      Object.prototype.hasOwnProperty.call(oldValues, fieldName) !==
+      Object.prototype.hasOwnProperty.call(newValues, fieldName),
+  );
+
+  return fieldsPresentInOnlyOneSnapshot.length
+    ? fieldsPresentInOnlyOneSnapshot
+    : fieldsPresentInBoth;
 };
 
 const formatInventoryDate = (value) => {
   if (!value) {
-    return "No expiry date";
+    return NOT_APPLICABLE_EXPIRATION_DATE;
   }
 
   const dateValue = new Date(`${String(value).slice(0, 10)}T00:00:00`);
@@ -352,7 +373,7 @@ const formatAuditDateTime = (value) => {
 
 const formatAuditDate = (value) => {
   if (!value) {
-    return "--";
+    return NOT_APPLICABLE_EXPIRATION_DATE;
   }
 
   const parsedDate = new Date(`${String(value).slice(0, 10)}T00:00:00`);
@@ -408,6 +429,13 @@ const formatAuditDonorType = (value) => {
 };
 
 const formatAuditValue = (fieldName, value) => {
+  if (
+    fieldName === "expiration_date" &&
+    (value === undefined || value === null || value === "")
+  ) {
+    return NOT_APPLICABLE_EXPIRATION_DATE;
+  }
+
   if (value === undefined || value === null || value === "") {
     return "--";
   }
@@ -609,7 +637,6 @@ const buildDonationItemDetails = (row) => {
   const donationItems = getDonationItems(row);
   const detailRows = [];
   const reliefPackRows = new Map();
-  const noExpirationDateMessage = "No expiration date recorded";
 
   donationItems.forEach((item) => {
     const reliefPack = parseReliefPackRemarkDetails(item?.remarks);
@@ -624,7 +651,7 @@ const buildDonationItemDetails = (row) => {
       batchNo: item?.batch_no || "--",
       expirationDate: item?.expiration_date
         ? formatAuditValue("expiration_date", item.expiration_date)
-        : noExpirationDateMessage,
+        : NOT_APPLICABLE_EXPIRATION_DATE,
       remarks:
         item?.inventory_transaction_remarks || item?.remarks || "--",
     };
@@ -662,7 +689,7 @@ const buildDonationItemDetails = (row) => {
         unit_of_measure: "pack(s)",
         packaging: "--",
         batch_no: "--",
-        expiration_date: "--",
+        expiration_date: NOT_APPLICABLE_EXPIRATION_DATE,
         remarks: "--",
       };
       reliefPackRows.set(reliefPackKey, reliefPackRow);
@@ -1426,9 +1453,10 @@ const buildInventoryItemEditDetail = (row) => {
 const buildChangedFieldLabels = (row, auditFields, fieldLabels) => {
   const oldValues = row.old_values_json || {};
   const newValues = row.new_values_json || {};
+  const comparableFields = new Set(getComparableAuditFields(row, auditFields));
 
   return auditFields
-    .filter((key) => getComparableAuditFields(row, [key]).length > 0)
+    .filter((key) => comparableFields.has(key))
     .filter((key) => {
       return (
         normalizeComparableAuditValue(oldValues[key]) !==
@@ -1785,17 +1813,27 @@ const buildDistributionAuditActionLabel = (row) => {
 };
 
 const buildInventoryRecordLines = (row) => {
+  const isInventoryItemEdit =
+    row.entity_type === "INVENTORY_ITEM" &&
+    row.action === "INVENTORY_ITEM_UPDATE";
+  const recordValues = isInventoryItemEdit
+    ? row.old_values_json || {}
+    : row.new_values_json || {};
   const itemName =
+    recordValues.item_name ||
+    (isInventoryItemEdit ? row.old_values_json?.item_name : null) ||
     row.inventory_item_name ||
     row.new_values_json?.item_name ||
     row.old_values_json?.item_name ||
     "Inventory record";
   const batchNo =
+    recordValues.batch_no ||
     row.inventory_batch_no ||
     row.new_values_json?.batch_no ||
     row.old_values_json?.batch_no ||
     null;
   const barcode =
+    recordValues.barcode ||
     row.inventory_barcode ||
     row.new_values_json?.barcode ||
     row.old_values_json?.barcode ||
