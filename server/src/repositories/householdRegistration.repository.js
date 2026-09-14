@@ -50,7 +50,7 @@ const getUserBarangayScopeById = async (userId) => {
   return result.rows[0] || null;
 };
 
-const getEvacuationCenterById = async (id) => {
+const getEvacuationCenterById = async (id, dbClient = pool) => {
   const query = `
     SELECT
       ec.id,
@@ -65,7 +65,7 @@ const getEvacuationCenterById = async (id) => {
     WHERE ec.id = $1
   `;
 
-  const result = await pool.query(query, [id]);
+  const result = await dbClient.query(query, [id]);
   return result.rows[0] || null;
 };
 
@@ -1372,6 +1372,77 @@ const getActiveEvacuationLogsByHouseholdId = async (householdId, dbClient = pool
   return result.rows;
 };
 
+const getHouseholdLifecycleDependencies = async (
+  householdId,
+  dbClient = pool,
+) => {
+  const query = `
+    SELECT
+      EXISTS (
+        SELECT 1
+        FROM evacuees e
+        WHERE e.household_id = $1
+      ) AS has_evacuees,
+      EXISTS (
+        SELECT 1
+        FROM evacuation_logs el
+        WHERE el.household_id = $1
+      ) AS has_attendance,
+      EXISTS (
+        SELECT 1
+        FROM evacuation_logs el
+        WHERE el.household_id = $1
+          AND el.status = 'PRESENT'
+          AND el.time_out IS NULL
+      ) AS has_open_attendance,
+      EXISTS (
+        SELECT 1
+        FROM household_privacy_consents hpc
+        WHERE hpc.household_id = $1
+      ) AS has_consent,
+      EXISTS (
+        SELECT 1
+        FROM household_sectors hs
+        WHERE hs.household_id = $1
+      ) AS has_household_sectors,
+      EXISTS (
+        SELECT 1
+        FROM evacuee_sectors es
+        INNER JOIN evacuees e
+          ON e.id = es.evacuee_id
+        WHERE e.household_id = $1
+      ) AS has_evacuee_sectors,
+      EXISTS (
+        SELECT 1
+        FROM stubs s
+        WHERE s.household_id = $1
+      ) AS has_stubs,
+      EXISTS (
+        SELECT 1
+        FROM stub_donated_relief_pack_assignments a
+        INNER JOIN stubs s
+          ON s.id = a.stub_id
+        WHERE s.household_id = $1
+      ) AS has_assignments,
+      EXISTS (
+        SELECT 1
+        FROM stub_donated_relief_pack_assignments a
+        INNER JOIN stubs s
+          ON s.id = a.stub_id
+        WHERE s.household_id = $1
+          AND a.assignment_status = 'RESERVED'
+      ) AS has_reserved_assignments,
+      EXISTS (
+        SELECT 1
+        FROM distribution_transactions dt
+        WHERE dt.household_id = $1
+      ) AS has_distributions
+  `;
+
+  const result = await dbClient.query(query, [householdId]);
+  return result.rows[0] || null;
+};
+
 const getActiveHouseholdSuccessorById = async (
   householdId,
   dbClient = pool,
@@ -1450,37 +1521,6 @@ const markHouseholdDeparture = async (
     departureDetails.departure_time || null,
   ]);
 
-  return result.rows;
-};
-
-const updateHouseholdDepartureTimestamp = async (
-  householdId,
-  departureTimestamp,
-  dbClient = pool,
-) => {
-  const query = `
-    UPDATE evacuation_logs
-    SET time_out = LEAST(time_out, GREATEST($2::timestamptz, time_in)),
-        updated_at = NOW()
-    WHERE household_id = $1
-      AND time_out IS NOT NULL
-      AND $2::timestamptz < time_out
-    RETURNING
-      id,
-      disaster_event_id,
-      household_id,
-      evacuee_id,
-      evacuation_center_id,
-      time_in,
-      time_out,
-      status,
-      recorded_by,
-      remarks,
-      created_at,
-      updated_at
-  `;
-
-  const result = await dbClient.query(query, [householdId, departureTimestamp]);
   return result.rows;
 };
 
@@ -1848,6 +1888,36 @@ const getEvacuationLogByIdForHousehold = async (
   return result.rows[0] || null;
 };
 
+const getEvacuationLogByIdForHouseholdForUpdate = async (
+  householdId,
+  evacuationLogId,
+  dbClient = pool,
+) => {
+  const query = `
+    SELECT
+      id,
+      disaster_event_id,
+      household_id,
+      evacuee_id,
+      evacuation_center_id,
+      time_in,
+      time_out,
+      status,
+      recorded_by,
+      remarks,
+      created_at,
+      updated_at
+    FROM evacuation_logs
+    WHERE household_id = $1
+      AND id = $2
+    LIMIT 1
+    FOR UPDATE
+  `;
+
+  const result = await dbClient.query(query, [householdId, evacuationLogId]);
+  return result.rows[0] || null;
+};
+
 const updateEvacuationLogCorrection = async (
   evacuationLogId,
   correctionData,
@@ -1860,12 +1930,14 @@ const updateEvacuationLogCorrection = async (
       status = $3,
       time_out = CASE
         WHEN $3 = 'PRESENT' THEN NULL
-        WHEN $3 = 'LEFT' AND time_out IS NULL THEN NOW()
+        WHEN $3 = 'LEFT' THEN GREATEST(NOW(), time_in)
         ELSE time_out
       END,
       remarks = $4,
       updated_at = NOW()
     WHERE id = $1
+      AND status = 'PRESENT'
+      AND time_out IS NULL
     RETURNING
       id,
       disaster_event_id,
@@ -2079,9 +2151,9 @@ module.exports = {
   insertStub,
   insertEvacuationLog,
   getActiveEvacuationLogsByHouseholdId,
+  getHouseholdLifecycleDependencies,
   getActiveHouseholdSuccessorById,
   markHouseholdDeparture,
-  updateHouseholdDepartureTimestamp,
   markDisasterEventHouseholdDepartures,
   getHouseholdSummaryById,
   getHouseholdSummaryByIdForUpdate,
@@ -2093,6 +2165,7 @@ module.exports = {
   getLatestAttendanceByHouseholdId,
   getLatestDistributionTransactionByStubId,
   getEvacuationLogByIdForHousehold,
+  getEvacuationLogByIdForHouseholdForUpdate,
   updateEvacuationLogCorrection,
   archiveHousehold,
   archiveHouseholdsByIds,

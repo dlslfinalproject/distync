@@ -48,7 +48,6 @@ const NON_ADMITTED_RESIDENT_STAY_TYPES = new Set([
 const buildDuplicateDepartureError = (
   householdId,
   latestAttendance,
-  resolution = {},
 ) => {
   const error = new Error(
     "Duplicate household departure detected. Accepted server departure time was kept.",
@@ -57,8 +56,8 @@ const buildDuplicateDepartureError = (
   error.code = "DUPLICATE_HOUSEHOLD_DEPARTURE";
   error.entityServerId = householdId;
   error.serverPayload = latestAttendance || null;
-  error.incomingDepartureWasEarlier = resolution.incomingDepartureWasEarlier === true;
-  error.incomingDepartureTime = resolution.incomingDepartureTime || null;
+  error.incomingDepartureWasEarlier = false;
+  error.incomingDepartureTime = null;
   return error;
 };
 
@@ -75,17 +74,22 @@ const isEarlierTimestamp = (candidateTimestamp, existingTimestamp) => {
     candidateTime < existingTime;
 };
 
-const isValidEarlierDepartureTimestamp = (candidateTimestamp, attendance) => {
-  if (!isEarlierTimestamp(candidateTimestamp, attendance?.time_out)) {
-    return false;
-  }
+const buildDirectArchiveLifecycleError = () => {
+  const error = new Error(
+    "Active households with an open arrival record must be departed through the attendance lifecycle.",
+  );
+  error.statusCode = 400;
+  error.code = "HOUSEHOLD_DEPARTURE_REQUIRED";
+  return error;
+};
 
-  const candidateTime = new Date(candidateTimestamp).getTime();
-  const arrivalTime = attendance?.time_in
-    ? new Date(attendance.time_in).getTime()
-    : null;
-
-  return arrivalTime === null || !Number.isFinite(arrivalTime) || candidateTime >= arrivalTime;
+const buildHistoricalAttendanceImmutableError = () => {
+  const error = new Error(
+    "Completed attendance records cannot be corrected through the ordinary correction workflow.",
+  );
+  error.statusCode = 409;
+  error.code = "HISTORICAL_ATTENDANCE_IMMUTABLE";
+  return error;
 };
 
 const buildStubQrCodeValue = ({ disasterEventId, householdId, stubNo }) => {
@@ -1970,12 +1974,35 @@ const handleDuplicateRegistrationMatch = async ({
 const reconcileCrossBarangayDuplicateWithEarlierRegistration = async ({
   householdId,
   registrationData,
-  dbClient,
+  dbClient = pool,
 }) => {
   if (
     !householdId ||
     !registrationData?.registered_at ||
     !isValidTimestampValue(registrationData.registered_at)
+  ) {
+    return null;
+  }
+
+  const existingHousehold =
+    await householdRegistrationRepository.getHouseholdSummaryByIdForUpdate(
+      householdId,
+      dbClient,
+    );
+
+  if (!existingHousehold || !existingHousehold.is_active) {
+    return null;
+  }
+
+  const lifecycleDependencies =
+    await householdRegistrationRepository.getHouseholdLifecycleDependencies(
+      householdId,
+      dbClient,
+    );
+
+  if (
+    !lifecycleDependencies ||
+    Object.entries(lifecycleDependencies).some(([, present]) => present === true)
   ) {
     return null;
   }
@@ -2578,24 +2605,6 @@ const departHousehold = async (
           );
 
         if (latestAttendance?.time_out) {
-          const incomingDepartureTime = departureDetails?.departure_time;
-          if (isValidEarlierDepartureTimestamp(incomingDepartureTime, latestAttendance)) {
-            const updatedLogs =
-              await householdRegistrationRepository.updateHouseholdDepartureTimestamp(
-                householdId,
-                incomingDepartureTime,
-                client,
-              );
-            throw buildDuplicateDepartureError(
-              householdId,
-              updatedLogs[0] || latestAttendance,
-              {
-                incomingDepartureWasEarlier: true,
-                incomingDepartureTime,
-              },
-            );
-          }
-
           throw buildDuplicateDepartureError(householdId, latestAttendance);
         }
       }
@@ -2645,24 +2654,6 @@ const departHousehold = async (
           );
 
         if (latestAttendance?.time_out) {
-          const incomingDepartureTime = departureDetails?.departure_time;
-          if (isValidEarlierDepartureTimestamp(incomingDepartureTime, latestAttendance)) {
-            const updatedLogs =
-              await householdRegistrationRepository.updateHouseholdDepartureTimestamp(
-                householdId,
-                incomingDepartureTime,
-                client,
-              );
-            throw buildDuplicateDepartureError(
-              householdId,
-              updatedLogs[0] || latestAttendance,
-              {
-                incomingDepartureWasEarlier: true,
-                incomingDepartureTime,
-              },
-            );
-          }
-
           throw buildDuplicateDepartureError(householdId, latestAttendance);
         }
       }
@@ -2771,146 +2762,242 @@ const correctEvacuationLog = async ({
   requester,
   correctionData,
 }) => {
-  const household =
-    await householdRegistrationRepository.getHouseholdSummaryById(householdId);
-
-  if (!household) {
-    const error = new Error("Household not found");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  if (
-    requester?.roleCode === BARANGAY_ROLE_CODE &&
-    household.barangay_id !== requester.defaultBarangayId
-  ) {
-    const error = new Error(
-      "You do not have access to correct evacuation logs for this household",
-    );
-    error.statusCode = 403;
-    throw error;
-  }
-
-  const existingLog =
-    await householdRegistrationRepository.getEvacuationLogByIdForHousehold(
-      householdId,
-      evacuationLogId,
-    );
-
-  if (!existingLog) {
-    const error = new Error("Evacuation log not found");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  if (correctionData.evacuation_center_id) {
-    const evacuationCenter =
-      await householdRegistrationRepository.getEvacuationCenterById(
-        correctionData.evacuation_center_id,
-      );
-
-    if (!evacuationCenter || !evacuationCenter.is_active) {
-      const error = new Error("evacuation_center_id is invalid");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    if (evacuationCenter.barangay_id !== household.barangay_id) {
-      const error = new Error(
-        "Selected evacuation center must belong to the household barangay",
-      );
-      error.statusCode = 400;
-      throw error;
-    }
-  }
-
-  const updatedLog =
-    await householdRegistrationRepository.updateEvacuationLogCorrection(
-      evacuationLogId,
-      {
-        evacuation_center_id: correctionData.evacuation_center_id,
-        status: correctionData.status,
-        remarks: correctionData.correction_remarks,
-      },
-    );
-
-  await logAuditSafely({
-    actor: requester,
-    action: "HOUSEHOLD_EVACUATION_CORRECTION",
-    entityType: "EVACUATION_LOG",
-    entityId: evacuationLogId,
-    oldValues: summarizeEvacuationLog(existingLog),
-    newValues: summarizeEvacuationLog(updatedLog),
-  });
-
-  const familyHeadName = [
-    household.family_head_first_name,
-    household.family_head_last_name,
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  await notificationService.emitSafely(() =>
-    notificationService.emitEvacueeAttendanceUpdate({
-      householdId,
-      barangayId: household.barangay_id,
-      familyHeadName,
-      action: "status-updated",
-    }),
-  );
-
-  return {
-    household_id: householdId,
-    evacuation_log_id: updatedLog.id,
-    status: updatedLog.status,
-    evacuation_center_id: updatedLog.evacuation_center_id,
-    time_in: updatedLog.time_in,
-    time_out: updatedLog.time_out,
-    remarks: updatedLog.remarks,
-  };
-};
-
-const archiveHousehold = async ({ householdId, requester, archiveData }) => {
-  const existingHousehold =
-    await householdRegistrationRepository.getHouseholdSummaryById(householdId);
-
-  if (!existingHousehold) {
-    const error = new Error("Household not found");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  if (
-    requester?.roleCode === BARANGAY_ROLE_CODE &&
-    existingHousehold.barangay_id !== requester.defaultBarangayId
-  ) {
-    const error = new Error("You do not have access to archive this household");
-    error.statusCode = 403;
-    throw error;
-  }
-
-  if (!existingHousehold.is_active) {
-    const error = new Error("This household is already archived");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const previousHouseholdSummary = summarizeHousehold(existingHousehold);
+  const correction = correctionData || {};
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    await householdRegistrationRepository.archiveHousehold(householdId, client);
+    const household =
+      await householdRegistrationRepository.getHouseholdSummaryByIdForUpdate(
+        householdId,
+        client,
+      );
+
+    if (!household) {
+      const error = new Error("Household not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (
+      requester?.roleCode === BARANGAY_ROLE_CODE &&
+      household.barangay_id !== requester.defaultBarangayId
+    ) {
+      const error = new Error(
+        "You do not have access to correct evacuation logs for this household",
+      );
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if (!household.is_active) {
+      throw buildHistoricalAttendanceImmutableError();
+    }
+
+    const getAttendanceForUpdate =
+      householdRegistrationRepository.getEvacuationLogByIdForHouseholdForUpdate ||
+      householdRegistrationRepository.getEvacuationLogByIdForHousehold;
+    const existingLog = await getAttendanceForUpdate(
+      householdId,
+      evacuationLogId,
+      client,
+    );
+
+    if (!existingLog) {
+      const error = new Error("Evacuation log not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (
+      String(existingLog.status || "").toUpperCase() !== "PRESENT" ||
+      (existingLog.time_out !== null && existingLog.time_out !== undefined)
+    ) {
+      throw buildHistoricalAttendanceImmutableError();
+    }
+
+    if (correction.evacuation_center_id) {
+      const evacuationCenter =
+        await householdRegistrationRepository.getEvacuationCenterById(
+          correction.evacuation_center_id,
+          client,
+        );
+
+      if (!evacuationCenter || !evacuationCenter.is_active) {
+        const error = new Error("evacuation_center_id is invalid");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      if (evacuationCenter.barangay_id !== household.barangay_id) {
+        const error = new Error(
+          "Selected evacuation center must belong to the household barangay",
+        );
+        error.statusCode = 400;
+        throw error;
+      }
+    }
+
+    const updatedLog =
+      await householdRegistrationRepository.updateEvacuationLogCorrection(
+        evacuationLogId,
+        {
+          evacuation_center_id: correction.evacuation_center_id,
+          status: correction.status,
+          remarks: correction.correction_remarks,
+        },
+        client,
+      );
+
+    if (!updatedLog) {
+      throw buildHistoricalAttendanceImmutableError();
+    }
+
+    if (
+      String(updatedLog.status || "").toUpperCase() === "LEFT" &&
+      updatedLog.time_in &&
+      updatedLog.time_out &&
+      new Date(updatedLog.time_out).getTime() < new Date(updatedLog.time_in).getTime()
+    ) {
+      const error = new Error("Attendance departure time cannot precede arrival time");
+      error.statusCode = 400;
+      error.code = "INVALID_ATTENDANCE_TIME_ORDER";
+      throw error;
+    }
+
+    await client.query("COMMIT");
+
+    await logAuditSafely({
+      actor: requester,
+      action: "HOUSEHOLD_EVACUATION_CORRECTION",
+      entityType: "EVACUATION_LOG",
+      entityId: evacuationLogId,
+      oldValues: summarizeEvacuationLog(existingLog),
+      newValues: summarizeEvacuationLog(updatedLog),
+    });
+
+    const familyHeadName = [
+      household.family_head_first_name,
+      household.family_head_last_name,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    await notificationService.emitSafely(() =>
+      notificationService.emitEvacueeAttendanceUpdate({
+        householdId,
+        barangayId: household.barangay_id,
+        familyHeadName,
+        action: "status-updated",
+      }),
+    );
+
+    return {
+      household_id: householdId,
+      evacuation_log_id: updatedLog.id,
+      status: updatedLog.status,
+      evacuation_center_id: updatedLog.evacuation_center_id,
+      time_in: updatedLog.time_in,
+      time_out: updatedLog.time_out,
+      remarks: updatedLog.remarks,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const archiveHousehold = async ({ householdId, requester, archiveData }) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const existingHousehold =
+      await householdRegistrationRepository.getHouseholdSummaryByIdForUpdate(
+        householdId,
+        client,
+      );
+
+    if (!existingHousehold) {
+      const error = new Error("Household not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (
+      requester?.roleCode === BARANGAY_ROLE_CODE &&
+      existingHousehold.barangay_id !== requester.defaultBarangayId
+    ) {
+      const error = new Error("You do not have access to archive this household");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if (!existingHousehold.is_active) {
+      const error = new Error("This household is already archived");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const activeEvacuationLogs =
+      await householdRegistrationRepository.getActiveEvacuationLogsByHouseholdId(
+        householdId,
+        client,
+      );
+
+    if (activeEvacuationLogs.length > 0) {
+      throw buildDirectArchiveLifecycleError();
+    }
+
+    const lifecycleDependencies =
+      await householdRegistrationRepository.getHouseholdLifecycleDependencies(
+        householdId,
+        client,
+      );
+
+    if (!lifecycleDependencies) {
+      const error = new Error(
+        "Household archive safety checks could not be completed.",
+      );
+      error.statusCode = 409;
+      error.code = "HOUSEHOLD_ARCHIVE_SAFETY_CHECK_FAILED";
+      throw error;
+    }
+
+    if (
+      lifecycleDependencies.has_open_attendance === true ||
+      lifecycleDependencies.has_reserved_assignments === true
+    ) {
+      throw buildDirectArchiveLifecycleError();
+    }
+
+    const previousHouseholdSummary = summarizeHousehold(existingHousehold);
+    const archivedHousehold =
+      await householdRegistrationRepository.archiveHousehold(householdId, client);
+
+    if (!archivedHousehold) {
+      const error = new Error("Household archive state was no longer available");
+      error.statusCode = 409;
+      error.code = "HOUSEHOLD_ARCHIVE_STATE_CONSUMED";
+      throw error;
+    }
+
     const archivedEvacuees =
       await householdRegistrationRepository.deactivateEvacueesByHouseholdId(
         householdId,
         client,
       );
 
-    await client.query("COMMIT");
+    const archivedHouseholdDetails = await buildRegistrationResponse(
+      householdId,
+      client,
+    );
 
-    const archivedHouseholdDetails = await buildRegistrationResponse(householdId);
+    await client.query("COMMIT");
 
     await logAuditSafely({
       actor: requester,
@@ -2920,7 +3007,7 @@ const archiveHousehold = async ({ householdId, requester, archiveData }) => {
       oldValues: previousHouseholdSummary,
       newValues: {
         ...summarizeHousehold(archivedHouseholdDetails.household),
-        archive_remarks: archiveData.archive_remarks || null,
+        archive_remarks: archiveData?.archive_remarks || null,
         archived_members_count: archivedEvacuees.length,
       },
     });
@@ -2929,7 +3016,7 @@ const archiveHousehold = async ({ householdId, requester, archiveData }) => {
       household_id: householdId,
       archived_members_count: archivedEvacuees.length,
       status: "ARCHIVED",
-      household: archivedHouseholdDetails.household,
+      household: archivedHouseholdDetails.household || archivedHousehold,
     };
   } catch (error) {
     await client.query("ROLLBACK");
