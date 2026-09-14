@@ -21,6 +21,10 @@ test("Mayor inventory forecasting keeps route, service endpoints, and forecast s
   assert.match(routesSource, /path: "forecasts", element: <InventoryForecastsPage \/>/);
   assert.match(pageSource, /title="INVENTORY FORECASTING MANAGEMENT"/);
   assert.match(hookSource, /selectedForecastModel[\s\S]*useState\("MOVING_AVERAGE"\)/);
+  assert.match(hookSource, /getForecastModelRecommendation/);
+  assert.match(hookSource, /setSelectedForecastModel\(recommendation\.modelName\)/);
+  assert.match(hookSource, /handleForecastEventChange/);
+  assert.match(hookSource, /handleForecastModelChange/);
   assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/run/);
   assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/latest/);
   assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/context/);

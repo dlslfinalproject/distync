@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   forecastModelOptions,
+  getForecastModelDescription,
   getForecastModelRecommendation,
 } from "../src/features/inventory-items/inventoryItemExportOptions.js";
 
@@ -16,6 +17,11 @@ test("forecast model options explain the practical difference between all models
   forecastModelOptions.forEach((option) => {
     assert.ok(option.description);
   });
+
+  assert.match(
+    getForecastModelDescription("EXPONENTIAL_SMOOTHING"),
+    /supply use is changing quickly/i,
+  );
 });
 
 test("limited event history suggests moving average", () => {

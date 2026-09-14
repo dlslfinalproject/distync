@@ -11,7 +11,10 @@ import {
   FiPlusCircle,
   FiTrendingUp,
 } from "react-icons/fi";
-import { getForecastModelRecommendation } from "../../features/inventory-items/inventoryItemExportOptions";
+import {
+  getForecastModelDescription,
+  getForecastModelRecommendation,
+} from "../../features/inventory-items/inventoryItemExportOptions";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 
@@ -67,6 +70,14 @@ const panelStyles = {
     boxSizing: "border-box",
     minWidth: 0,
     textOverflow: "ellipsis",
+  },
+  modelDescription: {
+    margin: "8px 2px 0",
+    color: "#58708a",
+    fontSize: "12px",
+    fontWeight: 600,
+    lineHeight: 1.45,
+    overflowWrap: "anywhere",
   },
   forecastActionRow: {
     display: "flex",
@@ -1267,6 +1278,9 @@ const ForecastingPanel = ({
   const donorNeedRows = recommendationRows.slice(0, 6);
   const modelHasResults = resultRows.length > 0;
   const selectedModelLabel = getForecastModelLabel(selectedForecastModel);
+  const selectedModelDescription = getForecastModelDescription(
+    selectedForecastModel,
+  );
   const totalForecastNeed = resultRows.reduce(
     (total, row) => total + Number(row.forecasted_usage || 0),
     0,
@@ -1459,6 +1473,9 @@ const ForecastingPanel = ({
               </option>
             ))}
           </select>
+            <p style={panelStyles.modelDescription}>
+              {selectedModelDescription}
+            </p>
           </div>
         </div>
 

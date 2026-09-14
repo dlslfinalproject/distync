@@ -7,7 +7,10 @@ import {
   fetchLatestInventoryForecast,
   runInventoryForecast,
 } from "./inventoryItemService";
-import { getForecastModelLabel } from "./inventoryItemExportOptions";
+import {
+  getForecastModelLabel,
+  getForecastModelRecommendation,
+} from "./inventoryItemExportOptions";
 
 const getEventTimestamp = (event, fieldName) => {
   const timestamp = new Date(event?.[fieldName] || 0).getTime();
@@ -30,6 +33,8 @@ export const useInventoryForecast = () => {
   const [selectedForecastEventId, setSelectedForecastEventId] = useState("");
   const [selectedForecastModel, setSelectedForecastModel] =
     useState("MOVING_AVERAGE");
+  const [hasForecastModelOverride, setHasForecastModelOverride] =
+    useState(false);
   const [forecastContext, setForecastContext] = useState(null);
   const [forecastRunData, setForecastRunData] = useState(null);
   const [forecastHistory, setForecastHistory] = useState([]);
@@ -121,6 +126,28 @@ export const useInventoryForecast = () => {
       isMounted = false;
     };
   }, [selectedForecastEventId]);
+
+  useEffect(() => {
+    if (
+      !selectedForecastEventId ||
+      !forecastContext ||
+      hasForecastModelOverride ||
+      forecastContext.disaster_event?.id !== selectedForecastEventId
+    ) {
+      return;
+    }
+
+    const recommendation = getForecastModelRecommendation({
+      event: forecastContext.disaster_event,
+      forecastContext,
+    });
+
+    setSelectedForecastModel(recommendation.modelName);
+  }, [
+    forecastContext,
+    hasForecastModelOverride,
+    selectedForecastEventId,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -238,6 +265,18 @@ export const useInventoryForecast = () => {
     }
   };
 
+  const handleForecastEventChange = (eventId) => {
+    setSelectedForecastEventId(eventId);
+    setSelectedForecastModel("MOVING_AVERAGE");
+    setHasForecastModelOverride(false);
+    setForecastContext(null);
+  };
+
+  const handleForecastModelChange = (modelName) => {
+    setSelectedForecastModel(modelName);
+    setHasForecastModelOverride(true);
+  };
+
   const handleSelectForecastHistoryRun = async (runId) => {
     setIsForecastHistoryDetailLoading(true);
 
@@ -268,8 +307,8 @@ export const useInventoryForecast = () => {
     isRunningForecast,
     forecastErrorMessage,
     forecastSuccessMessage,
-    setSelectedForecastEventId,
-    setSelectedForecastModel,
+    handleForecastEventChange,
+    handleForecastModelChange,
     handleRunForecast,
     handleSelectForecastHistoryRun,
   };

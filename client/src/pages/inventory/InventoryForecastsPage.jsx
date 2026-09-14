@@ -810,8 +810,8 @@ const InventoryForecastsPage = () => {
     isRunningForecast,
     forecastErrorMessage,
     forecastSuccessMessage,
-    setSelectedForecastEventId,
-    setSelectedForecastModel,
+    handleForecastEventChange,
+    handleForecastModelChange,
     handleRunForecast,
     handleSelectForecastHistoryRun,
   } = useInventoryForecast();
@@ -910,8 +910,8 @@ const InventoryForecastsPage = () => {
         isForecastHistoryDetailLoading={isForecastHistoryDetailLoading}
         getForecastModelLabel={getForecastModelLabel}
         onOpenExportModal={handleOpenExportModal}
-        onForecastEventChange={setSelectedForecastEventId}
-        onForecastModelChange={setSelectedForecastModel}
+        onForecastEventChange={handleForecastEventChange}
+        onForecastModelChange={handleForecastModelChange}
         onRunForecast={handleRunForecast}
         onSelectForecastHistoryRun={handleSelectForecastHistoryRun}
       />

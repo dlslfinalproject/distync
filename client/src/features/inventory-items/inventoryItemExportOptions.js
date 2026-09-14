@@ -3,19 +3,19 @@ export const forecastModelOptions = [
     value: "MOVING_AVERAGE",
     label: "Moving Average",
     description:
-      "Averages recent demand. Best for steady, predictable event usage.",
+      "Best when supply use is steady. It plans from the event's usual recent usage.",
   },
   {
     value: "EXPONENTIAL_SMOOTHING",
     label: "Exponential Smoothing",
     description:
-      "Weights recent demand more heavily. Best when the latest activity is changing quickly.",
+      "Best when supply use is changing quickly. It reacts more to the latest activity.",
   },
   {
     value: "TREND_PROJECTION",
     label: "Trend Projection",
     description:
-      "Extends a clear upward or downward pattern. Best when enough event history shows a sustained trend.",
+      "Best when supply use is steadily rising or falling. It plans ahead using that direction.",
   },
 ];
 
@@ -27,7 +27,9 @@ const buildModelRecommendation = ({ modelName, rationale, basis }) => {
   return {
     modelName,
     label: option?.label || "Moving Average",
-    description: option?.description || "Averages recent demand.",
+    description:
+      option?.description ||
+      "Uses the event's recent supply usage to create a starting plan.",
     rationale,
     basis,
   };
@@ -164,6 +166,14 @@ export const getForecastModelLabel = (modelName) => {
   return (
     forecastModelOptions.find((option) => option.value === modelName)?.label ||
     "Moving Average"
+  );
+};
+
+export const getForecastModelDescription = (modelName) => {
+  return (
+    forecastModelOptions.find((option) => option.value === modelName)
+      ?.description ||
+    "Uses the event's recent supply usage to create a starting plan."
   );
 };
 
