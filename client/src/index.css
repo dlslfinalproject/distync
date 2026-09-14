@@ -209,6 +209,17 @@ body {
   min-width: 0;
 }
 
+.mayor-audit-trail-written-off-record {
+  min-width: 0;
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 769px) {
+  .mayor-audit-trail-written-off-record {
+    grid-column: 3 / -1;
+  }
+}
+
 .mayor-audit-trail-filter-card,
 .mayor-audit-trail-toolbar,
 .mayor-audit-trail-records-toolbar {

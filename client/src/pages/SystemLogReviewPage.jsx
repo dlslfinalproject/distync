@@ -372,8 +372,8 @@ const getRecordLines = (entry) => {
   return lines.map(formatBackendEnumText);
 };
 
-const InfoField = ({ label, value, style }) => (
-  <div style={style}>
+const InfoField = ({ label, value, style, className }) => (
+  <div className={className} style={style}>
     <p style={detailModalStyles.label}>{label}</p>
     <p style={detailModalStyles.value}>{value || "--"}</p>
   </div>
@@ -698,9 +698,9 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
                 key={`${entry.id}-summary-record-${index}`}
                 label={index === 0 ? "Record" : "Related Detail"}
                 value={line}
-                style={
+                className={
                   isWrittenOffRecord && index === 0
-                    ? { gridColumn: "1 / -1" }
+                    ? "mayor-audit-trail-written-off-record"
                     : undefined
                 }
               />
@@ -789,10 +789,7 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
                   <tr>
                     <th style={detailModalStyles.th}>Item</th>
                     {isCreatedRecord ? (
-                      <>
-                        <th style={detailModalStyles.th}>Quantity</th>
-                        <th style={detailModalStyles.th}>Remarks</th>
-                      </>
+                      <th style={detailModalStyles.th}>Quantity</th>
                     ) : (
                       <>
                         <th style={detailModalStyles.th}>Before</th>
@@ -807,12 +804,9 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
                     <tr key={`${item.item_name}-${index}`}>
                       <td style={detailModalStyles.td}>{item.item_name}</td>
                       {isCreatedRecord ? (
-                        <>
-                          <td style={{ ...detailModalStyles.td, ...detailModalStyles.changedValue }}>
-                            {item.new_quantity} {item.unit_of_measure}
-                          </td>
-                          <td style={detailModalStyles.td}>{item.remarks || "--"}</td>
-                        </>
+                        <td style={{ ...detailModalStyles.td, ...detailModalStyles.changedValue }}>
+                          {item.new_quantity} {item.unit_of_measure}
+                        </td>
                       ) : (
                         <>
                           <td style={detailModalStyles.td}>

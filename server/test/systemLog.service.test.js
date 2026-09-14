@@ -517,6 +517,193 @@ test("packaging added details include the new packaging and its opening stock", 
   );
 });
 
+test("relief pack template creation details use clear rule labels and disaster types", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-relief-pack-create-1",
+          action: "RELIEF_PACK_TEMPLATE_CREATE",
+          entity_type: "RELIEF_PACK_TEMPLATE",
+          entity_id: "template-1",
+          role_code: "MAYOR",
+          old_values_json: {},
+          new_values_json: {
+            name: "Standard Food Pack",
+            description: "5",
+            based_on_family_size: true,
+            based_on_sector: false,
+            is_additional_pack: false,
+            applies_to_all_disasters: false,
+            disaster_types: ["Typhoon", "Flood"],
+            is_active: true,
+            items: [
+              {
+                inventory_item_id: "item-rice",
+                item_name: "Rice",
+                quantity_required: 10,
+                remarks: "Should not be shown in the breakdown",
+              },
+            ],
+          },
+          created_at: "2026-08-11T01:30:00.000Z",
+          first_name: "Maria",
+          last_name: "Santos",
+        },
+        {
+          id: "audit-relief-pack-create-2",
+          action: "RELIEF_PACK_TEMPLATE_CREATE",
+          entity_type: "RELIEF_PACK_TEMPLATE",
+          entity_id: "template-2",
+          role_code: "MAYOR",
+          old_values_json: {},
+          new_values_json: {
+            name: "Additional Pack",
+            based_on_family_size: false,
+            based_on_sector: true,
+            is_additional_pack: true,
+            sector_ids: ["sector-1"],
+            applies_to_all_disasters: true,
+            disaster_types: [],
+            is_active: false,
+            items: [],
+          },
+          created_at: "2026-08-11T01:29:00.000Z",
+          first_name: "Maria",
+          last_name: "Santos",
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const [standardPack, additionalPack] = result.audit_logs;
+
+      assert.deepEqual(
+        standardPack.audit_detail.changes.map(({ field, label, new_value }) => ({
+          field,
+          label,
+          new_value,
+        })),
+        [
+          { field: "name", label: "Pack Name", new_value: "Standard Food Pack" },
+          { field: "family_size_covered", label: "Family Size Covered", new_value: "5" },
+          { field: "sector_match", label: "Sector Match", new_value: "No" },
+          { field: "is_additional_pack", label: "Pack Type", new_value: "Standard pack" },
+          { field: "disaster_types", label: "Disaster Types", new_value: "Typhoon, Flood" },
+          { field: "is_active", label: "Template Status", new_value: "Active" },
+        ],
+      );
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(
+          standardPack.audit_detail.item_changes[0],
+          "remarks",
+        ),
+        false,
+      );
+      assert.equal(
+        additionalPack.audit_detail.changes.find(
+          ({ field }) => field === "disaster_types",
+        ).new_value,
+        "All disaster types",
+      );
+      assert.equal(
+        additionalPack.audit_detail.changes.find(
+          ({ field }) => field === "sector_match",
+        ).new_value,
+        "Yes",
+      );
+    },
+  );
+});
+
+test("relief pack edits show semantic before and after values without boolean rule fields", async () => {
+  await withMockRepository(
+    {
+      getAuditLogs: async () => [
+        {
+          id: "audit-relief-pack-edit-1",
+          action: "RELIEF_PACK_TEMPLATE_UPDATE",
+          entity_type: "RELIEF_PACK_TEMPLATE",
+          entity_id: "template-1",
+          role_code: "MAYOR",
+          old_values_json: {
+            name: "Standard Food Pack",
+            description: "5",
+            based_on_family_size: true,
+            based_on_sector: false,
+            is_additional_pack: false,
+            applies_to_all_disasters: true,
+            disaster_types: [],
+            is_active: true,
+            items: [
+              {
+                inventory_item_id: "item-rice",
+                item_name: "Rice",
+                quantity_required: 10,
+              },
+            ],
+          },
+          new_values_json: {
+            name: "Standard Food Pack",
+            description: "6",
+            based_on_family_size: true,
+            based_on_sector: false,
+            is_additional_pack: false,
+            applies_to_all_disasters: false,
+            disaster_types: ["Flood", "Typhoon"],
+            is_active: true,
+            items: [
+              {
+                inventory_item_id: "item-rice",
+                item_name: "Rice",
+                quantity_required: 12,
+              },
+            ],
+          },
+          created_at: "2026-08-11T01:30:00.000Z",
+          first_name: "Maria",
+          last_name: "Santos",
+        },
+      ],
+      getErrorLogs: async () => [],
+    },
+    async ({ getSystemLogReview }) => {
+      const result = await getSystemLogReview({ type: "audit", limit: "all" });
+      const [entry] = result.audit_logs;
+
+      assert.deepEqual(entry.audit_detail.changes, [
+        {
+          field: "family_size_covered",
+          label: "Family Size Covered",
+          previous_value: "5",
+          new_value: "6",
+        },
+        {
+          field: "disaster_types",
+          label: "Disaster Types",
+          previous_value: "All disaster types",
+          new_value: "Flood, Typhoon",
+        },
+      ]);
+      assert.doesNotMatch(JSON.stringify(entry.audit_detail.changes), /\b(Yes|No)\b/);
+      assert.deepEqual(entry.audit_detail.item_changes, [
+        {
+          item_name: "Rice",
+          previous_quantity: "10",
+          new_quantity: "12",
+          unit_of_measure: "",
+          change_type: "Updated",
+        },
+      ]);
+      assert.equal(
+        entry.action_detail,
+        "Edited: Family Size Covered, Disaster Types, Template Items",
+      );
+    },
+  );
+});
+
 test("stock added details focus on the added stock and inflow transaction", async () => {
   await withMockRepository(
     {
