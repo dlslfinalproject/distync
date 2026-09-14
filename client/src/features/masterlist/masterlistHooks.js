@@ -31,6 +31,7 @@ export const useMasterlist = ({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [infoMessage, setInfoMessage] = useState("");
+  const [isAuthoritative, setIsAuthoritative] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const lastSuccessfulDataRef = useRef(null);
 
@@ -40,6 +41,7 @@ export const useMasterlist = ({
     const loadMasterlist = async () => {
       if (!disasterEventId) {
         setData(emptyData);
+        setIsAuthoritative(false);
         setErrorMessage("");
         setInfoMessage("");
         setIsLoading(false);
@@ -47,6 +49,7 @@ export const useMasterlist = ({
       }
 
       setIsLoading(true);
+      setIsAuthoritative(false);
       setErrorMessage("");
       setInfoMessage("");
 
@@ -64,6 +67,7 @@ export const useMasterlist = ({
 
         if (isMounted) {
           setData(result);
+          setIsAuthoritative(true);
           lastSuccessfulDataRef.current = result;
           setInfoMessage("");
         }
@@ -96,11 +100,13 @@ export const useMasterlist = ({
 
           if (fallbackData) {
             setData(fallbackData);
+            setIsAuthoritative(false);
             lastSuccessfulDataRef.current = fallbackData;
             setErrorMessage("");
             setInfoMessage(isOffline ? "" : error.message || "Showing the last saved Masterlist.");
           } else {
             setData(emptyData);
+            setIsAuthoritative(false);
             setInfoMessage("");
             setErrorMessage(
               isOffline
@@ -138,6 +144,7 @@ export const useMasterlist = ({
     isLoading,
     errorMessage,
     infoMessage,
+    isAuthoritative,
     reloadMasterlist: () => setReloadKey((currentValue) => currentValue + 1),
   };
 };

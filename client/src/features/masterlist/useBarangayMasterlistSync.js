@@ -31,6 +31,7 @@ export const useBarangayMasterlistSync = ({
   pageSize = 25,
   search = "",
   sectorIds = [],
+  isAuthoritative = false,
 }) => {
   // HOUSEHOLD_RE_ADMISSION remains an optimistic Active occurrence.
   const [sectorOptions, setSectorOptions] = useState(() => {
@@ -53,13 +54,21 @@ export const useBarangayMasterlistSync = ({
     }
 
     const rowsByHouseholdId = new Map(
-      (Array.isArray(rows) ? rows : [])
+      (!isAuthoritative && Array.isArray(cachedMasterlistRows)
+        ? cachedMasterlistRows
+        : [])
         .filter((row) => row?.household_id)
         .map((row) => [String(row.household_id), row]),
     );
 
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      if (row?.household_id) {
+        rowsByHouseholdId.set(String(row.household_id), row);
+      }
+    });
+
     return [...rowsByHouseholdId.values()];
-  }, [cachedMasterlistRows, isOffline, rows]);
+  }, [cachedMasterlistRows, isAuthoritative, isOffline, rows]);
 
   const rowsWithSyncStatus = useMemo(() => {
     const syncedRows = sourceRows.map((row) => ({
@@ -219,7 +228,32 @@ export const useBarangayMasterlistSync = ({
       }
     };
 
-    const unsubscribe = subscribeToSyncUpdates(revalidate);
+    const revalidateForSyncedDeparture = (event = {}) => {
+      const entries = Array.isArray(event.entries) ? event.entries : [];
+      const hasRelevantDeparture = entries.some((entry) => {
+        const payload = entry?.payload || {};
+        const entryEventId = payload.disaster_event_id || entry?.disasterEventId;
+        const entryBarangayId =
+          entry?.barangayId || payload.barangay_id || payload.override_barangay_id;
+
+        return (
+          entry?.actionKey === "HOUSEHOLD_DEPART" &&
+          entry?.entityType === "HOUSEHOLD" &&
+          (!selectedEvent?.id || String(entryEventId || "") === String(selectedEvent.id)) &&
+          (!assignedBarangay?.id || String(entryBarangayId || "") === String(assignedBarangay.id))
+        );
+      });
+
+      if (hasRelevantDeparture) {
+        revalidate();
+      }
+    };
+
+    const unsubscribeFromMasterlistReconciliation = subscribeToSyncUpdates((event) => {
+      if (event?.type === "masterlist-reconciliation") {
+        revalidateForSyncedDeparture(event);
+      }
+    });
     const intervalId = window.setInterval(
       revalidate,
       REMOTE_MASTERLIST_REVALIDATION_INTERVAL_MS,
@@ -230,13 +264,13 @@ export const useBarangayMasterlistSync = ({
     documentObject?.addEventListener("visibilitychange", revalidate);
 
     return () => {
-      unsubscribe();
+      unsubscribeFromMasterlistReconciliation();
       window.clearInterval(intervalId);
       window.removeEventListener("online", revalidate);
       window.removeEventListener("focus", revalidate);
       documentObject?.removeEventListener("visibilitychange", revalidate);
     };
-  }, [reloadMasterlist]);
+  }, [assignedBarangay?.id, reloadMasterlist, selectedEvent?.id]);
 
   return {
     sectorOptions,

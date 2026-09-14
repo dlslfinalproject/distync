@@ -66,3 +66,47 @@ export const getCachedMasterlistRowByHouseholdId = async ({
 
   return entry?.row || null;
 };
+
+export const reconcileCachedMasterlistDeparture = async ({
+  disasterEventId,
+  barangayId,
+  householdId,
+  departureTime,
+} = {}) => {
+  const scope = getScope({ disasterEventId, barangayId });
+  const normalizedHouseholdId = value(householdId);
+
+  if (!scope || !normalizedHouseholdId) return false;
+
+  const entry = await db.offlineMasterlistCache
+    .where("[accessMode+userId+roleCode+disaster_event_id+barangay_id+household_id]")
+    .equals([
+      scope.accessMode,
+      scope.userId,
+      scope.roleCode,
+      scope.disasterEventId,
+      scope.barangayId,
+      normalizedHouseholdId,
+    ])
+    .first();
+
+  if (!entry?.row) return false;
+
+  const row = entry.row;
+  const effectiveDepartureTime = departureTime || row.departure_time_value || null;
+  await db.offlineMasterlistCache.put({
+    ...entry,
+    row: {
+      ...row,
+      is_active: false,
+      is_operationally_active: false,
+      can_record_departure: false,
+      departure_time_value: effectiveDepartureTime,
+      departure_time_text: effectiveDepartureTime
+        ? new Date(effectiveDepartureTime).toISOString()
+        : row.departure_time_text || "-",
+    },
+    cached_at: new Date().toISOString(),
+  });
+  return true;
+};

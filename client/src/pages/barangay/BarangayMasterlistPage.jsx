@@ -200,7 +200,7 @@ const BarangayMasterlistPage = () => {
   const selectedSectorIds = selectedSectorIdsByScope[eventScope] || [];
   const selectedSortOrder = sortOrderByScope[eventScope] || "newest";
 
-  const { data, isLoading, errorMessage, infoMessage: masterlistInfoMessage, reloadMasterlist } = useMasterlist({
+  const { data, isLoading, errorMessage, infoMessage: masterlistInfoMessage, isAuthoritative, reloadMasterlist } = useMasterlist({
     disasterEventId: selectedEvent?.id || "",
     barangayId: assignedBarangay?.id || "",
     recordStatus,
@@ -312,6 +312,7 @@ const BarangayMasterlistPage = () => {
     pageSize,
     search: debouncedSearchTerm,
     sectorIds: selectedSectorIds,
+    isAuthoritative,
   });
 
   const pendingDepartureRow = filteredRows.find(
