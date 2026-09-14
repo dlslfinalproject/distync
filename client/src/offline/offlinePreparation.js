@@ -404,6 +404,17 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
           publishDiagnostics({ ...diagnostics });
         } },
       );
+      const requiredPhotoFailures = masterlist.rows.filter((row) => {
+        const household = row?.household || row || {};
+        const details = householdDetailsById.get(String(row?.household_id || household.id || ""));
+        const authoritativePhoto = household.family_head_photo_url || details?.household?.family_head_photo_url;
+        return Boolean(authoritativePhoto) && !details?.household?.family_head_photo_data_url;
+      });
+      if (requiredPhotoFailures.length > 0) {
+        const error = new Error("Required family-head photos could not be verified for offline use");
+        error.code = "OFFLINE_PREPARATION_REQUIRED_PHOTO_UNAVAILABLE";
+        throw error;
+      }
       completeStage("FETCHING_HOUSEHOLD_DETAILS", householdDetailsById.size);
       completeStage("FETCHING_STUBS", stubs.rows.length);
       completeStage("FETCHING_REGISTRATION_REFERENCES");
@@ -430,11 +441,21 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
       }
       startStage("PERSISTING_MASTERLIST");
       startStage("PERSISTING_STUBS");
-      const persistedStubs = await upsertOfflineStubSnapshots(stubs.rows);
       const preparedMasterlistRows = masterlist.rows.map((row) => ({
         ...row,
         offline_household_details: householdDetailsById.get(String(row.household_id)) || null,
       }));
+      const preparedStubRows = stubs.rows.map((row) => {
+        const householdId = String(row?.household_id || row?.household?.id || "");
+        const details = householdDetailsById.get(householdId);
+        const photoDataUrl = details?.household?.family_head_photo_data_url || "";
+        return photoDataUrl && row?.household
+          ? { ...row, household: { ...row.household, family_head_photo_data_url: photoDataUrl } }
+          : photoDataUrl
+            ? { ...row, family_head_photo_data_url: photoDataUrl }
+            : row;
+      });
+      const persistedStubs = await upsertOfflineStubSnapshots(preparedStubRows);
       await cacheMasterlistRows({ rows: preparedMasterlistRows, disasterEventId: eventId, barangayId });
       completeStage("PERSISTING_MASTERLIST", preparedMasterlistRows.length);
       completeStage("PERSISTING_STUBS", persistedStubs.length);

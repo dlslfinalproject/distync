@@ -2118,10 +2118,6 @@ const buildSyncAuditActionLabel = (row) => {
     return "Sync Conflict Resolved";
   }
 
-  if (row.action === "SYNC_CONFLICT_REVIEW") {
-    return "Sync Conflict Reviewed";
-  }
-
   if (row.action === "SYNC_RETRY_REQUEST") {
     return "Sync Retry Requested";
   }

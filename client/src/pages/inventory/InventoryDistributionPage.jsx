@@ -25,6 +25,8 @@ import {
   downloadExportFile,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
+import { getCachedStubDetailsById } from "../../features/stubs/stubCache.js";
 
 const filterStyles = {
   field: {
@@ -312,6 +314,7 @@ const InventoryDistributionPage = () => {
     useState("");
   const distributionDetailRequestIdRef = React.useRef(0);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const exportModalRef = React.useRef(null);
   const [isExporting, setIsExporting] = useState(false);
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
   const [selectedExportDisasterEventId, setSelectedExportDisasterEventId] =
@@ -559,6 +562,7 @@ const InventoryDistributionPage = () => {
 
     if (nextErrors.sectors || nextErrors.barangays) {
       setExportValidationErrors(nextErrors);
+      scheduleScrollToFirstError(exportModalRef);
       return;
     }
 
@@ -617,8 +621,12 @@ const InventoryDistributionPage = () => {
     }
 
     try {
-      const payload = await fetchInventoryDistributionDetail(row.stub_id);
-      const detail = payload?.data || null;
+      const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+      const detail = isOffline
+        ? await getCachedStubDetailsById(row.stub_id, {
+            currentBarangayId: row.barangay_id || "",
+          })
+        : (await fetchInventoryDistributionDetail(row.stub_id))?.data || null;
 
       if (requestId !== distributionDetailRequestIdRef.current) {
         return;
@@ -629,7 +637,15 @@ const InventoryDistributionPage = () => {
           id: detail.stub?.id,
           ...detail.stub,
           disaster_event: detail.disaster_event,
-          household: detail.household,
+          household: {
+            ...(detail.household || {}),
+            ...(row.masterlist_household || {}),
+            family_head_photo_data_url:
+              detail.household?.family_head_photo_data_url ||
+              row.masterlist_household?.family_head_photo_data_url ||
+              row.family_head_photo_data_url ||
+              "",
+          },
           barangay: detail.barangay,
           household_sectors: detail.household_sectors,
           member_sectors: detail.member_sectors,
@@ -643,9 +659,17 @@ const InventoryDistributionPage = () => {
       }
     } catch (error) {
       if (requestId === distributionDetailRequestIdRef.current) {
-        setDistributionDetailErrorMessage(
-          error.message || "Failed to load distribution details.",
-        );
+        const cachedDetails = row?.stub_id
+          ? await getCachedStubDetailsById(row.stub_id, {
+              currentBarangayId: row.barangay_id || "",
+            })
+          : null;
+        if (cachedDetails) {
+          setSelectedStubDetails(cachedDetails);
+          setDistributionDetailErrorMessage("");
+        } else {
+          setDistributionDetailErrorMessage(error.message || "Failed to load distribution details.");
+        }
       }
     } finally {
       if (requestId === distributionDetailRequestIdRef.current) {
@@ -1018,6 +1042,7 @@ const InventoryDistributionPage = () => {
         />
 
         <MswdoExportModal
+          modalRef={exportModalRef}
           isOpen={isExportModalOpen}
           overlayClassName="inventory-distribution-export-modal-backdrop"
           modalClassName="inventory-distribution-export-modal"

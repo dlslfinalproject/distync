@@ -796,10 +796,7 @@ const getAuditLogs = async (
         )
         OR (
           al.entity_type = 'SYNC_CONFLICT'
-          AND al.action IN (
-            'SYNC_CONFLICT_REVIEW',
-            'SYNC_CONFLICT_RESOLUTION'
-          )
+          AND al.action = 'SYNC_CONFLICT_RESOLUTION'
         )
         OR (
           al.entity_type = 'SYNC_TRANSACTION'

@@ -1271,6 +1271,9 @@ const DonationManagementPage = () => {
                     }
                     style={exportFilterStyles.select}
                     disabled={reassignModal.isSubmitting}
+                    aria-invalid={Boolean(
+                      reassignModal.fieldErrors.donationItemId,
+                    )}
                   >
                     {reassignModal.leftoverItems.map((item) => (
                       <option key={item.id} value={item.id}>
@@ -1305,6 +1308,9 @@ const DonationManagementPage = () => {
                     }
                     style={exportFilterStyles.select}
                     disabled={reassignModal.isSubmitting}
+                    aria-invalid={Boolean(
+                      reassignModal.fieldErrors.targetDisasterEventId,
+                    )}
                   >
                     <option value="">Select disaster event</option>
                     {reassignTargetEvents.map((eventRow) => (
@@ -1344,6 +1350,7 @@ const DonationManagementPage = () => {
                     }
                     style={exportFilterStyles.select}
                     disabled={reassignModal.isSubmitting}
+                    aria-invalid={Boolean(reassignModal.fieldErrors.quantity)}
                   />
                   {reassignModal.fieldErrors.quantity ? (
                     <p style={shellStyles.errorText}>

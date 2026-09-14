@@ -2915,23 +2915,6 @@ const getSyncConflictDetail = async ({ auth, conflictId }) => {
     throw error;
   }
 
-  await logAuditSafely({
-    actor: auth,
-    action: "SYNC_CONFLICT_REVIEW",
-    entityType: "SYNC_CONFLICT",
-    entityId: conflict.id,
-    oldValues: {},
-    newValues: {
-      sync_transaction_id: conflict.sync_transaction_id,
-      entity_type: conflict.entity_type,
-      entity_server_id: conflict.entity_server_id,
-      conflict_type: conflict.conflict_type,
-      resolution_strategy: conflict.resolution_strategy,
-      winner: conflict.resolved_payload_json?.winner || null,
-      resolution_status: conflict.status,
-    },
-  });
-
   const isCrossBarangayConflict =
     conflict?.conflict_type === POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE;
   const isAutomaticCrossBarangayConflict =

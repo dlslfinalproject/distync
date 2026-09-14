@@ -415,7 +415,7 @@ const MasterlistTable = ({
                         flexWrap: "wrap",
                       }}
                     >
-                      <span>{row.family_head_name}</span>
+                      <span style={{ fontWeight: 700 }}>{row.family_head_name}</span>
                       {shouldShowSyncStatus ? (
                         <SyncStatusIcon
                           status={syncStatus}

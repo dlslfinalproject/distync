@@ -1244,6 +1244,7 @@ const StubDistributionPage = () => {
             actions={
               <>
                 <button
+                  className="stub-distribution-print-button"
                   type="button"
                   onClick={() => setIsPrintSheetModalOpen(true)}
                   disabled={!hasSelectedEvent || !selectedBarangayForPrintId}
@@ -1261,6 +1262,7 @@ const StubDistributionPage = () => {
                 </button>
                 {!isSelectedEventEnded ? (
                   <button
+                    className="stub-distribution-scan-button"
                     type="button"
                     onClick={() => setIsQrScanModalOpen(true)}
                     disabled={

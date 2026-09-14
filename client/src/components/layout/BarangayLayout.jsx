@@ -23,6 +23,7 @@ import {
   BARANGAY_OFFLINE_ACCESS_MESSAGE,
   isBarangayOfflineBlockedRoute,
 } from "../../features/offline/barangayOfflineAccess";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
 
 const SIDEBAR_EXPANDED_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "0px";
@@ -233,6 +234,26 @@ const BarangayLayout = () => {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isMayorPortal || typeof document === "undefined") {
+      return undefined;
+    }
+
+    const handleMayorFormSubmit = (event) => {
+      if (event.target?.tagName !== "FORM") {
+        return;
+      }
+
+      scheduleScrollToFirstError(event.target);
+    };
+
+    document.addEventListener("submit", handleMayorFormSubmit);
+
+    return () => {
+      document.removeEventListener("submit", handleMayorFormSubmit);
+    };
+  }, [isMayorPortal]);
 
   useEffect(() => {
     if (isDonorPortal || isSettingsRoute) {

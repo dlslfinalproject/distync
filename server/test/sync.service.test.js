@@ -260,6 +260,44 @@ test("MSWDO can view municipality operational conflict details without gaining r
   assert.equal(requestedId, conflictId);
 });
 
+test("viewing a sync conflict does not create a separate review audit record", async () => {
+  let reviewAuditCalls = 0;
+  const conflictId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictById: async ({ id }) => ({
+          id,
+          user_id: "mayor-user",
+          entity_type: "INVENTORY_BATCH",
+          status: "OPEN",
+          resolution_strategy: "MANUAL_REVIEW",
+          conflict_type: "DUPLICATE_INVENTORY_BATCH",
+          local_payload_json: { payload: { item_name: "Rice" } },
+          server_payload_json: { item_name: "Rice" },
+        }),
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {
+          reviewAuditCalls += 1;
+        },
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      const detail = await getSyncConflictDetail({
+        auth: { userId: "mayor-user", roleCode: "MAYOR" },
+        conflictId,
+      });
+
+      assert.equal(detail.id, conflictId);
+    },
+  );
+
+  assert.equal(reviewAuditCalls, 0);
+});
+
 test("MSWDO cannot view a foreign Mayor manual inventory stock-drift conflict", async () => {
   await withStubbedSyncService(
     {

@@ -146,6 +146,27 @@ test("BRG-SC-07-M01 TEST A snapshot sanitizer uses an allowlist and owner stamp"
   );
 });
 
+test("family-head photo bytes prepared for Barangay are retained in the durable stub snapshot", () => {
+  const photo = "data:image/jpeg;base64,barangay-photo";
+  const snapshot = toOfflineStubSnapshot(
+    {
+      ...serverStub,
+      household: { ...serverStub.household, family_head_photo_data_url: photo },
+    },
+    ownerContext,
+  );
+
+  assert.equal(snapshot.family_head_photo_data_url, photo);
+  assert.equal(
+    toStubDetailsFromOfflineSnapshot(snapshot).household.family_head_photo_data_url,
+    photo,
+  );
+  assert.equal(
+    toStubDetailsFromOfflineSnapshot(snapshot).household.id,
+    "household-1",
+  );
+});
+
 test("BRG-SC-07-M01 TEST B pseudo stubs and missing owner context fail closed", () => {
   assert.equal(
     toOfflineStubSnapshot({ ...serverStub, is_local_only: true }, ownerContext),
