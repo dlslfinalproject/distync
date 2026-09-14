@@ -634,6 +634,12 @@ const getBarangayStubDashboard = async (filters) => {
         serial_no: row.serial_no,
         stub_sequence_no: row.stub_sequence_no,
         status: row.status,
+        presentation_status: row.presentation_status ||
+          (row.status === "CLAIMED"
+            ? "CLAIMED"
+            : row.is_active === false || row.latest_attendance_status !== "PRESENT" || row.latest_attendance_time_out
+              ? "NOT_PRESENT"
+              : "FOR_CLAIM"),
         issued_at: row.issued_at,
         claimed_at: row.claimed_at || null,
         distribution_date: row.distribution_date || null,
