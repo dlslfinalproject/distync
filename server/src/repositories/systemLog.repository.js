@@ -559,6 +559,16 @@ const getAuditLogs = async (
           'units_per_packaging', stock_forms_donation.units_per_packaging,
           'batch_no', ib_donation.batch_no,
           'expiration_date', ib_donation.expiration_date,
+          'inventory_transaction_remarks', (
+            SELECT it_donation.remarks
+            FROM inventory_transactions it_donation
+            WHERE it_donation.reference_type = 'DONATION'
+              AND it_donation.reference_id = di_donation.id
+            ORDER BY it_donation.performed_at ASC NULLS LAST,
+              it_donation.created_at ASC,
+              it_donation.id ASC
+            LIMIT 1
+          ),
           'remarks', di_donation.remarks
         )
         ORDER BY di_donation.created_at ASC, ii_donation.item_name ASC

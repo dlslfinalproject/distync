@@ -346,6 +346,23 @@ const formatAuditStatus = (value) => {
     .join(" ");
 };
 
+const AUDIT_DONOR_TYPE_LABELS = {
+  INDIVIDUAL: "Individual",
+  NGO: "NGO",
+  PRIVATE_ORGANIZATION: "Private Organization",
+  GOVERNMENT_PARTNER: "Government Partner",
+  OTHER: "Other",
+};
+
+const formatAuditDonorType = (value) => {
+  const normalizedValue = String(value || "").trim().toUpperCase();
+
+  return (
+    AUDIT_DONOR_TYPE_LABELS[normalizedValue] ||
+    formatAuditStatus(value)
+  );
+};
+
 const formatAuditValue = (fieldName, value) => {
   if (value === undefined || value === null || value === "") {
     return "--";
@@ -404,6 +421,10 @@ const formatAuditValue = (fieldName, value) => {
     const numericValue = Number(value);
 
     return Number.isFinite(numericValue) ? String(numericValue) : String(value);
+  }
+
+  if (fieldName === "donor_type") {
+    return formatAuditDonorType(value);
   }
 
   if (["status", "source_type", "transaction_type", "distribution_status"].includes(fieldName)) {
@@ -538,6 +559,7 @@ const buildDonationItemDetails = (row) => {
   const donationItems = getDonationItems(row);
   const detailRows = [];
   const reliefPackRows = new Map();
+  const noExpirationDateMessage = "No expiration date recorded";
 
   donationItems.forEach((item) => {
     const reliefPack = parseReliefPackRemarkDetails(item?.remarks);
@@ -552,7 +574,9 @@ const buildDonationItemDetails = (row) => {
       batchNo: item?.batch_no || "--",
       expirationDate: item?.expiration_date
         ? formatAuditValue("expiration_date", item.expiration_date)
-        : "--",
+        : noExpirationDateMessage,
+      remarks:
+        item?.inventory_transaction_remarks || item?.remarks || "--",
     };
 
     if (!reliefPack) {
@@ -566,7 +590,7 @@ const buildDonationItemDetails = (row) => {
         packaging: itemDetails.packaging,
         batch_no: itemDetails.batchNo,
         expiration_date: itemDetails.expirationDate,
-        remarks: item?.remarks || "--",
+        remarks: itemDetails.remarks,
       });
       return;
     }
@@ -595,14 +619,21 @@ const buildDonationItemDetails = (row) => {
       detailRows.push(reliefPackRow);
     }
 
-    reliefPackRow.relief_pack_contents.push(itemDetails);
+    reliefPackRow.relief_pack_contents.push({
+      itemName: itemDetails.itemName,
+      quantityReceived: itemDetails.quantityReceived,
+      unitOfMeasure: itemDetails.unitOfMeasure,
+      packaging: itemDetails.packaging,
+      batchNo: itemDetails.batchNo,
+      expirationDate: itemDetails.expirationDate,
+    });
   });
 
   return detailRows;
 };
 
 const buildDonationEntryDetails = (row, changes, donationItems) => {
-  const detailChanges = [...changes];
+  const detailChanges = changes.filter((change) => change.field !== "status");
   const donationType = getDonationEntryType(row, donationItems);
   const eventTitle =
     row.donation_disaster_event_title ||
@@ -634,6 +665,53 @@ const buildDonationEntryDetails = (row, changes, donationItems) => {
         "disaster_event_title",
         "Disaster Event",
         eventTitle,
+      ),
+    );
+  }
+
+  if (
+    donationType === "RELIEF_PACK" &&
+    !detailChanges.some((change) => change.field === "relief_pack_name")
+  ) {
+    const reliefPackRows = donationItems
+      .map((item) => parseReliefPackRemarkDetails(item?.remarks))
+      .filter(Boolean);
+    const reliefPackNames = Array.from(
+      new Set(
+        reliefPackRows
+          .map((item) => item.packName)
+          .filter(Boolean),
+      ),
+    );
+    const reliefPackQuantities = Array.from(
+      new Set(
+        reliefPackRows
+          .map((item) => item.packQuantity)
+          .filter((quantity) => quantity !== null && quantity !== undefined)
+          .map(String),
+      ),
+    );
+    const eventIndex = detailChanges.findIndex(
+      (change) => change.field === "disaster_event_title",
+    );
+    const donationTypeIndex = detailChanges.findIndex(
+      (change) => change.field === "donation_type",
+    );
+    const insertIndex =
+      (eventIndex >= 0 ? eventIndex : donationTypeIndex) + 1;
+
+    detailChanges.splice(
+      insertIndex,
+      0,
+      createAuditDetailChange(
+        "relief_pack_name",
+        "Relief Pack Name",
+        reliefPackNames.join(", ") || "--",
+      ),
+      createAuditDetailChange(
+        "relief_pack_quantity",
+        "Number of Relief Packs Received",
+        reliefPackQuantities.join(", ") || "--",
       ),
     );
   }

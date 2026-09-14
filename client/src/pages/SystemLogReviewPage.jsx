@@ -459,7 +459,7 @@ const getDonationItemDetailChanges = (item) => {
     {
       field: "expiration_date",
       label: "Expiration Date",
-      new_value: item.expiration_date || "--",
+      new_value: item.expiration_date || "No expiration date recorded",
     },
     {
       field: "remarks",
@@ -468,19 +468,6 @@ const getDonationItemDetailChanges = (item) => {
     },
   ];
 };
-
-const getReliefPackDetailChanges = (item) => [
-  {
-    field: "relief_pack_name",
-    label: "Relief Pack Name",
-    new_value: item.relief_pack_name || "--",
-  },
-  {
-    field: "relief_pack_quantity",
-    label: "Number of Relief Packs Received",
-    new_value: item.relief_pack_quantity || "--",
-  },
-];
 
 const DonationEntryPackContents = ({ contents }) => {
   if (!contents.length) {
@@ -515,7 +502,9 @@ const DonationEntryPackContents = ({ contents }) => {
               <td style={detailModalStyles.td}>{content.unitOfMeasure || "--"}</td>
               <td style={detailModalStyles.td}>{content.packaging || "--"}</td>
               <td style={detailModalStyles.td}>{content.batchNo || "--"}</td>
-              <td style={detailModalStyles.td}>{content.expirationDate || "--"}</td>
+              <td style={detailModalStyles.td}>
+                {content.expirationDate || "No expiration date recorded"}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -580,7 +569,7 @@ const DonationEntryItemsDetails = ({ items }) => {
           className="mayor-audit-trail-detail-section"
           style={detailModalStyles.sectionCard}
         >
-          <h3 style={{ margin: 0, color: "#17324d" }}>Relief Pack Details</h3>
+          <h3 style={{ margin: 0, color: "#17324d" }}>Pack Contents</h3>
           <div style={{ display: "grid", gap: "20px", marginTop: "16px" }}>
             {reliefPackItems.map((item, index) => (
               <div key={[item.relief_pack_name, index].join("-")}>
@@ -592,22 +581,9 @@ const DonationEntryItemsDetails = ({ items }) => {
                       fontSize: "18px",
                     }}
                   >
-                    Relief Pack {index + 1}
+                    {item.relief_pack_name || `Relief Pack ${index + 1}`}
                   </h4>
                 ) : null}
-                <AuditDetailChangesTable
-                  changes={getReliefPackDetailChanges(item)}
-                  isCreatedRecord
-                />
-                <h4
-                  style={{
-                    margin: "24px 0 0",
-                    color: "#17324d",
-                    fontSize: "18px",
-                  }}
-                >
-                  Pack Contents
-                </h4>
                 <DonationEntryPackContents
                   contents={Array.isArray(item.relief_pack_contents)
                     ? item.relief_pack_contents

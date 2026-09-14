@@ -577,7 +577,7 @@ test("donation entry details include loose item donation information", async () 
           new_values_json: {
             donation_type: "LOOSE_ITEM",
             donor_name: "Acer Company",
-            donor_type: "NGO",
+            donor_type: "PRIVATE_ORGANIZATION",
             disaster_event_title: "Habagat Flood Response 2026",
             received_at: "2026-08-11T01:50:00.000Z",
             status: "RECEIVED",
@@ -609,6 +609,8 @@ test("donation entry details include loose item donation information", async () 
               packaging: "box",
               batch_no: "DONATION-001",
               expiration_date: null,
+              inventory_transaction_remarks:
+                "Received donation stock for Acer Charger from Acer Company",
               remarks: "Opening donation stock",
             },
           ],
@@ -635,13 +637,16 @@ test("donation entry details include loose item donation information", async () 
             label: "Disaster Event",
             new_value: "Habagat Flood Response 2026",
           },
-          { field: "donor_type", label: "Donor Type", new_value: "NGO" },
+          {
+            field: "donor_type",
+            label: "Donor Type",
+            new_value: "Private Organization",
+          },
           {
             field: "received_at",
             label: "Received At",
             new_value: "Aug 11, 2026, 9:50 AM",
           },
-          { field: "status", label: "Status", new_value: "Received" },
           { field: "item_count", label: "Number of Items", new_value: "1" },
           {
             field: "total_quantity_received",
@@ -660,8 +665,8 @@ test("donation entry details include loose item donation information", async () 
           unit_of_measure: "pc",
           packaging: "box",
           batch_no: "DONATION-001",
-          expiration_date: "--",
-          remarks: "Opening donation stock",
+          expiration_date: "No expiration date recorded",
+          remarks: "Received donation stock for Acer Charger from Acer Company",
         },
       ]);
     },
@@ -682,6 +687,7 @@ test("donation entry details group relief pack details and pack quantity", async
           new_values_json: {
             donation_type: "RELIEF_PACK",
             donor_name: "Hybe Corp.",
+            donor_type: "PRIVATE_ORGANIZATION",
             disaster_event_title: "Typhoon Odette Response",
             items: [
               {
@@ -738,6 +744,33 @@ test("donation entry details group relief pack details and pack quantity", async
         ).new_value,
         "Relief Pack",
       );
+      assert.deepEqual(
+        entry.audit_detail.donation_details.map(({ field, label, new_value }) => ({
+          field,
+          label,
+          new_value,
+        })),
+        [
+          { field: "donation_type", label: "Donation Type", new_value: "Relief Pack" },
+          { field: "donor_name", label: "Donor Name", new_value: "Hybe Corp." },
+          {
+            field: "disaster_event_title",
+            label: "Disaster Event",
+            new_value: "Typhoon Odette Response",
+          },
+          {
+            field: "relief_pack_name",
+            label: "Relief Pack Name",
+            new_value: "Family Food Pack",
+          },
+          {
+            field: "relief_pack_quantity",
+            label: "Number of Relief Packs Received",
+            new_value: "20",
+          },
+          { field: "donor_type", label: "Donor Type", new_value: "Private Organization" },
+        ],
+      );
       assert.equal(reliefPack.donation_type, "Relief Pack");
       assert.equal(reliefPack.relief_pack_name, "Family Food Pack");
       assert.equal(reliefPack.relief_pack_quantity, "20");
@@ -749,7 +782,7 @@ test("donation entry details group relief pack details and pack quantity", async
           unitOfMeasure: "kg",
           packaging: "sack",
           batchNo: "--",
-          expirationDate: "--",
+          expirationDate: "No expiration date recorded",
         },
         {
           itemName: "Nature Spring Water",
@@ -757,7 +790,7 @@ test("donation entry details group relief pack details and pack quantity", async
           unitOfMeasure: "pc",
           packaging: "piece",
           batchNo: "--",
-          expirationDate: "--",
+          expirationDate: "No expiration date recorded",
         },
       ]);
     },
