@@ -47,7 +47,7 @@ const panelStyles = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))",
     gap: "16px",
-    alignItems: "end",
+    alignItems: "start",
     minWidth: 0,
   },
   filterLabel: {
