@@ -502,6 +502,21 @@ const ACTION_HANDLERS = {
         { dbClient },
       ),
   },
+  HOUSEHOLD_RESTORE: {
+    entityType: "HOUSEHOLD",
+    operationType: "UPDATE",
+    roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
+    execute: async ({ entityServerId, payload, auth, clientTimestamp, dbClient }) =>
+      householdRegistrationService.restoreHousehold({
+        householdId: entityServerId,
+        requester: getRequesterForSync(auth),
+        restoreData: {
+          ...payload,
+          synced_client_timestamp: clientTimestamp,
+        },
+        dbClient,
+      }),
+  },
   STUB_CLAIM: {
     entityType: "STUB",
     operationType: "CLAIM",

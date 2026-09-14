@@ -181,6 +181,7 @@ const BarangayMasterlistPage = () => {
     setEventScope,
     setSelectedDisasterEventId,
     setOverrideBarangayId,
+    reloadDashboard,
   } = useBarangayDashboard({
     userId: authenticatedUser?.id || "",
   });
@@ -239,6 +240,7 @@ const BarangayMasterlistPage = () => {
       setAttendanceActionMessage("");
       setActiveCrossEventModalTitles(getActiveCrossEventTitles(response));
       reloadMasterlist();
+      reloadDashboard();
     },
   });
 
@@ -261,6 +263,7 @@ const BarangayMasterlistPage = () => {
       setAttendanceActionMessage("");
       setActiveCrossEventModalTitles([]);
       reloadMasterlist();
+      reloadDashboard();
     },
   });
 
@@ -287,12 +290,14 @@ const BarangayMasterlistPage = () => {
       setAttendanceActionMessage("");
       setActiveCrossEventModalTitles(getActiveCrossEventTitles(response));
       reloadMasterlist();
+      reloadDashboard();
     },
   });
 
   const {
     sectorOptions,
     filteredRows,
+    offlinePagination,
   } = useBarangayMasterlistSync({
     rows: data.rows,
     syncQueueEntries,
@@ -302,6 +307,11 @@ const BarangayMasterlistPage = () => {
     sortOrder: selectedSortOrder,
     reloadMasterlist,
     cachedMasterlistRows,
+    isOffline,
+    page: currentPage,
+    pageSize,
+    search: debouncedSearchTerm,
+    sectorIds: selectedSectorIds,
   });
 
   const pendingDepartureRow = filteredRows.find(
@@ -354,7 +364,7 @@ const BarangayMasterlistPage = () => {
   const selectedExportBarangayIds = assignedBarangay?.id
     ? [assignedBarangay.id]
     : [];
-  const masterlistPagination = data.pagination || {
+  const masterlistPagination = (isOffline && offlinePagination) || data.pagination || {
     page: currentPage,
     pageSize,
     totalItems: filteredRows.length,
@@ -904,11 +914,17 @@ const BarangayMasterlistPage = () => {
     setPendingRestoreHouseholdDetails(null);
     setIsLoadingRestoreHouseholdDetails(true);
 
+    if (isOffline) {
+      setPendingRestoreHouseholdDetails(selectedRow?.offline_household_details || null);
+      setIsLoadingRestoreHouseholdDetails(false);
+      return;
+    }
+
     try {
       const details = await fetchHouseholdDetails(householdId);
       setPendingRestoreHouseholdDetails(details);
     } catch (_error) {
-      setPendingRestoreHouseholdDetails(null);
+      setPendingRestoreHouseholdDetails(selectedRow?.offline_household_details || null);
     } finally {
       setIsLoadingRestoreHouseholdDetails(false);
     }
@@ -946,6 +962,18 @@ const BarangayMasterlistPage = () => {
     try {
       const response = await restoreHousehold({
         householdId: pendingRestoreHouseholdId,
+        barangayId: assignedBarangay?.id || pendingRestoreRow?.barangay_id || null,
+        disasterEventId:
+          pendingRestoreRow?.disaster_event?.id ||
+          pendingRestoreRow?.disaster_event_id ||
+          selectedEvent?.id ||
+          null,
+        disasterEventTitle:
+          pendingRestoreRow?.disaster_event?.title ||
+          pendingRestoreRow?.disaster_event?.name ||
+          selectedEvent?.title ||
+          selectedEvent?.name ||
+          "",
       });
 
       setRegistrationSuccessMessage(
@@ -955,6 +983,7 @@ const BarangayMasterlistPage = () => {
       setPendingRestoreHouseholdDetails(null);
       setIsLoadingRestoreHouseholdDetails(false);
       reloadMasterlist();
+      reloadDashboard();
     } catch (error) {
       setAttendanceActionMessage(
         error.message || "Failed to re-admit household",
@@ -989,6 +1018,7 @@ const BarangayMasterlistPage = () => {
         setPendingBulkDepartureHouseholds([]);
         setIsBulkDepartureConfirmOpen(false);
         reloadMasterlist();
+        reloadDashboard();
       } else {
         if (!pendingDepartureHouseholdId) {
           return;
@@ -1020,6 +1050,7 @@ const BarangayMasterlistPage = () => {
         setPendingBulkDepartureHouseholds([]);
         setIsLoadingDepartureHouseholdDetails(false);
         reloadMasterlist();
+        reloadDashboard();
       }
     } catch (error) {
       setAttendanceActionMessage(

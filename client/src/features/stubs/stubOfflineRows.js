@@ -18,18 +18,47 @@ const buildFullName = (person = {}) =>
     .join(" ");
 
 const normalizeSectorOptions = (sectorOptions = []) => {
-  const sectorById = new Map();
+  const sectorByAlias = new Map();
 
   sectorOptions.forEach((sector) => {
-    const id = sector?.id || sector?.value || "";
+    const aliases = [
+      sector?.id,
+      sector?.value,
+      sector?.source_sector_id,
+      sector?.code,
+    ].filter(Boolean);
     const name = sector?.name || sector?.label || "";
 
-    if (id && name) {
-      sectorById.set(id, name);
+    if (aliases.length > 0 && name) {
+      aliases.forEach((alias) => {
+        sectorByAlias.set(String(alias), name);
+      });
     }
   });
 
-  return sectorById;
+  return sectorByAlias;
+};
+
+const normalizeSectorCodes = (sectorOptions = []) => {
+  const sectorCodeByAlias = new Map();
+
+  sectorOptions.forEach((sector) => {
+    const code = sector?.code || sector?.id || sector?.value || "";
+    const aliases = [
+      sector?.id,
+      sector?.value,
+      sector?.source_sector_id,
+      sector?.code,
+    ].filter(Boolean);
+
+    if (code && aliases.length > 0) {
+      aliases.forEach((alias) => {
+        sectorCodeByAlias.set(String(alias), String(code));
+      });
+    }
+  });
+
+  return sectorCodeByAlias;
 };
 
 const collectSectorIds = (payload = {}) => {
@@ -65,6 +94,18 @@ const buildSectorText = (sectorIds = [], sectorOptions = []) => {
     .filter(Boolean);
 
   return sectorNames.length > 0 ? sectorNames.join(", ") : "-";
+};
+
+const buildSectorCodes = (sectorIds = [], sectorOptions = []) => {
+  const sectorCodeByAlias = normalizeSectorCodes(sectorOptions);
+
+  return [
+    ...new Set(
+      sectorIds
+        .map((sectorId) => sectorCodeByAlias.get(String(sectorId)))
+        .filter(Boolean),
+    ),
+  ];
 };
 
 const isEvacuationCenterRegistration = (payload = {}) => {
@@ -133,6 +174,7 @@ export const getPendingLocalStubRows = async ({
         assigned_relief_packs: [],
         sectors_text: buildSectorText(sectorIds, sectorOptions),
         sector_ids: sectorIds,
+        sector_codes: buildSectorCodes(sectorIds, sectorOptions),
         status: "ISSUED",
         sync_status: entry.status,
         is_local_only: true,

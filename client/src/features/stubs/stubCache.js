@@ -5,6 +5,7 @@ import {
 } from "../../offline/syncQueue.js";
 import { ROLE_CODES } from "../../utils/roleSession.js";
 import { extractStubQrValue } from "../../utils/stubQr.js";
+import { getStubRowSectorCodes } from "./stubSectorFilters.js";
 
 export const normalizeOfflineStubQrKey = (value) => extractStubQrValue(value).trim();
 
@@ -178,6 +179,10 @@ export const toOfflineStubSnapshot = (
       available_donated_relief_packs: serverRow.available_donated_relief_packs,
     }),
     sectors_text: trimValue(serverRow.sectors_text) || "-",
+    sector_ids: Array.isArray(serverRow.sector_ids)
+      ? serverRow.sector_ids.filter(Boolean).map(String)
+      : [],
+    sector_codes: getStubRowSectorCodes(serverRow),
     status: trimValue(serverRow.status) || "ISSUED",
     latest_attendance_status: trimValue(
       getFirstValue(
@@ -232,6 +237,10 @@ export const toStubRowFromOfflineSnapshot = (snapshot, syncEntry = null) => {
       snapshot.assigned_donated_relief_packs ||
       [],
     sectors_text: snapshot.sectors_text || "-",
+    sector_ids: Array.isArray(snapshot.sector_ids) ? snapshot.sector_ids : [],
+    sector_codes: Array.isArray(snapshot.sector_codes)
+      ? snapshot.sector_codes
+      : [],
     status: snapshot.status || "ISSUED",
     latest_attendance_status: snapshot.latest_attendance_status || "",
     latest_attendance_time_out: snapshot.latest_attendance_time_out || null,

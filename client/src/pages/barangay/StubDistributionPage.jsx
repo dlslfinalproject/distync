@@ -26,7 +26,7 @@ import { getStubClaimErrorDialog } from "../../features/stubs/stubClaimErrors";
 import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import { buildMasterlistFilterSectorOptions } from "../../utils/registrationOptions";
-import { getCanonicalSectorCodeFromText } from "../../utils/sectorDisplay";
+import { matchesStubSectorFilter } from "../../features/stubs/stubSectorFilters.js";
 import {
   matchesStubStatusFilter,
   normalizeStubStatusFilter,
@@ -107,17 +107,6 @@ const claimErrorButtonStyles = {
   fontSize: "15px",
   fontWeight: 700,
   cursor: "pointer",
-};
-
-const getSectorCodes = (sectorsText) => {
-  if (!sectorsText || sectorsText === "-") {
-    return [];
-  }
-
-  return String(sectorsText)
-    .split(",")
-    .map((sectorName) => getCanonicalSectorCodeFromText(sectorName))
-    .filter(Boolean);
 };
 
 const getFilteredRows = (rows, searchTerm) => {
@@ -415,11 +404,7 @@ const StubDistributionPage = () => {
         return true;
       }
 
-      const rowSectorNames = getSectorCodes(row.sectors_text);
-
-      return currentFilters.sectorNames.some((sectorName) =>
-        rowSectorNames.includes(sectorName),
-      );
+      return matchesStubSectorFilter(row, currentFilters.sectorNames);
     });
 
     return matchingRows;

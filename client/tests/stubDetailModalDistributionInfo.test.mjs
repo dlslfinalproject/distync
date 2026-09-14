@@ -22,6 +22,10 @@ const verifyStubPageSourcePath = new URL(
   "../src/pages/VerifyStubPage.jsx",
   import.meta.url,
 );
+const stubPrintSheetModalSourcePath = new URL(
+  "../src/components/stubs/StubPrintSheetModal.jsx",
+  import.meta.url,
+);
 
 test("stub detail modal shows receipt number and authorized by from the selected stub distribution transaction", async () => {
   const source = await fs.readFile(stubDetailModalSourcePath, "utf8");
@@ -144,4 +148,16 @@ test("qr-supported scanned stub view also renders disaster event title only", as
   );
   assert.match(source, /getDisasterEventTitle\(stubDetails\.disaster_event\)/);
   assert.doesNotMatch(source, /stubDetails\.disaster_event\?\.event_code,\s+stubDetails\.disaster_event\?\.title/);
+});
+
+test("QR stub print event options show only the disaster name", async () => {
+  const source = await fs.readFile(stubPrintSheetModalSourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const title = String\(event\?\.title \|\| event\?\.event_name \|\| ""\)\.trim\(\);/,
+  );
+  assert.match(source, /titleWithoutBackendCode/);
+  assert.match(source, /\.replace\(\/\^DE-/);
+  assert.doesNotMatch(source, /\[event\?\.event_code, event\?\.title\]/);
 });

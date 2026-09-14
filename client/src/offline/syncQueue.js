@@ -26,6 +26,7 @@ const unsupportedOfflineActionKeys = new Set([
 const supportedOfflineActionKeys = new Set([
   "STUB_CLAIM",
   "HOUSEHOLD_DEPART",
+  "HOUSEHOLD_RESTORE",
   "HOUSEHOLD_UPDATE",
   "INVENTORY_ITEM_CREATE",
   "INVENTORY_ITEM_UPDATE",

@@ -1178,7 +1178,10 @@ const isNonAdmittedResidentRecord = ({
   );
 };
 
-const resolveSingleActiveEvacuationCenterId = async (barangayId) => {
+const resolveSingleActiveEvacuationCenterId = async (
+  barangayId,
+  dbClient = undefined,
+) => {
   if (!barangayId) {
     return null;
   }
@@ -1186,6 +1189,7 @@ const resolveSingleActiveEvacuationCenterId = async (barangayId) => {
   const evacuationCenters =
     await householdRegistrationRepository.getActiveEvacuationCentersByBarangayId(
       barangayId,
+      dbClient,
     );
 
   return evacuationCenters.length === 1 ? evacuationCenters[0].id : null;
@@ -1264,6 +1268,7 @@ const buildReturnRegistrationRequest = async ({
   existingHousehold,
   requester,
   restoreData,
+  dbClient,
 }) => {
   const familyHeadMember = (householdDetails.members || []).find(
     (member) => member.is_family_head,
@@ -1290,7 +1295,10 @@ const buildReturnRegistrationRequest = async ({
       .filter((sector) => MANUAL_MEMBER_SECTOR_CODES.includes(sector.code))
       .map((sector) => sector.id);
   const inferredEvacuationCenterId = isNonAdmittedResidentRecord(existingHousehold)
-    ? await resolveSingleActiveEvacuationCenterId(existingHousehold.barangay_id)
+    ? await resolveSingleActiveEvacuationCenterId(
+        existingHousehold.barangay_id,
+        dbClient,
+      )
     : null;
 
   return {
@@ -3128,9 +3136,17 @@ const archiveHousehold = async ({ householdId, requester, archiveData }) => {
   }
 };
 
-const restoreHousehold = async ({ householdId, requester, restoreData }) => {
+const restoreHousehold = async ({
+  householdId,
+  requester,
+  restoreData = {},
+  dbClient = null,
+}) => {
   const existingHousehold =
-    await householdRegistrationRepository.getHouseholdSummaryById(householdId);
+    await householdRegistrationRepository.getHouseholdSummaryById(
+      householdId,
+      dbClient || undefined,
+    );
 
   if (!existingHousehold) {
     const error = new Error("Household not found");
@@ -3154,10 +3170,14 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
     error.statusCode = 400;
     throw error;
   }
-  const client = await pool.connect();
+
+  const externalClient = dbClient;
+  const client = externalClient || (await pool.connect());
 
   try {
-    await client.query("BEGIN");
+    if (!externalClient) {
+      await client.query("BEGIN");
+    }
 
     const lockedHousehold =
       await householdRegistrationRepository.getHouseholdSummaryByIdForUpdate(
@@ -3231,12 +3251,16 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
 
     if (shouldConvertNonAdmittedResident) {
       const restoreEvacuationCenterId =
-        await resolveSingleActiveEvacuationCenterId(lockedHousehold.barangay_id);
+        await resolveSingleActiveEvacuationCenterId(
+          lockedHousehold.barangay_id,
+          client,
+        );
 
       if (restoreEvacuationCenterId) {
         const evacuationCenter =
           await householdRegistrationRepository.getEvacuationCenterById(
             restoreEvacuationCenterId,
+            client,
           );
 
         if (!evacuationCenter || !evacuationCenter.is_active) {
@@ -3303,6 +3327,7 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
               household_id: householdId,
               evacuee_id: evacuee.id,
               evacuation_center_id: restoreEvacuationCenterId,
+              time_in: restoreData.synced_client_timestamp || null,
               status: "PRESENT",
               recorded_by:
                 requester?.userId || lockedHousehold.registered_by || null,
@@ -3314,9 +3339,14 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
         createdLogs.push(createdLog);
       }
 
-      await client.query("COMMIT");
+      if (!externalClient) {
+        await client.query("COMMIT");
+      }
 
-      const returnedHouseholdDetails = await buildRegistrationResponse(householdId);
+      const returnedHouseholdDetails = await buildRegistrationResponse(
+        householdId,
+        client,
+      );
       const familyHeadName = [
         returnedHouseholdDetails.household?.family_head_first_name,
         returnedHouseholdDetails.household?.family_head_last_name,
@@ -3330,30 +3360,32 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
         createdLogs[0] ||
         null;
 
-      await logAuditSafely({
-        actor: requester,
-        action: "HOUSEHOLD_RETURN_TO_EVAC_CENTER",
-        entityType: "HOUSEHOLD",
-        entityId: householdId,
-        oldValues: {
-          ...summarizeHousehold(lockedHousehold),
-          restore_mode: restoreMode,
-        },
-        newValues: {
-          ...summarizeHousehold(returnedHouseholdDetails.household),
-          restore_mode: restoreMode,
-          new_arrival_time: familyHeadArrivalLog?.time_in || null,
-        },
-      });
+      if (!externalClient) {
+        await logAuditSafely({
+          actor: requester,
+          action: "HOUSEHOLD_RETURN_TO_EVAC_CENTER",
+          entityType: "HOUSEHOLD",
+          entityId: householdId,
+          oldValues: {
+            ...summarizeHousehold(lockedHousehold),
+            restore_mode: restoreMode,
+          },
+          newValues: {
+            ...summarizeHousehold(returnedHouseholdDetails.household),
+            restore_mode: restoreMode,
+            new_arrival_time: familyHeadArrivalLog?.time_in || null,
+          },
+        });
 
-      await notificationService.emitSafely(() =>
-        notificationService.emitEvacueeAttendanceUpdate({
-          householdId,
-          barangayId: lockedHousehold.barangay_id,
-          familyHeadName,
-          action: "arrival-recorded",
-        }),
-      );
+        await notificationService.emitSafely(() =>
+          notificationService.emitEvacueeAttendanceUpdate({
+            householdId,
+            barangayId: lockedHousehold.barangay_id,
+            familyHeadName,
+            action: "arrival-recorded",
+          }),
+        );
+      }
 
       return {
         household_id: householdId,
@@ -3369,6 +3401,7 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
       existingHousehold: lockedHousehold,
       requester,
       restoreData,
+      dbClient: client,
     });
     const returnedHouseholdDetails = await registerHousehold(
       reAdmissionRequest,
@@ -3379,7 +3412,9 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
       },
     );
 
-    await client.query("COMMIT");
+    if (!externalClient) {
+      await client.query("COMMIT");
+    }
 
     const familyHeadName = [
       returnedHouseholdDetails.household?.family_head_first_name,
@@ -3389,32 +3424,34 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
       .join(" ");
     const familyHeadArrivalLog = returnedHouseholdDetails.latest_attendance || null;
 
-    await logAuditSafely({
-      actor: requester,
-      action: "HOUSEHOLD_RETURN_TO_EVAC_CENTER",
-      entityType: "HOUSEHOLD",
-      entityId: returnedHouseholdDetails.household?.id || null,
-      oldValues: {
-        ...summarizeHousehold(lockedHousehold),
-        restore_mode: restoreMode,
-        source_household_id: householdId,
-      },
-      newValues: {
-        ...summarizeHousehold(returnedHouseholdDetails.household),
-        restore_mode: restoreMode,
-        source_household_id: householdId,
-        new_arrival_time: familyHeadArrivalLog?.time_in || null,
-      },
-    });
+    if (!externalClient) {
+      await logAuditSafely({
+        actor: requester,
+        action: "HOUSEHOLD_RETURN_TO_EVAC_CENTER",
+        entityType: "HOUSEHOLD",
+        entityId: returnedHouseholdDetails.household?.id || null,
+        oldValues: {
+          ...summarizeHousehold(lockedHousehold),
+          restore_mode: restoreMode,
+          source_household_id: householdId,
+        },
+        newValues: {
+          ...summarizeHousehold(returnedHouseholdDetails.household),
+          restore_mode: restoreMode,
+          source_household_id: householdId,
+          new_arrival_time: familyHeadArrivalLog?.time_in || null,
+        },
+      });
 
-    await notificationService.emitSafely(() =>
-      notificationService.emitEvacueeAttendanceUpdate({
-        householdId: returnedHouseholdDetails.household?.id || null,
-        barangayId: lockedHousehold.barangay_id,
-        familyHeadName,
-        action: "arrival-recorded",
-      }),
-    );
+      await notificationService.emitSafely(() =>
+        notificationService.emitEvacueeAttendanceUpdate({
+          householdId: returnedHouseholdDetails.household?.id || null,
+          barangayId: lockedHousehold.barangay_id,
+          familyHeadName,
+          action: "arrival-recorded",
+        }),
+      );
+    }
 
     return {
       household_id: returnedHouseholdDetails.household?.id || null,
@@ -3424,10 +3461,14 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
       household: returnedHouseholdDetails.household,
     };
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!externalClient) {
+      await client.query("ROLLBACK");
+    }
     throw mapStage3DatabaseError(error);
   } finally {
-    client.release();
+    if (!externalClient) {
+      client.release();
+    }
   }
 };
 

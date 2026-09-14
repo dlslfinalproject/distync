@@ -659,6 +659,64 @@ test("HOUSEHOLD_RE_ADMISSION sync creates a new occurrence instead of updating t
   );
 });
 
+test("HOUSEHOLD_RESTORE sync keeps the existing restore flow inside the sync transaction", async () => {
+  let restoreArguments = null;
+  const dbClient = { query: async () => ({ rows: [] }) };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => callback(dbClient),
+      }),
+      [householdRegistrationServicePath]: {
+        restoreHousehold: async (args) => {
+          restoreArguments = args;
+          return {
+            household_id: "77777777-7777-4777-8777-777777777777",
+            household: {
+              id: "77777777-7777-4777-8777-777777777777",
+            },
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "restore-household-1",
+            action_key: "HOUSEHOLD_RESTORE",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-restore-household-1",
+            entity_server_id: "66666666-6666-4666-8666-666666666666",
+            client_timestamp: "2026-08-25T01:00:00.000Z",
+            payload: {
+              disaster_event_id: "11111111-1111-4111-8111-111111111111",
+              restore_mode: "RETURN_TO_EVAC_CENTER",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(restoreArguments.householdId, "66666666-6666-4666-8666-666666666666");
+      assert.equal(restoreArguments.requester.userId, baseAuth.userId);
+      assert.equal(restoreArguments.requester.roleCode, baseAuth.roleCode);
+      assert.equal(
+        restoreArguments.restoreData.synced_client_timestamp,
+        "2026-08-25T01:00:00.000Z",
+      );
+      assert.equal(restoreArguments.dbClient, dbClient);
+    },
+  );
+});
+
 test("BRG-SC-03 TEST A rejects foreign Barangay HOUSEHOLD_UPDATE before conflict evidence is stored", async () => {
   const foreignHousehold = {
     id: "11111111-1111-4111-8111-111111111111",

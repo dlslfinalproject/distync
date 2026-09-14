@@ -102,9 +102,14 @@ const orderOptions = [
   { value: "za", label: "Sort Z-A" },
 ];
 
-const formatEventOptionLabel = (event) =>
-  [event?.event_code, event?.title].filter(Boolean).join(" - ") ||
-  "Unnamed disaster event";
+const formatEventOptionLabel = (event) => {
+  const title = String(event?.title || event?.event_name || "").trim();
+  const titleWithoutBackendCode = title
+    .replace(/^DE-\d{4}-\d{4}\s*[-:]\s*/i, "")
+    .trim();
+
+  return titleWithoutBackendCode || "Unnamed disaster event";
+};
 
 const getAffectedBarangayIds = (event) => {
   if (!Array.isArray(event?.affected_barangays)) {

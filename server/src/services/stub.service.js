@@ -627,6 +627,11 @@ const getBarangayStubDashboard = async (filters) => {
         .map((template) => template.name)
         .filter(Boolean)
         .join(", ");
+      const sectors = buildSectors(
+        row.household_id,
+        householdSectorsByHouseholdId,
+        memberSectorsByHouseholdId,
+      );
       return {
         id: row.id,
         stub_no: row.stub_no,
@@ -677,12 +682,9 @@ const getBarangayStubDashboard = async (filters) => {
           householdSectorsByHouseholdId,
           memberSectorsByHouseholdId,
         ),
-        sectors: buildSectors(
-          row.household_id,
-          householdSectorsByHouseholdId,
-          memberSectorsByHouseholdId,
-        ),
+        sectors,
         sector_ids: sectorIds,
+        sector_codes: sectors.map((sector) => sector.code).filter(Boolean),
         assigned_relief_packs: assignedReliefPacks,
         assigned_donated_relief_packs: assignedDonatedReliefPacks,
         available_donated_relief_packs:
@@ -869,6 +871,11 @@ const getMunicipalStubDashboard = async ({
         .map((template) => template.name)
         .filter(Boolean)
         .join(", ");
+      const sectors = buildSectors(
+        row.household_id,
+        householdSectorsByHouseholdId,
+        memberSectorsByHouseholdId,
+      );
       return {
         id: row.id,
         stub_no: row.stub_no,
@@ -913,12 +920,9 @@ const getMunicipalStubDashboard = async ({
           householdSectorsByHouseholdId,
           memberSectorsByHouseholdId,
         ),
-        sectors: buildSectors(
-          row.household_id,
-          householdSectorsByHouseholdId,
-          memberSectorsByHouseholdId,
-        ),
+        sectors,
         sector_ids: sectorIds,
+        sector_codes: sectors.map((sector) => sector.code).filter(Boolean),
         assigned_relief_packs: assignedReliefPacks,
         assigned_donated_relief_packs: assignedDonatedReliefPacks,
         available_donated_relief_packs: showLiveClaimPreview

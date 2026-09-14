@@ -100,6 +100,8 @@ const serverStub = {
     },
   ],
   sectors_text: "Senior Citizen",
+  sector_ids: ["11111111-1111-4111-8111-111111111111"],
+  sector_codes: ["SENIOR_CITIZEN"],
   status: "ISSUED",
   latest_attendance_status: "PRESENT",
   latest_attendance_time_out: null,
@@ -126,6 +128,8 @@ test("BRG-SC-07-M01 TEST A snapshot sanitizer uses an allowlist and owner stamp"
   assert.equal(snapshot.household_is_active, true);
   assert.equal(snapshot.latest_attendance_status, "PRESENT");
   assert.equal(snapshot.latest_attendance_time_out, null);
+  assert.deepEqual(snapshot.sector_ids, ["11111111-1111-4111-8111-111111111111"]);
+  assert.deepEqual(snapshot.sector_codes, ["SENIOR_CITIZEN"]);
   assert.equal(snapshot.assigned_relief_packs[0].name, "Family Pack");
   assert.equal(
     snapshot.assigned_donated_relief_packs[0].name,
@@ -238,6 +242,8 @@ test("BRG-SC-07-M01 TEST D cached row and details preserve claim UI fields witho
   assert.equal(pendingRow.is_claim_pending, true);
   assert.equal(pendingRow.latest_attendance_status, "PRESENT");
   assert.equal(pendingRow.latest_attendance_time_out, null);
+  assert.deepEqual(pendingRow.sector_ids, ["11111111-1111-4111-8111-111111111111"]);
+  assert.deepEqual(pendingRow.sector_codes, ["SENIOR_CITIZEN"]);
   assert.equal(pendingRow.household.family_head_name, "Juan Dela Cruz");
   assert.equal(
     pendingRow.available_donated_relief_packs[0].name,
