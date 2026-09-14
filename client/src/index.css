@@ -1635,6 +1635,7 @@ img {
 
 .barangay-dashboard-event-title,
 .barangay-dashboard-event-meta,
+.barangay-dashboard-summary-grid,
 .masterlist-toolbar-search,
 .masterlist-toolbar-actions,
 .mswdo-masterlist-toolbar,
@@ -2310,6 +2311,10 @@ img {
   .barangay-dashboard-event-meta {
     flex-wrap: wrap;
     gap: 10px 16px !important;
+  }
+
+  .barangay-dashboard-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 
   .mswdo-masterlist-tabs {
@@ -3499,4 +3504,105 @@ img {
 
 .mayor-inventory-forecast-export-button {
   min-width: 0 !important;
+}
+
+/* Barangay dashboard toolbar layout: keep mobile controls in the requested rows. */
+@media (max-width: 768px) {
+  .masterlist-toolbar-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: stretch;
+    gap: 10px !important;
+    width: 100% !important;
+  }
+
+  .masterlist-toolbar-status-filter,
+  .masterlist-toolbar-filter-button-wrap,
+  .masterlist-toolbar-register-button,
+  .masterlist-toolbar-export-button {
+    min-width: 0;
+    width: 100% !important;
+  }
+
+  .masterlist-toolbar-status-filter {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+  }
+
+  .masterlist-toolbar-filter-button-wrap {
+    grid-column: 1;
+  }
+
+  .masterlist-toolbar-register-button {
+    grid-column: 2;
+  }
+
+  .masterlist-toolbar-export-button {
+    grid-column: 1 / -1;
+  }
+
+  .masterlist-toolbar-filter-button-wrap > button,
+  .masterlist-toolbar-register-button,
+  .masterlist-toolbar-export-button {
+    width: 100% !important;
+    min-width: 0;
+    justify-content: center;
+    white-space: normal;
+  }
+
+  .masterlist-toolbar-status-filter select {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .stub-distribution-toolbar-controls {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: stretch;
+    gap: 10px !important;
+    width: 100% !important;
+  }
+
+  .stub-distribution-status-filter,
+  .stub-distribution-filter-button-wrap,
+  .stub-distribution-print-button,
+  .stub-distribution-scan-button {
+    min-width: 0;
+    width: 100% !important;
+  }
+
+  .stub-distribution-status-filter {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+  }
+
+  .stub-distribution-filter-button-wrap {
+    grid-column: 1;
+  }
+
+  .stub-distribution-toolbar-actions {
+    display: contents !important;
+  }
+
+  .stub-distribution-print-button {
+    grid-column: 2;
+  }
+
+  .stub-distribution-scan-button {
+    grid-column: 1 / -1;
+  }
+
+  .stub-distribution-filter-button-wrap > button,
+  .stub-distribution-print-button,
+  .stub-distribution-scan-button {
+    width: 100% !important;
+    min-width: 0;
+    justify-content: center;
+    white-space: normal;
+  }
+
+  .stub-distribution-status-filter select {
+    min-width: 0;
+    max-width: 100%;
+  }
 }

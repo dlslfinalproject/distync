@@ -1,7 +1,6 @@
 import React, { useMemo } from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import StatusCard from "../shared/StatusCard";
-import StatusPill from "../shared/StatusPill";
 
 const filterStyles = {
   field: {
@@ -25,16 +24,51 @@ const filterStyles = {
   },
 };
 
+const scopeCardStyles = {
+  ...shellStyles.card,
+  padding: 0,
+  boxSizing: "border-box",
+};
+
+const scopeTabListStyles = {
+  alignItems: "stretch",
+  borderBottom: "1px solid #d6e2ef",
+  backgroundColor: "#fbfdff",
+  borderTopLeftRadius: "17px",
+  borderTopRightRadius: "17px",
+  display: "flex",
+  flexWrap: "nowrap",
+  gap: "4px",
+  overflowX: "auto",
+  padding: "8px clamp(14px, 2vw, 24px) 0",
+  minHeight: "56px",
+  WebkitOverflowScrolling: "touch",
+};
+
+const scopeFilterContentStyles = {
+  boxSizing: "border-box",
+  padding: "clamp(18px, 2vw, 24px)",
+};
+
 const tabButtonStyles = (isActive) => ({
-  padding: "12px 24px",
+  alignItems: "center",
+  boxSizing: "border-box",
   border: "none",
-  background: "none",
-  fontSize: "14px",
-  fontWeight: 700,
-  textTransform: "uppercase",
-  color: isActive ? "#17324d" : "#6b8298",
   borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
+  background: "none",
+  color: isActive ? "#17324d" : "#6b8298",
   cursor: "pointer",
+  display: "inline-flex",
+  fontSize: "14px",
+  fontFamily: "inherit",
+  fontWeight: 700,
+  justifyContent: "center",
+  letterSpacing: "0.01em",
+  lineHeight: 1.3,
+  minHeight: "48px",
+  padding: "11px 16px",
+  transition: "color 160ms ease, border-color 160ms ease",
+  whiteSpace: "nowrap",
 });
 
 const formatDisplayDate = (value) => {
@@ -190,18 +224,16 @@ const BarangayDashboardOverview = ({
 
   return (
     <>
-      <section style={shellStyles.card}>
+      <section style={scopeCardStyles}>
         <div
-          style={{
-            display: "flex",
-            borderBottom: "1px solid #d6e2ef",
-            marginBottom: "24px",
-            gap: "8px",
-            flexWrap: "wrap",
-          }}
+          role="tablist"
+          aria-label="Barangay dashboard event scope"
+          style={scopeTabListStyles}
         >
           <button
             type="button"
+            role="tab"
+            aria-selected={eventScope === "active"}
             onClick={() => setEventScope("active")}
             style={tabButtonStyles(eventScope === "active")}
           >
@@ -209,6 +241,8 @@ const BarangayDashboardOverview = ({
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={eventScope === "ended"}
             onClick={() => setEventScope("ended")}
             style={tabButtonStyles(eventScope === "ended")}
           >
@@ -217,81 +251,83 @@ const BarangayDashboardOverview = ({
         </div>
 
         {/* ✅ GRID (ORDER FIXED HERE) */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "16px",
-            alignItems: "end",
-          }}
-        >
-          {/* Event */}
-          <div>
-            <label
-              htmlFor="barangay-dashboard-event"
-              style={filterStyles.label}
-            >
-              {scopeLabel} Disaster Event
-            </label>
-            <select
-              id="barangay-dashboard-event"
-              value={eventSelectValue}
-              onChange={(event) =>
-                setSelectedDisasterEventId(event.target.value)
-              }
-              disabled={!isContextResolved || isLoading || !hasEvents}
-              style={filterStyles.field}
-            >
-              <option value="">{eventPlaceholder}</option>
-              {sortedAvailableEvents.map((event) => (
-                <option key={event.id} value={event.id}>
-                  {formatDisasterEventTitle(event)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* ✅ Fallback Barangay (NOW 2nd) */}
-          {showFallbackOverride ? (
+        <div style={scopeFilterContentStyles}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "16px",
+              alignItems: "end",
+            }}
+          >
+            {/* Event */}
             <div>
               <label
-                htmlFor="barangay-dashboard-override"
+                htmlFor="barangay-dashboard-event"
                 style={filterStyles.label}
               >
-                {accessMode} Fallback Barangay
+                Disaster Event
               </label>
               <select
-                id="barangay-dashboard-override"
-                value={overrideBarangayId}
+                id="barangay-dashboard-event"
+                value={eventSelectValue}
                 onChange={(event) =>
-                  setOverrideBarangayId(event.target.value)
+                  setSelectedDisasterEventId(event.target.value)
                 }
+                disabled={!isContextResolved || isLoading || !hasEvents}
                 style={filterStyles.field}
               >
-                <option value="">Select fallback barangay</option>
-                {(devBarangayOptions || []).map((barangay) => (
-                  <option key={barangay.id} value={barangay.id}>
-                    {barangay.name}
+                <option value="">{eventPlaceholder}</option>
+                {sortedAvailableEvents.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    {formatDisasterEventTitle(event)}
                   </option>
                 ))}
               </select>
             </div>
-          ) : null}
 
-          {/* ✅ Barangay (NOW 3rd) */}
-          <div>
-            <label style={filterStyles.label}>Barangay</label>
-            <div
-              style={{
-                ...filterStyles.field,
-                display: "flex",
-                alignItems: "center",
-                minHeight: "48px",
-                fontWeight: 700,
-                color: "#17324d",
-              }}
-            >
-              {barangayDisplayName}
+            {/* ✅ Fallback Barangay (NOW 2nd) */}
+            {showFallbackOverride ? (
+              <div>
+                <label
+                  htmlFor="barangay-dashboard-override"
+                  style={filterStyles.label}
+                >
+                  {accessMode} Fallback Barangay
+                </label>
+                <select
+                  id="barangay-dashboard-override"
+                  value={overrideBarangayId}
+                  onChange={(event) =>
+                    setOverrideBarangayId(event.target.value)
+                  }
+                  style={filterStyles.field}
+                >
+                  <option value="">Select fallback barangay</option>
+                  {(devBarangayOptions || []).map((barangay) => (
+                    <option key={barangay.id} value={barangay.id}>
+                      {barangay.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
+            {/* ✅ Barangay (NOW 3rd) */}
+            <div>
+              <label style={filterStyles.label}>Barangay</label>
+              <div
+                style={{
+                  ...filterStyles.field,
+                  display: "flex",
+                  alignItems: "center",
+                  minHeight: "48px",
+                  fontWeight: 700,
+                  color: "#17324d",
+                }}
+              >
+                {barangayDisplayName}
+              </div>
             </div>
           </div>
         </div>
@@ -323,7 +359,6 @@ const BarangayDashboardOverview = ({
             style={{ display: "flex", gap: "24px", marginTop: "14px" }}
           >
             <span>Period: {formatReliefPeriod(selectedEvent)}</span>
-            <StatusPill status={selectedEvent?.status} />
           </div>
         </div>
 
@@ -343,7 +378,13 @@ const BarangayDashboardOverview = ({
       </section>
 
       {hasSelectedEvent && (
-        <section style={shellStyles.statGrid}>
+        <section
+          className="barangay-dashboard-summary-grid"
+          style={{
+            ...shellStyles.statGrid,
+            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+          }}
+        >
           {(summaryCards || []).map((card) => (
             <StatusCard key={card.label} {...card} />
           ))}

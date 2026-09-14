@@ -1051,6 +1051,7 @@ const AnomalyTrackingPage = ({
 }) => {
   const isBarangayScope = scope === "barangay";
   const isMayorScope = scope === "mayor";
+  const usesMayorToolbarLayout = isBarangayScope || isMayorScope;
   const presentationScope = isBarangayScope
     ? "barangay"
     : isMayorScope
@@ -1574,11 +1575,11 @@ const AnomalyTrackingPage = ({
       </section>
 
       <div
-        className={isMayorScope ? "mayor-anomaly-toolbar" : undefined}
+        className={usesMayorToolbarLayout ? "mayor-anomaly-toolbar" : undefined}
         style={pageSpacingStyles.toolbar}
       >
         <div
-          className={isMayorScope ? "mayor-anomaly-toolbar-search" : undefined}
+          className={usesMayorToolbarLayout ? "mayor-anomaly-toolbar-search" : undefined}
           style={{ position: "relative", flex: "1 1 420px", minWidth: "260px" }}
         >
           <FiSearch
@@ -1613,7 +1614,7 @@ const AnomalyTrackingPage = ({
         </div>
 
         <div
-          className={isMayorScope ? "mayor-anomaly-toolbar-controls" : undefined}
+          className={usesMayorToolbarLayout ? "mayor-anomaly-toolbar-controls" : undefined}
           style={pageSpacingStyles.actionGroup}
         >
           <div

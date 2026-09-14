@@ -131,6 +131,7 @@ const MasterlistToolbar = ({
       >
         {!hideRecordStatus ? (
           <label
+            className="masterlist-toolbar-status-filter"
             style={{
               display: "flex",
               alignItems: "center",
@@ -161,7 +162,7 @@ const MasterlistToolbar = ({
           </label>
         ) : null}
 
-        <div>
+        <div className="masterlist-toolbar-filter-button-wrap">
           <ResponsiveFilterPopover
             isOpen={isFilterOpen}
             onOpenChange={setIsFilterOpen}
@@ -237,6 +238,7 @@ const MasterlistToolbar = ({
 
         {!hideRegisterButton && (
           <button
+            className="masterlist-toolbar-register-button"
             type="button"
             onClick={onOpenRegisterFamily}
             style={{
@@ -253,6 +255,7 @@ const MasterlistToolbar = ({
 
         {!hideExportButton ? (
           <button
+            className="masterlist-toolbar-export-button"
             type="button"
             onClick={onOpenExport}
             disabled={disableExportButton || Boolean(exportingFormat)}
