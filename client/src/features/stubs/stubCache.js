@@ -155,7 +155,7 @@ export const toOfflineStubSnapshot = (
         ),
       ) || 0,
     household_is_active: household.is_active !== false,
-    ...(ownerContext.roleCode === ROLE_CODES.MSWDO && isImageDataUrl(getFirstValue(serverRow.family_head_photo_data_url, household.family_head_photo_data_url, ""))
+    ...(isImageDataUrl(getFirstValue(serverRow.family_head_photo_data_url, household.family_head_photo_data_url, ""))
       ? { family_head_photo_data_url: getFirstValue(serverRow.family_head_photo_data_url, household.family_head_photo_data_url, "") }
       : {}),
     display_stub_no: trimValue(serverRow.display_stub_no),

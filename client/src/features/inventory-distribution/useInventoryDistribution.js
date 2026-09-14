@@ -24,6 +24,9 @@ import {
   getInventoryDistributionStubDashboardBarangayIds,
   shouldLoadInventoryDistributionStubDashboard,
 } from "./inventoryDistributionDataSource.js";
+import { readMswdoOfflineSnapshot } from "../offline/mswdoOfflinePreparation.js";
+import { getCachedStubRowsForScope } from "../stubs/stubCache.js";
+import { getSyncQueueActorContext } from "../../offline/syncQueue.js";
 
 const emptyMasterlistPayload = {
   disaster_event: null,
@@ -188,6 +191,7 @@ const mapStubDashboardRow = (row, fallbackBarangay = null) => {
     qr_code_value: row.qr_code_value || "",
     latest_arrival_time: row.queue_time_in || row.issued_at || "",
     stub_id: row.id,
+    masterlist_household: row.household || null,
   };
 };
 
@@ -231,6 +235,10 @@ const mergeMasterlistDataIntoRows = (rows, masterlistPayload) => {
         household.attendance_log_id ||
         row.household_id,
       family_head_name: household.family_head_name || row.family_head_name,
+      family_head_photo_url:
+        household.family_head_photo_url || row.family_head_photo_url || "",
+      family_head_photo_data_url:
+        household.family_head_photo_data_url || row.family_head_photo_data_url || "",
       address:
         household.current_address_details ||
         household.barangay?.name ||
@@ -584,10 +592,28 @@ export const useInventoryDistribution = () => {
         }
       } catch (error) {
         if (isMounted) {
-          setMasterlistPayload(emptyMasterlistPayload);
-          setErrorMessage(
-            error.message || "Failed to load inventory distribution records.",
-          );
+          const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+          const snapshot = offline
+            ? await readMswdoOfflineSnapshot({
+                userId: getSyncQueueActorContext().userId,
+                eventId: selectedDisasterEventId,
+              })
+            : null;
+          const snapshotRows = snapshot?.datasets?.masterlist?.rows;
+          if (Array.isArray(snapshotRows)) {
+            setMasterlistPayload({
+              disaster_event: snapshot.datasets.masterlist.payload?.disaster_event || null,
+              filters: { disaster_event_id: selectedDisasterEventId, barangay_id: selectedBarangayId || null },
+              count: snapshotRows.length,
+              data: selectedBarangayId
+                ? snapshotRows.filter((row) => String(row?.barangay?.id || row?.barangay_id || "") === String(selectedBarangayId))
+                : snapshotRows,
+            });
+            setErrorMessage("");
+          } else {
+            setMasterlistPayload(emptyMasterlistPayload);
+            setErrorMessage(error.message || "Failed to load inventory distribution records.");
+          }
         }
       } finally {
         if (isMounted) {
@@ -713,11 +739,27 @@ export const useInventoryDistribution = () => {
         }
       } catch (error) {
         if (isCurrentRequest()) {
-          setErrorMessage(
-            error.message || "Failed to fetch municipal stub dashboard.",
-          );
-          setStubDashboardPayload(emptyStubDashboardPayload);
-          setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
+          const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+          const cachedRows = offline
+            ? await getCachedStubRowsForScope({ disasterEventId: selectedDisasterEventId })
+            : [];
+          if (cachedRows.length > 0) {
+            const visibleRows = selectedBarangayId
+              ? cachedRows.filter((row) => String(row?.barangay_id || row?.barangay?.id || "") === String(selectedBarangayId))
+              : cachedRows;
+            if (selectedBarangayId) {
+              setStubDashboardPayload({ metrics: emptyStubDashboardPayload.metrics, data: visibleRows });
+              setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
+            } else {
+              setStubDashboardPayload(emptyStubDashboardPayload);
+              setAllBarangaysStubDashboardPayload({ metrics: emptyStubDashboardPayload.metrics, data: visibleRows });
+            }
+            setErrorMessage("");
+          } else {
+            setErrorMessage(error.message || "Failed to fetch municipal stub dashboard.");
+            setStubDashboardPayload(emptyStubDashboardPayload);
+            setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
+          }
         }
       }
     };
