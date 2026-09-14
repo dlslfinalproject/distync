@@ -21,6 +21,10 @@ test("Mayor inventory forecasting keeps route, service endpoints, and forecast s
   assert.match(routesSource, /path: "forecasts", element: <InventoryForecastsPage \/>/);
   assert.match(pageSource, /title="INVENTORY FORECASTING MANAGEMENT"/);
   assert.match(hookSource, /selectedForecastModel[\s\S]*useState\("MOVING_AVERAGE"\)/);
+  assert.match(hookSource, /getForecastModelRecommendation/);
+  assert.match(hookSource, /setSelectedForecastModel\(recommendation\.modelName\)/);
+  assert.match(hookSource, /handleForecastEventChange/);
+  assert.match(hookSource, /handleForecastModelChange/);
   assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/run/);
   assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/latest/);
   assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/context/);
@@ -63,6 +67,9 @@ test("Mayor inventory forecasting controls, KPIs, charts, and tables expose mobi
   assert.match(panelSource, /Detailed Results by Item/);
   assert.match(panelSource, /Forecast Run History/);
   assert.match(panelSource, /overflowWrap: "anywhere"/);
+  assert.match(panelSource, /\(Suggested Model\)/);
+  assert.doesNotMatch(panelSource, /Suggested model for this event/);
+  assert.doesNotMatch(panelSource, /How the three models differ/);
 
   assert.match(modalSource, /padding: "clamp\(12px, 4vw, 24px\)"/);
   assert.match(modalSource, /fontSize: "clamp\(21px, 5vw, 26px\)"/);
