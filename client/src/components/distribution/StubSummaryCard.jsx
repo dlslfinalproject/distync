@@ -1,6 +1,7 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import QrCodePanel from "../stubs/QrCodePanel";
+import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
 
 const labelStyles = {
   margin: 0,
@@ -127,9 +128,13 @@ const StubSummaryCard = ({ stubContext, isLoadingStubDetails = false }) => {
             <p style={{ ...shellStyles.mutedText, marginTop: 0 }}>
               Loading registered family head photo...
             </p>
-          ) : stubContext.family_head_photo_url ? (
+          ) : resolveFamilyHeadPhoto(stubContext, {
+            isOffline: typeof navigator !== "undefined" && navigator.onLine === false,
+          }) ? (
             <img
-              src={stubContext.family_head_photo_url}
+              src={resolveFamilyHeadPhoto(stubContext, {
+                isOffline: typeof navigator !== "undefined" && navigator.onLine === false,
+              })}
               alt="Registered family head"
               style={photoStyles.photoPreview}
             />

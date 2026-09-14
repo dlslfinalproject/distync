@@ -422,9 +422,13 @@ const StubDetailModal = ({
                 <div>
                   <p style={modalStyles.label}>Family Head Photo</p>
                   <div style={{ marginTop: "12px" }}>
-                    {resolveFamilyHeadPhoto(household) ? (
+                    {resolveFamilyHeadPhoto(household, {
+                      isOffline: stubDetails?.is_cached_offline === true,
+                    }) ? (
                       <img
-                        src={resolveFamilyHeadPhoto(household)}
+                        src={resolveFamilyHeadPhoto(household, {
+                          isOffline: stubDetails?.is_cached_offline === true,
+                        })}
                         alt="Registered family head"
                         style={modalStyles.photo}
                       />
