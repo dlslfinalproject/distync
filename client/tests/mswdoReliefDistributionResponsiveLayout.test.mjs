@@ -15,6 +15,7 @@ test("MSWDO relief distribution exposes responsive hooks for scope and event con
   ]);
 
   assert.match(pageSource, /className="mswdo-stub-scope-card"/);
+  assert.match(pageSource, /className="mswdo-stub-toolbar-shell"/);
   assert.match(pageSource, /className="mswdo-stub-tabs"/);
   assert.match(pageSource, /className="mswdo-stub-filter-grid"/);
   assert.match(pageSource, /className="mswdo-stub-filter-field"/);
@@ -22,6 +23,9 @@ test("MSWDO relief distribution exposes responsive hooks for scope and event con
   assert.match(pageSource, /className="mswdo-stub-event-summary"/);
   assert.match(pageSource, /className="mswdo-stub-event-title"/);
   assert.match(pageSource, /className="mswdo-stub-event-meta"/);
+  assert.doesNotMatch(pageSource, /StatusPill/);
+  assert.match(pageSource, /className="stub-distribution-print-button"/);
+  assert.match(pageSource, /className="stub-distribution-scan-button"/);
   assert.match(
     cssSource,
     /@media \(max-width: 768px\)[\s\S]*?\.mswdo-stub-tabs \{[\s\S]*?overflow-x: auto !important;/,
@@ -33,6 +37,10 @@ test("MSWDO relief distribution exposes responsive hooks for scope and event con
   assert.match(
     cssSource,
     /@media \(max-width: 768px\)[\s\S]*?\.mswdo-stub-event-meta \{[\s\S]*?flex-wrap: wrap;/,
+  );
+  assert.match(
+    cssSource,
+    /\.mswdo-stub-toolbar-shell \.stub-distribution-toolbar-search,[\s\S]*?order: -1;[\s\S]*?flex: 1 1 100% !important;[\s\S]*?width: 100% !important;/,
   );
   assert.match(
     cssSource,

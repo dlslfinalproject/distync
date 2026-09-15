@@ -14,7 +14,7 @@ import FeedbackToast from "../../components/shared/FeedbackToast";
 import ResponsiveFilterPopover from "../../components/shared/ResponsiveFilterPopover";
 import SearchBar from "../../components/shared/SearchBar";
 import { pageHeaderStyles } from "../../components/layout/PageHeader";
-import { FiFileText, FiFilter } from "react-icons/fi";
+import { FiAlertTriangle, FiFileText, FiFilter, FiPlus } from "react-icons/fi";
 import {
   exportDisasterEvents,
   fetchActiveDisasterEvents,
@@ -610,61 +610,32 @@ const DisasterEventsPage = () => {
   }, [selectedFilter]);
 
   const getTabStyle = (filterKey) => ({
-    padding: "12px 24px",
+    alignItems: "center",
+    boxSizing: "border-box",
     border: "none",
-    background: "none",
-    fontSize: "14px",
-    fontWeight: 700,
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-    color: selectedFilter === filterKey ? "#17324d" : "#6b8298",
     borderBottom:
       selectedFilter === filterKey
         ? "3px solid #17324d"
         : "3px solid transparent",
+    background: "none",
+    color: selectedFilter === filterKey ? "#17324d" : "#6b8298",
     cursor: "pointer",
-    transition: "all 0.2s ease",
+    display: "inline-flex",
+    fontSize: "14px",
+    fontFamily: "inherit",
+    fontWeight: 700,
+    justifyContent: "center",
+    letterSpacing: "0.01em",
+    lineHeight: 1.3,
+    minHeight: "48px",
+    padding: "11px 16px",
+    transition: "color 160ms ease, border-color 160ms ease",
     whiteSpace: "nowrap",
   });
 
   return (
     <div style={pageSpacingStyles.pageStack}>
       <PageHeader title="DISASTER EVENT MANAGEMENT" />
-
-      <section style={{ ...shellStyles.card, boxSizing: "border-box" }}>
-        <div
-          className="disaster-events-tabs"
-          style={{
-            display: "flex",
-            borderBottom: "1px solid #d6e2ef",
-            marginBottom: "24px",
-            flexWrap: "wrap",
-            gap: "8px",
-            overflowX: "auto",
-            msOverflowStyle: "none",
-            scrollbarWidth: "none",
-          }}
-        >
-          <button
-            onClick={() => setSelectedFilter(filterOptions.active)}
-            style={getTabStyle(filterOptions.active)}
-          >
-            Active Events
-          </button>
-          <button
-            onClick={() => setSelectedFilter(filterOptions.closed)}
-            style={getTabStyle(filterOptions.closed)}
-          >
-            Ended Events
-          </button>
-          <button
-            onClick={() => setSelectedFilter(filterOptions.all)}
-            style={getTabStyle(filterOptions.all)}
-          >
-            All Events
-          </button>
-        </div>
-      </section>
 
       <div
         className="disaster-events-toolbar"
@@ -682,7 +653,7 @@ const DisasterEventsPage = () => {
           className="disaster-events-toolbar-actions"
           style={pageSpacingStyles.actionGroup}
         >
-          <div>
+          <div className="disaster-events-filter-button-wrap">
             <ResponsiveFilterPopover
               isOpen={isFilterOpen}
               onOpenChange={setIsFilterOpen}
@@ -790,6 +761,7 @@ const DisasterEventsPage = () => {
 
           <button
             className="disaster-events-create-button"
+            type="button"
             onClick={openCreateModal}
             style={{
               display: "inline-flex",
@@ -806,7 +778,33 @@ const DisasterEventsPage = () => {
               boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
             }}
           >
-            <span style={{ fontSize: "16px", lineHeight: 1 }}>+</span>
+            <span
+              aria-hidden="true"
+              style={{
+                position: "relative",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "18px",
+                height: "18px",
+                flexShrink: 0,
+              }}
+            >
+              <FiAlertTriangle size={17} />
+              <span
+                style={{
+                  position: "absolute",
+                  right: "-5px",
+                  bottom: "-4px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  lineHeight: 1,
+                }}
+              >
+                <FiPlus size={10} strokeWidth={3} />
+              </span>
+            </span>
             Create Disaster Event
           </button>
 
@@ -856,12 +854,79 @@ const DisasterEventsPage = () => {
         className="disaster-events-list-card"
         style={{
           ...shellStyles.card,
+          padding: 0,
           marginTop: "0",
           boxSizing: "border-box",
           overflow: "visible",
         }}
       >
-        <div style={{ width: "100%", minWidth: 0 }}>
+        <div
+          className="disaster-events-tabs"
+          role="tablist"
+          aria-label="Disaster event management filters"
+          style={{
+            alignItems: "stretch",
+            borderBottom: "1px solid #d6e2ef",
+            backgroundColor: "#fbfdff",
+            borderTopLeftRadius: "17px",
+            borderTopRightRadius: "17px",
+            display: "flex",
+            flexWrap: "nowrap",
+            gap: "4px",
+            overflowX: "auto",
+            padding: "8px clamp(14px, 2vw, 24px) 0",
+            minHeight: "56px",
+            WebkitOverflowScrolling: "touch",
+            scrollbarWidth: "thin",
+          }}
+        >
+          <button
+            id="disaster-events-tab-active"
+            role="tab"
+            aria-selected={selectedFilter === filterOptions.active}
+            aria-controls="disaster-events-table-panel"
+            type="button"
+            onClick={() => setSelectedFilter(filterOptions.active)}
+            style={getTabStyle(filterOptions.active)}
+          >
+            Active Events
+          </button>
+          <button
+            id="disaster-events-tab-ended"
+            role="tab"
+            aria-selected={selectedFilter === filterOptions.closed}
+            aria-controls="disaster-events-table-panel"
+            type="button"
+            onClick={() => setSelectedFilter(filterOptions.closed)}
+            style={getTabStyle(filterOptions.closed)}
+          >
+            Ended Events
+          </button>
+          <button
+            id="disaster-events-tab-all"
+            role="tab"
+            aria-selected={selectedFilter === filterOptions.all}
+            aria-controls="disaster-events-table-panel"
+            type="button"
+            onClick={() => setSelectedFilter(filterOptions.all)}
+            style={getTabStyle(filterOptions.all)}
+          >
+            All Events
+          </button>
+        </div>
+
+        <div
+          id="disaster-events-table-panel"
+          role="tabpanel"
+          aria-labelledby={`disaster-events-tab-${selectedFilter}`}
+          className="disaster-events-table-panel"
+          style={{
+            width: "100%",
+            minWidth: 0,
+            padding: "clamp(18px, 2vw, 24px)",
+            boxSizing: "border-box",
+          }}
+        >
           <DisasterEventsTable
             rows={filteredEvents}
             isLoading={isLoading}

@@ -21,11 +21,16 @@ test("MSWDO masterlist exposes Barangay-parity responsive hooks for target-speci
   assert.match(controlsSource, /className="mswdo-masterlist-toolbar"/);
   assert.match(controlsSource, /className="masterlist-toolbar-search"/);
   assert.match(controlsSource, /className="masterlist-toolbar-actions"/);
+  assert.match(controlsSource, /className="masterlist-toolbar-status-filter"/);
+  assert.match(controlsSource, /className="masterlist-toolbar-filter-button-wrap"/);
+  assert.match(controlsSource, /className="masterlist-toolbar-register-button"/);
+  assert.match(controlsSource, /className="masterlist-toolbar-export-button"/);
   assert.match(scopeSource, /className="mswdo-masterlist-tabs"/);
   assert.match(scopeSource, /className="mswdo-masterlist-filter-grid"/);
   assert.match(scopeSource, /className="mswdo-masterlist-filter-field"/);
   assert.match(summarySource, /className="mswdo-masterlist-event-title"/);
   assert.match(summarySource, /className="mswdo-masterlist-event-meta"/);
+  assert.doesNotMatch(summarySource, /StatusPill/);
   assert.match(cardsSource, /className="mswdo-masterlist-summary-grid"/);
   assert.match(
     pageSource,
@@ -52,6 +57,10 @@ test("MSWDO masterlist exposes Barangay-parity responsive hooks for target-speci
   assert.match(
     cssSource,
     /@media \(max-width: 768px\)[\s\S]*?\.mswdo-masterlist-filter-grid \{[\s\S]*?grid-template-columns: repeat\(auto-fit, minmax\(min\(220px, 100%\), 1fr\)\) !important;/,
+  );
+  assert.match(
+    cssSource,
+    /\.mswdo-masterlist-toolbar \.masterlist-toolbar-search,[\s\S]*?order: -1;[\s\S]*?flex: 1 1 100% !important;[\s\S]*?width: 100% !important;/,
   );
   assert.match(
     cssSource,

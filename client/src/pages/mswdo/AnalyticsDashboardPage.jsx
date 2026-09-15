@@ -640,8 +640,9 @@ const AnalyticsDashboardPage = () => {
         </div>
       </section>
 
-      <div style={exportActionRowStyle}>
+      <div className="mswdo-analytics-export-row" style={exportActionRowStyle}>
         <button
+          className="mswdo-analytics-export-button"
           type="button"
           onClick={handleOpenExportModal}
           disabled={!hasSelectedEvent || isLoadingFilters || isLoadingDashboard}

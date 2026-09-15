@@ -19,6 +19,7 @@ test("MSWDO Disaster Event page exposes scoped responsive hooks", async () => {
   assert.match(pageSource, /className="disaster-events-toolbar"/);
   assert.match(pageSource, /className="disaster-events-toolbar-search"/);
   assert.match(pageSource, /className="disaster-events-toolbar-actions"/);
+  assert.match(pageSource, /className="disaster-events-filter-button-wrap"/);
   assert.match(pageSource, /className="disaster-events-create-button"/);
   assert.match(pageSource, /className="disaster-events-export-button"/);
   assert.match(pageSource, /className="disaster-events-list-card"/);
@@ -115,6 +116,18 @@ test("MSWDO Disaster Event toolbar and actions stack without page overflow on mo
   assert.match(
     cssSource,
     /@media \(max-width: 768px\)[\s\S]*?\.disaster-events-toolbar-search,[\s\S]*?\.disaster-events-toolbar-actions \{[\s\S]*?flex: 1 1 100% !important;[\s\S]*?width: 100%;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.disaster-events-toolbar-actions \{[\s\S]*?display: grid !important;[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
+  );
+  assert.match(
+    cssSource,
+    /\.disaster-events-export-button \{[\s\S]*?grid-column: 1 \/ -1;[\s\S]*?width: 100% !important;/,
+  );
+  assert.match(
+    cssSource,
+    /\.disaster-events-toolbar \.disaster-events-toolbar-search\s*\{[\s\S]*?order: -1;[\s\S]*?flex: 1 1 100% !important;[\s\S]*?width: 100% !important;/,
   );
   assert.match(
     cssSource,
