@@ -872,6 +872,10 @@ export const useHouseholdRegistrationForm = ({
     return () => {
       isTimerCancelled = true;
       window.clearTimeout(timeoutId);
+      // A changed eligible lookup supersedes any request started for the
+      // previous settled value. Abort it here so typing cannot leave stale
+      // duplicate checks running in parallel with the current lookup.
+      invalidateDuplicateSuggestionRequests();
     };
   }, [
     duplicateSuggestionLookupState.lookupKey,
