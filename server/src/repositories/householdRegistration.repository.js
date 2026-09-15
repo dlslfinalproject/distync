@@ -243,12 +243,13 @@ const insertHousehold = async (householdData, dbClient) => {
       photo_captured_by,
       photo_verification_notes,
       registered_at,
-      updated_at
+      updated_at,
+      source_household_id
     )
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
       $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-      COALESCE($21::timestamptz, NOW()), NOW()
+      COALESCE($21::timestamptz, NOW()), NOW(), $22
     )
     RETURNING
       id,
@@ -274,6 +275,7 @@ const insertHousehold = async (householdData, dbClient) => {
       photo_verification_notes,
       registered_at,
       updated_at,
+      source_household_id,
       family_head_evacuee_id
   `;
 
@@ -299,6 +301,7 @@ const insertHousehold = async (householdData, dbClient) => {
     householdData.photo_captured_by || null,
     householdData.photo_verification_notes || null,
     householdData.registered_at || null,
+    householdData.source_household_id ?? null,
   ];
 
   const result = await dbClient.query(query, values);

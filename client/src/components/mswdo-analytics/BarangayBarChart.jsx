@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { shellStyles } from "../layout/BarangayLayout";
 import { getBarangayChartColors } from "./barangayChartColors.mjs";
+import { getChartAxisMax, getChartAxisTicks } from "./chartScale.mjs";
 
 const chartStyles = {
   title: {
@@ -116,6 +117,12 @@ const BarangayBarChart = ({ title, description, data, dataKey, height = 320 }) =
     (sum, item) => sum + Number(item[dataKey] || 0),
     0,
   );
+  const highestValue = data.reduce(
+    (highest, item) => Math.max(highest, Number(item[dataKey] || 0)),
+    0,
+  );
+  const axisMax = getChartAxisMax(highestValue);
+  const axisTicks = getChartAxisTicks({ axisMax, isCompact, isNarrow });
   const yAxisWidth = isNarrow ? 76 : isCompact ? 96 : 120;
   const chartHeight = isNarrow ? Math.max(height - 40, 300) : height;
   const tickFormatter = useMemo(
@@ -161,6 +168,9 @@ const BarangayBarChart = ({ title, description, data, dataKey, height = 320 }) =
               <CartesianGrid stroke="#e4edf6" strokeDasharray="3 3" />
               <XAxis
                 type="number"
+                domain={[0, axisMax]}
+                ticks={axisTicks}
+                allowDecimals={false}
                 tick={{ fill: "#66809c", fontSize: 12 }}
               />
               <YAxis

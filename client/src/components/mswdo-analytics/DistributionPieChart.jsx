@@ -178,6 +178,9 @@ const DistributionPieChart = ({
   showLegend = true,
   centerValue,
   centerLabel,
+  outerRadius: requestedOuterRadius,
+  mobileOuterRadius,
+  mobileInnerRadius,
 }) => {
   const { isNarrow } = useChartViewport();
   const highestValue = data.length > 0 ? getHighestValue(data) : 0;
@@ -196,8 +199,15 @@ const DistributionPieChart = ({
         })
       : colorMap?.[entry.name] || colors[index % colors.length];
   const chartHeight = isNarrow ? 300 : 320;
-  const outerRadius = isNarrow ? 82 : 100;
-  const resolvedInnerRadius = innerRadius === 0 ? 0 : isNarrow ? 46 : innerRadius;
+  const outerRadius = isNarrow
+    ? mobileOuterRadius ?? requestedOuterRadius ?? 82
+    : requestedOuterRadius ?? 100;
+  const resolvedInnerRadius =
+    innerRadius === 0
+      ? 0
+      : isNarrow
+        ? mobileInnerRadius ?? 46
+        : innerRadius;
 
   return (
     <section style={shellStyles.card}>

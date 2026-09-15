@@ -742,6 +742,10 @@ const AnalyticsDashboardPage = () => {
               showLegend={false}
               centerValue={barangayCoverageCount}
               centerLabel="Covered Barangays"
+              outerRadius={120}
+              mobileOuterRadius={104}
+              innerRadius={76}
+              mobileInnerRadius={64}
             />
             <BarangayBarChart
               title="Affected Families per Barangay"
