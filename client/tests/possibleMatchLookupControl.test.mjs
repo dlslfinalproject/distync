@@ -335,3 +335,37 @@ test("PM-LC-12 match-relevant context changes requeue the eligible member", () =
     ["member:member-1"],
   );
 });
+
+test("PM-LC-13 eligible member lookup identity is independent of other member fields", () => {
+  const firstState = buildPossibleMatchLookupState({
+    ...baseInput,
+    familyHead: { ...baseInput.familyHead, first_name: "", last_name: "" },
+    members: [
+      {
+        lookup_id: "member-1",
+        first_name: "Maria",
+        last_name: "Reyes",
+        age_value: 12,
+        relationship_to_head: "DAUGHTER",
+      },
+    ],
+  });
+  const changedNonIdentityState = buildPossibleMatchLookupState({
+    ...baseInput,
+    familyHead: { ...baseInput.familyHead, first_name: "", last_name: "" },
+    members: [
+      {
+        lookup_id: "member-1",
+        first_name: "Maria",
+        last_name: "Reyes",
+        age_value: 13,
+        relationship_to_head: "SIBLING",
+      },
+    ],
+  });
+
+  assert.equal(
+    firstState.eligiblePeople[0].requestLookupKey,
+    changedNonIdentityState.eligiblePeople[0].requestLookupKey,
+  );
+});

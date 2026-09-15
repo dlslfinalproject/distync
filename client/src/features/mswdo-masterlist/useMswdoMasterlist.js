@@ -32,6 +32,8 @@ import { getVisibleSyncQueueEntries } from "../../offline/syncQueue.js";
 import { deriveBarangayDashboardMetrics } from "../barangay-dashboard/barangayDashboardOfflineMetrics.js";
 import { subscribeToSyncUpdates } from "../../offline/syncService.js";
 
+const SEARCH_DEBOUNCE_MS = 300;
+
 const emptyMasterlistPayload = {
   disaster_event: null,
   filters: {
@@ -183,6 +185,7 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
   );
   const [selectedBarangayId, setSelectedBarangayIdState] = useState("");
   const [searchTerm, setSearchTermState] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [selectedSectorIds, setSelectedSectorIdsState] = useState([]);
   const [selectedSortOrder, setSelectedSortOrderState] = useState("newest");
   const [recordStatus, setRecordStatusState] = useState("active");
@@ -268,6 +271,16 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
     },
     [resetPage],
   );
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [searchTerm]);
 
   useEffect(() => {
     let isMounted = true;
@@ -398,7 +411,7 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
               ),
             selectedBarangayId,
             recordStatus,
-            searchTerm,
+            searchTerm: debouncedSearchTerm,
             selectedSectorIds,
             selectedSortOrder,
             currentPage,
@@ -421,7 +434,7 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
           recordStatus,
           page: currentPage,
           pageSize,
-          search: searchTerm,
+          search: debouncedSearchTerm,
           sectorCodes: selectedSectorIds,
           sortOrder: selectedSortOrder,
           completeDataset: recordStatus === "archived",
@@ -436,7 +449,7 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
                 ),
               selectedBarangayId,
               recordStatus,
-              searchTerm,
+              searchTerm: debouncedSearchTerm,
               selectedSectorIds,
               selectedSortOrder,
               currentPage,
@@ -470,7 +483,7 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
                 ),
               selectedBarangayId,
               recordStatus,
-              searchTerm,
+              searchTerm: debouncedSearchTerm,
               selectedSectorIds,
               selectedSortOrder,
               currentPage,
@@ -506,7 +519,7 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
     pageSize,
     recordStatus,
     reloadKey,
-    searchTerm,
+    debouncedSearchTerm,
     selectedBarangayId,
     selectedDisasterEventId,
     selectedSectorIds,
