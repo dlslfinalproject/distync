@@ -437,4 +437,6 @@ test("distribution history export is uncapped and ignores current page parameter
   assert.doesNotMatch(serviceSource, /limit:\s*1000/);
   assert.match(serviceSource, /getDistributionHistoryExportRows/);
   assert.match(serviceSource, /search: filters\.search \|\| ""/);
+  assert.match(serviceSource, /tableTitle: "Distribution Summary Records"/);
+  assert.match(serviceSource, /tableTitle: "Distribution History Records"/);
 });

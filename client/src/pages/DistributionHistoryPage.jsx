@@ -81,6 +81,9 @@ const tableStyles = {
     borderBottom: "1px solid #e0eaf4",
     whiteSpace: "nowrap",
   },
+  pillHeaderCell: {
+    textAlign: "center",
+  },
   td: {
     padding: "14px",
     borderBottom: "1px solid #edf3f8",
@@ -88,6 +91,10 @@ const tableStyles = {
     fontSize: "14px",
     verticalAlign: "top",
     lineHeight: 1.5,
+  },
+  pillBodyCell: {
+    textAlign: "center",
+    verticalAlign: "middle",
   },
 };
 
@@ -455,6 +462,7 @@ const DistributionHistoryPage = () => {
       <section className="distribution-history-filter-card" style={shellStyles.card}>
         <div
           className="distribution-history-filter-grid"
+          data-filter-count={isBarangay ? "4" : "5"}
           style={pageSpacingStyles.filterGrid}
         >
           <div>
@@ -677,7 +685,7 @@ const DistributionHistoryPage = () => {
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Disaster Event</th>
-                  <th style={{ ...tableStyles.th, textAlign: "center" }}>Status</th>
+                  <th style={{ ...tableStyles.th, ...tableStyles.pillHeaderCell }}>Status</th>
                   <th style={tableStyles.th}>Barangays</th>
                   <th style={{ ...tableStyles.th, textAlign: "center" }}>
                     Issued Stubs
@@ -691,9 +699,11 @@ const DistributionHistoryPage = () => {
                 {historyRows.map((row) => (
                   <tr key={row.id}>
                     <td className="distribution-history-text-cell" style={tableStyles.td}>
-                      <div>{row.disaster_event_title || "--"}</div>
+                      <div style={{ fontWeight: 700 }}>
+                        {row.disaster_event_title || "--"}
+                      </div>
                     </td>
-                    <td style={{ ...tableStyles.td, textAlign: "center", verticalAlign: "middle" }}>
+                    <td style={{ ...tableStyles.td, ...tableStyles.pillBodyCell }}>
                       <span style={getDisasterEventStatusStyles(row.disaster_event_status)}>
                         {getDisasterEventStatusLabel(row.disaster_event_status)}
                       </span>
@@ -732,7 +742,7 @@ const DistributionHistoryPage = () => {
                 <tr>
                   <th style={tableStyles.th}>Family Head</th>
                   {!isBarangay ? <th style={tableStyles.th}>Barangay</th> : null}
-                  <th style={{ ...tableStyles.th, textAlign: "center" }}>
+                  <th style={{ ...tableStyles.th, ...tableStyles.pillHeaderCell }}>
                     Household Size
                   </th>
                   <th style={tableStyles.th}>Sectors</th>
@@ -747,12 +757,14 @@ const DistributionHistoryPage = () => {
                 {historyRows.map((row) => (
                   <tr key={row.id}>
                     <td className="distribution-history-text-cell" style={tableStyles.td}>
-                      {row.family_head_name || "--"}
+                      <span style={{ fontWeight: 700 }}>
+                        {row.family_head_name || "--"}
+                      </span>
                     </td>
                     {!isBarangay ? (
                       <td className="distribution-history-text-cell" style={tableStyles.td}>{row.barangay_name || "--"}</td>
                     ) : null}
-                    <td style={{ ...tableStyles.td, textAlign: "center" }}>
+                    <td style={{ ...tableStyles.td, ...tableStyles.pillBodyCell }}>
                       <span
                         style={{
                           display: "inline-block",

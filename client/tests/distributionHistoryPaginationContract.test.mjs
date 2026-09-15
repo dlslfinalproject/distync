@@ -112,3 +112,28 @@ test("Distribution History export includes current search and omits current page
   assert.doesNotMatch(source, /exportDistributionHistory\(\{[\s\S]*?page,/);
   assert.doesNotMatch(source, /exportDistributionHistory\(\{[\s\S]*?pageSize,/);
 });
+
+test("Distribution History export modal exposes its report customizations", async () => {
+  const [pageSource, modalSource] = await Promise.all([
+    readSource(["pages", "DistributionHistoryPage.jsx"]),
+    readSource(["components", "shared", "ExportModal.jsx"]),
+  ]);
+  const normalizedPageSource = normalizeSource(pageSource);
+
+  assert.match(normalizedPageSource, /<ExportModal[\s\S]*?hideReportType/);
+  assert.match(normalizedPageSource, /placeFormatLast/);
+  assert.match(normalizedPageSource, /id="distribution-history-export-event"/);
+  assert.match(normalizedPageSource, /id="distribution-history-export-barangay"/);
+  assert.match(normalizedPageSource, /id="distribution-history-export-date-from"/);
+  assert.match(normalizedPageSource, /id="distribution-history-export-date-to"/);
+  assert.match(normalizedPageSource, /id="distribution-history-export-order-list"/);
+  assert.match(normalizedPageSource, /disaster_event_id: exportFilters\.disaster_event_id/);
+  assert.match(normalizedPageSource, /barangay_id: isBarangay \? "" : exportFilters\.barangay_id/);
+  assert.match(normalizedPageSource, /date_from: exportFilters\.date_from/);
+  assert.match(normalizedPageSource, /date_to: exportFilters\.date_to/);
+  assert.match(normalizedPageSource, /sort_order: exportFilters\.sort_order/);
+  assert.match(normalizedPageSource, /format: selectedExportFormat/);
+  assert.match(modalSource, /selectedFormat/);
+  assert.match(modalSource, /disabled=\{isSubmitting\}/);
+  assert.match(modalSource, /placeFormatLast/);
+});

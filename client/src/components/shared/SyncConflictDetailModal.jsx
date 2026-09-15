@@ -388,6 +388,7 @@ const SyncConflictDetailModal = ({
                       Review Note{requiresReason ? " *" : ""}
                     </span>
                     <textarea
+                      id="sync-conflict-review-note"
                       value={resolutionReason}
                       onChange={(event) => onResolutionReasonChange(event.target.value)}
                       style={{

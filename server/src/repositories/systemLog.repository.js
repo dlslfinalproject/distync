@@ -92,7 +92,8 @@ const getAuditLogs = async (
   const shouldLimit = Number.isInteger(limit);
   const offset = shouldLimit ? (page - 1) * limit : 0;
   const values = [];
-  const auditTimestampExpression = "COALESCE(dt_direct.distribution_date, al.created_at)";
+  const auditTimestampExpression =
+    "COALESCE(dt_direct.distribution_date, CASE WHEN al.action = 'SYNC_CONFLICT_RESOLUTION' THEN sc_direct.resolved_at END, al.created_at)";
   const normalizedModule = String(module || "all").trim().toLowerCase();
   const normalizedAuditAction = String(auditAction || "all").trim().toLowerCase();
   const normalizedSearch = String(search || "").trim();
@@ -215,6 +216,11 @@ const getAuditLogs = async (
       sync_conflict_resolution: `
         al.entity_type = 'SYNC_CONFLICT'
         AND al.action = 'SYNC_CONFLICT_RESOLUTION'
+        AND sc_direct.entity_type IN (
+          'INVENTORY_ITEM',
+          'INVENTORY_BATCH',
+          'INVENTORY_TRANSACTION'
+        )
       `,
     };
 
@@ -360,6 +366,16 @@ const getAuditLogs = async (
       al.new_values_json,
       al.ip_address,
       al.created_at,
+      sc_direct.entity_type AS sync_conflict_entity_type,
+      sc_direct.conflict_type AS sync_conflict_type,
+      sc_direct.local_payload_json AS sync_conflict_local_payload_json,
+      sc_direct.server_payload_json AS sync_conflict_server_payload_json,
+      st_sync.client_timestamp AS sync_conflict_client_timestamp,
+      st_sync.created_at AS sync_conflict_transaction_created_at,
+      sc_direct.resolution_action AS sync_conflict_resolution_action,
+      sc_direct.resolution_reason AS sync_conflict_resolution_reason,
+      sc_direct.resolved_payload_json AS sync_conflict_resolved_payload_json,
+      sc_direct.resolved_at AS sync_conflict_resolved_at,
       u.id AS user_id,
       u.first_name,
       u.last_name,
@@ -441,6 +457,14 @@ const getAuditLogs = async (
       ) AS inventory_barcode,
       rpt_direct.name AS relief_pack_template_name,
       rpt_direct.is_active AS relief_pack_template_is_active,
+      (
+        SELECT COALESCE(
+          jsonb_object_agg(sector_lookup.id::text, sector_lookup.name),
+          '{}'::jsonb
+        )
+        FROM sectors sector_lookup
+        WHERE al.entity_type = 'RELIEF_PACK_TEMPLATE'
+      ) AS relief_pack_sector_name_map,
       COALESCE(
         d_direct.id,
         d_item.id,
@@ -478,6 +502,11 @@ const getAuditLogs = async (
       distribution_items.items AS distribution_items_json
     FROM audit_logs al
     LEFT JOIN users u ON u.id = al.user_id
+    LEFT JOIN sync_conflicts sc_direct
+      ON al.entity_type = 'SYNC_CONFLICT'
+      AND sc_direct.id = al.entity_id
+    LEFT JOIN sync_transactions st_sync
+      ON st_sync.id = sc_direct.sync_transaction_id
     LEFT JOIN inventory_items ii_direct
       ON al.entity_type = 'INVENTORY_ITEM'
       AND ii_direct.id = al.entity_id
@@ -767,10 +796,7 @@ const getAuditLogs = async (
         )
         OR (
           al.entity_type = 'SYNC_CONFLICT'
-          AND al.action IN (
-            'SYNC_CONFLICT_REVIEW',
-            'SYNC_CONFLICT_RESOLUTION'
-          )
+          AND al.action = 'SYNC_CONFLICT_RESOLUTION'
         )
         OR (
           al.entity_type = 'SYNC_TRANSACTION'
@@ -781,7 +807,7 @@ const getAuditLogs = async (
       ${auditActionClause}
       ${dateClause}
       ${searchClause}
-    ORDER BY al.created_at DESC, al.id DESC
+    ORDER BY ${auditTimestampExpression} DESC, al.id DESC
     ${limitClause}
   `;
 

@@ -57,7 +57,7 @@ test("Barangay Masterlist follows final conditional paginator UI", async () => {
   assertOrdered(normalizedTableSource.slice(populatedStart), [
     '<h3 className="table-card-title">Registered Family</h3>',
     "<TablePagination",
-    '<div style={{ overflowX: "auto" }}>',
+    '<div style={{ overflowX: "auto" }} className="masterlist-table-scroll">',
     "<table style={tableStyles.table}",
     "<thead>",
   ]);

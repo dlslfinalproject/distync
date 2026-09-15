@@ -85,6 +85,31 @@ const buildReportSourceName = (requester, rows = []) => {
   return barangayName ? `Barangay ${barangayName}` : "Barangay";
 };
 
+const buildDistributionHistoryEventLabel = ({
+  disasterEventId,
+  rows = [],
+  disasterEvent = null,
+}) => {
+  if (!disasterEventId) {
+    return "All";
+  }
+
+  const eventRow = rows.find(
+    (row) => row?.event_code || row?.disaster_event_title,
+  );
+  const eventCode = eventRow?.event_code || disasterEvent?.event_code;
+  const eventTitle =
+    eventRow?.disaster_event_title ||
+    disasterEvent?.title ||
+    disasterEvent?.disaster_event_title;
+
+  return (
+    [eventCode, eventTitle].filter(Boolean).join(" - ") ||
+    eventTitle ||
+    disasterEventId
+  );
+};
+
 const formatDisasterEventStatusLabel = (status) =>
   String(status || "").toUpperCase() === "ACTIVE" ? "Active" : "Ended";
 
@@ -2182,12 +2207,16 @@ const exportDistributionHistory = async ({ requester, filters }) => {
   const isSummaryExport = !filters.disaster_event_id;
   const sortedRows = rowsWithSectors;
   const sourceName = buildReportSourceName(requester, sortedRows);
-  const selectedDisasterEventLabel =
-    filters.disaster_event_id && sortedRows[0]
-      ? [sortedRows[0].event_code, sortedRows[0].disaster_event_title]
-          .filter(Boolean)
-          .join(" - ") || sortedRows[0].disaster_event_title || filters.disaster_event_id
-      : "All";
+  const selectedDisasterEvent =
+    filters.disaster_event_id && sortedRows.length === 0 &&
+    typeof disasterEventRepository.getDisasterEventById === "function"
+      ? await disasterEventRepository.getDisasterEventById(filters.disaster_event_id)
+      : null;
+  const selectedDisasterEventLabel = buildDistributionHistoryEventLabel({
+    disasterEventId: filters.disaster_event_id,
+    rows: sortedRows,
+    disasterEvent: selectedDisasterEvent,
+  });
 
   if (isSummaryExport) {
     const summaryRows =
@@ -2211,6 +2240,7 @@ const exportDistributionHistory = async ({ requester, filters }) => {
         requester?.roleCode === ROLE_CODES.BARANGAY
           ? "Barangay Distribution History Summary"
           : "MSWDO Distribution History Summary",
+      tableTitle: "Distribution Summary Records",
       sourceName,
       metadata: [
         {
@@ -2273,6 +2303,7 @@ const exportDistributionHistory = async ({ requester, filters }) => {
       requester?.roleCode === ROLE_CODES.BARANGAY
         ? "Barangay Distribution History"
         : "MSWDO Distribution History",
+    tableTitle: "Distribution History Records",
     sourceName,
     metadata: [
       {

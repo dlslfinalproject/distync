@@ -52,6 +52,7 @@ import {
   isSyncIdempotencyMismatch,
   SYNC_PRESENTATION_MESSAGES,
 } from "../offline/syncStatus.js";
+import { scrollToErrorElement } from "../utils/scrollToFirstError";
 import {
   DEFAULT_TABLE_PAGE_SIZE,
   getTablePaginationState,
@@ -626,6 +627,7 @@ const applySyncFilters = (
 
 const SyncManagementPage = () => {
   const { currentRole } = useAuth();
+  const isBarangayPortal = currentRole === ROLE_CODES.BARANGAY;
   const isMswdoPortal = currentRole === ROLE_CODES.MSWDO;
   const isMayorPortal = currentRole === ROLE_CODES.MAYOR;
   const historyColumnWidths = isMswdoPortal
@@ -1583,6 +1585,11 @@ const SyncManagementPage = () => {
       !trimmedReason
     ) {
       setResolutionReasonError("Review note is required.");
+      if ((isMayorPortal || isBarangayPortal) && typeof document !== "undefined") {
+        scrollToErrorElement(
+          document.getElementById("sync-conflict-review-note"),
+        );
+      }
       return;
     }
 

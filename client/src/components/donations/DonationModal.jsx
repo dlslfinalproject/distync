@@ -883,6 +883,7 @@ const DonationModal = ({
           <section
             className="mayor-donation-management-form-section"
             style={sectionStyles}
+            data-error-anchor={fieldErrors.items ? "true" : undefined}
           >
             <div
               className="mayor-donation-management-form-section-header"

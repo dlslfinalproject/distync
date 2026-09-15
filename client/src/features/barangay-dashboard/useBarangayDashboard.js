@@ -7,6 +7,7 @@ import { fetchBarangayDashboard } from "./barangayDashboardService";
 import { deriveBarangayDashboardMetrics } from "./barangayDashboardOfflineMetrics.js";
 import { getCachedMasterlistRows } from "../../offline/masterlistCache.js";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue.js";
+import { subscribeToSyncUpdates } from "../../offline/syncService.js";
 import {
   getPreparedBarangayOfflineContexts,
 } from "../../offline/offlinePreparation.js";
@@ -139,6 +140,10 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
   const [errorMessage, setErrorMessage] = useState("");
   const [errorCode, setErrorCode] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const reloadDashboard = useCallback(
+    () => setReloadKey((currentValue) => currentValue + 1),
+    [],
+  );
   const [devBarangayOptions, setDevBarangayOptions] = useState([]);
   const [isContextResolved, setIsContextResolved] = useState(false);
   const cachedMasterlistRows = useLiveQuery(
@@ -152,10 +157,20 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
   const syncQueueEntries = useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
-    const reloadWhenOnline = () => setReloadKey((current) => current + 1);
+    const reloadWhenOnline = () => reloadDashboard();
     window.addEventListener("online", reloadWhenOnline);
     return () => window.removeEventListener("online", reloadWhenOnline);
-  }, []);
+  }, [reloadDashboard]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToSyncUpdates((event) => {
+      if (event?.type === "finished") {
+        reloadDashboard();
+      }
+    });
+
+    return unsubscribe;
+  }, [reloadDashboard]);
   const requestSeqRef = useRef(0);
   const skipSelectedEventReloadRef = useRef("");
   const lastResolvedContextRef = useRef({
@@ -590,5 +605,6 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
     setEventScope,
     setSelectedDisasterEventId,
     setOverrideBarangayId,
+    reloadDashboard,
   };
 };

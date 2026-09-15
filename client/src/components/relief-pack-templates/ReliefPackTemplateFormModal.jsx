@@ -970,6 +970,7 @@ const ReliefPackTemplateFormModal = ({
                       value={formValues.packType}
                       onChange={handleInputChange}
                       disabled={isPackTypeLocked}
+                      aria-invalid={Boolean(fieldErrors.packType)}
                     >
                       <option value="standard">Standard Pack</option>
                       <option value="additional">Additional Pack</option>
@@ -1055,13 +1056,16 @@ const ReliefPackTemplateFormModal = ({
 
                     <div
                       className="mayor-relief-pack-chip-grid"
+                      data-error-anchor={
+                        fieldErrors.sectorIds ? "true" : undefined
+                      }
                       style={{
                         display: "grid",
                         gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                         gap: "12px",
                       }}
                     >
-                      {sectorOptions.map((sector) => (
+                      {sectorOptions.map((sector, index) => (
                         <label
                           key={sector.id}
                           style={{
@@ -1085,6 +1089,9 @@ const ReliefPackTemplateFormModal = ({
                               handleSectorToggle(sector.id, event.target.checked)
                             }
                             disabled={areTemplateDefinitionFieldsLocked}
+                            aria-invalid={
+                              index === 0 && Boolean(fieldErrors.sectorIds)
+                            }
                           />
                           {sector.display_name || sector.name}
                         </label>
@@ -1158,13 +1165,16 @@ const ReliefPackTemplateFormModal = ({
 
                     <div
                       className="mayor-relief-pack-chip-grid"
+                      data-error-anchor={
+                        fieldErrors.disasterTypes ? "true" : undefined
+                      }
                       style={{
                         display: "grid",
                         gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                         gap: "12px",
                       }}
                     >
-                      {DISASTER_TYPE_OPTIONS.map((disasterType) => {
+                      {DISASTER_TYPE_OPTIONS.map((disasterType, index) => {
                         const isDisasterTypeLocked =
                           lockedDisasterTypeOptions.includes(disasterType);
 
@@ -1199,6 +1209,9 @@ const ReliefPackTemplateFormModal = ({
                                 )
                               }
                               disabled={isViewMode || isDisasterTypeLocked}
+                              aria-invalid={
+                                index === 0 && Boolean(fieldErrors.disasterTypes)
+                              }
                             />
                             {disasterType}
                             {isDisasterTypeLocked ? " " : ""}
@@ -1230,13 +1243,19 @@ const ReliefPackTemplateFormModal = ({
                       name="selectedItem"
                       style={
                         areItemFieldsLocked
-                          ? getDisabledInputStyles(Boolean(fieldErrors.selectedItem))
-                          : getInputStyles(Boolean(fieldErrors.selectedItem))
+                          ? getDisabledInputStyles(
+                              Boolean(fieldErrors.selectedItem || fieldErrors.packItems),
+                            )
+                          : getInputStyles(
+                              Boolean(fieldErrors.selectedItem || fieldErrors.packItems),
+                            )
                       }
                       value={formValues.selectedItem}
                       onChange={handleInputChange}
                       disabled={areItemFieldsLocked}
-                      aria-invalid={Boolean(fieldErrors.selectedItem)}
+                      aria-invalid={Boolean(
+                        fieldErrors.selectedItem || fieldErrors.packItems,
+                      )}
                     >
                       <option value="">Select Item</option>
                       {inventoryItems.map((inventoryItem) => (

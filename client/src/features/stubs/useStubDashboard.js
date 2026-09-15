@@ -14,6 +14,8 @@ import {
   canUseOfflineStubCacheFallback,
   getCachedStubRowsForScope,
 } from "./stubCache";
+import { deriveStubDashboardMetrics } from "./stubDashboardOfflineMetrics.js";
+import { matchesStubSectorFilter } from "./stubSectorFilters.js";
 
 const emptyMetrics = {
   total_issued_stubs: 0,
@@ -79,11 +81,8 @@ const filterOfflineStubRows = (rows, { search = "", status = "all", selectedSect
       return false;
     }
 
-    if (selectedSectorIds.length > 0) {
-      const rowSectorIds = Array.isArray(row.sector_ids) ? row.sector_ids.map(String) : [];
-      if (!selectedSectorIds.some((sectorId) => rowSectorIds.includes(String(sectorId)))) {
-        return false;
-      }
+    if (!matchesStubSectorFilter(row, selectedSectorIds)) {
+      return false;
     }
 
     if (!normalizedSearch) return true;
@@ -142,6 +141,7 @@ export const useStubDashboard = ({
           search,
           status,
           sectorIds: selectedSectorIds,
+          sectorOptions,
           sortOrder,
         });
 
@@ -263,6 +263,7 @@ export const useStubDashboard = ({
 
           setDashboard({
             ...emptyDashboard,
+            metrics: deriveStubDashboardMetrics(presentedRows),
             count: totalItems,
             data: filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize),
             pagination: {

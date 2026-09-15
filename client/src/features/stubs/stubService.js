@@ -10,6 +10,7 @@ import {
   markCachedStubClaimTerminal,
   upsertOfflineStubSnapshots,
 } from "./stubCache.js";
+import { resolveStubSectorIdsForApi } from "./stubSectorFilters.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -85,6 +86,7 @@ export const fetchBarangayStubDashboard = async ({
   search,
   status,
   sectorIds,
+  sectorOptions = [],
   sortOrder,
   skipOfflineCache = false,
 }) => {
@@ -120,8 +122,13 @@ export const fetchBarangayStubDashboard = async ({
     searchParams.set("status", status);
   }
 
-  if (Array.isArray(sectorIds) && sectorIds.length > 0) {
-    searchParams.set("sector_ids", sectorIds.join(","));
+  const resolvedSectorIds = resolveStubSectorIdsForApi(
+    sectorIds,
+    sectorOptions,
+  );
+
+  if (resolvedSectorIds.length > 0) {
+    searchParams.set("sector_ids", resolvedSectorIds.join(","));
   }
 
   if (sortOrder) {

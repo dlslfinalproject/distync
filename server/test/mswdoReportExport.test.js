@@ -65,6 +65,12 @@ test("MSWDO report exports use the masterlist-style Excel and PDF layout", async
     `A${titleRowNumber + 1}:D${titleRowNumber + 2}`,
   );
 
+  const csvFile = await buildExportFile({ ...exportOptions, format: "csv" });
+  assert.equal(csvFile.contentType, "text/csv; charset=utf-8");
+  assert.match(csvFile.buffer.toString("utf8"), /Inventory Distribution Report/);
+  assert.match(csvFile.buffer.toString("utf8"), /Family Head,Barangay,Relief Pack,Status/);
+  assert.match(csvFile.buffer.toString("utf8"), /Juan Dela Cruz/);
+
   const pdfFile = await buildExportFile({ ...exportOptions, format: "pdf" });
   const pdfText = pdfFile.buffer.toString("latin1");
 

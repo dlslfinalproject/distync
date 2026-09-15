@@ -22,7 +22,7 @@ test("sidebar account menu uses the shared identity, settings, and logout patter
   assert.match(source, /accessMode === ACCESS_MODES\.DEVELOPMENT/);
 });
 
-test("authenticated shell removes legacy role controls and header settings shortcut", async () => {
+test("authenticated shell keeps role controls out and exposes the shared header settings shortcut", async () => {
   const [sidebar, header] = await Promise.all([
     fs.readFile(sidebarPath, "utf8"),
     fs.readFile(headerPath, "utf8"),
@@ -32,7 +32,10 @@ test("authenticated shell removes legacy role controls and header settings short
   assert.doesNotMatch(sidebar, /Switch Role/);
   assert.doesNotMatch(sidebar, /Current Role/);
   assert.match(header, /FiBell/);
-  assert.doesNotMatch(header, /FiSettings/);
+  assert.match(header, /FiSettings/);
+  assert.match(header, /\/barangay\/settings/);
+  assert.match(header, /\/mswdo\/settings/);
+  assert.match(header, /\/inventory\/settings/);
 });
 
 test("shared modal shell portals its viewport-fixed backdrop outside sidebar containers", async () => {

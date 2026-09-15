@@ -17,7 +17,8 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    minWidth: "860px",
+    minWidth: "1040px",
+    maxWidth: "none",
   },
   headerCell: {
     padding: "14px 16px",
@@ -29,6 +30,9 @@ const tableStyles = {
     borderBottom: "1px solid #e0eaf4",
     whiteSpace: "nowrap",
   },
+  pillHeaderCell: {
+    textAlign: "center",
+  },
   bodyCell: {
     padding: "16px",
     color: "#21405f",
@@ -37,6 +41,9 @@ const tableStyles = {
     verticalAlign: "middle",
     lineHeight: 1.5,
     wordBreak: "break-word",
+  },
+  pillBodyCell: {
+    textAlign: "center",
   },
   actionHeaderCell: {
     width: "88px",
@@ -296,8 +303,8 @@ const MasterlistTable = ({
         nextAriaLabel="Go to next masterlist page"
       />
 
-      <div style={{ overflowX: "auto" }}>
-        <table style={tableStyles.table}>
+      <div style={{ overflowX: "auto" }} className="masterlist-table-scroll">
+        <table style={tableStyles.table} className="masterlist-table">
           <thead>
             <tr>
               {showSelectionColumn ? (
@@ -323,7 +330,7 @@ const MasterlistTable = ({
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  textAlign: "center",
+                  ...tableStyles.pillHeaderCell,
                 }}
               >
                 Household Size
@@ -415,7 +422,7 @@ const MasterlistTable = ({
                         flexWrap: "wrap",
                       }}
                     >
-                      <span>{row.family_head_name}</span>
+                      <span style={{ fontWeight: 700 }}>{row.family_head_name}</span>
                       {shouldShowSyncStatus ? (
                         <SyncStatusIcon
                           status={syncStatus}
@@ -438,7 +445,7 @@ const MasterlistTable = ({
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
-                      textAlign: "center",
+                      ...tableStyles.pillBodyCell,
                     }}
                   >
                     <span

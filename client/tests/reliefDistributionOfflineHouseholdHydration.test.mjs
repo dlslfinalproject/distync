@@ -13,6 +13,7 @@ const makeCachedRow = ({ id, firstName, lastName, photo }) => ({
       family_head_last_name: lastName,
       household_size: 2,
       contact_number: `09${id}`,
+      registered_at: "2026-09-06T07:00:00Z",
       disaster_event_title: "Test Event",
       barangay_name: "Test Barangay",
       family_head_photo_data_url: photo,
@@ -49,7 +50,11 @@ test("offline relief details hydrate the matching cached household and photo", (
   assert.equal(hydrated.household.id, "household-a");
   assert.equal(hydrated.household.family_head_name, "Alex Reyes");
   assert.equal(hydrated.household.contact_number, "09household-a");
+  assert.equal(hydrated.household.registered_at, "2026-09-06T07:00:00Z");
   assert.equal(hydrated.household.family_head_photo_url, "data:image/jpeg;base64,photo-a");
+  assert.equal(hydrated.household.family_head_photo_data_url, "data:image/jpeg;base64,photo-a");
+  assert.equal(hydrated.disaster_event.title, "Test Event");
+  assert.equal(hydrated.barangay.name, "Test Barangay");
   assert.equal(hydrated.household.members_count, 2);
   assert.equal(hydrated.household_sectors[0].code, "PWD");
   assert.equal(hydrated.latest_attendance.status, "PRESENT");

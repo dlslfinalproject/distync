@@ -260,6 +260,44 @@ test("MSWDO can view municipality operational conflict details without gaining r
   assert.equal(requestedId, conflictId);
 });
 
+test("viewing a sync conflict does not create a separate review audit record", async () => {
+  let reviewAuditCalls = 0;
+  const conflictId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictById: async ({ id }) => ({
+          id,
+          user_id: "mayor-user",
+          entity_type: "INVENTORY_BATCH",
+          status: "OPEN",
+          resolution_strategy: "MANUAL_REVIEW",
+          conflict_type: "DUPLICATE_INVENTORY_BATCH",
+          local_payload_json: { payload: { item_name: "Rice" } },
+          server_payload_json: { item_name: "Rice" },
+        }),
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {
+          reviewAuditCalls += 1;
+        },
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      const detail = await getSyncConflictDetail({
+        auth: { userId: "mayor-user", roleCode: "MAYOR" },
+        conflictId,
+      });
+
+      assert.equal(detail.id, conflictId);
+    },
+  );
+
+  assert.equal(reviewAuditCalls, 0);
+});
+
 test("MSWDO cannot view a foreign Mayor manual inventory stock-drift conflict", async () => {
   await withStubbedSyncService(
     {
@@ -617,6 +655,64 @@ test("HOUSEHOLD_RE_ADMISSION sync creates a new occurrence instead of updating t
         registrationArguments[1].sourceHouseholdId,
         "88888888-8888-4888-8888-888888888888",
       );
+    },
+  );
+});
+
+test("HOUSEHOLD_RESTORE sync keeps the existing restore flow inside the sync transaction", async () => {
+  let restoreArguments = null;
+  const dbClient = { query: async () => ({ rows: [] }) };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => callback(dbClient),
+      }),
+      [householdRegistrationServicePath]: {
+        restoreHousehold: async (args) => {
+          restoreArguments = args;
+          return {
+            household_id: "77777777-7777-4777-8777-777777777777",
+            household: {
+              id: "77777777-7777-4777-8777-777777777777",
+            },
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "restore-household-1",
+            action_key: "HOUSEHOLD_RESTORE",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-restore-household-1",
+            entity_server_id: "66666666-6666-4666-8666-666666666666",
+            client_timestamp: "2026-08-25T01:00:00.000Z",
+            payload: {
+              disaster_event_id: "11111111-1111-4111-8111-111111111111",
+              restore_mode: "RETURN_TO_EVAC_CENTER",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(restoreArguments.householdId, "66666666-6666-4666-8666-666666666666");
+      assert.equal(restoreArguments.requester.userId, baseAuth.userId);
+      assert.equal(restoreArguments.requester.roleCode, baseAuth.roleCode);
+      assert.equal(
+        restoreArguments.restoreData.synced_client_timestamp,
+        "2026-08-25T01:00:00.000Z",
+      );
+      assert.equal(restoreArguments.dbClient, dbClient);
     },
   );
 });
@@ -4047,6 +4143,142 @@ test("processSyncEntries records duplicate accepted-server conflicts with FIRST_
   );
 });
 
+test("processSyncEntries classifies the Stage-3 open-attendance race as a deterministic server-wins conflict", async () => {
+  let conflictPayload = null;
+  let transactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+          transactionPayload = payload.transactionPayload;
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-open-attendance",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error(
+            "raw duplicate detail: attendance_log_id=secret-value",
+          );
+          error.code = "23505";
+          error.constraint = "uq_evacuation_logs_open_evacuee";
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "stage3-open-attendance-race",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-stage3-open-attendance",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.client_sync_id, "stage3-open-attendance-race");
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.conflict_type, "OPEN_ATTENDANCE_CONFLICT");
+      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+      assert.equal(transactionPayload.sync_status, "CONFLICT");
+      assert.match(result.message, /open attendance/i);
+      assert.doesNotMatch(result.message, /secret-value|duplicate detail/i);
+    },
+  );
+});
+
+test("processSyncEntries classifies Stage-3 relationship violations as permanent manual-review failures", async () => {
+  let failurePayload = null;
+  let conflictCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Stage-3 relationship failure must not be a conflict retry");
+        },
+        recordSyncFailureAndNotificationIntent: async ({
+          syncTransactionId,
+          transactionPayload,
+        }) => {
+          failurePayload = transactionPayload;
+          return {
+            syncTransaction: {
+              id: syncTransactionId,
+              sync_status: "FAILED",
+              ...transactionPayload,
+            },
+            notificationOutboxEvent: null,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error(
+            "raw foreign key detail: household_id=secret-value",
+          );
+          error.code = "23503";
+          error.constraint = "fk_evacuation_logs_evacuee_household";
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "stage3-relationship-failure",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-stage3-relationship",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:01:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.client_sync_id, "stage3-relationship-failure");
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.resolution_status, "MANUAL_REVIEW_REQUIRED");
+      assert.equal(result.error_code, "ATTENDANCE_EVACUEE_HOUSEHOLD_CONFLICT");
+      assert.match(result.message, /does not belong to the selected household/i);
+      assert.doesNotMatch(result.message, /secret-value|foreign key detail/i);
+      assert.equal(failurePayload.error_message, result.message);
+      assert.equal(conflictCalls, 0);
+    },
+  );
+});
+
 test("H05-01 processSyncEntries records claimed-stub duplicates with FIRST_ACCEPTED", async () => {
   let conflictPayload;
 
@@ -7347,6 +7579,10 @@ test("Mayor can apply a barcode conflict with a replacement barcode", async () =
       assert.equal(updatedTransactionPayload.entity_server_id, "new-item");
       assert.equal(resolved.sync_status, "SYNCED");
       assert.equal(resolved.entity_server_id, "new-item");
+      assert.equal(
+        resolved.resolved_payload_json.acceptedPayload.barcode,
+        "0748485100099",
+      );
     },
   );
 });
@@ -7453,6 +7689,11 @@ test("Mayor can accept a barcode conflict as a corrected manual item", async () 
         resolved.resolved_payload_json.savedWithoutBarcode,
         true,
       );
+      assert.equal(
+        resolved.resolved_payload_json.acceptedPayload.item_name,
+        "Rice Manual",
+      );
+      assert.equal(resolved.resolved_payload_json.acceptedPayload.barcode, null);
     },
   );
 });
@@ -7588,6 +7829,10 @@ test("Mayor can correct a barcode conflict for a packaging batch", async () => {
       assert.equal(resolved.status, "RESOLVED");
       assert.equal(resolved.sync_status, "SYNCED");
       assert.equal(resolved.entity_server_id, "corrected-batch");
+      assert.equal(
+        resolved.resolved_payload_json.acceptedPayload.stock_form_barcode,
+        "987654322",
+      );
     },
   );
 });
@@ -7760,6 +8005,10 @@ test("Mayor can correct a duplicate-item barcode conflict as a new packaging bat
       assert.equal(resolved.status, "RESOLVED");
       assert.equal(resolved.sync_status, "SYNCED");
       assert.equal(resolved.entity_server_id, "corrected-pack-batch");
+      assert.equal(
+        resolved.resolved_payload_json.acceptedPayload.stock_form_barcode,
+        "987654322",
+      );
     },
   );
 });

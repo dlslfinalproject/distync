@@ -69,7 +69,10 @@ const getEvacuationCenterById = async (id, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
-const getActiveEvacuationCentersByBarangayId = async (barangayId) => {
+const getActiveEvacuationCentersByBarangayId = async (
+  barangayId,
+  dbClient = pool,
+) => {
   const query = `
     SELECT
       ec.id,
@@ -83,7 +86,7 @@ const getActiveEvacuationCentersByBarangayId = async (barangayId) => {
     ORDER BY ec.name ASC, ec.created_at ASC
   `;
 
-  const result = await pool.query(query, [barangayId]);
+  const result = await dbClient.query(query, [barangayId]);
   return result.rows;
 };
 

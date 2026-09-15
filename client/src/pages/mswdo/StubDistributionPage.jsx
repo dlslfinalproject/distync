@@ -39,10 +39,30 @@ import {
 import { readOperationalDisasterEventScope } from "../../features/disaster-events/operationalDisasterEventSelection";
 import { ROLE_CODES } from "../../utils/roleSession";
 import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
+import { resolveStubDetailsForOfflineDisplay } from "../../features/stubs/offlineHouseholdHydration";
+import {
+  comparePresentedStubRows,
+  STUB_PRESENTATION_STATUSES,
+} from "../../features/stubs/stubPresentation.js";
+import { ALL_BARANGAYS } from "../../features/stubs/useMswdoStubDistribution";
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
 const QR_SCAN_COOLDOWN_MS = 1800;
+
+const resolveDetailsForDisplay = async (
+  stubDetails,
+  { disasterEventId = "", barangayId = "" } = {},
+) => {
+  if (typeof navigator === "undefined" || navigator.onLine !== false) {
+    return stubDetails;
+  }
+
+  return resolveStubDetailsForOfflineDisplay(stubDetails, {
+    disasterEventId,
+    barangayId,
+  });
+};
 
 const filterStyles = {
   field: {
@@ -108,13 +128,16 @@ const formatDisasterEventTitle = (event) =>
   String(event?.title || "").trim() || "No disaster event selected";
 
 const stubStatusOptions = [
-  { value: STATUS_FILTERS.CLAIMED, label: "Claimed" },
+  { value: STATUS_FILTERS.ALL, label: "All" },
   { value: STATUS_FILTERS.UNCLAIMED, label: "For Claim" },
+  { value: STATUS_FILTERS.CLAIMED, label: "Claimed" },
+  { value: STATUS_FILTERS.NOT_PRESENT, label: "Unclaimed" },
 ];
 
 const isSelectableClaimStubRow = (row) =>
   row?.status === "ISSUED" &&
   !row?.is_local_only &&
+  row?.presentation_status === STUB_PRESENTATION_STATUSES.FOR_CLAIM &&
   isCurrentlyPresentStubRow(row);
 
 const getStubSortTime = (row) => {
@@ -131,6 +154,9 @@ const getStubSortTime = (row) => {
 
 const sortStubRows = (rows, sortOrder = DEFAULT_STUB_SORT_ORDER) =>
   [...rows].sort((left, right) => {
+    const presentationComparison = comparePresentedStubRows(left, right);
+    if (presentationComparison) return presentationComparison;
+
     if (sortOrder === "az" || sortOrder === "za") {
       const leftName = String(left.family_head_name || "");
       const rightName = String(right.family_head_name || "");
@@ -139,10 +165,7 @@ const sortStubRows = (rows, sortOrder = DEFAULT_STUB_SORT_ORDER) =>
       return sortOrder === "za" ? -comparison : comparison;
     }
 
-    const leftTime = getStubSortTime(left);
-    const rightTime = getStubSortTime(right);
-
-    return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+    return 0;
   });
 
 const buildStubPrintRoute = ({
@@ -544,9 +567,13 @@ const StubDistributionPage = () => {
 
       try {
         const stubDetails = await fetchStubDetails(pendingClaimStubId);
+        const hydratedStubDetails = await resolveDetailsForDisplay(stubDetails, {
+          disasterEventId: selectedDisasterEventId,
+          barangayId: selectedBarangayId,
+        });
 
         if (isMounted) {
-          setPendingClaimStubDetails(stubDetails);
+          setPendingClaimStubDetails(hydratedStubDetails);
         }
       } catch (error) {
         if (isMounted) {
@@ -683,7 +710,11 @@ const StubDistributionPage = () => {
 
     try {
       const details = await fetchStubDetails(row.id);
-      setSelectedStubDetails(details);
+      const hydratedDetails = await resolveDetailsForDisplay(details, {
+        disasterEventId: selectedDisasterEventId,
+        barangayId: selectedBarangayId,
+      });
+      setSelectedStubDetails(hydratedDetails);
     } catch (error) {
       setStubDetailsErrorMessage(
         error.message || "Unable to load the selected stub details.",
@@ -776,6 +807,10 @@ const StubDistributionPage = () => {
       }
 
       const stubDetails = await fetchStubDetails(resolvedStubId, { currentBarangayId: selectedBarangayId });
+      const hydratedStubDetails = await resolveDetailsForDisplay(stubDetails, {
+        disasterEventId: selectedDisasterEventId,
+        barangayId: selectedBarangayId,
+      });
       const stubEventId = stubDetails?.disaster_event?.id || "";
       if (stubEventId !== selectedDisasterEventId) {
         throw createWrongEventQrScanError({
@@ -811,7 +846,7 @@ const StubDistributionPage = () => {
       }
 
       setPendingClaimStubId(resolvedStubId);
-      setPendingClaimStubDetails(stubDetails);
+      setPendingClaimStubDetails(hydratedStubDetails);
       setIsBulkClaimConfirmOpen(false);
       setSelectedStubIds([]);
       setIsQrScanModalOpen(false);
@@ -909,6 +944,7 @@ const StubDistributionPage = () => {
                   {barangay.name}
                 </option>
               ))}
+              <option value={ALL_BARANGAYS}>All Barangays</option>
             </select>
           </div>
         </div>

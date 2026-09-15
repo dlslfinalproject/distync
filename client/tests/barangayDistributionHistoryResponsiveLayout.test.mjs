@@ -16,6 +16,7 @@ test("Distribution History exposes scoped responsive hooks for filters, toolbar,
 
   assert.match(pageSource, /className="distribution-history-filter-card"/);
   assert.match(pageSource, /className="distribution-history-filter-grid"/);
+  assert.match(pageSource, /data-filter-count=\{isBarangay \? "4" : "5"\}/);
   assert.match(pageSource, /className="distribution-history-toolbar"/);
   assert.match(pageSource, /className="distribution-history-toolbar-search"/);
   assert.match(pageSource, /className="distribution-history-export-button"/);
@@ -27,6 +28,14 @@ test("Distribution History exposes scoped responsive hooks for filters, toolbar,
   assert.match(
     cssSource,
     /\.distribution-history-filter-card,[\s\S]*?\.distribution-history-detail-table \{[\s\S]*?min-width: 0;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(min-width: 1025px\)[\s\S]*?\.distribution-history-filter-grid\[data-filter-count="5"\] \{[\s\S]*?grid-template-columns: repeat\(5, minmax\(0, 1fr\)\) !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(min-width: 1025px\)[\s\S]*?\.distribution-history-filter-grid\[data-filter-count="4"\] \{[\s\S]*?grid-template-columns: repeat\(4, minmax\(0, 1fr\)\) !important;/,
   );
 });
 
@@ -56,7 +65,7 @@ test("Distribution History mobile toolbar controls fill available width without 
   );
   assert.match(
     cssSource,
-    /@media \(max-width: 480px\)[\s\S]*?\.distribution-history-filter-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+    /@media \(max-width: 480px\)[\s\S]*?\.distribution-history-filter-grid \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
   );
   assert.match(
     cssSource,
@@ -172,4 +181,17 @@ test("Distribution History detail action is accessible and does not expose raw Q
   assert.match(pageSource, /aria-label=\{`View details for \$\{formatDisplayStubNumber\(row\)\}`\}/);
   assert.match(pageSource, /formatDisplayStubNumber\(row\)/);
   assert.doesNotMatch(pageSource, /row\.qr_code_value/);
+});
+
+test("Distribution History emphasizes the event and selected-event family values", async () => {
+  const pageSource = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+
+  assert.match(
+    pageSource,
+    /<div style=\{\{ fontWeight: 700 \}\}>\s*\{row\.disaster_event_title \|\| "--"\}\s*<\/div>/,
+  );
+  assert.match(
+    pageSource,
+    /<span style=\{\{ fontWeight: 700 \}\}>\s*\{row\.family_head_name \|\| "--"\}\s*<\/span>/,
+  );
 });

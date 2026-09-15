@@ -24,24 +24,27 @@ test("Barangay dashboard keeps unresolved context separate from resolved no-assi
   assert.match(source, /isContextResolved,/);
 });
 
-test("Barangay dashboard overview renders neutral unresolved context before no-assignment", async () => {
+test("Barangay dashboard overview keeps unresolved context free of transient loading copy", async () => {
   const source = await readSource(
     "../src/components/barangay-dashboard/BarangayDashboardOverview.jsx",
   );
 
   assert.match(source, /const showFallbackOverride =\s*isContextResolved && allowFallback && !hasAssignedBarangay/);
-  assert.match(source, /!isContextResolved\s*\?\s*"Resolving barangay\.\.\."/);
-  assert.match(source, /if \(!isContextResolved\) \{[\s\S]*stateMessage = "Preparing barangay and event context\.\.\."/s);
+  assert.match(source, /assignedBarangay\?\.name \|\|/);
+  assert.match(source, /isContextResolved \? "No assigned barangay" : "—"/);
+  assert.doesNotMatch(source, /Resolving barangay\.\.\./);
+  assert.doesNotMatch(source, /Preparing barangay and event context\.\.\./);
+  assert.doesNotMatch(source, /Loading barangay dashboard\.\.\./);
   assert.match(source, /isContextResolved && !isLoading && stateMessage/);
 });
 
-test("Barangay event selector separates unresolved loading from scoped empty selection", async () => {
+test("Barangay event selector keeps a stable scope placeholder while context resolves", async () => {
   const source = await readSource(
     "../src/components/barangay-dashboard/BarangayDashboardOverview.jsx",
   );
 
-  assert.match(source, /const getEventSelectPlaceholder = \(eventScope, isContextResolved\) => \{/);
-  assert.match(source, /if \(!isContextResolved\) \{[\s\S]*return "Loading event context\.\.\.";/s);
+  assert.match(source, /const getEventSelectPlaceholder = \(eventScope\) => \{/);
+  assert.doesNotMatch(source, /Loading event context\.\.\./);
   assert.match(source, /eventScope === "ended"[\s\S]*\? "Select ended disaster event"[\s\S]*: "Select active disaster event"/s);
   assert.match(source, /const eventSelectValue = isContextResolved \? selectedDisasterEventId : ""/);
   assert.match(source, /disabled=\{!isContextResolved \|\| isLoading \|\| !hasEvents\}/);

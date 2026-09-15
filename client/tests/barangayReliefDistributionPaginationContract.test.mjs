@@ -31,7 +31,8 @@ test("Relief Distribution sends authoritative dashboard pagination filters", asy
   assert.match(serviceSource, /searchParams\.set\("pageSize", pageSize\)/);
   assert.match(serviceSource, /searchParams\.set\("search", search\.trim\(\)\)/);
   assert.match(serviceSource, /searchParams\.set\("status", status\)/);
-  assert.match(serviceSource, /searchParams\.set\("sector_ids", sectorIds\.join\(","\)\)/);
+  assert.match(serviceSource, /resolveStubSectorIdsForApi\(/);
+  assert.match(serviceSource, /searchParams\.set\("sector_ids", resolvedSectorIds\.join\(","\)\)/);
   assert.match(serviceSource, /searchParams\.set\("sort_order", sortOrder\)/);
   assert.match(pageSource, /page: currentPage/);
   assert.match(pageSource, /pageSize/);

@@ -95,6 +95,8 @@ test("getAuditLogs includes finalized distribution claim audit rows", async () =
   assert.match(capturedQuery, /DISTRIBUTION_RECORD/);
   assert.match(capturedQuery, /DISTRIBUTION_QR_CLAIM/);
   assert.match(capturedQuery, /distribution_items_json/);
+  assert.match(capturedQuery, /relief_pack_sector_name_map/);
+  assert.match(capturedQuery, /jsonb_object_agg\(sector_lookup\.id::text, sector_lookup\.name\)/);
   assert.match(capturedQuery, /FROM audit_logs transaction_audit/);
   assert.match(capturedQuery, /transaction_audit\.new_values_json->>'inventory_batch_id'/);
   assert.match(capturedQuery, /transaction_audit\.new_values_json->>'reference_type'/);
@@ -121,7 +123,10 @@ test("getAuditLogs applies five-year retention and page offset", async () => {
   assert.match(capturedQuery, /AS donation_count/);
   assert.match(capturedQuery, /AS distribution_count/);
   assert.match(capturedQuery, /NOW\(\) - INTERVAL '5 years'/);
-  assert.match(capturedQuery, /ORDER BY al\.created_at DESC, al\.id DESC/);
+  assert.match(
+    capturedQuery,
+    /ORDER BY COALESCE\(dt_direct\.distribution_date, CASE WHEN al\.action = 'SYNC_CONFLICT_RESOLUTION' THEN sc_direct\.resolved_at END, al\.created_at\) DESC, al\.id DESC/,
+  );
   assert.match(capturedQuery, /LIMIT \$1 OFFSET \$2/);
   assert.doesNotMatch(capturedQuery, /stock_adjusted/i);
   assert.doesNotMatch(capturedQuery, /THEN 'stock adjusted'/i);
@@ -308,6 +313,50 @@ test("getAuditLogs filters Packaging Added to additional packaging records", asy
   assert.deepEqual(capturedValues, [50, 0]);
 });
 
+test("getAuditLogs scopes Sync Conflict Resolved to Mayor inventory conflicts", async () => {
+  let capturedQuery = "";
+
+  await withMockPool(
+    async (query) => {
+      capturedQuery = query;
+      return { rows: [] };
+    },
+    async ({ getAuditLogs }) => {
+      await getAuditLogs({
+        auditAction: "sync_conflict_resolution",
+        module: "Sync",
+        limit: 50,
+        page: 1,
+      });
+    },
+  );
+
+  assert.match(capturedQuery, /LEFT JOIN sync_conflicts sc_direct/);
+  assert.match(
+    capturedQuery,
+    /al\.action = 'SYNC_CONFLICT_RESOLUTION'[\s\S]*sc_direct\.entity_type IN \([\s\S]*'INVENTORY_ITEM'[\s\S]*'INVENTORY_BATCH'[\s\S]*'INVENTORY_TRANSACTION'/,
+  );
+  assert.doesNotMatch(capturedQuery, /'HOUSEHOLD'/);
+  assert.doesNotMatch(capturedQuery, /'STUB'/);
+});
+
+test("getAuditLogs excludes passive Sync Conflict Reviewed records", async () => {
+  let capturedQuery = "";
+
+  await withMockPool(
+    async (query) => {
+      capturedQuery = query;
+      return { rows: [] };
+    },
+    async ({ getAuditLogs }) => {
+      await getAuditLogs({ module: "Sync", limit: 50, page: 1 });
+    },
+  );
+
+  assert.match(capturedQuery, /al\.action = 'SYNC_CONFLICT_RESOLUTION'/);
+  assert.doesNotMatch(capturedQuery, /SYNC_CONFLICT_REVIEW/);
+});
+
 test("getAuditLogs includes write-offs for both inventory sources", async () => {
   let capturedQuery = "";
   let capturedValues = [];
@@ -357,11 +406,11 @@ test("getAuditLogs applies inclusive date range filter before paging", async () 
 
   assert.match(
     capturedQuery,
-    /COALESCE\(dt_direct\.distribution_date, al\.created_at\) >= \$1::date/,
+    /COALESCE\(dt_direct\.distribution_date, CASE WHEN al\.action = 'SYNC_CONFLICT_RESOLUTION' THEN sc_direct\.resolved_at END, al\.created_at\) >= \$1::date/,
   );
   assert.match(
     capturedQuery,
-    /COALESCE\(dt_direct\.distribution_date, al\.created_at\) < \(\$2::date \+ INTERVAL '1 day'\)/,
+    /COALESCE\(dt_direct\.distribution_date, CASE WHEN al\.action = 'SYNC_CONFLICT_RESOLUTION' THEN sc_direct\.resolved_at END, al\.created_at\) < \(\$2::date \+ INTERVAL '1 day'\)/,
   );
   assert.match(capturedQuery, /LIMIT \$3 OFFSET \$4/);
   assert.deepEqual(capturedValues, ["2026-08-01", "2026-08-11", 50, 0]);

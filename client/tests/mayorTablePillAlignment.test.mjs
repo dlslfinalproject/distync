@@ -82,11 +82,11 @@ test("Mayor table pill columns keep headers and values centered", async () => {
 
   assert.match(
     distributionHistoryPage,
-    /<th style=\{\{ \.\.\.tableStyles\.th, textAlign: "center" \}\}>Status<\/th>/,
+    /pillHeaderCell: \{[\s\S]*?textAlign: "center"[\s\S]*?Status<\/th>/,
   );
   assert.match(distributionHistoryPage, /borderRadius: "999px"/);
   assert.match(
     distributionHistoryPage,
-    /<td style=\{\{ \.\.\.tableStyles\.td, textAlign: "center", verticalAlign: "middle" \}\}>/,
+    /pillBodyCell: \{[\s\S]*?textAlign: "center"[\s\S]*?getDisasterEventStatusStyles/,
   );
 });

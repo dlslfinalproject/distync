@@ -51,7 +51,10 @@ test("MSWDO remains without offline readiness preparation UI", async () => {
   const layout = await readSource("components/layout/BarangayLayout.jsx");
   const preparation = await readSource("features/offline/useBarangayOfflinePreparation.js");
 
-  assert.match(layout, /isBarangayPortal \? <OfflineDataReadiness/);
+  assert.match(
+    layout,
+    /shouldShowBarangayOfflineReadiness \? \([\s\S]*?<OfflineDataReadiness/,
+  );
   assert.match(layout, /enabled: isBarangayPortal/);
   assert.doesNotMatch(preparation, /ROLE_CODES\.MSWDO/);
 });

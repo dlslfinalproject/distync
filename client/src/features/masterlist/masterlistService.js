@@ -404,6 +404,119 @@ export const fetchMasterlist = async ({
   return result;
 };
 
+const normalizeMasterlistSectorFilterValue = (value) =>
+  String(value || "").trim().toUpperCase();
+
+const buildMasterlistSectorFilterAliases = (
+  sectorIds = [],
+  sectorOptions = [],
+) => {
+  const aliasesByValue = new Map();
+
+  sectorOptions.forEach((sector) => {
+    const aliases = [sector?.id, sector?.code, sector?.source_sector_id]
+      .map(normalizeMasterlistSectorFilterValue)
+      .filter(Boolean);
+
+    aliases.forEach((alias) => {
+      aliasesByValue.set(alias, aliases);
+    });
+  });
+
+  const requestedAliases = new Set();
+
+  (Array.isArray(sectorIds) ? sectorIds : []).forEach((sectorId) => {
+    const normalizedSectorId = normalizeMasterlistSectorFilterValue(sectorId);
+
+    if (!normalizedSectorId) {
+      return;
+    }
+
+    requestedAliases.add(normalizedSectorId);
+    requestedAliases.add(
+      normalizeMasterlistSectorFilterValue(
+        getCanonicalMemberSectorCode(normalizedSectorId),
+      ),
+    );
+
+    const displayLabel = formatMasterlistFilterSectorLabel(normalizedSectorId);
+    if (displayLabel) {
+      requestedAliases.add(normalizeMasterlistSectorFilterValue(displayLabel));
+    }
+
+    (aliasesByValue.get(normalizedSectorId) || []).forEach((alias) => {
+      requestedAliases.add(alias);
+    });
+  });
+
+  return requestedAliases;
+};
+
+export const matchesMasterlistSectorFilter = ({
+  row,
+  sectorIds = [],
+  sectorOptions = [],
+} = {}) => {
+  const requestedAliases = buildMasterlistSectorFilterAliases(
+    sectorIds,
+    sectorOptions,
+  );
+
+  if (requestedAliases.size === 0) {
+    return true;
+  }
+
+  const rowAliases = new Set(
+    [
+      ...(Array.isArray(row?.sector_ids) ? row.sector_ids : []),
+      ...(Array.isArray(row?.sector_codes) ? row.sector_codes : []),
+    ]
+      .map(normalizeMasterlistSectorFilterValue)
+      .filter(Boolean),
+  );
+  const rowSectorText = normalizeMasterlistSectorFilterValue(row?.sectors_text);
+
+  return [...requestedAliases].some(
+    (alias) => rowAliases.has(alias) || rowSectorText.includes(alias),
+  );
+};
+
+export const filterMasterlistRows = ({
+  rows = [],
+  search = "",
+  sectorIds = [],
+  sectorOptions = [],
+} = {}) => {
+  const normalizedSearch = String(search || "").trim().toLowerCase();
+
+  return (Array.isArray(rows) ? rows : []).filter((row) => {
+    if (
+      !matchesMasterlistSectorFilter({
+        row,
+        sectorIds,
+        sectorOptions,
+      })
+    ) {
+      return false;
+    }
+
+    if (!normalizedSearch) {
+      return true;
+    }
+
+    return [
+      row?.family_head_name,
+      row?.address,
+      row?.sectors_text,
+      row?.attendance_status_text,
+      row?.arrival_time_text,
+      row?.departure_time_text,
+    ].some((value) =>
+      String(value || "").toLowerCase().includes(normalizedSearch),
+    );
+  });
+};
+
 export const buildCachedMasterlistResult = ({
   cachedRows = [],
   disasterEventId,
@@ -415,15 +528,15 @@ export const buildCachedMasterlistResult = ({
   sectorIds = [],
   sortOrder = "newest",
 } = {}) => {
-  const normalizedSearch = String(search || "").trim().toLowerCase();
-  const requestedSectorIds = new Set((Array.isArray(sectorIds) ? sectorIds : []).map(String));
-  const filteredRows = cachedRows.filter((row) => {
+  const statusFilteredRows = cachedRows.filter((row) => {
     if (recordStatus === "active" && row.is_operationally_active === false) return false;
     if (recordStatus === "archived" && row.is_operationally_active !== false) return false;
-    if (requestedSectorIds.size && !(row.sector_ids || []).some((id) => requestedSectorIds.has(String(id)))) return false;
-    if (!normalizedSearch) return true;
-    return [row.family_head_name, row.address, row.sectors_text, row.attendance_status_text, row.arrival_time_text, row.departure_time_text]
-      .some((value) => String(value || "").toLowerCase().includes(normalizedSearch));
+    return true;
+  });
+  const filteredRows = filterMasterlistRows({
+    rows: statusFilteredRows,
+    search,
+    sectorIds,
   });
   const safePageSize = Math.max(Number(pageSize) || 25, 1);
   const safePage = Math.max(Number(page) || 1, 1);
@@ -608,21 +721,55 @@ export const archiveHousehold = async ({ householdId, archiveRemarks = null }) =
 
 export const restoreHousehold = async ({
   householdId,
+  barangayId = null,
+  disasterEventId = null,
+  disasterEventTitle = "",
 }) => {
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/households/${householdId}/restore`,
-    {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        restore_mode: "RETURN_TO_EVAC_CENTER",
-      }),
-    },
-  );
+  const payload = {
+    restore_mode: "RETURN_TO_EVAC_CENTER",
+    ...(disasterEventId ? { disaster_event_id: disasterEventId } : {}),
+  };
 
-  return parseJsonResponse(response, "Failed to re-admit household");
+  return performSyncableMutation({
+    moduleName: "barangay-masterlist",
+    actionKey: "HOUSEHOLD_RESTORE",
+    entityType: "HOUSEHOLD",
+    entityServerId: householdId,
+    barangayId,
+    payload,
+    queueDisplayContext: disasterEventTitle
+      ? { disaster_event_title: disasterEventTitle }
+      : null,
+    request: async () => {
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/households/${householdId}/restore`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            restore_mode: "RETURN_TO_EVAC_CENTER",
+          }),
+        },
+      );
+
+      return parseJsonResponse(response, "Failed to re-admit household");
+    },
+    buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
+      buildOfflineQueuedResponse({
+        message:
+          "Household re-admission saved offline. Pending sync once connection is restored.",
+        data: {
+          household_id: householdId,
+          status: "PENDING_SYNC",
+          client_timestamp: clientTimestamp,
+        },
+        clientSyncId,
+        entityLocalId: householdId,
+        clientTimestamp,
+      }),
+  });
 };
 
 export const correctEvacuationLog = async ({

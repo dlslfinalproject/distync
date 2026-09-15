@@ -62,6 +62,22 @@ test("Mayor audit trail tables keep horizontal overflow local and paginator outs
   assert.match(pageSource, /Donation Details Edited/);
   assert.match(pageSource, /Donated Items \(Loose Item\)/);
   assert.match(pageSource, /DonationEntryItemsDetails/);
+  assert.match(
+    pageSource,
+    /const isDistributedItemsRecord = entry\.action_label === "Distributed Items";/,
+  );
+  assert.match(
+    pageSource,
+    /!isDistributedItemsRecord && !isSyncConflictResolution\(entry\) \? \([\s\S]*?getChangeHeading\(entry\)/,
+  );
+  assert.match(pageSource, /Resolution Details/);
+  assert.match(pageSource, /Record Comparison/);
+  assert.match(pageSource, /record_comparison/);
+  assert.match(pageSource, /isKeepServerSyncResolution/);
+  assert.match(pageSource, /Kept Record/);
+  assert.match(pageSource, /Accepted First/);
+  assert.match(pageSource, /Duplicate Record/);
+  assert.match(pageSource, /Correction Applied/);
   assert.doesNotMatch(pageSource, />\s*Contents\s*</);
   assert.match(pageSource, /Related Stock Adjustment/);
   assert.match(pageSource, /const isWrittenOffRecord = entry\.action_label === "Written Off";/);
@@ -84,6 +100,22 @@ test("Mayor audit trail tables keep horizontal overflow local and paginator outs
   assert.match(pageSource, /const formatBackendEnumText = \(value\) =>/);
   assert.match(pageSource, /getRecordLines = \(entry\) => \{[\s\S]*?lines\.map\(formatBackendEnumText\)/);
   assert.match(pageSource, /changedValue:\s*\{[\s\S]*?fontWeight: 700,/);
+  assert.match(
+    pageSource,
+    /fieldColumn:\s*\{[\s\S]*?whiteSpace: "nowrap"/,
+  );
+  assert.match(
+    pageSource,
+    /detailModalStyles\.fieldColumn/,
+  );
+  assert.match(
+    pageSource,
+    /valueColumn:\s*\{[\s\S]*?minWidth: "160px"[\s\S]*?wordBreak: "normal"/,
+  );
+  assert.match(
+    pageSource,
+    /detailModalStyles\.valueColumn/,
+  );
   assert.doesNotMatch(pageSource, /tableStyles\.strong/);
   assert.match(
     pageSource,

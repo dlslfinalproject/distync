@@ -263,6 +263,52 @@ test("inventory distribution details allow the assigned Barangay and reject anot
   );
 });
 
+test("distribution history export keeps the selected disaster event in empty-report metadata", async () => {
+  const capturedExports = [];
+  const stubs = createBaseStubs({ events: [] });
+
+  stubs[distributionTransactionRepositoryPath] = {
+    getDistributionHistoryExportRows: async () => [],
+  };
+  stubs[disasterEventRepositoryPath] = {
+    getDisasterEventById: async () => ({
+      event_code: "EVT-Z",
+      title: "Zero Wind",
+    }),
+  };
+  stubs[mswdoReportExportPath] = {
+    formatDateTime: () => "--",
+    buildExportFile: async (payload) => {
+      capturedExports.push(payload);
+      return payload;
+    },
+  };
+
+  await withStubbedDistributionService(
+    stubs,
+    async ({ exportDistributionHistory }) => {
+      await exportDistributionHistory({
+        requester: {
+          roleCode: "BARANGAY",
+          defaultBarangayId: baseStub.barangay_id,
+        },
+        filters: {
+          disaster_event_id: baseStub.disaster_event_id,
+          status: "CLAIMED",
+          format: "csv",
+        },
+      });
+    },
+  );
+
+  assert.equal(capturedExports.length, 1);
+  assert.equal(capturedExports[0].tableTitle, "Distribution History Records");
+  assert.equal(
+    capturedExports[0].metadata.find((item) => item.label === "Disaster Event").value,
+    "EVT-Z - Zero Wind",
+  );
+});
+
 test("H05-03 claimDistributionTransactionFromQr emits STUB_ALREADY_CLAIMED for an accepted claimed stub", async () => {
   const events = [];
 

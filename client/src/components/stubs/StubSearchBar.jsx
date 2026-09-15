@@ -176,7 +176,7 @@ const StubSearchBar = ({
           </select>
         </label>
 
-        <div>
+        <div className="stub-distribution-filter-button-wrap">
           <ResponsiveFilterPopover
             isOpen={isFilterOpen}
             onOpenChange={setIsFilterOpen}

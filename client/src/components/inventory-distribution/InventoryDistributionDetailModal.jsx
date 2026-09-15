@@ -955,7 +955,11 @@ const InventoryDistributionDetailModal = ({
   }
 
   const household = getHousehold(stubDetails, row);
-  const familyHeadPhotoUrl = resolveFamilyHeadPhoto(household);
+  const familyHeadPhotoUrl = resolveFamilyHeadPhoto(household, {
+    isOffline:
+      stubDetails?.is_cached_offline === true ||
+      (typeof navigator !== "undefined" && navigator.onLine === false),
+  });
   const members = getMembers(stubDetails, row);
   const latestAttendance =
     stubDetails?.latest_attendance ||

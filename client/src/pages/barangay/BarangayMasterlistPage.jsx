@@ -52,6 +52,7 @@ import {
   DEFAULT_TABLE_PAGE_SIZE,
   TABLE_PAGE_SIZE_OPTIONS,
 } from "../../features/pagination/pagination.mjs";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -124,6 +125,7 @@ const BarangayMasterlistPage = () => {
     useState("newest");
   const [selectedExportSectorIds, setSelectedExportSectorIds] = useState([]);
   const [availableExportSectorIds, setAvailableExportSectorIds] = useState([]);
+  const exportModalRef = useRef(null);
   const [exportValidationErrors, setExportValidationErrors] = useState({
     sectors: "",
     barangays: "",
@@ -179,6 +181,7 @@ const BarangayMasterlistPage = () => {
     setEventScope,
     setSelectedDisasterEventId,
     setOverrideBarangayId,
+    reloadDashboard,
   } = useBarangayDashboard({
     userId: authenticatedUser?.id || "",
   });
@@ -197,7 +200,7 @@ const BarangayMasterlistPage = () => {
   const selectedSectorIds = selectedSectorIdsByScope[eventScope] || [];
   const selectedSortOrder = sortOrderByScope[eventScope] || "newest";
 
-  const { data, isLoading, errorMessage, infoMessage: masterlistInfoMessage, reloadMasterlist } = useMasterlist({
+  const { data, isLoading, errorMessage, infoMessage: masterlistInfoMessage, isAuthoritative, reloadMasterlist } = useMasterlist({
     disasterEventId: selectedEvent?.id || "",
     barangayId: assignedBarangay?.id || "",
     recordStatus,
@@ -237,6 +240,7 @@ const BarangayMasterlistPage = () => {
       setAttendanceActionMessage("");
       setActiveCrossEventModalTitles(getActiveCrossEventTitles(response));
       reloadMasterlist();
+      reloadDashboard();
     },
   });
 
@@ -259,6 +263,7 @@ const BarangayMasterlistPage = () => {
       setAttendanceActionMessage("");
       setActiveCrossEventModalTitles([]);
       reloadMasterlist();
+      reloadDashboard();
     },
   });
 
@@ -285,12 +290,14 @@ const BarangayMasterlistPage = () => {
       setAttendanceActionMessage("");
       setActiveCrossEventModalTitles(getActiveCrossEventTitles(response));
       reloadMasterlist();
+      reloadDashboard();
     },
   });
 
   const {
     sectorOptions,
     filteredRows,
+    offlinePagination,
   } = useBarangayMasterlistSync({
     rows: data.rows,
     syncQueueEntries,
@@ -300,6 +307,12 @@ const BarangayMasterlistPage = () => {
     sortOrder: selectedSortOrder,
     reloadMasterlist,
     cachedMasterlistRows,
+    isOffline,
+    page: currentPage,
+    pageSize,
+    search: debouncedSearchTerm,
+    sectorIds: selectedSectorIds,
+    isAuthoritative,
   });
 
   const pendingDepartureRow = filteredRows.find(
@@ -352,7 +365,7 @@ const BarangayMasterlistPage = () => {
   const selectedExportBarangayIds = assignedBarangay?.id
     ? [assignedBarangay.id]
     : [];
-  const masterlistPagination = data.pagination || {
+  const masterlistPagination = (isOffline && offlinePagination) || data.pagination || {
     page: currentPage,
     pageSize,
     totalItems: filteredRows.length,
@@ -902,11 +915,17 @@ const BarangayMasterlistPage = () => {
     setPendingRestoreHouseholdDetails(null);
     setIsLoadingRestoreHouseholdDetails(true);
 
+    if (isOffline) {
+      setPendingRestoreHouseholdDetails(selectedRow?.offline_household_details || null);
+      setIsLoadingRestoreHouseholdDetails(false);
+      return;
+    }
+
     try {
       const details = await fetchHouseholdDetails(householdId);
       setPendingRestoreHouseholdDetails(details);
     } catch (_error) {
-      setPendingRestoreHouseholdDetails(null);
+      setPendingRestoreHouseholdDetails(selectedRow?.offline_household_details || null);
     } finally {
       setIsLoadingRestoreHouseholdDetails(false);
     }
@@ -944,6 +963,18 @@ const BarangayMasterlistPage = () => {
     try {
       const response = await restoreHousehold({
         householdId: pendingRestoreHouseholdId,
+        barangayId: assignedBarangay?.id || pendingRestoreRow?.barangay_id || null,
+        disasterEventId:
+          pendingRestoreRow?.disaster_event?.id ||
+          pendingRestoreRow?.disaster_event_id ||
+          selectedEvent?.id ||
+          null,
+        disasterEventTitle:
+          pendingRestoreRow?.disaster_event?.title ||
+          pendingRestoreRow?.disaster_event?.name ||
+          selectedEvent?.title ||
+          selectedEvent?.name ||
+          "",
       });
 
       setRegistrationSuccessMessage(
@@ -953,6 +984,7 @@ const BarangayMasterlistPage = () => {
       setPendingRestoreHouseholdDetails(null);
       setIsLoadingRestoreHouseholdDetails(false);
       reloadMasterlist();
+      reloadDashboard();
     } catch (error) {
       setAttendanceActionMessage(
         error.message || "Failed to re-admit household",
@@ -987,6 +1019,7 @@ const BarangayMasterlistPage = () => {
         setPendingBulkDepartureHouseholds([]);
         setIsBulkDepartureConfirmOpen(false);
         reloadMasterlist();
+        reloadDashboard();
       } else {
         if (!pendingDepartureHouseholdId) {
           return;
@@ -1018,6 +1051,7 @@ const BarangayMasterlistPage = () => {
         setPendingBulkDepartureHouseholds([]);
         setIsLoadingDepartureHouseholdDetails(false);
         reloadMasterlist();
+        reloadDashboard();
       }
     } catch (error) {
       setAttendanceActionMessage(
@@ -1055,6 +1089,7 @@ const BarangayMasterlistPage = () => {
         sectors: "Select at least one sector.",
         barangays: "",
       });
+      scheduleScrollToFirstError(exportModalRef);
       return;
     }
 
@@ -1245,6 +1280,7 @@ const BarangayMasterlistPage = () => {
       />
 
       <MswdoExportModal
+        modalRef={exportModalRef}
         isOpen={isExportModalOpen}
         title="Evacuee Masterlist Report"
         isSubmitting={Boolean(exportingFormat)}

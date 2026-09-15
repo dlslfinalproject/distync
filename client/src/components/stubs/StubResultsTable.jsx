@@ -14,6 +14,8 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
+    minWidth: "1040px",
+    maxWidth: "none",
   },
   headerCell: {
     padding: "14px 16px",
@@ -25,12 +27,26 @@ const tableStyles = {
     borderBottom: "1px solid #e0eaf4",
     whiteSpace: "nowrap",
   },
+  pillHeaderCell: {
+    textAlign: "center",
+  },
   bodyCell: {
     padding: "16px",
     color: "#21405f",
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
     verticalAlign: "middle",
+  },
+  pillBodyCell: {
+    textAlign: "center",
+    verticalAlign: "middle",
+  },
+  qrStubColumn: {
+    width: "88px",
+    minWidth: "88px",
+  },
+  statusColumn: {
+    minWidth: "128px",
   },
   statusButton: {
     border: "1px solid #c6d8ea",
@@ -139,6 +155,7 @@ const getStatusChipStyles = (status, isActionable = false) => {
     fontSize: "12px",
     fontWeight: 700,
     lineHeight: 1,
+    whiteSpace: "nowrap",
     ...palette,
     boxShadow: isActionable ? "0 2px 8px rgba(75, 101, 132, 0.06)" : "none",
   };
@@ -356,7 +373,7 @@ const StubResultsTable = ({
       ) : null}
 
       <div className="stub-results-table-scroll" style={{ overflowX: "auto" }}>
-        <table style={tableStyles.table}>
+        <table style={tableStyles.table} className="stub-results-table">
           <thead>
             <tr>
               <th
@@ -377,7 +394,8 @@ const StubResultsTable = ({
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  textAlign: "center",
+                  ...tableStyles.qrStubColumn,
+                  ...tableStyles.pillHeaderCell,
                 }}
               >
                 Household Size
@@ -387,6 +405,7 @@ const StubResultsTable = ({
               <th
                 style={{
                   ...tableStyles.headerCell,
+                  ...tableStyles.statusColumn,
                   textAlign: "center",
                 }}
               >
@@ -403,7 +422,7 @@ const StubResultsTable = ({
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  textAlign: "center",
+                  ...tableStyles.pillHeaderCell,
                 }}
               >
                 Status
@@ -461,7 +480,9 @@ const StubResultsTable = ({
                     }}
                   >
                     <div style={tableStyles.familyHeadCell}>
-                      <span>{row.household?.family_head_name || "-"}</span>
+                      <span style={{ fontWeight: 700 }}>
+                        {row.household?.family_head_name || "-"}
+                      </span>
                       {shouldShowSyncStatusIcon(syncStatus, isOffline) ? (
                         <SyncStatusIcon status={syncStatus} />
                       ) : null}
@@ -471,7 +492,7 @@ const StubResultsTable = ({
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
-                      textAlign: "center",
+                      ...tableStyles.pillBodyCell,
                     }}
                   >
                     <span
@@ -514,12 +535,13 @@ const StubResultsTable = ({
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                      ...tableStyles.qrStubColumn,
                       textAlign: "center",
                     }}
                   >
                     <div
                       className="stub-results-qr-cell"
-                      style={{ width: "112px", margin: "0 auto" }}
+                      style={{ width: "88px", margin: "0 auto" }}
                     >
                       <QrCodePanel
                         value={row.qr_code_value || ""}
@@ -532,8 +554,8 @@ const StubResultsTable = ({
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
-                      textAlign: "center",
-                      verticalAlign: "middle",
+                      ...tableStyles.statusColumn,
+                      ...tableStyles.pillBodyCell,
                     }}
                   >
                     {row.is_local_only ? (

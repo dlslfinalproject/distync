@@ -23,6 +23,7 @@ import {
   BARANGAY_OFFLINE_ACCESS_MESSAGE,
   isBarangayOfflineBlockedRoute,
 } from "../../features/offline/barangayOfflineAccess";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
 
 const SIDEBAR_EXPANDED_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "0px";
@@ -31,6 +32,10 @@ const SHELL_HEADER_HEIGHT = "68px";
 const MOBILE_NAV_QUERY = "(max-width: 1024px)";
 const COMPACT_NAV_QUERY = "(max-width: 1024px)";
 const SIDEBAR_NAVIGATION_ID = "distync-sidebar-navigation";
+const BARANGAY_OFFLINE_READINESS_ROUTES = new Set([
+  "/barangay/masterlist",
+  "/barangay/stub-distribution",
+]);
 
 const getInitialMediaQueryMatch = (query) => {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -186,6 +191,8 @@ const BarangayLayout = () => {
   const shouldBlockMswdoOfflineRoute = isMswdoOffline && isMswdoOfflineBlockedRoute(location.pathname, { isPrepared: mswdoOfflinePreparation.isReady });
   const shouldBlockBarangayOfflineRoute =
     isBarangayOffline && isBarangayOfflineBlockedRoute(location.pathname);
+  const shouldShowBarangayOfflineReadiness =
+    isBarangayPortal && BARANGAY_OFFLINE_READINESS_ROUTES.has(location.pathname);
   const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
   const isMayorAnomalyRoute = location.pathname.startsWith("/inventory/anomalies");
   const shouldShowSyncStatusBanner =
@@ -233,6 +240,26 @@ const BarangayLayout = () => {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
+
+  useEffect(() => {
+    if ((!isMayorPortal && !isBarangayPortal) || typeof document === "undefined") {
+      return undefined;
+    }
+
+    const handlePortalFormSubmit = (event) => {
+      if (event.target?.tagName !== "FORM") {
+        return;
+      }
+
+      scheduleScrollToFirstError(event.target);
+    };
+
+    document.addEventListener("submit", handlePortalFormSubmit);
+
+    return () => {
+      document.removeEventListener("submit", handlePortalFormSubmit);
+    };
+  }, [isBarangayPortal, isMayorPortal]);
 
   useEffect(() => {
     if (isDonorPortal || isSettingsRoute) {
@@ -386,7 +413,9 @@ const BarangayLayout = () => {
                 acknowledge: () => setIsMayorInventoryReadyAcknowledged(true),
               }}
             >
-              {isBarangayPortal ? <OfflineDataReadiness {...offlinePreparation} /> : null}
+              {shouldShowBarangayOfflineReadiness ? (
+                <OfflineDataReadiness {...offlinePreparation} />
+              ) : null}
               {isMswdoPortal ? <OfflineDataReadiness {...mswdoOfflinePreparation} variant="mswdo" /> : null}
               {shouldBlockMayorOfflineRoute ? (
                 <MayorOfflineAccessNotice />

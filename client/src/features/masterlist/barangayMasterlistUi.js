@@ -256,6 +256,38 @@ export const buildQueuedHouseholdRow = (
     "Pending local address";
   const departureTimestamp =
     entry.actionKey === "HOUSEHOLD_DEPART" ? entry.clientTimestamp : null;
+  const sectorRefs = [
+    ...(payload.family_head?.sector_ids || []),
+    getDerivedAgeSectorCode(payload.family_head),
+    ...(payload.household_sector_ids || []),
+    ...submittedMembers.flatMap((member) => [
+      ...(member.sector_ids || []),
+      getDerivedAgeSectorCode(member),
+    ]),
+  ].filter(Boolean);
+  const sectorOptionsById = getSectorOptionsById(sectorOptions);
+  const sectorIds = [
+    ...new Set(
+      sectorRefs
+        .map((sectorRef) =>
+          typeof sectorRef === "object" ? sectorRef.id : sectorRef,
+        )
+        .filter(Boolean),
+    ),
+  ];
+  const sectorCodes = [
+    ...new Set(
+      sectorRefs
+        .map((sectorRef) => {
+          const sector =
+            typeof sectorRef === "object"
+              ? sectorRef
+              : sectorOptionsById.get(String(sectorRef)) || { code: sectorRef };
+          return getCanonicalMemberSectorCode(sector?.code);
+        })
+        .filter(Boolean),
+    ),
+  ];
 
   return {
     household_id: entry.entityLocalId || entry.id,
@@ -266,6 +298,8 @@ export const buildQueuedHouseholdRow = (
     barangay_name: payload.barangay_name || assignedBarangayName || "",
     members_count: (hasPersonName(payload.family_head) ? 1 : 0) + submittedMembers.length,
     sectors_text: buildQueuedSectorsText(payload, sectorOptions),
+    sector_ids: sectorIds,
+    sector_codes: sectorCodes,
     arrival_time_text: formatDateTime(entry.clientTimestamp),
     departure_time_value: departureTimestamp,
     departure_time_text: departureTimestamp ? formatDateTime(departureTimestamp) : "-",
@@ -302,6 +336,7 @@ const HOUSEHOLD_LIFECYCLE_ACTIONS = new Set([
   "HOUSEHOLD_REGISTER",
   "HOUSEHOLD_UPDATE",
   "HOUSEHOLD_RE_ADMISSION",
+  "HOUSEHOLD_RESTORE",
   "HOUSEHOLD_DEPART",
 ]);
 
@@ -393,7 +428,12 @@ const isActiveLifecycleAction = (actionKey, row) => {
   }
 
   if (
-    ["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION", "HOUSEHOLD_UPDATE"].includes(
+    [
+      "HOUSEHOLD_REGISTER",
+      "HOUSEHOLD_RE_ADMISSION",
+      "HOUSEHOLD_RESTORE",
+      "HOUSEHOLD_UPDATE",
+    ].includes(
       actionKey,
     )
   ) {
@@ -444,6 +484,7 @@ const applyLifecycleOverlay = (row, lifecycleEntry) => {
   const effectiveDepartureTime = preserveServerDeparture
     ? row.departure_time_value
     : lifecycleEntry.clientTimestamp || row.departure_time_value;
+  const isRestoreProjection = lifecycleEntry.actionKey === "HOUSEHOLD_RESTORE";
 
   return {
     ...row,
@@ -451,6 +492,15 @@ const applyLifecycleOverlay = (row, lifecycleEntry) => {
     is_active: projectedIsActive,
     is_operationally_active: projectedIsActive,
     can_record_departure: projectedIsActive && row.can_record_departure,
+    ...(isRestoreProjection
+      ? {
+          current_stay_type: "EVAC_CENTER",
+          is_non_admitted_resident: false,
+          arrival_time_text: formatDateTime(lifecycleEntry.clientTimestamp),
+          departure_time_value: null,
+          departure_time_text: "-",
+        }
+      : {}),
     ...(projectedIsActive || isConflictedDeparture
       ? {}
       : {
@@ -535,9 +585,12 @@ export const resolveEffectiveMasterlistRows = ({
   scopedEntries
     .filter(
       (entry) =>
-        ["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION", "HOUSEHOLD_DEPART"].includes(
-          entry.actionKey,
-        ) &&
+        [
+          "HOUSEHOLD_REGISTER",
+          "HOUSEHOLD_RE_ADMISSION",
+          "HOUSEHOLD_RESTORE",
+          "HOUSEHOLD_DEPART",
+        ].includes(entry.actionKey) &&
         !isReconciledDuplicate(entry) &&
         !isRejectedHouseholdRegistration(entry) &&
         !isRejectedHouseholdDeparture(entry) &&

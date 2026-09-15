@@ -6,6 +6,7 @@ import { formatOrderedSectorText } from "../../utils/sectorDisplay";
 import SyncStatusIcon from "../shared/SyncStatusIcon";
 import QrCodePanel from "./QrCodePanel";
 import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
+import { STUB_PRESENTATION_STATUSES } from "../../features/stubs/stubPresentation.js";
 import TablePagination from "../shared/TablePagination";
 import {
   DEFAULT_TABLE_PAGE_SIZE,
@@ -208,11 +209,11 @@ const getStatusLabel = (status) => {
   }
 
   if (status === "ISSUED") {
-    return "Unclaimed";
+    return "For Claim";
   }
 
   if (status === "NOT_PRESENT") {
-    return "Not Present";
+    return "Unclaimed";
   }
 
   return status || "-";
@@ -355,6 +356,7 @@ const MswdoStubResultsTable = ({
         (row) =>
           row.status === "ISSUED" &&
           !row.is_local_only &&
+          row.presentation_status === STUB_PRESENTATION_STATUSES.FOR_CLAIM &&
           isCurrentlyPresentStubRow(row),
       );
 
@@ -469,6 +471,7 @@ const MswdoStubResultsTable = ({
                 !isClaimReadOnly &&
                 row.status === "ISSUED" &&
                 !row.is_local_only &&
+                row.presentation_status === STUB_PRESENTATION_STATUSES.FOR_CLAIM &&
                 isCurrentlyPresentStubRow(row);
               const isSelected = safeSelectedStubIds.includes(row.id);
 
@@ -546,12 +549,12 @@ const MswdoStubResultsTable = ({
                       <span style={getStatusChipStyles("PENDING_SYNC")}>
                         Pending Sync
                       </span>
-                    ) : row.status === "ISSUED" && !isCurrentlyPresentStubRow(row) ? (
+                    ) : row.presentation_status === STUB_PRESENTATION_STATUSES.NOT_PRESENT ? (
                       <span
                         style={getStatusChipStyles("NOT_PRESENT")}
-                        title="This household is not currently present in the evacuation center"
+                        title="This household is no longer currently present in the evacuation center"
                       >
-                        Not Present
+                        Unclaimed
                       </span>
                     ) : row.status === "ISSUED" && !isClaimReadOnly ? (
                       <button
