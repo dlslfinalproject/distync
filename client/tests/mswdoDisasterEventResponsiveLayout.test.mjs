@@ -119,7 +119,7 @@ test("MSWDO Disaster Event toolbar and actions stack without page overflow on mo
   );
   assert.match(
     cssSource,
-    /@media \(max-width: 768px\)[\s\S]*?\.disaster-events-toolbar-actions \{[\s\S]*?display: grid !important;[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
+    /@media \(max-width: 768px\)[\s\S]*?\.disaster-events-toolbar-actions \{[\s\S]*?grid-template-columns: minmax\(0, 0\.8fr\) minmax\(0, 1\.2fr\) !important;/,
   );
   assert.match(
     cssSource,
@@ -132,6 +132,10 @@ test("MSWDO Disaster Event toolbar and actions stack without page overflow on mo
   assert.match(
     cssSource,
     /@media \(max-width: 480px\)[\s\S]*?\.disaster-events-toolbar-actions > \*,[\s\S]*?\.disaster-events-toolbar-actions button \{[\s\S]*?width: 100%;[\s\S]*?white-space: normal;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.disaster-events-toolbar-actions \.disaster-events-create-button \{[\s\S]*?white-space: nowrap !important;/,
   );
   assert.match(
     cssSource,

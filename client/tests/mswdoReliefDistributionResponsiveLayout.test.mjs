@@ -9,8 +9,9 @@ const readSource = (relativePath) =>
   fs.readFile(sourcePath(...relativePath), "utf8");
 
 test("MSWDO relief distribution exposes responsive hooks for scope and event context", async () => {
-  const [pageSource, cssSource] = await Promise.all([
+  const [pageSource, summarySource, cssSource] = await Promise.all([
     readSource(["pages", "mswdo", "StubDistributionPage.jsx"]),
+    readSource(["components", "stubs", "StubSummaryCards.jsx"]),
     readSource(["index.css"]),
   ]);
 
@@ -26,6 +27,19 @@ test("MSWDO relief distribution exposes responsive hooks for scope and event con
   assert.doesNotMatch(pageSource, /StatusPill/);
   assert.match(pageSource, /className="stub-distribution-print-button"/);
   assert.match(pageSource, /className="stub-distribution-scan-button"/);
+  assert.match(summarySource, /className="stub-summary-grid"/);
+  assert.match(
+    cssSource,
+    /\.stub-summary-grid \{[\s\S]*?grid-template-columns: repeat\(4, minmax\(0, 1fr\)\) !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 1100px\)[\s\S]*?\.stub-summary-grid \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.stub-summary-grid \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
+  );
   assert.match(
     cssSource,
     /@media \(max-width: 768px\)[\s\S]*?\.mswdo-stub-tabs \{[\s\S]*?overflow-x: auto !important;/,
@@ -57,7 +71,36 @@ test("MSWDO relief distribution table keeps overflow local and hides raw QR valu
   assert.match(tableSource, /className="stub-results-card mswdo-stub-results-card"/);
   assert.match(
     tableSource,
+    /className="stub-results-table mswdo-stub-results-table"/,
+  );
+  assert.match(
+    tableSource,
     /className="stub-results-table-scroll mswdo-stub-results-table-scroll"/,
+  );
+  assert.match(
+    tableSource,
+    /table: \{[\s\S]*?minWidth: "1040px"[\s\S]*?maxWidth: "none"/,
+  );
+  assert.match(
+    tableSource,
+    /pillHeaderCell: \{[\s\S]*?textAlign: "center"/,
+  );
+  assert.match(
+    tableSource,
+    /pillBodyCell: \{[\s\S]*?textAlign: "center"[\s\S]*?verticalAlign: "middle"/,
+  );
+  assert.match(
+    tableSource,
+    /qrStubColumn: \{[\s\S]*?width: "88px"[\s\S]*?minWidth: "88px"/,
+  );
+  assert.match(tableSource, /statusColumn: \{[\s\S]*?minWidth: "128px"/);
+  assert.match(
+    tableSource,
+    /<span style=\{\{ fontWeight: 700 \}\}>\{row\.family_head_name\}<\/span>/,
+  );
+  assert.match(
+    tableSource,
+    /fontWeight: 700,[\s\S]*?lineHeight: 1,[\s\S]*?whiteSpace: "nowrap"/,
   );
   assert.match(tableSource, /className="stub-results-qr-cell"/);
   assert.match(tableSource, /value=\{row\.qr_code_value \|\| ""\}/);

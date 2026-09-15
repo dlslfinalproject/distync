@@ -59,6 +59,9 @@ const tableStyles = {
     whiteSpace: "normal",
     lineHeight: 1.4,
   },
+  pillHeaderCell: {
+    textAlign: "center",
+  },
   bodyCell: {
     padding: "16px 10px",
     color: "#21405f",
@@ -69,6 +72,9 @@ const tableStyles = {
     whiteSpace: "normal",
     overflowWrap: "anywhere",
     wordBreak: "break-word",
+  },
+  pillBodyCell: {
+    textAlign: "center",
   },
   badge: {
     display: "inline-flex",
@@ -165,7 +171,13 @@ const MswdoMasterlistTable = ({
               <th style={{ ...tableStyles.headerCell, width: "10%" }}>
                 Stub Number
               </th>
-              <th style={{ ...tableStyles.headerCell, width: "11%" }}>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  ...tableStyles.pillHeaderCell,
+                  width: "11%",
+                }}
+              >
                 Latest Attendance
               </th>
               <th style={{ ...tableStyles.headerCell, width: "10%" }}>
@@ -193,7 +205,12 @@ const MswdoMasterlistTable = ({
                 <td style={tableStyles.bodyCell}>
                   {household.stub?.stub_no || "—"}
                 </td>
-                <td style={tableStyles.bodyCell}>
+                <td
+                  style={{
+                    ...tableStyles.bodyCell,
+                    ...tableStyles.pillBodyCell,
+                  }}
+                >
                   <span
                     style={{
                       ...tableStyles.badge,

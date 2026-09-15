@@ -8,12 +8,13 @@ const sourcePath = (...segments) => path.join(process.cwd(), "src", ...segments)
 const readSource = (relativePath) => fs.readFile(sourcePath(...relativePath), "utf8");
 
 test("MSWDO masterlist exposes Barangay-parity responsive hooks for target-specific regions", async () => {
-  const [controlsSource, scopeSource, summarySource, cardsSource, pageSource, cssSource] =
+  const [controlsSource, scopeSource, summarySource, cardsSource, tableSource, pageSource, cssSource] =
     await Promise.all([
       readSource(["components", "mswdo-masterlist", "MswdoMasterlistControls.jsx"]),
       readSource(["components", "mswdo-masterlist", "MswdoMasterlistScopeSection.jsx"]),
       readSource(["components", "mswdo-masterlist", "MswdoMasterlistEventSummary.jsx"]),
       readSource(["components", "mswdo-masterlist", "MswdoSummaryCards.jsx"]),
+      readSource(["components", "mswdo-masterlist", "MswdoMasterlistTable.jsx"]),
       readSource(["pages", "mswdo", "ConsolidatedMasterlistPage.jsx"]),
       readSource(["index.css"]),
     ]);
@@ -28,10 +29,15 @@ test("MSWDO masterlist exposes Barangay-parity responsive hooks for target-speci
   assert.match(scopeSource, /className="mswdo-masterlist-tabs"/);
   assert.match(scopeSource, /className="mswdo-masterlist-filter-grid"/);
   assert.match(scopeSource, /className="mswdo-masterlist-filter-field"/);
+  assert.match(cardsSource, /gridTemplateColumns: "repeat\(3, minmax\(0, 1fr\)\)"/);
   assert.match(summarySource, /className="mswdo-masterlist-event-title"/);
   assert.match(summarySource, /className="mswdo-masterlist-event-meta"/);
   assert.doesNotMatch(summarySource, /StatusPill/);
   assert.match(cardsSource, /className="mswdo-masterlist-summary-grid"/);
+  assert.match(tableSource, /pillHeaderCell: \{[\s\S]*?textAlign: "center"/);
+  assert.match(tableSource, /pillBodyCell: \{[\s\S]*?textAlign: "center"/);
+  assert.match(tableSource, /pillHeaderCell[\s\S]*?Latest Attendance/);
+  assert.match(tableSource, /pillBodyCell[\s\S]*?getAttendanceBadgeStyles/);
   assert.match(
     pageSource,
     /<MasterlistTable[\s\S]*?rows=\{displayedRows\}[\s\S]*?showAddressColumn=\{!selectedBarangayId\}/,
@@ -60,11 +66,15 @@ test("MSWDO masterlist exposes Barangay-parity responsive hooks for target-speci
   );
   assert.match(
     cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.mswdo-masterlist-summary-grid \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
+  );
+  assert.match(
+    cssSource,
     /\.mswdo-masterlist-toolbar \.masterlist-toolbar-search,[\s\S]*?order: -1;[\s\S]*?flex: 1 1 100% !important;[\s\S]*?width: 100% !important;/,
   );
   assert.match(
     cssSource,
-    /@media \(max-width: 480px\)[\s\S]*?\.mswdo-masterlist-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+    /@media \(max-width: 480px\)[\s\S]*?\.mswdo-masterlist-summary-grid \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
   );
 });
 

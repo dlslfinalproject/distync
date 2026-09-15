@@ -10,7 +10,11 @@ import { SettingsUnsavedChangesProvider } from "../../pages/settings/SettingsUns
 import { useBarangayDashboard } from "../../features/barangay-dashboard/useBarangayDashboard";
 import { useBarangayOfflinePreparation } from "../../features/offline/useBarangayOfflinePreparation";
 import { useMswdoOfflinePreparation } from "../../features/offline/useMswdoOfflinePreparation";
-import { isMswdoOfflineBlockedRoute, MSWDO_OFFLINE_ACCESS_MESSAGE } from "../../features/offline/mswdoOfflineAccess";
+import {
+  isMswdoOfflineBlockedRoute,
+  MSWDO_OFFLINE_ACCESS_MESSAGE,
+  MSWDO_OFFLINE_SUPPORTED_ROUTES,
+} from "../../features/offline/mswdoOfflineAccess";
 import { readOperationalDisasterEventId } from "../../features/disaster-events/operationalDisasterEventSelection";
 import OfflineDataReadiness, {
   MayorOfflineReadyDismissalContext,
@@ -193,6 +197,8 @@ const BarangayLayout = () => {
     isBarangayOffline && isBarangayOfflineBlockedRoute(location.pathname);
   const shouldShowBarangayOfflineReadiness =
     isBarangayPortal && BARANGAY_OFFLINE_READINESS_ROUTES.has(location.pathname);
+  const shouldShowMswdoOfflineReadiness =
+    isMswdoPortal && MSWDO_OFFLINE_SUPPORTED_ROUTES.has(location.pathname);
   const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
   const isMayorAnomalyRoute = location.pathname.startsWith("/inventory/anomalies");
   const shouldShowSyncStatusBanner =
@@ -416,7 +422,9 @@ const BarangayLayout = () => {
               {shouldShowBarangayOfflineReadiness ? (
                 <OfflineDataReadiness {...offlinePreparation} />
               ) : null}
-              {isMswdoPortal ? <OfflineDataReadiness {...mswdoOfflinePreparation} variant="mswdo" /> : null}
+              {shouldShowMswdoOfflineReadiness ? (
+                <OfflineDataReadiness {...mswdoOfflinePreparation} variant="mswdo" />
+              ) : null}
               {shouldBlockMayorOfflineRoute ? (
                 <MayorOfflineAccessNotice />
               ) : shouldBlockBarangayOfflineRoute ? (
