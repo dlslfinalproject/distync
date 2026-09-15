@@ -94,7 +94,7 @@ test("live MSWDO table uses the server-authoritative paginated path while dashbo
   assert.match(liveHookSource, /recordStatus,/);
   assert.match(liveHookSource, /page: currentPage/);
   assert.match(liveHookSource, /pageSize/);
-  assert.match(liveHookSource, /search: searchTerm/);
+  assert.match(liveHookSource, /search: debouncedSearchTerm/);
   assert.match(liveHookSource, /sectorCodes: selectedSectorIds/);
   assert.match(liveHookSource, /sortOrder: selectedSortOrder/);
   assert.doesNotMatch(liveHookSource, /fetchConsolidatedMasterlist\(\{[\s\S]*\}\);[\s\S]*fetchConsolidatedMasterlist\(/);

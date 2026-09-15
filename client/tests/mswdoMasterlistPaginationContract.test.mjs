@@ -41,7 +41,7 @@ test("MSWDO no longer applies authoritative filtering, sorting, or slicing after
 
   assert.match(normalizedHookSource, /page: currentPage/);
   assert.match(normalizedHookSource, /pageSize/);
-  assert.match(normalizedHookSource, /search: searchTerm/);
+  assert.match(normalizedHookSource, /search: debouncedSearchTerm/);
   assert.match(normalizedHookSource, /sectorCodes: selectedSectorIds/);
   assert.match(normalizedHookSource, /sortOrder: selectedSortOrder/);
   assert.match(normalizedHookSource, /const displayedRows = mappedRows/);
@@ -79,6 +79,19 @@ test("MSWDO filter setters reset the server page while modal opens remain outsid
   assert.match(hookSource, /setPageSizeState\(numericPageSize\);\n    setCurrentPageState\(1\)/);
   assert.match(pageHookSource, /setIsExportModalOpen\(false\)/);
   assert.match(pageHookSource, /setIsFilterOpen\(false\)/);
+});
+
+test("MSWDO normal masterlist search debounces from the first non-whitespace character", async () => {
+  const hookSource = normalizeSource(
+    await readSource("src/features/mswdo-masterlist/useMswdoMasterlist.js"),
+  );
+
+  assert.match(hookSource, /const SEARCH_DEBOUNCE_MS = 300/);
+  assert.match(hookSource, /setDebouncedSearchTerm\(searchTerm\)/);
+  assert.match(hookSource, /search: debouncedSearchTerm/);
+  assert.match(hookSource, /searchTerm: debouncedSearchTerm/);
+  assert.match(hookSource, /setSearchTermState\(nextSearchTerm\);\n      resetPage\(\);/);
+  assert.match(hookSource, /masterlistRequestSequenceRef/);
 });
 
 test("dashboard scope stays independent from live page/search/sector/sort changes", async () => {
