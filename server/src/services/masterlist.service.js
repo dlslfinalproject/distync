@@ -5,6 +5,10 @@ const {
   normalizeReliefPackAssignmentSnapshots,
 } = require("../utils/reliefPackAssignmentSnapshot");
 const {
+  buildMswdoAnalyticsPdfBuffer,
+  buildMswdoAnalyticsPdfFilename,
+} = require("../utils/mswdoAnalyticsReportExport");
+const {
   buildCsvBuffer,
   buildExcelBuffer,
   buildExportColumns,
@@ -421,6 +425,32 @@ const getMswdoMasterlistDashboard = async (filters) => {
       Number(metrics.total_number_of_families || 0) > 0 ||
       Number(metrics.currently_admitted_evacuees || 0) > 0 ||
       Number(metrics.total_departed_evacuees || 0) > 0,
+  };
+};
+
+const exportMswdoAnalyticsReport = async (filters) => {
+  const dashboard = await getMswdoMasterlistDashboard(filters);
+  const selectedBarangay = filters.barangay_id
+    ? await masterlistRepository.getBarangaySummaryById(filters.barangay_id)
+    : null;
+  const disasterEvent = dashboard.disaster_event || {};
+  const barangayLabel = selectedBarangay?.name || "All barangays";
+
+  return {
+    filename: buildMswdoAnalyticsPdfFilename({
+      eventCode: disasterEvent.event_code,
+      eventTitle: disasterEvent.title,
+      barangayName: barangayLabel,
+    }),
+    contentType: "application/pdf",
+    buffer: buildMswdoAnalyticsPdfBuffer({
+      dashboard,
+      eventLabel: disasterEvent.title || "Selected disaster event",
+      eventCode: disasterEvent.event_code || disasterEvent.title,
+      barangayLabel,
+      sourceName: "MSWDO",
+      reportTitle: "Evacuee Analytics Report",
+    }),
   };
 };
 
@@ -849,6 +879,7 @@ const getBarangayDashboard = async (filters) => {
 };
 
 module.exports = {
+  exportMswdoAnalyticsReport,
   exportMswdoMasterlist,
   getBarangayDashboard,
   getMasterlist,

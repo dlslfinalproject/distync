@@ -7,6 +7,7 @@ const {
 } = require("../modules/auth/auth.middleware");
 const masterlistService = require("../services/masterlist.service");
 const {
+  validateExportMswdoAnalytics,
   validateExportMswdoMasterlist,
   validateGetMswdoMasterlistExportMetadata,
   validateGetBarangayDashboard,
@@ -66,6 +67,34 @@ router.get(
 
       return res.status(statusCode).json({
         message: error.message || "Failed to fetch MSWDO masterlist dashboard",
+      });
+    }
+  },
+);
+
+router.get(
+  "/mswdo-dashboard/export",
+  requireAuthentication,
+  requireRoles(ROLE_CODES.MSWDO),
+  validateExportMswdoAnalytics,
+  async (req, res) => {
+    try {
+      const file = await masterlistService.exportMswdoAnalyticsReport(
+        req.validatedQuery,
+      );
+
+      res.setHeader("Content-Type", file.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${file.filename}"`,
+      );
+
+      return res.status(200).send(file.buffer);
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to export MSWDO analytics report",
       });
     }
   },
