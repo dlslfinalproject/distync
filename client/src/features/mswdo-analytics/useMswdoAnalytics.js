@@ -15,6 +15,7 @@ import {
 } from "../../utils/registrationOptions";
 import { readOperationalDisasterEventContext, readOperationalDisasterEventId, persistOperationalDisasterEventSelection } from "../disaster-events/operationalDisasterEventSelection.js";
 import { readMswdoOfflineSnapshot } from "../offline/mswdoOfflinePreparation.js";
+import { mapBarangayCoverageDistribution } from "./barangayCoverage.mjs";
 
 const emptyOperationalPayload = {
   disaster_event: null,
@@ -134,45 +135,6 @@ const mapAdmittedVsDepartedDistribution = (summary) => {
     {
       name: "Departed",
       value: Number(summary.total_departed_evacuees || 0),
-    },
-  ].filter((item) => item.value > 0);
-};
-
-const mapBarangayCoverageDistribution = ({
-  barangayCount,
-  coveredCount,
-  selectedBarangayId,
-}) => {
-  const safeCoveredCount = Number(coveredCount || 0);
-
-  if (selectedBarangayId) {
-    return safeCoveredCount > 0
-      ? [
-          {
-            name: "Covered",
-            value: safeCoveredCount,
-          },
-        ]
-      : [];
-  }
-
-  const safeBarangayCount = Number(barangayCount || 0);
-
-  if (safeBarangayCount === 0 && safeCoveredCount === 0) {
-    return [];
-  }
-
-  const totalBarangays = Math.max(safeBarangayCount, safeCoveredCount);
-  const notCoveredCount = Math.max(totalBarangays - safeCoveredCount, 0);
-
-  return [
-    {
-      name: "Covered",
-      value: safeCoveredCount,
-    },
-    {
-      name: "Not Covered",
-      value: notCoveredCount,
     },
   ].filter((item) => item.value > 0);
 };
@@ -429,11 +391,11 @@ export const useMswdoAnalytics = () => {
 
   const barangayCoverageDistribution = useMemo(() => {
     return mapBarangayCoverageDistribution({
-      barangayCount: barangays.length,
+      barangays,
       coveredCount: summaryMetrics.totalBarangaysCovered,
       selectedBarangayId,
     });
-  }, [barangays.length, selectedBarangayId, summaryMetrics.totalBarangaysCovered]);
+  }, [barangays, selectedBarangayId, summaryMetrics.totalBarangaysCovered]);
 
   const evacuationCenterDistribution = useMemo(() => {
     return mapSimpleDistribution(

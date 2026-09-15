@@ -174,6 +174,7 @@ const DistributionPieChart = ({
   highlightHighest = true,
   colorMap,
   innerRadius = 58,
+  showSliceLabels = true,
 }) => {
   const { isNarrow } = useChartViewport();
   const highestValue = data.length > 0 ? getHighestValue(data) : 0;
@@ -233,7 +234,7 @@ const DistributionPieChart = ({
                 cy="50%"
                 outerRadius={outerRadius}
                 innerRadius={resolvedInnerRadius}
-                label={!isNarrow}
+                label={showSliceLabels && !isNarrow}
               >
                 {data.map((entry, index) => (
                   <Cell

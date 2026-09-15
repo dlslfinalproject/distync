@@ -20,7 +20,7 @@ const buildLinkedReliefPackTemplateNamesQuery = (transactionAlias) => `
 
 const buildDistributionHistoryReliefPackNamesQuery = (transactionAlias) => `
   SELECT
-    STRING_AGG(relief_pack_name, ', ' ORDER BY relief_pack_name) AS names
+    STRING_AGG(relief_pack_name, ';' || CHR(10) ORDER BY relief_pack_name) AS names
   FROM (
     SELECT NULLIF(BTRIM(linked_template_row.name_snapshot), '') AS relief_pack_name
     FROM distribution_transaction_relief_pack_templates linked_template_row
@@ -1478,7 +1478,7 @@ const buildDistributionHistorySummaryQuery = ({
           INNER JOIN distribution_transaction_items dti
             ON dti.distribution_transaction_id = scoped_dt.id
         )
-        SELECT STRING_AGG(relief_name, ', ' ORDER BY relief_name) AS relief_pack_summary
+        SELECT STRING_AGG(relief_name, ';' || CHR(10) ORDER BY relief_name) AS relief_pack_summary
         FROM relief_names
         WHERE relief_name IS NOT NULL
       ) relief_summary ON TRUE

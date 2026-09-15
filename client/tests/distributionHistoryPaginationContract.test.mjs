@@ -79,6 +79,15 @@ test("Distribution History displays relief pack names without released item cont
     normalizedSource,
     /\{row\.relief_pack_template_name \|\| "--"\}/,
   );
+  assert.match(normalizedSource, /reliefPackCell: \{\s*whiteSpace: "pre-line"/);
+  assert.match(
+    normalizedSource,
+    /distribution-history-relief-pack-cell[\s\S]*row\.relief_pack_summary/,
+  );
+  assert.match(
+    normalizedSource,
+    /distribution-history-relief-pack-cell[\s\S]*row\.relief_pack_template_name/,
+  );
   assert.doesNotMatch(normalizedSource, /row\.released_items_summary/);
 });
 

@@ -96,6 +96,9 @@ const tableStyles = {
     textAlign: "center",
     verticalAlign: "middle",
   },
+  reliefPackCell: {
+    whiteSpace: "pre-line",
+  },
 };
 
 const formatDateTime = (value) => {
@@ -728,7 +731,12 @@ const DistributionHistoryPage = () => {
                         Unclaimed: {row.unclaimed_stubs_count || 0}
                       </div>
                     </td>
-                    <td className="distribution-history-text-cell" style={tableStyles.td}>{row.relief_pack_summary}</td>
+                    <td
+                      className="distribution-history-text-cell distribution-history-relief-pack-cell"
+                      style={{ ...tableStyles.td, ...tableStyles.reliefPackCell }}
+                    >
+                      {row.relief_pack_summary}
+                    </td>
                     <td className="distribution-history-date-cell" style={tableStyles.td}>
                       {formatDateTime(row.latest_distribution_date)}
                     </td>
@@ -797,7 +805,10 @@ const DistributionHistoryPage = () => {
                     >
                       {formatDisplayStubNumber(row)}
                     </td>
-                    <td className="distribution-history-text-cell" style={tableStyles.td}>
+                    <td
+                      className="distribution-history-text-cell distribution-history-relief-pack-cell"
+                      style={{ ...tableStyles.td, ...tableStyles.reliefPackCell }}
+                    >
                       {row.relief_pack_template_name || "--"}
                     </td>
                     <td className="distribution-history-date-cell" style={tableStyles.td}>

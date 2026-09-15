@@ -267,6 +267,14 @@ test("distribution history relief pack values include all pack names without ite
   assert.match(repositorySource, /donated_relief_pack_name_snapshot/);
   assert.match(
     repositorySource,
+    /STRING_AGG\(relief_pack_name, ';' \|\| CHR\(10\) ORDER BY relief_pack_name\)/,
+  );
+  assert.match(
+    repositorySource,
+    /STRING_AGG\(relief_name, ';' \|\| CHR\(10\) ORDER BY relief_name\)/,
+  );
+  assert.match(
+    repositorySource,
     /history_relief_pack_names\.names AS relief_pack_template_name/,
   );
   assert.match(repositorySource, /relief_pack_summary/);

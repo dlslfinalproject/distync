@@ -7,6 +7,11 @@ import AverageHouseholdSizeChart from "../../components/mswdo-analytics/AverageH
 import AnalyticsExportModal from "../../components/mswdo-analytics/AnalyticsExportModal";
 import BarangayBarChart from "../../components/mswdo-analytics/BarangayBarChart";
 import DistributionPieChart from "../../components/mswdo-analytics/DistributionPieChart";
+import {
+  BARANGAY_CHART_COLORS,
+  BARANGAY_CHART_HIGHLIGHT_COLOR,
+  getBarangayChartColorMap,
+} from "../../components/mswdo-analytics/barangayChartColors.mjs";
 import { useMswdoAnalytics } from "../../features/mswdo-analytics/useMswdoAnalytics";
 import { fetchMasterlistOperationalAnalytics } from "../../features/mswdo-analytics/mswdoAnalyticsService";
 
@@ -471,6 +476,22 @@ const AnalyticsDashboardPage = () => {
     isNarrow ? 340 : 380,
     evacuationCenterDistribution.length * (isNarrow ? 46 : 54) + 110,
   );
+  const barangayCoverageColorMap = useMemo(() => {
+    const colorMap = getBarangayChartColorMap({
+      sourceData: familiesPerBarangay,
+      targetData: barangayCoverageDistribution,
+    });
+
+    if (barangayCoverageDistribution.some((item) => item.name === "Covered")) {
+      colorMap.Covered = BARANGAY_CHART_HIGHLIGHT_COLOR;
+    }
+
+    if (barangayCoverageDistribution.some((item) => item.name === "Not Covered")) {
+      colorMap["Not Covered"] = "#cbd5e1";
+    }
+
+    return colorMap;
+  }, [barangayCoverageDistribution, familiesPerBarangay]);
   const filterGridStyle = useMemo(
     () => ({
       display: "grid",
@@ -695,8 +716,10 @@ const AnalyticsDashboardPage = () => {
             <DistributionPieChart
               title="Barangays Covered"
               data={barangayCoverageDistribution}
-              colors={["#2f6499", "#cbd5e1"]}
+              colors={BARANGAY_CHART_COLORS}
+              colorMap={barangayCoverageColorMap}
               highlightHighest={false}
+              showSliceLabels={false}
             />
             <BarangayBarChart
               title="Affected Families per Barangay"

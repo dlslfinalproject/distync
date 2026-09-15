@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { shellStyles } from "../layout/BarangayLayout";
+import { getBarangayChartColors } from "./barangayChartColors.mjs";
 
 const chartStyles = {
   title: {
@@ -105,51 +106,11 @@ const useChartViewport = () => {
   };
 };
 
-const HIGHLIGHT_COLOR = "#2f6499";
-const BAR_COLORS = [
-  "#1f9d8a",
-  "#f59e0b",
-  "#7c8fd6",
-  "#d977a8",
-  "#14b8a6",
-  "#8b5cf6",
-  "#ef4444",
-  "#22c55e",
-  "#eab308",
-  "#0ea5e9",
-  "#f97316",
-  "#64748b",
-  "#06b6d4",
-  "#84cc16",
-  "#ec4899",
-  "#6366f1",
-  "#10b981",
-  "#f43f5e",
-];
-
-const getHighestValue = (data, dataKey) => {
-  return Math.max(...data.map((item) => Number(item[dataKey] || 0)));
-};
-
-const getFallbackBarColor = (index) => {
-  const hue = (index * 47 + 18) % 360;
-  return `hsl(${hue}, 62%, 46%)`;
-};
-
-const getBarColor = ({ item, index, highestValue, firstHighestIndex, dataKey }) => {
-  if (Number(item[dataKey] || 0) === highestValue && index === firstHighestIndex) {
-    return HIGHLIGHT_COLOR;
-  }
-
-  const paletteIndex = index > firstHighestIndex ? index - 1 : index;
-  return BAR_COLORS[paletteIndex] || getFallbackBarColor(paletteIndex);
-};
-
 const BarangayBarChart = ({ title, description, data, dataKey, height = 320 }) => {
   const { isCompact, isNarrow } = useChartViewport();
-  const highestValue = data.length > 0 ? getHighestValue(data, dataKey) : 0;
-  const firstHighestIndex = data.findIndex(
-    (item) => Number(item[dataKey] || 0) === highestValue,
+  const barColors = useMemo(
+    () => getBarangayChartColors(data, dataKey),
+    [data, dataKey],
   );
   const totalValue = data.reduce(
     (sum, item) => sum + Number(item[dataKey] || 0),
@@ -214,13 +175,7 @@ const BarangayBarChart = ({ title, description, data, dataKey, height = 320 }) =
                 {data.map((item, index) => (
                   <Cell
                     key={`${item.name}-${index}`}
-                    fill={getBarColor({
-                      item,
-                      index,
-                      highestValue,
-                      firstHighestIndex,
-                      dataKey,
-                    })}
+                    fill={barColors[index]}
                   />
                 ))}
               </Bar>
