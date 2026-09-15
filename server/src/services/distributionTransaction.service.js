@@ -2336,7 +2336,7 @@ const exportDistributionHistory = async ({ requester, filters }) => {
       { key: "event_label", label: "Disaster Event", width: 24, pdfWidth: 84 },
       { key: "stub_reference", label: "Stub", width: 12, pdfWidth: 46 },
       { key: "qr_reference_value", label: "QR", width: 26, pdfWidth: 110 },
-      { key: "relief_summary", label: "Relief Item / Pack", width: 24, pdfWidth: 118 },
+      { key: "relief_summary", label: "Relief Pack", width: 24, pdfWidth: 118 },
       { key: "recorded_by_name", label: "Recorded By", width: 18, pdfWidth: 70 },
       { key: "distribution_status", label: "Status", width: 14, pdfWidth: 55 },
       { key: "distribution_date_label", label: "Date / Time", width: 18, pdfWidth: 72 },
@@ -2347,8 +2347,7 @@ const exportDistributionHistory = async ({ requester, filters }) => {
       event_label: [row.event_code, row.disaster_event_title].filter(Boolean).join(" - ") || "--",
       stub_reference: formatStubDisplayNo(row.stub_sequence_no, row.stub_no),
       qr_reference_value: row.qr_reference_value || "--",
-      relief_summary:
-        row.relief_pack_template_name || row.released_items_summary || "--",
+      relief_summary: row.relief_pack_template_name || "--",
       recorded_by_name: row.verified_by_name || "--",
       distribution_status: row.distribution_status || "--",
       distribution_date_label: mswdoReportExport.formatDateTime(row.distribution_date),

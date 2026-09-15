@@ -11,10 +11,10 @@ test("both operational role consumers use the shared readiness presentation", as
     layout,
     /shouldShowBarangayOfflineReadiness \? \([\s\S]*?<OfflineDataReadiness \{\.\.\.offlinePreparation\} \/>/,
   );
-  assert.match(layout, /MSWDO_OFFLINE_SUPPORTED_ROUTES/);
+  assert.match(layout, /MSWDO_OFFLINE_READINESS_ROUTES/);
   assert.match(
     layout,
-    /shouldShowMswdoOfflineReadiness =\s*isMswdoPortal && MSWDO_OFFLINE_SUPPORTED_ROUTES\.has\(location\.pathname\)/,
+    /shouldShowMswdoOfflineReadiness =\s*isMswdoPortal && MSWDO_OFFLINE_READINESS_ROUTES\.has\(location\.pathname\)/,
   );
   assert.match(
     layout,
@@ -26,6 +26,14 @@ test("both operational role consumers use the shared readiness presentation", as
   );
   assert.match(mswdoOfflineAccess, /"\/mswdo\/consolidated-masterlist"/);
   assert.match(mswdoOfflineAccess, /"\/mswdo\/stub-distribution"/);
+  assert.match(
+    mswdoOfflineAccess,
+    /MSWDO_OFFLINE_READINESS_ROUTES = new Set\(\[[\s\S]*"\/mswdo\/consolidated-masterlist"[\s\S]*"\/mswdo\/stub-distribution"/,
+  );
+  assert.doesNotMatch(
+    mswdoOfflineAccess,
+    /MSWDO_OFFLINE_READINESS_ROUTES = new Set\(\[[\s\S]*"\/mswdo\/analytics(?:-dashboard)?"/,
+  );
   assert.doesNotMatch(mswdoOfflineAccess, /"\/mswdo\/distribution-history"/);
   assert.doesNotMatch(mswdoOfflineAccess, /"\/mswdo\/disaster-events"/);
 });

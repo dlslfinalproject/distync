@@ -53,12 +53,21 @@ test("Barangay offline navigation and table indicators use the shared offline ru
 
   assert.match(masterlistTable, /shouldShowSyncStatusIcon\(syncStatus, isOffline\)/);
   assert.match(masterlistTable, /showOfflineSyncStatus = false/);
+  assert.match(
+    masterlistTable,
+    /const shouldShowSyncStatus =[\s\S]*?!isArchivedRow[\s\S]*?showOfflineSyncStatus[\s\S]*?shouldShowSyncStatusIcon/,
+  );
   assert.match(masterlistTable, /departure_sync_detailed_status/);
   assert.match(stubTable, /isOffline = false/);
+  assert.match(
+    stubTable,
+    /!isEndedEvent &&[\s\S]*?shouldShowSyncStatusIcon\(syncStatus, isOffline\)/,
+  );
   assert.match(stubTable, /shouldShowSyncStatusIcon\(syncStatus, isOffline\)/);
   assert.match(masterlistPage, /const isOffline = !isOnline/);
   assert.match(masterlistPage, /showOfflineSyncStatus/);
   assert.match(stubPage, /isOffline=\{isOfflineForDisplay\}/);
+  assert.match(stubPage, /isEndedEvent=\{isSelectedEventEnded\}/);
 });
 
 test("sync icons show saved records offline and attention states online", async () => {

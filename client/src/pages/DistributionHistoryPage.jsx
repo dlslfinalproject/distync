@@ -690,7 +690,9 @@ const DistributionHistoryPage = () => {
                   <th style={{ ...tableStyles.th, textAlign: "center" }}>
                     Issued Stubs
                   </th>
-                  <th style={tableStyles.th}>Claim Status Summary</th>
+                  <th style={{ ...tableStyles.th, textAlign: "center" }}>
+                    Claim Status Summary
+                  </th>
                   <th style={tableStyles.th}>Relief Pack</th>
                   <th style={tableStyles.th}>Latest Claim</th>
                 </tr>
@@ -717,7 +719,10 @@ const DistributionHistoryPage = () => {
                     <td style={{ ...tableStyles.td, textAlign: "center" }}>
                       {row.issued_stubs_count || 0}
                     </td>
-                    <td className="distribution-history-text-cell" style={tableStyles.td}>
+                    <td
+                      className="distribution-history-text-cell"
+                      style={{ ...tableStyles.td, textAlign: "center" }}
+                    >
                       <div>Claimed: {row.claimed_stubs_count || 0}</div>
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
                         Unclaimed: {row.unclaimed_stubs_count || 0}
@@ -746,7 +751,9 @@ const DistributionHistoryPage = () => {
                     Household Size
                   </th>
                   <th style={tableStyles.th}>Sectors</th>
-                  <th style={tableStyles.th}>Stub Number</th>
+                  <th style={{ ...tableStyles.th, textAlign: "center" }}>
+                    Stub Number
+                  </th>
                   <th style={tableStyles.th}>Relief Pack</th>
                   <th style={tableStyles.th}>Claimed At</th>
                   <th style={tableStyles.th}>Verified By</th>
@@ -784,20 +791,14 @@ const DistributionHistoryPage = () => {
                     <td className="distribution-history-text-cell" style={tableStyles.td}>
                       {formatOrderedSectorText(row.sectors_text)}
                     </td>
-                    <td className="distribution-history-identifier-cell" style={tableStyles.td}>
+                    <td
+                      className="distribution-history-identifier-cell"
+                      style={{ ...tableStyles.td, textAlign: "center" }}
+                    >
                       {formatDisplayStubNumber(row)}
                     </td>
                     <td className="distribution-history-text-cell" style={tableStyles.td}>
-                      <div>
-                        {row.relief_pack_template_name ||
-                          row.released_items_summary ||
-                          "--"}
-                      </div>
-                      <div style={{ color: "#60738a", fontSize: "12px" }}>
-                        {row.relief_pack_template_name && row.released_items_summary
-                          ? row.released_items_summary
-                          : ""}
-                      </div>
+                      {row.relief_pack_template_name || "--"}
                     </td>
                     <td className="distribution-history-date-cell" style={tableStyles.td}>
                       {formatDateTime(row.distribution_date)}

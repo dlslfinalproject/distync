@@ -261,6 +261,7 @@ const StubResultsTable = ({
   claimErrorMessage,
   onClaimStub,
   isClaimReadOnly = false,
+  isEndedEvent = false,
   selectedStubIds,
   onToggleSelect,
   onSelectAll,
@@ -483,7 +484,8 @@ const StubResultsTable = ({
                       <span style={{ fontWeight: 700 }}>
                         {row.household?.family_head_name || "-"}
                       </span>
-                      {shouldShowSyncStatusIcon(syncStatus, isOffline) ? (
+                      {!isEndedEvent &&
+                      shouldShowSyncStatusIcon(syncStatus, isOffline) ? (
                         <SyncStatusIcon status={syncStatus} />
                       ) : null}
                     </div>

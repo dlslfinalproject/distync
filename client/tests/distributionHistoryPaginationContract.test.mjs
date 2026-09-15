@@ -42,6 +42,46 @@ test("Distribution History resets pagination when filters, search, order, or pag
   assert.match(source, /const handlePageSizeChange = \(value\) => \{\s*setPage\(1\);/);
 });
 
+test("Distribution History centers claim status summary values in all-events mode", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+  const normalizedSource = normalizeSource(source);
+
+  assert.match(
+    normalizedSource,
+    /<th style=\{\{ \.\.\.tableStyles\.th, textAlign: "center" \}\}>\s*Claim Status Summary\s*<\/th>/,
+  );
+  assert.match(
+    normalizedSource,
+    /<td\s+className="distribution-history-text-cell"\s+style=\{\{ \.\.\.tableStyles\.td, textAlign: "center" \}\}\s*>\s*<div>Claimed:/,
+  );
+});
+
+test("Distribution History centers stub numbers in selected-event detail mode", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+  const normalizedSource = normalizeSource(source);
+
+  assert.match(
+    normalizedSource,
+    /<th style=\{\{ \.\.\.tableStyles\.th, textAlign: "center" \}\}>\s*Stub Number\s*<\/th>/,
+  );
+  assert.match(
+    normalizedSource,
+    /<td\s+className="distribution-history-identifier-cell"\s+style=\{\{ \.\.\.tableStyles\.td, textAlign: "center" \}\}\s*>\s*\{formatDisplayStubNumber\(row\)\}/,
+  );
+});
+
+test("Distribution History displays relief pack names without released item contents", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+  const normalizedSource = normalizeSource(source);
+
+  assert.match(normalizedSource, /row\.relief_pack_summary/);
+  assert.match(
+    normalizedSource,
+    /\{row\.relief_pack_template_name \|\| "--"\}/,
+  );
+  assert.doesNotMatch(normalizedSource, /row\.released_items_summary/);
+});
+
 test("Distribution History renders accessible pagination controls outside table scroll", async () => {
   const [pageSource, paginationSource, cssSource] = await Promise.all([
     readSource(["pages", "DistributionHistoryPage.jsx"]),

@@ -23,6 +23,20 @@ test("Sync Center keeps shared role-aware layout hooks for both portals", async 
   assert.match(source, /className="sync-center-table-scroll"/);
 });
 
+test("Sync Center uses 700 weight for primary record values", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const primaryRecordTextStyles = \{\s*fontWeight: 700,\s*\};/,
+  );
+  assert.match(source, /<div style=\{primaryRecordTextStyles\}>\{details\.subject\}<\/div>/);
+  assert.match(
+    source,
+    /<span style=\{primaryRecordTextStyles\}>\{details\.subject\}<\/span>/,
+  );
+});
+
 test("Sync Center filter CSS balances desktop, medium, and narrow layouts", async () => {
   const styles = await fs.readFile(stylesSourcePath, "utf8");
 
@@ -45,6 +59,23 @@ test("Sync Center filter CSS balances desktop, medium, and narrow layouts", asyn
   assert.match(
     styles,
     /@media \(max-width: 720px\)[\s\S]*grid-template-columns: minmax\(0, 1fr\)/,
+  );
+});
+
+test("Sync Center tabs stay contained and fit narrow screens", async () => {
+  const styles = await fs.readFile(stylesSourcePath, "utf8");
+
+  assert.match(
+    styles,
+    /\.sync-center-tablist\s*\{[\s\S]*width: 100%;[\s\S]*max-width: 100%;[\s\S]*overflow-x: auto !important;/,
+  );
+  assert.match(
+    styles,
+    /@media \(max-width: 460px\)[\s\S]*\.sync-center-tablist\s*\{[\s\S]*padding: 8px 8px 0 !important;/,
+  );
+  assert.match(
+    styles,
+    /@media \(max-width: 460px\)[\s\S]*\.sync-center-tablist > button\s*\{[\s\S]*flex: 1 1 0 !important;[\s\S]*white-space: normal !important;/,
   );
 });
 

@@ -13,7 +13,7 @@ import { useMswdoOfflinePreparation } from "../../features/offline/useMswdoOffli
 import {
   isMswdoOfflineBlockedRoute,
   MSWDO_OFFLINE_ACCESS_MESSAGE,
-  MSWDO_OFFLINE_SUPPORTED_ROUTES,
+  MSWDO_OFFLINE_READINESS_ROUTES,
 } from "../../features/offline/mswdoOfflineAccess";
 import { readOperationalDisasterEventId } from "../../features/disaster-events/operationalDisasterEventSelection";
 import OfflineDataReadiness from "./OfflineDataReadiness";
@@ -194,7 +194,7 @@ const BarangayLayout = () => {
   const shouldShowBarangayOfflineReadiness =
     isBarangayPortal && BARANGAY_OFFLINE_READINESS_ROUTES.has(location.pathname);
   const shouldShowMswdoOfflineReadiness =
-    isMswdoPortal && MSWDO_OFFLINE_SUPPORTED_ROUTES.has(location.pathname);
+    isMswdoPortal && MSWDO_OFFLINE_READINESS_ROUTES.has(location.pathname);
   const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
   const isMayorAnomalyRoute = location.pathname.startsWith("/inventory/anomalies");
   const shouldShowSyncStatusBanner =

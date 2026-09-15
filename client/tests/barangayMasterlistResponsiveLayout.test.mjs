@@ -30,8 +30,28 @@ test("Barangay masterlist toolbar and event summary expose mobile responsive hoo
   assert.match(tableSource, /className="masterlist-table"/);
   assert.match(tableSource, /minWidth: "1040px"/);
   assert.match(
+    tableSource,
+    /textAlign: "center",\s*whiteSpace: "nowrap",\s*wordBreak: "normal",[\s\S]*?\{row\.arrival_time_text\}/,
+  );
+  assert.match(
+    tableSource,
+    /textAlign: "center",\s*whiteSpace: "nowrap",\s*wordBreak: "normal",[\s\S]*?\{isDepartureReadOnly/,
+  );
+  assert.match(
     cssSource,
     /\.masterlist-table-scroll,[\s\S]*?max-width: 100%;[\s\S]*?overflow-x: auto !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(min-width: 1025px\)[\s\S]*?\.distync-sidebar\[data-collapsed="true"\][\s\S]*?\.masterlist-table \{[\s\S]*?min-width: 0 !important;[\s\S]*?max-width: 100% !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(min-width: 1025px\)[\s\S]*?\.masterlist-table th,[\s\S]*?\.masterlist-table td \{[\s\S]*?padding-left: 8px !important;[\s\S]*?padding-right: 8px !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(min-width: 1025px\)[\s\S]*?\.masterlist-table-scroll \{[\s\S]*?overflow-x: hidden !important;/,
   );
   assert.match(
     cssSource,
