@@ -287,6 +287,11 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
   const job = (async () => {
     if (!eventId || !barangayId || !userId || scope.owner.roleCode !== ROLE_CODES.BARANGAY) return null;
     const previousPreparation = await getOfflinePreparation({ eventId, barangayId });
+    const readinessGeneration = Math.max(
+      1,
+      Number(previousPreparation?.readiness_generation || 0) +
+        ([OFFLINE_PREPARATION_STATUS.READY, OFFLINE_PREPARATION_STATUS.NEEDS_REFRESH].includes(previousPreparation?.status) ? 1 : 0),
+    );
     const previousMasterlistRows = await getCachedMasterlistRows({ disasterEventId: eventId, barangayId });
     const diagnostics = {
       scope: { barangayId, disasterEventId: eventId, cacheVersion: OFFLINE_CACHE_VERSION },
@@ -300,6 +305,7 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
         eventStatus: context.eventStatus || "",
       },
       generation,
+      readiness_generation: readinessGeneration,
       accessMode: scope.owner.accessMode,
       userId: scope.owner.userId,
       roleCode: scope.owner.roleCode,
@@ -326,7 +332,7 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
       publishDiagnostics({ ...diagnostics });
     };
     publishDiagnostics(diagnostics);
-    await savePreparation(scope, OFFLINE_PREPARATION_STATUS.PREPARING, { datasets: diagnostics.datasets });
+    await savePreparation(scope, OFFLINE_PREPARATION_STATUS.PREPARING, { datasets: diagnostics.datasets, readiness_generation: readinessGeneration });
     try {
       startStage("FETCHING_MASTERLIST");
       startStage("FETCHING_HOUSEHOLD_DETAILS");
@@ -493,6 +499,7 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
         masterlist_pages: masterlist.pages,
         masterlist_expected_count: masterlist.expectedCount,
         datasets: diagnostics.datasets,
+        readiness_generation: readinessGeneration,
       });
       publishDiagnostics({ ...diagnostics, status: OFFLINE_PREPARATION_STATUS.READY, completedAt: new Date().toISOString(), targetQr: diagnostics.targetQr ? { ...diagnostics.targetQr, persisted: diagnostics.targetQr.included && qrReadBack.some(Boolean), readBack: diagnostics.targetQr.included && qrReadBack.some(Boolean) } : null });
       return { status: OFFLINE_PREPARATION_STATUS.READY, stubCount: stubs.rows.length, masterlistCount: preparedMasterlistRows.length };

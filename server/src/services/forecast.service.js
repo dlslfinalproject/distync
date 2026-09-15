@@ -4,6 +4,7 @@ require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 
 const pool = require("../config/db");
 const forecastRepository = require("../repositories/forecast.repository");
+const forecastReportExport = require("../utils/forecastReportExport");
 const { logErrorSafely } = require("../utils/systemLog");
 
 const FORECAST_MODELS = {
@@ -1216,6 +1217,11 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
   }
 };
 
+const exportInventoryForecast = async (payload) => {
+  const forecastPayload = await runInventoryForecast(payload);
+  return forecastReportExport.buildExportFile(forecastPayload);
+};
+
 const getLatestInventoryForecast = async (disasterEventId) => {
   await ensureDisasterEvent(disasterEventId);
 
@@ -1345,6 +1351,7 @@ module.exports = {
   FORECAST_HORIZON_DAYS,
   LOOKBACK_DAYS,
   runInventoryForecast,
+  exportInventoryForecast,
   getLatestInventoryForecast,
   getLatestInventoryForecastOverall,
   getInventoryForecastContext,

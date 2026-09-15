@@ -16,9 +16,7 @@ import {
   MSWDO_OFFLINE_SUPPORTED_ROUTES,
 } from "../../features/offline/mswdoOfflineAccess";
 import { readOperationalDisasterEventId } from "../../features/disaster-events/operationalDisasterEventSelection";
-import OfflineDataReadiness, {
-  MayorOfflineReadyDismissalContext,
-} from "./OfflineDataReadiness";
+import OfflineDataReadiness from "./OfflineDataReadiness";
 import BarangayOfflineModeNotice from "./BarangayOfflineModeNotice";
 import MswdoOfflineModeNotice from "./MswdoOfflineModeNotice";
 import MayorOfflineAccessNotice from "./MayorOfflineAccessNotice";
@@ -150,8 +148,6 @@ const BarangayLayout = () => {
   const [isCompactNavigation, setIsCompactNavigation] = useState(() =>
     getInitialMediaQueryMatch(COMPACT_NAV_QUERY),
   );
-  const [isMayorInventoryReadyAcknowledged, setIsMayorInventoryReadyAcknowledged] =
-    useState(false);
   const lastNonSettingsCollapseStateRef = useRef(false);
   const location = useLocation();
   const { currentRole, authenticatedUser } = useAuth();
@@ -413,28 +409,21 @@ const BarangayLayout = () => {
               isMswdoPortal ? <MswdoOfflineModeNotice /> : <SyncStatusBanner />
             ) : null}
             {isBarangayPortal ? <BarangayOfflineModeNotice /> : null}
-            <MayorOfflineReadyDismissalContext.Provider
-              value={{
-                isAcknowledged: isMayorInventoryReadyAcknowledged,
-                acknowledge: () => setIsMayorInventoryReadyAcknowledged(true),
-              }}
-            >
-              {shouldShowBarangayOfflineReadiness ? (
-                <OfflineDataReadiness {...offlinePreparation} />
-              ) : null}
-              {shouldShowMswdoOfflineReadiness ? (
-                <OfflineDataReadiness {...mswdoOfflinePreparation} variant="mswdo" />
-              ) : null}
-              {shouldBlockMayorOfflineRoute ? (
-                <MayorOfflineAccessNotice />
-              ) : shouldBlockBarangayOfflineRoute ? (
-                <MayorOfflineAccessNotice message={BARANGAY_OFFLINE_ACCESS_MESSAGE} />
-              ) : shouldBlockMswdoOfflineRoute ? (
-                <MayorOfflineAccessNotice message={MSWDO_OFFLINE_ACCESS_MESSAGE} />
-              ) : (
-                <Outlet />
-              )}
-            </MayorOfflineReadyDismissalContext.Provider>
+            {shouldShowBarangayOfflineReadiness ? (
+              <OfflineDataReadiness {...offlinePreparation} />
+            ) : null}
+            {shouldShowMswdoOfflineReadiness ? (
+              <OfflineDataReadiness {...mswdoOfflinePreparation} variant="mswdo" />
+            ) : null}
+            {shouldBlockMayorOfflineRoute ? (
+              <MayorOfflineAccessNotice />
+            ) : shouldBlockBarangayOfflineRoute ? (
+              <MayorOfflineAccessNotice message={BARANGAY_OFFLINE_ACCESS_MESSAGE} />
+            ) : shouldBlockMswdoOfflineRoute ? (
+              <MayorOfflineAccessNotice message={MSWDO_OFFLINE_ACCESS_MESSAGE} />
+            ) : (
+              <Outlet />
+            )}
           </div>
         </main>
       </div>

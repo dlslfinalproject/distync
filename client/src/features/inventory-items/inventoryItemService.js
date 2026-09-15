@@ -235,6 +235,43 @@ export const runInventoryForecast = async (payload) => {
   return handleJsonResponse(response, "Failed to run inventory forecast");
 };
 
+export const exportInventoryForecast = async (payload) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-items/forecast/export`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    let message = "Failed to export inventory forecast";
+
+    try {
+      const responseData = await response.json();
+      message = responseData?.message || message;
+    } catch (_error) {
+      message = "Failed to export inventory forecast";
+    }
+
+    const error = new Error(message);
+    error.statusCode = response.status;
+    throw error;
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+
+  return {
+    blob,
+    filename: fileNameMatch?.[1] || "inventory-forecast.pdf",
+  };
+};
+
 export const fetchLatestInventoryForecast = async (disasterEventId) => {
   const searchParams = new URLSearchParams({
     disaster_event_id: disasterEventId,

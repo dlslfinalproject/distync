@@ -38,7 +38,7 @@ test("hidden readiness states have no notification copy while internal statuses 
     assert.match(preparation, new RegExp(status));
   }
   assert.match(mswdoPreparation, /status: "PREPARING"/);
-  assert.match(popup, /if \(isBarangayOrMswdo && !ready\) return null/);
+  assert.match(popup, /if \(!ready\) return null/);
   assert.doesNotMatch(popup, /Offline Data Not Ready/);
   assert.doesNotMatch(popup, /Offline Data Needs Refresh/);
 });
