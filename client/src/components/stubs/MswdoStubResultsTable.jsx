@@ -246,6 +246,7 @@ const MswdoStubResultsTable = ({
   claimErrorMessage,
   onClaimStub,
   isClaimReadOnly = false,
+  isEndedEvent = false,
   selectedStubIds,
   onToggleSelect,
   onSelectAll,
@@ -518,7 +519,8 @@ const MswdoStubResultsTable = ({
                   <td style={tableStyles.bodyCell}>
                     <div style={tableStyles.familyHeadCell}>
                       <span style={{ fontWeight: 700 }}>{row.family_head_name}</span>
-                      {row.sync_status &&
+                      {!isEndedEvent &&
+                      row.sync_status &&
                       (row.sync_status !== "SYNCED" || isOffline) ? (
                         <SyncStatusIcon status={row.sync_status} />
                       ) : null}

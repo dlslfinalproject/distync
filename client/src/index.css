@@ -1808,6 +1808,13 @@ img {
   table-layout: auto !important;
 }
 
+@media (min-width: 769px) {
+  .disaster-events-table {
+    min-width: 1160px !important;
+    max-width: none !important;
+  }
+}
+
 .disaster-events-tabs {
   scrollbar-width: thin;
 }

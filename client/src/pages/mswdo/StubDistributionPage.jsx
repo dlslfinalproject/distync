@@ -1186,6 +1186,7 @@ const StubDistributionPage = () => {
         onClaimStub={handleOpenClaimConfirmation}
         onViewStub={handleOpenStubDetails}
         isClaimReadOnly={isEndedView}
+        isEndedEvent={isEndedView}
         isOffline={isOfflineForDisplay}
         selectedStubIds={selectedStubIds}
         onToggleSelect={handleToggleSelect}

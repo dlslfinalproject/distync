@@ -42,16 +42,23 @@ test("MSWDO Disaster Event table overflow is locally contained without fixed lay
 
   assert.match(tableSource, /tableLayout: "auto"/);
   assert.doesNotMatch(tableSource, /tableLayout: "fixed"/);
+  assert.match(tableSource, /headerCell: \{[\s\S]*?whiteSpace: "nowrap"/);
   assert.match(tableSource, /className="disaster-events-text-cell"/);
-  assert.match(tableSource, /className="disaster-events-date-cell"/);
+  assert.match(
+    tableSource,
+    /className="disaster-events-date-cell"[\s\S]*?whiteSpace: "nowrap"/,
+  );
   assert.match(tableSource, /className="disaster-events-actions-cell"/);
   assert.match(
     cssSource,
     /\.disaster-events-table-scroll \{[\s\S]*?max-width: 100%;[\s\S]*?overflow-x: auto !important;[\s\S]*?-webkit-overflow-scrolling: touch;/,
   );
   assert.match(cssSource, /\.disaster-events-table \{[\s\S]*?table-layout: auto !important;/);
+  assert.match(
+    cssSource,
+    /@media \(min-width: 769px\) \{[\s\S]*?\.disaster-events-table \{[\s\S]*?min-width: 1160px !important;[\s\S]*?max-width: none !important;/,
+  );
   assert.doesNotMatch(cssSource, /html,[\s\S]*?body,[\s\S]*?#root\s*\{[\s\S]*?overflow-x:\s*hidden/);
-  assert.doesNotMatch(cssSource, /\.disaster-events-table\s*\{[\s\S]*?min-width:\s*(?:900|960|1024|1100|1200)px/);
 });
 
 test("MSWDO Disaster Event table keeps canonical pagination above its headers", async () => {

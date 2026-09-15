@@ -57,9 +57,10 @@ test("MSWDO exposes all required labels and blocks Unclaimed rows in the UI path
   assert.match(table, /presentation_status === STUB_PRESENTATION_STATUSES\.NOT_PRESENT/);
   assert.match(page, /isOfflineForDisplay/);
   assert.match(page, /isOffline=\{isOfflineForDisplay\}/);
+  assert.match(page, /isEndedEvent=\{isEndedView\}/);
   assert.match(table, /isOffline = false/);
   assert.match(
     table,
-    /row\.sync_status &&[\s\S]*?row\.sync_status !== "SYNCED" \|\| isOffline[\s\S]*?<SyncStatusIcon status=\{row\.sync_status\} \/>/,
+    /!isEndedEvent &&[\s\S]*?row\.sync_status &&[\s\S]*?row\.sync_status !== "SYNCED" \|\| isOffline[\s\S]*?<SyncStatusIcon status=\{row\.sync_status\} \/>/,
   );
 });
