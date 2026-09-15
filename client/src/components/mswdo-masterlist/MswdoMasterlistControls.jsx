@@ -131,6 +131,7 @@ const MswdoMasterlistControls = ({
       >
         {!hideRecordStatus ? (
           <label
+            className="masterlist-toolbar-status-filter"
             style={{
               display: "flex",
               alignItems: "center",
@@ -161,7 +162,7 @@ const MswdoMasterlistControls = ({
           </label>
         ) : null}
 
-        <div>
+        <div className="masterlist-toolbar-filter-button-wrap">
           <ResponsiveFilterPopover
             isOpen={isFilterOpen}
             onOpenChange={(nextOpen) => {
@@ -246,6 +247,7 @@ const MswdoMasterlistControls = ({
 
         {canRegisterFamily ? (
           <button
+            className="masterlist-toolbar-register-button"
             type="button"
             onClick={onOpenRegisterModal}
             style={{
@@ -260,8 +262,12 @@ const MswdoMasterlistControls = ({
           </button>
         ) : null}
 
-        <div style={{ position: "relative" }}>
+        <div
+          className="masterlist-toolbar-export-button"
+          style={{ position: "relative" }}
+        >
           <button
+            className="masterlist-toolbar-export-button"
             type="button"
             onClick={onOpenExportModal}
             disabled={isOffline || !selectedDisasterEventId || Boolean(exportingFormat)}

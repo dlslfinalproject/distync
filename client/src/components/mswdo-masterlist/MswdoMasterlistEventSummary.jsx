@@ -1,6 +1,5 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
-import StatusPill from "../shared/StatusPill";
 
 const MswdoMasterlistEventSummary = ({
   activeEventLabel,
@@ -42,7 +41,6 @@ const MswdoMasterlistEventSummary = ({
           }}
         >
           <span>Period: {reliefPeriodText}</span>
-          <StatusPill status={selectedDisasterEvent?.status} />
         </div>
       </div>
 

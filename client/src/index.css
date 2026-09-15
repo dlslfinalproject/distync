@@ -1649,6 +1649,9 @@ img {
 .mswdo-masterlist-event-meta,
 .mswdo-masterlist-summary-grid,
 .mswdo-stub-scope-card,
+.mswdo-stub-toolbar-shell,
+.mswdo-analytics-export-row,
+.mswdo-analytics-export-button,
 .mswdo-stub-tabs,
 .mswdo-stub-filter-grid,
 .mswdo-stub-filter-field,
@@ -1666,6 +1669,28 @@ img {
 .household-registration-member-name-grid,
 .household-registration-member-detail-grid {
   min-width: 0;
+}
+
+.mswdo-masterlist-tabs,
+.mswdo-stub-tabs {
+  scrollbar-width: thin;
+}
+
+.mswdo-masterlist-tabs > button,
+.mswdo-stub-tabs > button {
+  flex: 0 0 auto;
+}
+
+.mswdo-masterlist-tabs > button:hover:not(:disabled),
+.mswdo-stub-tabs > button:hover:not(:disabled) {
+  color: #17324d !important;
+}
+
+.mswdo-masterlist-tabs > button:focus-visible,
+.mswdo-stub-tabs > button:focus-visible {
+  outline: 2px solid rgba(40, 120, 191, 0.34);
+  outline-offset: -2px;
+  border-radius: 6px 6px 0 0;
 }
 
 .stub-distribution-toolbar,
@@ -1708,6 +1733,7 @@ img {
 .disaster-events-toolbar-search,
 .disaster-events-toolbar-actions,
 .disaster-events-list-card,
+.disaster-events-table-panel,
 .disaster-events-table-scroll,
 .disaster-events-table,
 .disaster-event-modal-heading,
@@ -1780,6 +1806,24 @@ img {
 
 .disaster-events-table {
   table-layout: auto !important;
+}
+
+.disaster-events-tabs {
+  scrollbar-width: thin;
+}
+
+.disaster-events-tabs > button {
+  flex: 0 0 auto;
+}
+
+.disaster-events-tabs > button:hover:not(:disabled) {
+  color: #17324d !important;
+}
+
+.disaster-events-tabs > button:focus-visible {
+  outline: 2px solid rgba(40, 120, 191, 0.34);
+  outline-offset: -2px;
+  border-radius: 6px 6px 0 0;
 }
 
 .disaster-events-text-cell,
@@ -2348,8 +2392,7 @@ img {
   }
 
   .mswdo-masterlist-tabs button {
-    flex: 1 0 max-content;
-    min-height: 44px;
+    flex: 0 0 auto;
   }
 
   .mswdo-masterlist-filter-grid {
@@ -2369,8 +2412,7 @@ img {
   }
 
   .mswdo-stub-tabs button {
-    flex: 1 0 max-content;
-    min-height: 44px;
+    flex: 0 0 auto;
   }
 
   .mswdo-stub-filter-grid {
@@ -2421,6 +2463,26 @@ img {
     flex-wrap: wrap;
   }
 
+  .mswdo-analytics-export-row {
+    align-items: stretch !important;
+    justify-content: stretch !important;
+    width: 100% !important;
+  }
+
+  .mswdo-analytics-export-button {
+    min-width: 0;
+    width: 100% !important;
+  }
+
+  /* Keep the MSWDO search control as the first full-width mobile row. */
+  .mswdo-masterlist-toolbar .masterlist-toolbar-search,
+  .mswdo-stub-toolbar-shell .stub-distribution-toolbar-search,
+  .disaster-events-toolbar .disaster-events-toolbar-search {
+    order: -1;
+    flex: 1 1 100% !important;
+    width: 100% !important;
+  }
+
   .stub-results-table-scroll {
     max-width: 100%;
     overflow-x: auto !important;
@@ -2441,6 +2503,15 @@ img {
     width: 100%;
   }
 
+  .distribution-history-toolbar-search {
+    order: -1;
+  }
+
+  .distribution-history-export-button {
+    order: 1;
+    justify-content: center;
+  }
+
   .disaster-summary-toolbar {
     align-items: stretch !important;
   }
@@ -2449,6 +2520,15 @@ img {
   .disaster-summary-export-button {
     flex: 1 1 100% !important;
     width: 100%;
+  }
+
+  .disaster-summary-toolbar-search {
+    order: -1;
+  }
+
+  .disaster-summary-export-button {
+    order: 1;
+    justify-content: center;
   }
 
   .disaster-summary-toolbar-search input {
@@ -2577,6 +2657,36 @@ img {
 
   .disaster-events-toolbar-actions {
     justify-content: flex-start !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+
+  .disaster-events-filter-button-wrap {
+    grid-column: 1;
+    min-width: 0;
+    width: 100% !important;
+  }
+
+  .disaster-events-create-button {
+    grid-column: 2;
+    min-width: 0;
+    width: 100% !important;
+  }
+
+  .disaster-events-export-button {
+    grid-column: 1 / -1;
+    min-width: 0;
+    width: 100% !important;
+  }
+
+  .disaster-events-filter-button-wrap > button,
+  .disaster-events-create-button,
+  .disaster-events-export-button {
+    justify-content: center;
+    min-width: 0;
+    width: 100% !important;
   }
 
   .disaster-events-tabs {
@@ -2668,19 +2778,23 @@ img {
 
   .disaster-events-tabs {
     flex-wrap: nowrap !important;
-    gap: 6px !important;
   }
 
   .disaster-events-tabs button {
-    flex: 1 1 0;
+    flex: 0 0 auto;
     justify-content: center;
     min-width: 0;
     padding-left: 8px !important;
     padding-right: 8px !important;
-    white-space: normal !important;
+    white-space: nowrap !important;
   }
 
   .disaster-events-list-card {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .disaster-events-table-panel {
     padding-left: 14px !important;
     padding-right: 14px !important;
   }
@@ -2780,16 +2894,16 @@ img {
   }
 
   .mswdo-masterlist-tabs {
-    gap: 6px !important;
+    flex-wrap: nowrap !important;
   }
 
   .mswdo-masterlist-tabs button {
-    flex: 1 1 0;
+    flex: 0 0 auto;
     justify-content: center;
     min-width: 0;
     padding-left: 8px !important;
     padding-right: 8px !important;
-    white-space: normal !important;
+    white-space: nowrap !important;
   }
 
   .mswdo-masterlist-filter-grid,
@@ -2798,16 +2912,16 @@ img {
   }
 
   .mswdo-stub-tabs {
-    gap: 6px !important;
+    flex-wrap: nowrap !important;
   }
 
   .mswdo-stub-tabs button {
-    flex: 1 1 0;
+    flex: 0 0 auto;
     justify-content: center;
     min-width: 0;
     padding-left: 8px !important;
     padding-right: 8px !important;
-    white-space: normal !important;
+    white-space: nowrap !important;
   }
 
   .mswdo-stub-filter-grid {

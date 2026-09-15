@@ -9,7 +9,6 @@ import {
   shellStyles,
 } from "../../components/layout/BarangayLayout";
 import FeedbackToast from "../../components/shared/FeedbackToast";
-import StatusPill from "../../components/shared/StatusPill";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
 import StubDetailModal from "../../components/stubs/StubDetailModal";
 import MswdoStubResultsTable from "../../components/stubs/MswdoStubResultsTable";
@@ -86,16 +85,51 @@ const filterStyles = {
   },
 };
 
+const scopeCardStyles = {
+  ...shellStyles.card,
+  padding: 0,
+  boxSizing: "border-box",
+};
+
+const scopeTabListStyles = {
+  alignItems: "stretch",
+  borderBottom: "1px solid #d6e2ef",
+  backgroundColor: "#fbfdff",
+  borderTopLeftRadius: "17px",
+  borderTopRightRadius: "17px",
+  display: "flex",
+  flexWrap: "nowrap",
+  gap: "4px",
+  overflowX: "auto",
+  padding: "8px clamp(14px, 2vw, 24px) 0",
+  minHeight: "56px",
+  WebkitOverflowScrolling: "touch",
+};
+
+const scopeFilterContentStyles = {
+  boxSizing: "border-box",
+  padding: "clamp(18px, 2vw, 24px)",
+};
+
 const tabButtonStyles = (isActive) => ({
-  padding: "12px 24px",
+  alignItems: "center",
+  boxSizing: "border-box",
   border: "none",
-  background: "none",
-  fontSize: "14px",
-  fontWeight: 700,
-  textTransform: "uppercase",
-  color: isActive ? "#17324d" : "#6b8298",
   borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
+  background: "none",
+  color: isActive ? "#17324d" : "#6b8298",
   cursor: "pointer",
+  display: "inline-flex",
+  fontSize: "14px",
+  fontFamily: "inherit",
+  fontWeight: 700,
+  justifyContent: "center",
+  letterSpacing: "0.01em",
+  lineHeight: 1.3,
+  minHeight: "48px",
+  padding: "11px 16px",
+  transition: "color 160ms ease, border-color 160ms ease",
+  whiteSpace: "nowrap",
 });
 
 const formatDisplayDate = (value) => {
@@ -866,19 +900,17 @@ const StubDistributionPage = () => {
     <>
       <PageHeader title="RELIEF GOODS DISTRIBUTION" actions={[]} />
 
-      <section className="mswdo-stub-scope-card" style={shellStyles.card}>
+      <section className="mswdo-stub-scope-card" style={scopeCardStyles}>
         <div
           className="mswdo-stub-tabs"
-          style={{
-            display: "flex",
-            borderBottom: "1px solid #d6e2ef",
-            marginBottom: "24px",
-            gap: "8px",
-            flexWrap: "wrap",
-          }}
+          role="tablist"
+          aria-label="MSWDO dashboard event scope"
+          style={scopeTabListStyles}
         >
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === "active"}
             onClick={() => handleEventScopeChange("active")}
             style={tabButtonStyles(activeTab === "active")}
           >
@@ -886,6 +918,8 @@ const StubDistributionPage = () => {
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === "ended"}
             onClick={() => handleEventScopeChange("ended")}
             style={tabButtonStyles(activeTab === "ended")}
           >
@@ -893,59 +927,61 @@ const StubDistributionPage = () => {
           </button>
         </div>
 
-        <div
-          className="mswdo-stub-filter-grid"
-          style={pageSpacingStyles.filterGrid}
-        >
-          <div className="mswdo-stub-filter-field">
-            <label htmlFor="mswdo-stub-event" style={filterStyles.label}>
-              {activeTab === "active" ? "Active" : "Ended"} Disaster Event
-            </label>
-            <select
-              id="mswdo-stub-event"
-              value={selectedDisasterEventId || ""}
-              onChange={(event) => setSelectedDisasterEventId(event.target.value)}
-              disabled={isLoadingFilters || scopedDisasterEvents.length === 0}
-              style={filterStyles.field}
-            >
-              <option value="">
-                Select {activeTab === "active" ? "active" : "ended"} disaster event
-              </option>
-              {scopedDisasterEvents.map((event) => (
-                <option key={event.id} value={event.id}>
-                  {formatDisasterEventTitle(event)}
+        <div style={scopeFilterContentStyles}>
+          <div
+            className="mswdo-stub-filter-grid"
+            style={pageSpacingStyles.filterGrid}
+          >
+            <div className="mswdo-stub-filter-field">
+              <label htmlFor="mswdo-stub-event" style={filterStyles.label}>
+                Disaster Event
+              </label>
+              <select
+                id="mswdo-stub-event"
+                value={selectedDisasterEventId || ""}
+                onChange={(event) => setSelectedDisasterEventId(event.target.value)}
+                disabled={isLoadingFilters || scopedDisasterEvents.length === 0}
+                style={filterStyles.field}
+              >
+                <option value="">
+                  Select {activeTab === "active" ? "active" : "ended"} disaster event
                 </option>
-              ))}
-            </select>
-          </div>
+                {scopedDisasterEvents.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    {formatDisasterEventTitle(event)}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div className="mswdo-stub-filter-field">
-            <label htmlFor="mswdo-stub-barangay" style={filterStyles.label}>
-              Barangay
-            </label>
-            <select
-              id="mswdo-stub-barangay"
-              value={selectedBarangayId}
-              onChange={(event) => setSelectedBarangayId(event.target.value)}
-              disabled={
-                isLoadingFilters ||
-                !selectedDisasterEventId ||
-                barangays.length === 0
-              }
-              style={filterStyles.field}
-            >
-              <option value="">
-                {selectedDisasterEventId
-                  ? "Select affected barangay"
-                  : "Select disaster event first"}
-              </option>
-              {barangays.map((barangay) => (
-                <option key={barangay.id} value={barangay.id}>
-                  {barangay.name}
+            <div className="mswdo-stub-filter-field">
+              <label htmlFor="mswdo-stub-barangay" style={filterStyles.label}>
+                Barangay
+              </label>
+              <select
+                id="mswdo-stub-barangay"
+                value={selectedBarangayId}
+                onChange={(event) => setSelectedBarangayId(event.target.value)}
+                disabled={
+                  isLoadingFilters ||
+                  !selectedDisasterEventId ||
+                  barangays.length === 0
+                }
+                style={filterStyles.field}
+              >
+                <option value="">
+                  {selectedDisasterEventId
+                    ? "Select affected barangay"
+                    : "Select disaster event first"}
                 </option>
-              ))}
-              <option value={ALL_BARANGAYS}>All Barangays</option>
-            </select>
+                {barangays.map((barangay) => (
+                  <option key={barangay.id} value={barangay.id}>
+                    {barangay.name}
+                  </option>
+                ))}
+                <option value={ALL_BARANGAYS}>All Barangays</option>
+              </select>
+            </div>
           </div>
         </div>
       </section>
@@ -983,7 +1019,6 @@ const StubDistributionPage = () => {
             }}
           >
             <span>Period: {formatReliefPeriod(selectedDisasterEvent)}</span>
-            <StatusPill status={selectedDisasterEvent?.status} />
           </div>
         </div>
 
@@ -1009,7 +1044,7 @@ const StubDistributionPage = () => {
         <StubSummaryCards cards={summaryCards} />
       ) : null}
 
-      <section>
+      <section className="mswdo-stub-toolbar-shell">
         <StubSearchBar
           searchValue={searchTerm}
           onSearchChange={setSearchTerm}
@@ -1035,6 +1070,7 @@ const StubDistributionPage = () => {
           actions={
             <>
               <button
+                className="stub-distribution-print-button"
                 type="button"
                 onClick={() => setIsPrintSheetModalOpen(true)}
                 disabled={!hasSelectedEvent || !hasSelectedBarangay}
@@ -1051,6 +1087,7 @@ const StubDistributionPage = () => {
               </button>
               {!isEndedView ? (
                 <button
+                  className="stub-distribution-scan-button"
                   type="button"
                   onClick={() => setIsQrScanModalOpen(true)}
                   disabled={

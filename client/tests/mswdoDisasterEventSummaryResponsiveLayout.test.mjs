@@ -63,6 +63,10 @@ test("MSWDO Disaster Events Summary toolbar and modal stack on narrow screens", 
   );
   assert.match(
     cssSource,
+    /\.disaster-summary-toolbar-search \{[\s\S]*?order: -1;[\s\S]*?\.disaster-summary-export-button \{[\s\S]*?order: 1;/,
+  );
+  assert.match(
+    cssSource,
     /@media \(max-width: 480px\)[\s\S]*?\.disaster-summary-filter-grid,[\s\S]*?\.disaster-summary-export-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
   );
   assert.match(

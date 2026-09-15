@@ -1051,7 +1051,8 @@ const AnomalyTrackingPage = ({
 }) => {
   const isBarangayScope = scope === "barangay";
   const isMayorScope = scope === "mayor";
-  const usesMayorToolbarLayout = isBarangayScope || isMayorScope;
+  const usesMayorToolbarLayout =
+    isBarangayScope || isMayorScope || scope === "mswdo";
   const presentationScope = isBarangayScope
     ? "barangay"
     : isMayorScope

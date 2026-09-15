@@ -65,6 +65,10 @@ test("Distribution History mobile toolbar controls fill available width without 
   );
   assert.match(
     cssSource,
+    /\.distribution-history-toolbar-search \{[\s\S]*?order: -1;[\s\S]*?\.distribution-history-export-button \{[\s\S]*?order: 1;/,
+  );
+  assert.match(
+    cssSource,
     /@media \(max-width: 480px\)[\s\S]*?\.distribution-history-filter-grid \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
   );
   assert.match(
