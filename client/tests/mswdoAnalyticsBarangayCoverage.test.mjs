@@ -23,17 +23,19 @@ test("Barangay coverage creates one equal slice per covered Barangay", () => {
   ]);
 });
 
-test("specific Barangay coverage keeps only the selected Barangay slice", () => {
+test("named coverage keeps every slice for selection highlighting", () => {
   assert.deepEqual(
     mapBarangayCoverageDistribution({
       barangays: [
         { id: "2", name: "Santiago" },
         { id: "1", name: "Bagong Pook" },
       ],
-      coveredCount: 1,
-      selectedBarangayId: "2",
+      coveredCount: 2,
     }),
-    [{ barangay_id: "2", name: "Santiago", value: 1 }],
+    [
+      { barangay_id: "1", name: "Bagong Pook", value: 1 },
+      { barangay_id: "2", name: "Santiago", value: 1 },
+    ],
   );
 });
 

@@ -463,6 +463,7 @@ const AnalyticsDashboardPage = () => {
     stayTypeDistribution,
     admittedVsDepartedDistribution,
     barangayCoverageDistribution,
+    barangayCoverageCount,
     evacuationCenterDistribution,
     isLoadingFilters,
     isLoadingDashboard,
@@ -490,8 +491,26 @@ const AnalyticsDashboardPage = () => {
       colorMap["Not Covered"] = "#cbd5e1";
     }
 
+    if (selectedBarangayId) {
+      const selectedCoverage = barangayCoverageDistribution.find(
+        (item) => String(item.barangay_id) === String(selectedBarangayId),
+      );
+
+      if (selectedCoverage) {
+        const selectedColor =
+          colorMap[selectedCoverage.name] || BARANGAY_CHART_HIGHLIGHT_COLOR;
+
+        barangayCoverageDistribution.forEach((item) => {
+          colorMap[item.name] =
+            String(item.barangay_id) === String(selectedBarangayId)
+              ? selectedColor
+              : "#d5dee8";
+        });
+      }
+    }
+
     return colorMap;
-  }, [barangayCoverageDistribution, familiesPerBarangay]);
+  }, [barangayCoverageDistribution, familiesPerBarangay, selectedBarangayId]);
   const filterGridStyle = useMemo(
     () => ({
       display: "grid",
@@ -720,6 +739,9 @@ const AnalyticsDashboardPage = () => {
               colorMap={barangayCoverageColorMap}
               highlightHighest={false}
               showSliceLabels={false}
+              showLegend={false}
+              centerValue={barangayCoverageCount}
+              centerLabel="Covered Barangays"
             />
             <BarangayBarChart
               title="Affected Families per Barangay"

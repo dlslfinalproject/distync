@@ -389,13 +389,21 @@ export const useMswdoAnalytics = () => {
     );
   }, [operationalPayload.summary_metrics]);
 
+  const eventAffectedBarangayIds = useMemo(() => {
+    return getAffectedBarangayIds(selectedDisasterEvent);
+  }, [selectedDisasterEvent]);
+
+  const barangayCoverageCount =
+    eventAffectedBarangayIds.length > 0
+      ? eventAffectedBarangayIds.length
+      : summaryMetrics.totalBarangaysCovered;
+
   const barangayCoverageDistribution = useMemo(() => {
     return mapBarangayCoverageDistribution({
-      barangays,
-      coveredCount: summaryMetrics.totalBarangaysCovered,
-      selectedBarangayId,
+      barangays: selectableBarangays,
+      coveredCount: barangayCoverageCount,
     });
-  }, [barangays, selectedBarangayId, summaryMetrics.totalBarangaysCovered]);
+  }, [barangayCoverageCount, selectableBarangays]);
 
   const evacuationCenterDistribution = useMemo(() => {
     return mapSimpleDistribution(
@@ -421,6 +429,7 @@ export const useMswdoAnalytics = () => {
     stayTypeDistribution,
     admittedVsDepartedDistribution,
     barangayCoverageDistribution,
+    barangayCoverageCount,
     evacuationCenterDistribution,
     isLoadingFilters,
     isLoadingDashboard,

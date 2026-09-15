@@ -12,39 +12,21 @@ const normalizeBarangay = (barangay) => {
 export const mapBarangayCoverageDistribution = ({
   barangays = [],
   coveredCount,
-  selectedBarangayId,
 } = {}) => {
   const safeCoveredCount = Number(coveredCount || 0);
   const namedBarangays = (Array.isArray(barangays) ? barangays : [])
     .map(normalizeBarangay)
     .filter((barangay) => barangay.name)
     .sort((left, right) => left.name.localeCompare(right.name));
-  const coveredBarangays = selectedBarangayId
-    ? namedBarangays.filter(
-        (barangay) => String(barangay.id) === String(selectedBarangayId),
-      )
-    : namedBarangays;
-  const canNameEachCoveredBarangay = selectedBarangayId
-    ? coveredBarangays.length > 0 && safeCoveredCount > 0
-    : safeCoveredCount > 0 && namedBarangays.length === safeCoveredCount;
+  const canNameEachCoveredBarangay =
+    safeCoveredCount > 0 && namedBarangays.length === safeCoveredCount;
 
   if (canNameEachCoveredBarangay) {
-    return coveredBarangays.map((barangay) => ({
+    return namedBarangays.map((barangay) => ({
       barangay_id: barangay.id,
       name: barangay.name,
       value: 1,
     }));
-  }
-
-  if (selectedBarangayId) {
-    return safeCoveredCount > 0
-      ? [
-          {
-            name: "Covered",
-            value: safeCoveredCount,
-          },
-        ]
-      : [];
   }
 
   const barangayCount = namedBarangays.length;
