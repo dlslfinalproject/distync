@@ -244,7 +244,10 @@ const BarangayLayout = () => {
   }, []);
 
   useEffect(() => {
-    if ((!isMayorPortal && !isBarangayPortal) || typeof document === "undefined") {
+    if (
+      (!isMayorPortal && !isBarangayPortal && !isMswdoPortal) ||
+      typeof document === "undefined"
+    ) {
       return undefined;
     }
 
@@ -261,7 +264,7 @@ const BarangayLayout = () => {
     return () => {
       document.removeEventListener("submit", handlePortalFormSubmit);
     };
-  }, [isBarangayPortal, isMayorPortal]);
+  }, [isBarangayPortal, isMayorPortal, isMswdoPortal]);
 
   useEffect(() => {
     if (isDonorPortal || isSettingsRoute) {

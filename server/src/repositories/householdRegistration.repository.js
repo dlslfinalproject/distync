@@ -1574,6 +1574,7 @@ const getHouseholdSummaryById = async (id, dbClient = pool) => {
   const query = `
     SELECT
       h.id,
+      h.source_household_id,
       h.disaster_event_id,
       h.barangay_id,
       h.evacuation_center_id,
@@ -1618,6 +1619,7 @@ const getHouseholdSummaryByIdForUpdate = async (id, dbClient) => {
   const query = `
     SELECT
       h.id,
+      h.source_household_id,
       h.disaster_event_id,
       h.barangay_id,
       h.evacuation_center_id,

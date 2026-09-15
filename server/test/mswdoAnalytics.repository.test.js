@@ -7,6 +7,10 @@ const repositoryPath = path.resolve(
   __dirname,
   "../src/repositories/masterlist.repository.js",
 );
+const disasterEventRepositoryPath = path.resolve(
+  __dirname,
+  "../src/repositories/disasterEvent.repository.js",
+);
 
 const readAnalyticsSource = () => {
   const source = fs.readFileSync(repositoryPath, "utf8");
@@ -29,6 +33,25 @@ test("MSWDO analytics uses database identity and explicit re-admission lineage",
   assert.match(source, /sh\.is_active DESC/);
   assert.match(source, /sh\.id DESC/);
   assert.doesNotMatch(source, /household_key|evacuee_key/);
+});
+
+test("Barangay dashboard delegates to the same lineage-aware analytics", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+  const barangaySource = source.match(
+    /const getBarangayDashboardMetrics = async \([\s\S]*?\n};/,
+  )?.[0];
+
+  assert.ok(barangaySource, "Barangay dashboard metrics repository source is present");
+  assert.match(barangaySource, /getMswdoMasterlistAnalytics\(disasterEventId, barangayId\)/);
+  assert.doesNotMatch(barangaySource, /household_key|evacuee_key/);
+});
+
+test("disaster-event reports use explicit household lineage for registered-family counts", () => {
+  const source = fs.readFileSync(disasterEventRepositoryPath, "utf8");
+
+  assert.match(source, /const HOUSEHOLD_LINEAGE_CTE = `\s*WITH RECURSIVE household_lineage/);
+  assert.match(source, /COUNT\(DISTINCT COALESCE\(hl\.household_identity_id, h\.id\)\)::int AS registered_households_count/);
+  assert.doesNotMatch(source, /scoped_households\.household_key|AS household_key/);
 });
 
 test("MSWDO evacuation-center and daily admission charts use recorded log history", () => {

@@ -35,6 +35,8 @@ test("Mayor inventory distribution page exposes scoped responsive hooks", async 
   assert.match(pageSource, /className="inventory-distribution-search-wrap"/);
   assert.match(pageSource, /className="inventory-distribution-toolbar-controls"/);
   assert.match(pageSource, /Period: \{formatReliefPeriod\(selectedDisasterEvent\)\}/);
+  assert.match(pageSource, /Families with Relief Stubs/);
+  assert.doesNotMatch(pageSource, /label: "Total Families"/);
   assert.doesNotMatch(
     pageSource,
     /<StatusPill status=\{selectedDisasterEvent\.status\} \/>/,

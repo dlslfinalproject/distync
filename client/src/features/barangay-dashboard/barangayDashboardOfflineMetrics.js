@@ -4,17 +4,37 @@ const normalize = (value) => String(value || "").trim().toLowerCase().replace(/\
 const details = (row) => row?.offline_household_details || {};
 const household = (row) => details(row).household || {};
 
-const familyKey = (row) => {
-  const profile = row?.local_duplicate_profile || {};
-  const head = profile.family_head || {};
-  return [
-    household(row).family_head_first_name || head.first_name,
-    household(row).family_head_middle_name || head.middle_name,
-    household(row).family_head_last_name || head.last_name || row?.family_head_name,
-    household(row).family_head_suffix || head.suffix,
-    household(row).sex || head.sex,
-    household(row).contact_number || profile.contact_number || row?.contact_number,
-  ].map((value, index) => index === 5 ? normalize(value).replace(/\s/g, "") : normalize(value)).join("|");
+const householdId = (row) =>
+  row?.household_id || household(row).id || row?.id || "";
+
+const sourceHouseholdId = (row) =>
+  row?.source_household_id ||
+  household(row).source_household_id ||
+  household(row).re_admission_source_household_id ||
+  "";
+
+const familyIdentityKey = (row, rowsByHouseholdId) => {
+  let identity = String(householdId(row) || "");
+  let currentRow = row;
+  const visited = new Set();
+
+  while (identity && !visited.has(identity)) {
+    visited.add(identity);
+    const sourceId = String(sourceHouseholdId(currentRow) || "");
+
+    if (!sourceId) {
+      break;
+    }
+
+    identity = sourceId;
+    currentRow = rowsByHouseholdId.get(sourceId);
+
+    if (!currentRow) {
+      break;
+    }
+  }
+
+  return identity ? `household:${identity}` : "";
 };
 
 const timestamp = (row) => {
@@ -27,16 +47,42 @@ const memberCount = (row) => Number(
   household(row).household_size || row?.members_count || details(row).members?.length || 0,
 );
 
+const isCurrentHouseholdOccurrence = (row) =>
+  (row?.is_active ?? household(row).is_active) !== false;
+
+const shouldReplaceLatestOccurrence = (candidate, current) => {
+  const candidateIsCurrent = isCurrentHouseholdOccurrence(candidate);
+  const currentIsCurrent = isCurrentHouseholdOccurrence(current);
+
+  if (candidateIsCurrent !== currentIsCurrent) {
+    return candidateIsCurrent;
+  }
+
+  return timestamp(candidate) >= timestamp(current);
+};
+
 export const deriveBarangayDashboardMetrics = ({
   rows = [], syncQueueEntries = [], selectedEventId = "", assignedBarangayId = "", assignedBarangayName = "",
 } = {}) => {
   const effectiveRows = resolveEffectiveMasterlistRows({
     rows, syncQueueEntries, recordStatus: "all", selectedEventId, assignedBarangayId, assignedBarangayName,
   });
+  const rowsByHouseholdId = new Map(
+    effectiveRows
+      .map((row) => [String(householdId(row) || ""), row])
+      .filter(([id]) => id),
+  );
   const latestByFamily = new Map();
   effectiveRows.forEach((row) => {
-    const key = familyKey(row);
-    if (!latestByFamily.has(key) || timestamp(row) >= timestamp(latestByFamily.get(key))) latestByFamily.set(key, row);
+    const key = familyIdentityKey(row, rowsByHouseholdId);
+    if (!key) {
+      return;
+    }
+
+    const current = latestByFamily.get(key);
+    if (!current || shouldReplaceLatestOccurrence(row, current)) {
+      latestByFamily.set(key, row);
+    }
   });
   const latestRows = [...latestByFamily.values()];
   const isEvacuationCenter = (row) => normalize(row?.current_stay_type || household(row).current_stay_type) === "evac_center";

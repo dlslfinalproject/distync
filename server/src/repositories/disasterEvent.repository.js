@@ -1,5 +1,30 @@
 const pool = require("../config/db");
 
+const HOUSEHOLD_LINEAGE_CTE = `
+WITH RECURSIVE household_lineage AS (
+  SELECT
+    h.id AS occurrence_household_id,
+    h.id AS household_identity_id,
+    h.disaster_event_id,
+    ARRAY[h.id]::uuid[] AS lineage_path
+  FROM households h
+  WHERE h.source_household_id IS NULL
+
+  UNION ALL
+
+  SELECT
+    child.id AS occurrence_household_id,
+    parent.household_identity_id,
+    child.disaster_event_id,
+    array_append(parent.lineage_path, child.id) AS lineage_path
+  FROM households child
+  INNER JOIN household_lineage parent
+    ON parent.occurrence_household_id = child.source_household_id
+   AND parent.disaster_event_id = child.disaster_event_id
+  WHERE NOT (child.id = ANY(parent.lineage_path))
+)
+`;
+
 const selectDisasterEventColumns = `
   SELECT
     id,
@@ -828,6 +853,7 @@ const getDisasterEventReportSummary = async ({
     : "";
 
   const query = `
+    ${HOUSEHOLD_LINEAGE_CTE}
     SELECT
       de.id,
       de.event_code,
@@ -854,34 +880,12 @@ const getDisasterEventReportSummary = async ({
       ${barangayScopedAffected}
     ) affected_barangays ON TRUE
     LEFT JOIN LATERAL (
-      SELECT COUNT(*)::int AS registered_households_count
-      FROM (
-        SELECT DISTINCT ON (scoped_households.household_key)
-          scoped_households.household_key
-        FROM (
-          SELECT
-            h.registered_at,
-            h.updated_at,
-            LOWER(
-              CONCAT_WS(
-                '|',
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_first_name, '')), '\\s+', ' ', 'g'),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_middle_name, '')), '\\s+', ' ', 'g'),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_last_name, '')), '\\s+', ' ', 'g'),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_suffix, '')), '\\s+', ' ', 'g'),
-                COALESCE(h.sex, ''),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.contact_number, '')), '\\s+', '', 'g')
-              )
-            ) AS household_key
-          FROM households h
-          WHERE h.disaster_event_id = de.id
-          ${barangayScopedHouseholds}
-        ) scoped_households
-        ORDER BY
-          scoped_households.household_key,
-          COALESCE(scoped_households.updated_at, scoped_households.registered_at) DESC,
-          scoped_households.registered_at DESC
-      ) latest_households
+      SELECT COUNT(DISTINCT COALESCE(hl.household_identity_id, h.id))::int AS registered_households_count
+      FROM households h
+      LEFT JOIN household_lineage hl
+        ON hl.occurrence_household_id = h.id
+      WHERE h.disaster_event_id = de.id
+      ${barangayScopedHouseholds}
     ) household_counts ON TRUE
     LEFT JOIN LATERAL (
       SELECT
@@ -976,6 +980,7 @@ const getDisasterEventReportBarangayBreakdown = async ({
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
   const query = `
+    ${HOUSEHOLD_LINEAGE_CTE}
     SELECT
       de.id,
       de.event_code,
@@ -997,34 +1002,12 @@ const getDisasterEventReportBarangayBreakdown = async ({
     INNER JOIN barangays b
       ON b.id = deb_row.barangay_id
     LEFT JOIN LATERAL (
-      SELECT COUNT(*)::int AS registered_households_count
-      FROM (
-        SELECT DISTINCT ON (scoped_households.household_key)
-          scoped_households.household_key
-        FROM (
-          SELECT
-            h.registered_at,
-            h.updated_at,
-            LOWER(
-              CONCAT_WS(
-                '|',
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_first_name, '')), '\\s+', ' ', 'g'),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_middle_name, '')), '\\s+', ' ', 'g'),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_last_name, '')), '\\s+', ' ', 'g'),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_suffix, '')), '\\s+', ' ', 'g'),
-                COALESCE(h.sex, ''),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.contact_number, '')), '\\s+', '', 'g')
-              )
-            ) AS household_key
-          FROM households h
-          WHERE h.disaster_event_id = de.id
-            AND h.barangay_id = deb_row.barangay_id
-        ) scoped_households
-        ORDER BY
-          scoped_households.household_key,
-          COALESCE(scoped_households.updated_at, scoped_households.registered_at) DESC,
-          scoped_households.registered_at DESC
-      ) latest_households
+      SELECT COUNT(DISTINCT COALESCE(hl.household_identity_id, h.id))::int AS registered_households_count
+      FROM households h
+      LEFT JOIN household_lineage hl
+        ON hl.occurrence_household_id = h.id
+      WHERE h.disaster_event_id = de.id
+        AND h.barangay_id = deb_row.barangay_id
     ) household_counts ON TRUE
     LEFT JOIN LATERAL (
       SELECT

@@ -9,14 +9,17 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const readSource = (relativePath) =>
   readFile(resolve(projectRoot, relativePath), "utf8");
 
-test("Barangay forms use the shared smooth scroll-to-first-error hook", async () => {
+test("portal forms use the shared smooth scroll-to-first-error hook", async () => {
   const source = await readSource("src/components/layout/BarangayLayout.jsx");
 
   assert.match(
     source,
-    /\(!isMayorPortal && !isBarangayPortal\)[\s\S]*scheduleScrollToFirstError\(event\.target\)/,
+    /!isMayorPortal && !isBarangayPortal && !isMswdoPortal[\s\S]*scheduleScrollToFirstError\(event\.target\)/,
   );
-  assert.match(source, /\}, \[isBarangayPortal, isMayorPortal\]\);/);
+  assert.match(
+    source,
+    /\}, \[isBarangayPortal, isMayorPortal, isMswdoPortal\]\);/,
+  );
 });
 
 test("Household registration exposes existing field errors to the shared scroller", async () => {
@@ -64,8 +67,40 @@ test("Barangay validated non-form modals schedule the same first-error scroll", 
   assert.match(syncSource, /const isBarangayPortal = currentRole === ROLE_CODES\.BARANGAY;/);
   assert.match(
     syncSource,
-    /\(isMayorPortal \|\| isBarangayPortal\)[\s\S]*scrollToErrorElement\(/,
+    /isMayorPortal \|\| isBarangayPortal \|\| isMswdoPortal[\s\S]*scrollToErrorElement\(/,
   );
   assert.match(transactionSource, /scrollToErrorElement\(qrLookupInputRef\)/);
   assert.match(transactionSource, /ref=\{qrLookupInputRef\}/);
+});
+
+test("MSWDO validation surfaces expose the first-error targets", async () => {
+  const [eventFormSource, eventPageSource, masterlistSource, syncSource] =
+    await Promise.all([
+      readSource("src/components/disaster-events/DisasterEventFormModal.jsx"),
+      readSource("src/pages/mswdo/DisasterEventsPage.jsx"),
+      readSource("src/pages/mswdo/ConsolidatedMasterlistPage.jsx"),
+      readSource("src/pages/SyncManagementPage.jsx"),
+    ]);
+
+  assert.match(
+    eventFormSource,
+    /aria-invalid=\{Boolean\(fieldErrors\.event_name\)\}/,
+  );
+  assert.match(
+    eventFormSource,
+    /data-error-anchor=\{[\s\S]*fieldErrors\.barangay_ids/,
+  );
+  assert.match(eventPageSource, /const exportModalRef = useRef\(null\);/);
+  assert.match(eventPageSource, /scheduleScrollToFirstError\(exportModalRef\)/);
+  assert.match(eventPageSource, /modalRef=\{exportModalRef\}/);
+  assert.match(masterlistSource, /const exportModalRef = useRef\(null\);/);
+  assert.match(
+    masterlistSource,
+    /scheduleScrollToFirstError\(exportModalRef\)/,
+  );
+  assert.match(masterlistSource, /modalRef=\{exportModalRef\}/);
+  assert.match(
+    syncSource,
+    /isMayorPortal \|\| isBarangayPortal \|\| isMswdoPortal/,
+  );
 });

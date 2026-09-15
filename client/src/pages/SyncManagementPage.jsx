@@ -1596,7 +1596,10 @@ const SyncManagementPage = () => {
       !trimmedReason
     ) {
       setResolutionReasonError("Review note is required.");
-      if ((isMayorPortal || isBarangayPortal) && typeof document !== "undefined") {
+      if (
+        (isMayorPortal || isBarangayPortal || isMswdoPortal) &&
+        typeof document !== "undefined"
+      ) {
         scrollToErrorElement(
           document.getElementById("sync-conflict-review-note"),
         );

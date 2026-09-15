@@ -182,6 +182,7 @@ const getMasterlist = async (filters) => {
 
     return {
       household_id: household.household_id,
+      source_household_id: household.source_household_id || null,
       masterlist_record_id:
         household.masterlist_record_id || household.attendance_log_id || household.household_id,
       family_head_name: buildFullName(
@@ -490,28 +491,63 @@ const filterMasterlistByRecordStatus = (households, recordStatus = "active") => 
   return households.filter(isOperationallyActiveHousehold);
 };
 
-const buildExportIdentityKey = (household, disasterEventId) => {
-  const familyHeadName = String(household?.family_head_name || "")
-    .trim()
-    .toUpperCase();
+const buildExportIdentityKey = (household, householdsById) => {
+  let identity = String(household?.household_id || "");
+  let currentHousehold = household;
+  const visited = new Set();
 
-  return [disasterEventId || "", household?.barangay?.id || "", familyHeadName].join(
-    "|",
-  );
+  while (identity && !visited.has(identity)) {
+    visited.add(identity);
+    const sourceHouseholdId = String(
+      currentHousehold?.source_household_id || "",
+    );
+
+    if (!sourceHouseholdId) {
+      break;
+    }
+
+    identity = sourceHouseholdId;
+    currentHousehold = householdsById.get(sourceHouseholdId);
+
+    if (!currentHousehold) {
+      break;
+    }
+  }
+
+  return identity;
 };
 
-const buildExportSummaryMetrics = (households, disasterEventId) => {
+const buildExportSummaryMetrics = (households, lineageHouseholds = households) => {
+  const householdsById = new Map(
+    lineageHouseholds
+      .map((household) => [String(household?.household_id || ""), household])
+      .filter(([householdId]) => householdId),
+  );
   const latestHouseholdsByIdentity = new Map();
 
   households.forEach((household) => {
-    const identityKey = buildExportIdentityKey(household, disasterEventId);
-    const currentTimestamp = new Date(household?.registered_at || 0).getTime();
+    const identityKey = buildExportIdentityKey(household, householdsById);
+    if (!identityKey) {
+      return;
+    }
+
+    const currentIsActive = household?.is_active !== false;
+    const currentTimestamp = new Date(
+      household?.household_registered_at || household?.registered_at || 0,
+    ).getTime();
     const existingHousehold = latestHouseholdsByIdentity.get(identityKey);
+    const existingIsActive = existingHousehold?.is_active !== false;
     const existingTimestamp = new Date(
-      existingHousehold?.registered_at || 0,
+      existingHousehold?.household_registered_at ||
+        existingHousehold?.registered_at ||
+        0,
     ).getTime();
 
-    if (!existingHousehold || currentTimestamp >= existingTimestamp) {
+    if (
+      !existingHousehold ||
+      (currentIsActive && !existingIsActive) ||
+      (currentIsActive === existingIsActive && currentTimestamp >= existingTimestamp)
+    ) {
       latestHouseholdsByIdentity.set(identityKey, household);
     }
   });
@@ -591,7 +627,7 @@ const exportMswdoMasterlist = async (filters) => {
   );
   const exportSummaryMetrics =
     Array.isArray(filters.barangay_ids) && filters.barangay_ids.length > 1
-      ? buildExportSummaryMetrics(sectorFilteredRows, filters.disaster_event_id)
+      ? buildExportSummaryMetrics(sectorFilteredRows, recordStatusFilteredRows)
       : dashboard.summary_metrics;
 
   const exportRows = filterExportRows(

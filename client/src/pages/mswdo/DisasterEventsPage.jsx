@@ -28,6 +28,7 @@ import {
   downloadExportFile,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
 import { DISASTER_TYPE_OPTIONS as SHARED_DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
 
 const filterPanelStyles = {
@@ -197,6 +198,7 @@ const DisasterEventsPage = () => {
     disasterTypes: "",
     affectedBarangays: "",
   });
+  const exportModalRef = useRef(null);
   const [exportScopeEvents, setExportScopeEvents] = useState([]);
   const [singleExportEvent, setSingleExportEvent] = useState(null);
   const [selectedSingleExportFormat, setSelectedSingleExportFormat] =
@@ -482,6 +484,7 @@ const DisasterEventsPage = () => {
 
     if (validationErrors.disasterTypes || validationErrors.affectedBarangays) {
       setExportValidationErrors(validationErrors);
+      scheduleScrollToFirstError(exportModalRef);
       return;
     }
 
@@ -959,6 +962,7 @@ const DisasterEventsPage = () => {
       />
 
       <DisasterEventExportModal
+        modalRef={exportModalRef}
         isOpen={isExportModalOpen}
         barangays={barangays}
         availableDisasterTypes={availableExportDisasterTypes}

@@ -466,6 +466,7 @@ const DisasterEventFormModal = ({
                   onChange={(e) => handleChange("event_name", e.target.value)}
                   style={isEditMode ? lockedInputStyles : inputStyles}
                   disabled={isEditMode}
+                  aria-invalid={Boolean(fieldErrors.event_name)}
                 />
                 {fieldErrors.event_name ? (
                   <p style={errorTextStyles}>{fieldErrors.event_name}</p>
@@ -492,6 +493,7 @@ const DisasterEventFormModal = ({
                       handleChange("disaster_type", e.target.value)
                     }
                     style={inputStyles}
+                    aria-invalid={Boolean(fieldErrors.disaster_type)}
                   >
                     <option value="">Select Disaster Type</option>
                     {SHARED_DISASTER_TYPE_OPTIONS.map((disasterType) => (
@@ -515,6 +517,7 @@ const DisasterEventFormModal = ({
                         handleChange("custom_disaster_type", e.target.value)
                       }
                       style={{ ...inputStyles, marginTop: "10px" }}
+                      aria-invalid={Boolean(fieldErrors.custom_disaster_type)}
                     />
                     {fieldErrors.custom_disaster_type ? (
                       <p style={errorTextStyles}>
@@ -549,6 +552,7 @@ const DisasterEventFormModal = ({
                   onChange={(e) => handleChange("start_date", e.target.value)}
                   style={isEditMode ? lockedInputStyles : inputStyles}
                   disabled={isEditMode}
+                  aria-invalid={Boolean(fieldErrors.start_date)}
                 />
                 {fieldErrors.start_date ? (
                   <p style={errorTextStyles}>{fieldErrors.start_date}</p>
@@ -562,6 +566,7 @@ const DisasterEventFormModal = ({
                   value={formValues.end_date}
                   onChange={(e) => handleChange("end_date", e.target.value)}
                   style={inputStyles}
+                  aria-invalid={Boolean(fieldErrors.end_date)}
                 />
                 {fieldErrors.end_date ? (
                   <p style={errorTextStyles}>{fieldErrors.end_date}</p>
@@ -626,6 +631,9 @@ const DisasterEventFormModal = ({
 
             <div
               className="disaster-event-chip-grid"
+              data-error-anchor={
+                fieldErrors.barangay_ids ? "true" : undefined
+              }
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",

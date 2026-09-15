@@ -931,6 +931,13 @@ export const useInventoryDistribution = () => {
     const notDistributedCount = allRows.filter(
       (row) => !["CLAIMED", "ISSUED"].includes(row.distribution_status),
     ).length;
+    const familiesWithReliefStubs = new Set(
+      allRows
+        .filter((row) => ["CLAIMED", "ISSUED"].includes(row.distribution_status))
+        .map((row) => row.household_id)
+        .filter(Boolean)
+        .map(String),
+    ).size;
     const affectedBarangayCount = selectedBarangayId
       ? 1
       : Array.isArray(selectedDisasterEvent?.affected_barangays)
@@ -941,8 +948,8 @@ export const useInventoryDistribution = () => {
 
     return {
       barangaysCovered: affectedBarangayCount,
-      totalFamiliesServed: allRows.length,
-      totalReliefPacksDistributed: claimedCount + pendingCount,
+      familiesWithReliefStubs,
+      issuedOrClaimedReliefPacks: claimedCount + pendingCount,
       claimedCount,
       pendingCount,
       notDistributedCount,

@@ -227,136 +227,17 @@ const getBarangayScopedDisasterEventById = async (
 };
 
 const getBarangayDashboardMetrics = async (disasterEventId, barangayId) => {
-  const query = `
-    WITH scoped_households AS (
-      SELECT
-        h.id,
-        h.is_active,
-        h.household_size,
-        h.registered_at,
-        h.updated_at,
-        h.current_stay_type,
-        LOWER(
-          CONCAT_WS(
-            '|',
-            REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_first_name, '')), '\\s+', ' ', 'g'),
-            REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_middle_name, '')), '\\s+', ' ', 'g'),
-            REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_last_name, '')), '\\s+', ' ', 'g'),
-            REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_suffix, '')), '\\s+', ' ', 'g'),
-            COALESCE(h.sex, ''),
-            REGEXP_REPLACE(BTRIM(COALESCE(h.contact_number, '')), '\\s+', '', 'g')
-          )
-        ) AS household_key
-      FROM households h
-      WHERE h.disaster_event_id = $1
-        AND h.barangay_id = $2
-    ),
-    deduplicated_households AS (
-      SELECT DISTINCT ON (sh.household_key)
-        sh.id,
-        sh.household_key,
-        sh.household_size,
-        sh.is_active,
-        sh.current_stay_type,
-        sh.registered_at,
-        sh.updated_at
-      FROM scoped_households sh
-      ORDER BY
-        sh.household_key,
-        COALESCE(sh.updated_at, sh.registered_at) DESC,
-        sh.is_active DESC,
-        sh.registered_at DESC
-    ),
-    scoped_evacuees AS (
-      SELECT
-        e.id,
-        e.household_id,
-        dh.household_key,
-        dh.is_active AS household_is_active,
-        dh.current_stay_type,
-        dh.registered_at AS household_registered_at,
-        dh.updated_at AS household_updated_at,
-        e.created_at AS evacuee_created_at,
-        e.updated_at AS evacuee_updated_at,
-        LOWER(
-          CONCAT_WS(
-            '|',
-            REGEXP_REPLACE(BTRIM(COALESCE(e.first_name, '')), '\\s+', ' ', 'g'),
-            REGEXP_REPLACE(BTRIM(COALESCE(e.middle_name, '')), '\\s+', ' ', 'g'),
-            REGEXP_REPLACE(BTRIM(COALESCE(e.last_name, '')), '\\s+', ' ', 'g'),
-            REGEXP_REPLACE(BTRIM(COALESCE(e.suffix, '')), '\\s+', ' ', 'g'),
-            COALESCE(e.sex, ''),
-            COALESCE(e.relationship_to_head, ''),
-            CASE WHEN e.is_family_head THEN '1' ELSE '0' END
-          )
-        ) AS evacuee_key
-      FROM evacuees e
-      JOIN deduplicated_households dh ON dh.id = e.household_id
-    ),
-    latest_logs AS (
-      SELECT DISTINCT ON (el.evacuee_id)
-        el.evacuee_id,
-        el.status,
-        el.time_in,
-        el.time_out
-      FROM evacuation_logs el
-      JOIN scoped_households sh ON sh.id = el.household_id
-      WHERE el.disaster_event_id = $1
-      ORDER BY
-        el.evacuee_id,
-        COALESCE(el.time_out, el.time_in) DESC,
-        el.updated_at DESC,
-        el.created_at DESC
-    ),
-    deduplicated_evacuees AS (
-      SELECT DISTINCT ON (se.evacuee_key)
-        se.evacuee_key,
-        se.household_key,
-        se.current_stay_type,
-        ll.status,
-        ll.time_in,
-        ll.time_out
-      FROM scoped_evacuees se
-      LEFT JOIN latest_logs ll ON ll.evacuee_id = se.id
-      ORDER BY
-        se.evacuee_key,
-        COALESCE(ll.time_out, ll.time_in, se.household_updated_at, se.household_registered_at, se.evacuee_updated_at, se.evacuee_created_at) DESC,
-        se.household_is_active DESC,
-        se.evacuee_updated_at DESC,
-        se.evacuee_created_at DESC
-    )
-    SELECT
-      (
-        SELECT COALESCE(SUM(dh.household_size), 0)::int
-        FROM deduplicated_households dh
-      )
-        AS total_evacuees_individuals,
-      (
-        SELECT COUNT(*)::int
-        FROM deduplicated_households dh
-      ) AS total_families,
-      (
-        SELECT COUNT(*)::int
-        FROM deduplicated_evacuees de
-        WHERE de.current_stay_type = 'EVAC_CENTER'
-          AND de.status = 'PRESENT'
-          AND de.time_out IS NULL
-      ) AS currently_admitted_evacuees,
-      (
-        SELECT COUNT(*)::int
-        FROM deduplicated_evacuees de
-        WHERE de.current_stay_type = 'EVAC_CENTER'
-          AND de.status = 'LEFT'
-          AND de.time_out IS NOT NULL
-      ) AS total_departed_evacuees
-  `;
+  const metrics = await getMswdoMasterlistAnalytics(disasterEventId, barangayId);
 
-  const result = await pool.query(query, [disasterEventId, barangayId]);
-  return result.rows[0] || {
-    total_evacuees_individuals: 0,
-    total_families: 0,
-    currently_admitted_evacuees: 0,
-    total_departed_evacuees: 0,
+  return {
+    total_evacuees_individuals: Number(
+      metrics.total_number_of_evacuees_individuals || 0,
+    ),
+    total_families: Number(metrics.total_number_of_families || 0),
+    currently_admitted_evacuees: Number(
+      metrics.currently_admitted_evacuees || 0,
+    ),
+    total_departed_evacuees: Number(metrics.total_departed_evacuees || 0),
   };
 };
 
@@ -1200,6 +1081,7 @@ const getHouseholdsByFilters = async (
     WITH household_scope AS (
       SELECT
         h.id AS household_id,
+        h.source_household_id,
         h.disaster_event_id,
         h.barangay_id,
         h.residency_status,
@@ -1262,6 +1144,7 @@ const getHouseholdsByFilters = async (
     records AS (
       SELECT
         hs.household_id,
+        hs.source_household_id,
         hs.disaster_event_id,
         hs.barangay_id,
         hs.residency_status,
@@ -1308,22 +1191,9 @@ const getHouseholdsByFilters = async (
           FROM households successor
           WHERE successor.disaster_event_id = hs.disaster_event_id
             AND successor.barangay_id = hs.barangay_id
+            AND successor.source_household_id = hs.household_id
             AND successor.id <> hs.household_id
             AND successor.current_stay_type = 'EVAC_CENTER'
-            AND successor.registered_at > hs.registered_at
-            AND UPPER(TRIM(CONCAT_WS(
-              ' ',
-              successor.family_head_first_name,
-              successor.family_head_middle_name,
-              successor.family_head_last_name,
-              successor.family_head_suffix
-            ))) = UPPER(TRIM(CONCAT_WS(
-              ' ',
-              hs.family_head_first_name,
-              hs.family_head_middle_name,
-              hs.family_head_last_name,
-              hs.family_head_suffix
-            )))
         ) AS has_admitted_successor
       FROM household_scope hs
       LEFT JOIN attendance_occurrences ao
@@ -1353,6 +1223,7 @@ const getHouseholdsByFilters = async (
     )
     SELECT
       paged_records.household_id,
+      paged_records.source_household_id,
       paged_records.disaster_event_id,
       paged_records.barangay_id,
       paged_records.residency_status,

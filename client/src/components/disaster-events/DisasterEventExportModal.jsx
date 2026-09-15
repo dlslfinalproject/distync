@@ -132,6 +132,7 @@ const sortBarangaysByName = (barangays = []) =>
 
 const DisasterEventExportModal = ({
   isOpen,
+  modalRef,
   isSubmitting,
   barangays,
   availableDisasterTypes,
@@ -178,7 +179,11 @@ const DisasterEventExportModal = ({
 
   return (
     <div className="disaster-event-modal-backdrop" style={overlayStyles}>
-      <div className="disaster-event-export-modal" style={modalStyles}>
+      <div
+        ref={modalRef}
+        className="disaster-event-export-modal"
+        style={modalStyles}
+      >
         <div
           className="disaster-event-modal-topbar"
           style={{
@@ -308,6 +313,9 @@ const DisasterEventExportModal = ({
 
             <div
               className="disaster-event-chip-grid"
+              data-error-anchor={
+                validationErrors.disasterTypes ? "true" : undefined
+              }
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -384,6 +392,9 @@ const DisasterEventExportModal = ({
 
             <div
               className="disaster-event-chip-grid"
+              data-error-anchor={
+                validationErrors.affectedBarangays ? "true" : undefined
+              }
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
