@@ -114,6 +114,12 @@ export const prepareMayorInventoryOfflineData = ({ userId } = {}) => {
   }
 
   const job = (async () => {
+    const existingPreparation = await readPreparation(ownerContext);
+    const readinessGeneration = Math.max(
+      1,
+      Number(existingPreparation?.readiness_generation || 0) +
+        ([MAYOR_INVENTORY_PREPARATION_STATUS.READY, MAYOR_INVENTORY_PREPARATION_STATUS.NEEDS_REFRESH].includes(existingPreparation?.status) ? 1 : 0),
+    );
     let previousCompleteCache = false;
     const diagnostics = {
       scope: {
@@ -133,6 +139,7 @@ export const prepareMayorInventoryOfflineData = ({ userId } = {}) => {
         transactions: { complete: false, count: 0 },
       },
       stage: "FETCHING_FULL_INVENTORY_GRAPH",
+      readiness_generation: readinessGeneration,
     };
 
     try {
@@ -143,6 +150,7 @@ export const prepareMayorInventoryOfflineData = ({ userId } = {}) => {
       await savePreparation(scope, MAYOR_INVENTORY_PREPARATION_STATUS.PREPARING, {
         previous_complete_cache: previousCompleteCache,
         datasets: diagnostics.datasets,
+        readiness_generation: readinessGeneration,
       });
 
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
@@ -213,6 +221,7 @@ export const prepareMayorInventoryOfflineData = ({ userId } = {}) => {
         batches_count: batches.length,
         transactions_count: transactions.length,
         cached_at: readBack.cached_at,
+        readiness_generation: readinessGeneration,
       });
       publishPreparationUpdate({
         ...diagnostics,
@@ -233,6 +242,7 @@ export const prepareMayorInventoryOfflineData = ({ userId } = {}) => {
         previous_complete_cache: previousCompleteCache,
         error_code: error?.code || "MAYOR_INVENTORY_PREPARATION_FAILED",
         datasets: diagnostics.datasets,
+        readiness_generation: readinessGeneration,
       });
       publishPreparationUpdate({
         ...diagnostics,

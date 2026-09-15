@@ -220,6 +220,11 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
   const id = getMswdoOfflineScopeKey({ userId, eventId, mode: owner.accessMode });
   const currentGeneration = beginPreparationGeneration(id, generation);
   const existing = await runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.PREPARATION_METADATA, () => db.offlinePreparation.get(id));
+  const readinessGeneration = Math.max(
+    1,
+    Number(existing?.readiness_generation || 0) +
+      (["READY", "NEEDS_REFRESH"].includes(existing?.status) ? 1 : 0),
+  );
   const preparing = {
     id, accessMode: owner.accessMode, userId, roleCode: ROLE_CODES.MSWDO,
     disaster_event_id: eventId, barangay_id: "",
@@ -227,6 +232,7 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
     previous_complete_cache: Boolean(existing?.datasets?.masterlist?.complete && existing?.datasets?.dashboard?.complete),
     ...(existing?.datasets ? { datasets: existing.datasets } : {}),
     updated_at: new Date().toISOString(),
+    readiness_generation: readinessGeneration,
   };
   await runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.PREPARATION_METADATA, () => db.offlinePreparation.put(preparing));
   if (isCurrentPreparationGeneration(id, currentGeneration)) publish({ ...preparing, generation: currentGeneration });

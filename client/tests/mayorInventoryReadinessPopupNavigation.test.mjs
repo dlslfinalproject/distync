@@ -5,46 +5,30 @@ import test from "node:test";
 const readSource = (file) =>
   fs.readFile(new URL(`../src/${file}`, import.meta.url), "utf8");
 
-test("Mayor READY popup acknowledgement is in-memory at the shared layout scope", async () => {
+test("all role readiness consumers use the shared durable acknowledgement", async () => {
   const layout = await readSource("components/layout/BarangayLayout.jsx");
   const readiness = await readSource("components/layout/OfflineDataReadiness.jsx");
 
-  assert.match(readiness, /MayorOfflineReadyDismissalContext/);
-  assert.match(readiness, /mayorDismissal\?\.acknowledge\(\)/);
+  assert.match(readiness, /acknowledgeOfflineReady\(identity\)/);
+  assert.match(readiness, /getOfflineReadyIdentity/);
   assert.match(readiness, /readyAcknowledged/);
-  assert.match(readiness, /isMayorInventory\s*\?\s*"Offline Data Ready"/);
-  assert.match(
-    readiness,
-    /isMayorInventory\s*\?\s*"The information needed for supported offline operations is available on this device\."/,
-  );
-  assert.match(layout, /MayorOfflineReadyDismissalContext\.Provider/);
-  assert.match(layout, /isMayorInventoryReadyAcknowledged/);
-  assert.doesNotMatch(layout, /localStorage|sessionStorage|indexedDB/i);
-  assert.doesNotMatch(readiness, /localStorage|sessionStorage|indexedDB/i);
+  assert.match(layout, /<OfflineDataReadiness \{\.\.\.offlinePreparation\} \/>/);
+  assert.doesNotMatch(layout, /MayorOfflineReadyDismissalContext|isMayorInventoryReadyAcknowledged/);
 });
 
 test("route remount and transient readiness states cannot reset acknowledgement", async () => {
   const readiness = await readSource("components/layout/OfflineDataReadiness.jsx");
 
-  assert.doesNotMatch(readiness, /mayorDismissal\?\.reset\(\)/);
-  assert.match(readiness, /ready && \(!readyNotice \|\| readyAcknowledged\)/);
-  assert.match(readiness, /setReadyNotice\(false\); setDismissed\(true\); mayorDismissal\?\.acknowledge\(\)/);
+  assert.doesNotMatch(readiness, /setDismissed|mayorDismissal/);
+  assert.match(readiness, /if \(!readyNotice \|\| readyAcknowledged\)/);
+  assert.match(readiness, /setReadyNotice\(false\); acknowledgeOfflineReady\(identity\)/);
 });
 
 test("Mayor inventory does not show the transient preparation notice", async () => {
   const readiness = await readSource("components/layout/OfflineDataReadiness.jsx");
 
-  assert.match(readiness, /if \(isMayorInventory && preparing\) return null/);
   assert.match(readiness, /Offline Data Ready/);
-  assert.doesNotMatch(readiness, /Preparing Mayor Inventory Offline Data/);
-  assert.doesNotMatch(
-    readiness,
-    /saving the complete inventory, batch, transaction, and barcode reference data/i,
-  );
-  assert.doesNotMatch(
-    readiness,
-    /Saving all inventory dependencies and verifying local read-back/i,
-  );
+  assert.match(readiness, /if \(!ready\) return null/);
 });
 
 test("MSWDO remains without offline readiness preparation UI", async () => {
