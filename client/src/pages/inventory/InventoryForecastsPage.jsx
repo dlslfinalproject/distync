@@ -6,6 +6,7 @@ import ForecastingPanel from "../../components/inventory-items/ForecastingPanel"
 import InventoryForecastExportModal from "../../components/inventory-items/InventoryForecastExportModal";
 import { useInventoryForecast } from "../../features/inventory-items/useInventoryForecast";
 import { runInventoryForecast } from "../../features/inventory-items/inventoryItemService";
+import { downloadExportFile } from "../../utils/exportHelpers";
 import {
   forecastModelOptions,
   getForecastModelLabel,
@@ -46,6 +47,43 @@ const formatDate = (value) => {
     dateStyle: "medium",
     timeZone: "Asia/Manila",
   }).format(parsedDate);
+};
+
+const buildForecastReportFilename = (eventName) => {
+  const safeEventName = String(eventName || "selected-disaster-event")
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return `inventory-forecast-${safeEventName || "selected-disaster-event"}.html`;
+};
+
+const resolveDownloadableImageSource = async (source) => {
+  if (!source || /^data:/i.test(String(source))) {
+    return source;
+  }
+
+  try {
+    const response = await fetch(source);
+
+    if (!response.ok) {
+      return source;
+    }
+
+    const imageBlob = await response.blob();
+
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+
+      reader.onload = () => resolve(reader.result || source);
+      reader.onerror = () => resolve(source);
+      reader.readAsDataURL(imageBlob);
+    });
+  } catch {
+    return source;
+  }
 };
 
 const escapeHtml = (value) => {
@@ -849,32 +887,22 @@ const InventoryForecastsPage = () => {
       const disasterEvent = forecastEvents.find(
         (event) => event.id === disasterEventId,
       );
-      const reportWindow = window.open("", "_blank");
+      const disasterEventName =
+        disasterEvent?.title ||
+        payload.forecast_run?.disaster_event?.title ||
+        payload.dashboard?.disaster_event?.title ||
+        "Selected disaster event";
+      const reportLogoSrc = await resolveDownloadableImageSource(distyncLogo);
+      const reportHtml = buildInventoryForecastReportHtml({
+        payload,
+        disasterEventName,
+        logoSrc: reportLogoSrc,
+      });
 
-      if (!reportWindow) {
-        setExportErrorMessage(
-          "Please allow pop-ups to open the printable inventory forecasting report.",
-        );
-        return;
-      }
-
-      reportWindow.document.open();
-      reportWindow.document.write(
-        buildInventoryForecastReportHtml({
-          payload,
-          disasterEventName:
-            disasterEvent?.title ||
-            payload.forecast_run?.disaster_event?.title ||
-            payload.dashboard?.disaster_event?.title ||
-            "Selected disaster event",
-          logoSrc: distyncLogo,
-        }),
-      );
-      reportWindow.document.close();
-      reportWindow.focus();
-      reportWindow.onload = () => {
-        reportWindow.print();
-      };
+      downloadExportFile({
+        blob: new Blob([reportHtml], { type: "text/html;charset=utf-8" }),
+        filename: buildForecastReportFilename(disasterEventName),
+      });
 
       setIsExportModalOpen(false);
     } catch (error) {
