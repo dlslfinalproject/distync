@@ -121,6 +121,32 @@ router.get(
 );
 
 router.post(
+  "/forecast/export",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateForecastRunPayload,
+  async (req, res) => {
+    try {
+      const file = await forecastService.exportInventoryForecast({
+        ...req.validatedBody,
+        run_by: req.auth.userId,
+      });
+
+      res.setHeader("Content-Type", file.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${file.filename}"`,
+      );
+
+      return res.status(200).send(file.buffer);
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to export inventory forecast",
+      });
+    }
+  },
+);
+
+router.post(
   "/forecast/run",
   requireRoles(ROLE_CODES.MAYOR),
   validateForecastRunPayload,
