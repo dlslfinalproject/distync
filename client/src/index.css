@@ -1815,6 +1815,34 @@ img {
   }
 }
 
+@media (min-width: 1025px) {
+  .distync-sidebar[data-collapsed="true"]
+    ~ .distync-shell__main
+    .disaster-events-table {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .distync-sidebar[data-collapsed="true"]
+    ~ .distync-shell__main
+    .disaster-events-table th,
+  .distync-sidebar[data-collapsed="true"]
+    ~ .distync-shell__main
+    .disaster-events-table td {
+    box-sizing: border-box;
+    min-width: 0 !important;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+
+  .distync-sidebar[data-collapsed="true"]
+    ~ .distync-shell__main
+    .disaster-events-table-scroll {
+    overflow-x: hidden !important;
+  }
+}
+
 .disaster-events-tabs {
   scrollbar-width: thin;
 }
@@ -1872,6 +1900,10 @@ img {
 
 .disaster-summary-number-cell,
 .disaster-summary-status-cell {
+  white-space: nowrap;
+}
+
+.disaster-summary-specific-barangay-cell {
   white-space: nowrap;
 }
 

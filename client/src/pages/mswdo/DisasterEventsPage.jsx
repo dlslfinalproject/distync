@@ -795,7 +795,7 @@ const DisasterEventsPage = () => {
                 style={{
                   position: "absolute",
                   right: "-5px",
-                  bottom: "-4px",
+                  top: "-4px",
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",

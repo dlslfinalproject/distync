@@ -22,9 +22,13 @@ test("MSWDO Disaster Event page exposes scoped responsive hooks", async () => {
   assert.match(pageSource, /className="disaster-events-filter-button-wrap"/);
   assert.match(pageSource, /className="disaster-events-create-button"/);
   assert.match(pageSource, /className="disaster-events-export-button"/);
+  assert.match(pageSource, /FiAlertTriangle/);
+  assert.match(pageSource, /right: "-5px",[\s\S]*?top: "-4px"/);
+  assert.doesNotMatch(pageSource, /right: "-5px",[\s\S]*?bottom: "-4px"/);
   assert.match(pageSource, /className="disaster-events-list-card"/);
   assert.match(tableSource, /className="disaster-events-table-scroll"/);
   assert.match(tableSource, /className="disaster-events-table"/);
+  assert.match(tableSource, /\n\s+Disaster Event\r?\n\s+<\/th>/);
   assert.match(tableSource, /import TablePagination/);
   assert.match(tableSource, /getTablePaginationState/);
   assert.match(tableSource, /ariaLabel="Disaster event management pagination"/);
@@ -57,6 +61,14 @@ test("MSWDO Disaster Event table overflow is locally contained without fixed lay
   assert.match(
     cssSource,
     /@media \(min-width: 769px\) \{[\s\S]*?\.disaster-events-table \{[\s\S]*?min-width: 1160px !important;[\s\S]*?max-width: none !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(min-width: 1025px\) \{[\s\S]*?\.distync-sidebar\[data-collapsed="true"\][\s\S]*?\.disaster-events-table \{[\s\S]*?width: 100% !important;[\s\S]*?min-width: 0 !important;[\s\S]*?max-width: 100% !important;/,
+  );
+  assert.match(
+    cssSource,
+    /\.distync-sidebar\[data-collapsed="true"\][\s\S]*?\.disaster-events-table-scroll \{[\s\S]*?overflow-x: hidden !important;/,
   );
   assert.doesNotMatch(cssSource, /html,[\s\S]*?body,[\s\S]*?#root\s*\{[\s\S]*?overflow-x:\s*hidden/);
 });

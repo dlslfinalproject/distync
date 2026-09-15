@@ -45,13 +45,26 @@ test("MSWDO Disaster Events Summary table overflow is locally contained without 
   assert.match(pageSource, /className="disaster-summary-text-cell"/);
   assert.match(pageSource, /className="disaster-summary-status-cell"/);
   assert.match(pageSource, /className="disaster-summary-number-cell"/);
+  assert.match(pageSource, /const activeColumnWidthStyles = isSpecificDisasterEventSelected/);
+  assert.match(
+    pageSource,
+    /const specificEventColumnWidthStyles = \{[\s\S]*?affectedBarangays: \{[\s\S]*?width: "15%",[\s\S]*?minWidth: "170px"[\s\S]*?registeredHouseholds: \{[\s\S]*?width: "17%"[\s\S]*?distributedAid: \{[\s\S]*?width: "17%"[\s\S]*?claimStatus: \{[\s\S]*?width: "18%"/,
+  );
+  assert.match(pageSource, /Registered Households/);
+  assert.match(pageSource, /Aid Distributed/);
+  assert.match(pageSource, /Claim Summary/);
+  assert.doesNotMatch(pageSource, /renderStackedHeader/);
+  assert.match(pageSource, /disaster-summary-specific-barangay-cell/);
   assert.match(
     cssSource,
     /\.disaster-summary-table-scroll \{[\s\S]*?max-width: 100%;[\s\S]*?overflow-x: auto !important;[\s\S]*?-webkit-overflow-scrolling: touch;/,
   );
   assert.match(cssSource, /\.disaster-summary-table \{[\s\S]*?table-layout: auto !important;/);
+  assert.match(
+    cssSource,
+    /\.disaster-summary-specific-barangay-cell \{[\s\S]*?white-space: nowrap;/,
+  );
   assert.doesNotMatch(cssSource, /html,[\s\S]*?body,[\s\S]*?#root\s*\{[\s\S]*?overflow-x:\s*hidden/);
-  assert.doesNotMatch(cssSource, /\.disaster-summary-table\s*\{[\s\S]*?min-width:\s*(?:900|960|1024|1100|1200)px/);
 });
 
 test("MSWDO Disaster Events Summary toolbar and modal stack on narrow screens", async () => {

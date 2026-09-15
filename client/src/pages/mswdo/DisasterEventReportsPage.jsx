@@ -136,7 +136,7 @@ const tableStyles = {
     textTransform: "uppercase",
     color: "#66809c",
     borderBottom: "1px solid #e0eaf4",
-    whiteSpace: "normal",
+    whiteSpace: "nowrap",
     lineHeight: 1.35,
   },
   td: {
@@ -153,14 +153,6 @@ const tableStyles = {
 const centeredColumnStyles = {
   textAlign: "center",
   verticalAlign: "middle",
-};
-
-const headerLabelStyles = {
-  display: "inline-flex",
-  flexDirection: "column",
-  alignItems: "center",
-  gap: "2px",
-  lineHeight: 1.25,
 };
 
 const columnWidthStyles = {
@@ -181,6 +173,28 @@ const columnWidthStyles = {
   },
   claimStatus: {
     width: "15%",
+  },
+};
+
+const specificEventColumnWidthStyles = {
+  disasterEvent: {
+    width: "24%",
+  },
+  status: {
+    width: "9%",
+  },
+  affectedBarangays: {
+    width: "15%",
+    minWidth: "170px",
+  },
+  registeredHouseholds: {
+    width: "17%",
+  },
+  distributedAid: {
+    width: "17%",
+  },
+  claimStatus: {
+    width: "18%",
   },
 };
 
@@ -252,13 +266,6 @@ const doesRowMatchSearch = (row, searchTerm) => {
 
   return searchableText.includes(normalizedSearch);
 };
-
-const renderStackedHeader = (firstLine, secondLine) => (
-  <span style={headerLabelStyles}>
-    <span>{firstLine}</span>
-    <span>{secondLine}</span>
-  </span>
-);
 
 const getDisasterEventStatusLabel = (status) =>
   String(status || "").toUpperCase() === "ACTIVE" ? "Active" : "Ended";
@@ -450,6 +457,9 @@ const DisasterEventReportsPage = () => {
     return barangays.filter((barangay) => affectedBarangayIds.includes(barangay.id));
   }, [barangays, selectedDisasterEvent]);
   const isSpecificDisasterEventSelected = Boolean(filters.disaster_event_id);
+  const activeColumnWidthStyles = isSpecificDisasterEventSelected
+    ? specificEventColumnWidthStyles
+    : columnWidthStyles;
   const isExportDisabled = isLoadingRows || rows.length === 0;
   const exportDisasterEventOptions = useMemo(
     () => buildDisasterEventReportExportOptions(disasterEvents),
@@ -683,7 +693,7 @@ const DisasterEventReportsPage = () => {
                 <tr>
                   <th
                     className="disaster-summary-text-cell"
-                    style={{ ...tableStyles.th, ...columnWidthStyles.disasterEvent }}
+                    style={{ ...tableStyles.th, ...activeColumnWidthStyles.disasterEvent }}
                   >
                     Disaster Event
                   </th>
@@ -692,14 +702,14 @@ const DisasterEventReportsPage = () => {
                     style={{
                       ...tableStyles.th,
                       ...centeredColumnStyles,
-                      ...columnWidthStyles.status,
+                      ...activeColumnWidthStyles.status,
                     }}
                   >
                     Status
                   </th>
                   <th
                     className="disaster-summary-text-cell"
-                    style={{ ...tableStyles.th, ...columnWidthStyles.affectedBarangays }}
+                    style={{ ...tableStyles.th, ...activeColumnWidthStyles.affectedBarangays }}
                   >
                     {isSpecificDisasterEventSelected ? "Barangay" : "Affected Barangays"}
                   </th>
@@ -708,30 +718,30 @@ const DisasterEventReportsPage = () => {
                     style={{
                       ...tableStyles.th,
                       ...centeredColumnStyles,
-                      ...columnWidthStyles.registeredHouseholds,
+                      ...activeColumnWidthStyles.registeredHouseholds,
                     }}
                   >
-                    {renderStackedHeader("Registered", "Households")}
+                    Registered Households
                   </th>
                   <th
                     className="disaster-summary-number-cell"
                     style={{
                       ...tableStyles.th,
                       ...centeredColumnStyles,
-                      ...columnWidthStyles.distributedAid,
+                      ...activeColumnWidthStyles.distributedAid,
                     }}
                   >
-                    {renderStackedHeader("Distributed", "Aid Count")}
+                    Aid Distributed
                   </th>
                   <th
                     className="disaster-summary-number-cell"
                     style={{
                       ...tableStyles.th,
                       ...centeredColumnStyles,
-                      ...columnWidthStyles.claimStatus,
+                      ...activeColumnWidthStyles.claimStatus,
                     }}
                   >
-                    {renderStackedHeader("Claim Status", "Summary")}
+                    Claim Summary
                   </th>
                 </tr>
               </thead>
@@ -740,7 +750,7 @@ const DisasterEventReportsPage = () => {
                   <tr key={`${row.id}-${row.barangay_id || "summary"}`}>
                     <td
                       className="disaster-summary-text-cell"
-                      style={{ ...tableStyles.td, ...columnWidthStyles.disasterEvent }}
+                      style={{ ...tableStyles.td, ...activeColumnWidthStyles.disasterEvent }}
                     >
                       <div style={{ fontWeight: 700 }}>
                         {formatDisasterEventTitle(row)}
@@ -754,7 +764,7 @@ const DisasterEventReportsPage = () => {
                       style={{
                         ...tableStyles.td,
                         ...centeredColumnStyles,
-                        ...columnWidthStyles.status,
+                        ...activeColumnWidthStyles.status,
                       }}
                     >
                       <span style={getDisasterEventStatusStyles(row.status)}>
@@ -762,8 +772,12 @@ const DisasterEventReportsPage = () => {
                       </span>
                     </td>
                     <td
-                      className="disaster-summary-text-cell"
-                      style={{ ...tableStyles.td, ...columnWidthStyles.affectedBarangays }}
+                      className={`disaster-summary-text-cell${
+                        isSpecificDisasterEventSelected
+                          ? " disaster-summary-specific-barangay-cell"
+                          : ""
+                      }`}
+                      style={{ ...tableStyles.td, ...activeColumnWidthStyles.affectedBarangays }}
                     >
                       {isSpecificDisasterEventSelected ? (
                         <div>{row.barangay_name || "--"}</div>
@@ -781,7 +795,7 @@ const DisasterEventReportsPage = () => {
                       style={{
                         ...tableStyles.td,
                         ...centeredColumnStyles,
-                        ...columnWidthStyles.registeredHouseholds,
+                        ...activeColumnWidthStyles.registeredHouseholds,
                       }}
                     >
                       {row.registered_households_count || 0}
@@ -791,7 +805,7 @@ const DisasterEventReportsPage = () => {
                       style={{
                         ...tableStyles.td,
                         ...centeredColumnStyles,
-                        ...columnWidthStyles.distributedAid,
+                        ...activeColumnWidthStyles.distributedAid,
                       }}
                     >
                       {row.distributed_aid_count || 0}
@@ -801,7 +815,7 @@ const DisasterEventReportsPage = () => {
                       style={{
                         ...tableStyles.td,
                         ...centeredColumnStyles,
-                        ...columnWidthStyles.claimStatus,
+                        ...activeColumnWidthStyles.claimStatus,
                       }}
                     >
                       <div>Claimed: {row.claimed_stubs_count || 0}</div>

@@ -198,7 +198,7 @@ const DisasterEventsTable = ({
                   textAlign: "left",
                 }}
               >
-                Name
+                Disaster Event
               </th>
               <th
                 style={{
