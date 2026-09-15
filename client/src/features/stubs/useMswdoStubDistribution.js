@@ -54,10 +54,23 @@ const getFriendlyErrorMessage = (error) => {
   return error?.message || "Unable to load the relief goods distribution page.";
 };
 
-const getMappedRows = (stubRows) =>
+const getMappedRows = (stubRows, disasterEventId = "") =>
   stubRows.map((stubRow) => ({
     id: stubRow.id,
+    disaster_event_id:
+      stubRow.disaster_event?.id || stubRow.disaster_event_id || disasterEventId || null,
+    disaster_event: stubRow.disaster_event || null,
+    barangay_id: stubRow.barangay?.id || stubRow.barangay_id || null,
+    barangay: stubRow.barangay ||
+      (stubRow.barangay_id || stubRow.barangay_name
+        ? {
+            id: stubRow.barangay_id || null,
+            name: stubRow.barangay_name || "",
+          }
+        : null),
     household_id: stubRow.household?.id || stubRow.household_id,
+    household_occurrence_id:
+      stubRow.household_occurrence_id || stubRow.occurrence_id || null,
     family_head_name: stubRow.household?.family_head_name || "-",
     members_count: stubRow.household?.members_count || 0,
     display_stub_no:
@@ -432,8 +445,11 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
   ]);
 
   const rows = useMemo(() => {
-    return sortPresentedStubRows([...pendingLocalRows, ...getMappedRows(dashboard.data || [])]);
-  }, [dashboard.data, pendingLocalRows]);
+    return sortPresentedStubRows([
+      ...pendingLocalRows,
+      ...getMappedRows(dashboard.data || [], selectedDisasterEventId),
+    ]);
+  }, [dashboard.data, pendingLocalRows, selectedDisasterEventId]);
 
   const selectedDisasterEvent = useMemo(() => {
     return disasterEvents.find((event) => event.id === selectedDisasterEventId) || null;
