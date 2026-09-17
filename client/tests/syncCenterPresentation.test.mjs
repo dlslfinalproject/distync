@@ -126,6 +126,28 @@ test("BRG-SC-P04C tab panels keep accessible labels without visible duplicate he
   assert.doesNotMatch(source, /<h3[^>]*>Conflict Review<\/h3>/);
 });
 
+test("Sync Center keeps Conflict Review content visible during background refresh", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+  const conflictSection = source.match(
+    /activeSyncTab === "CONFLICTS" \? \([\s\S]*?\n\s*\) : null/,
+  )?.[0] || "";
+
+  assert.match(source, /const isInitialHistoryLoading =/);
+  assert.match(
+    conflictSection,
+    /isVisible=\{!isInitialHistoryLoading && !errorMessage\}/,
+  );
+  assert.match(conflictSection, /disabled=\{isInitialHistoryLoading\}/);
+  assert.match(conflictSection, /disablePageSize=\{isInitialHistoryLoading\}/);
+  assert.match(conflictSection, /\{isInitialHistoryLoading \? \(/);
+  assert.match(conflictSection, /Loading conflicts\.\.\./);
+  assert.doesNotMatch(
+    conflictSection,
+    /isVisible=\{!isLoadingHistory && !errorMessage\}/,
+  );
+  assert.doesNotMatch(conflictSection, /\{isLoadingHistory \? \(/);
+});
+
 test("BRG-SC-P05 transaction and conflict status filters are not mixed", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
 
