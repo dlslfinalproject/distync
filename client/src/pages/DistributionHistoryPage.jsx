@@ -118,6 +118,7 @@ const formatDateTime = (value) => {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: "Asia/Manila",
   });
 };
 
@@ -152,6 +153,37 @@ const ORDER_LIST_OPTIONS = [
   { value: "az", label: "Sort A-Z" },
   { value: "za", label: "Sort Z-A" },
 ];
+
+const calendarDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+const isValidCalendarDate = (value) => {
+  if (typeof value !== "string" || !calendarDatePattern.test(value)) {
+    return false;
+  }
+
+  const parsedDate = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    !Number.isNaN(parsedDate.getTime()) &&
+    parsedDate.toISOString().slice(0, 10) === value
+  );
+};
+
+const getDateRangeError = ({ date_from: dateFrom = "", date_to: dateTo = "" } = {}) => {
+  if (dateFrom && !isValidCalendarDate(dateFrom)) {
+    return "Date From must be a valid date.";
+  }
+
+  if (dateTo && !isValidCalendarDate(dateTo)) {
+    return "Date To must be a valid date.";
+  }
+
+  if (dateFrom && dateTo && dateFrom > dateTo) {
+    return "Date From must be on or before Date To.";
+  }
+
+  return "";
+};
 
 const createDefaultPagination = () => ({
   page: 1,
@@ -224,6 +256,14 @@ const DistributionHistoryPage = () => {
   const historyRequestIdRef = useRef(0);
 
   const isSummaryMode = !filters.disaster_event_id;
+  const historyDateRangeError = useMemo(
+    () => getDateRangeError(filters),
+    [filters.date_from, filters.date_to],
+  );
+  const exportDateRangeError = useMemo(
+    () => getDateRangeError(exportFilters),
+    [exportFilters.date_from, exportFilters.date_to],
+  );
 
   const updateFilters = (updater) => {
     setPage(1);
@@ -288,6 +328,17 @@ const DistributionHistoryPage = () => {
     const requestId = historyRequestIdRef.current + 1;
     historyRequestIdRef.current = requestId;
 
+    if (historyDateRangeError) {
+      setHistoryRows([]);
+      setHistoryPagination(createDefaultPagination());
+      setIsLoadingHistory(false);
+      setErrorMessage(historyDateRangeError);
+
+      return () => {
+        isMounted = false;
+      };
+    }
+
     const loadHistory = async () => {
       setIsLoadingHistory(true);
       setErrorMessage("");
@@ -326,7 +377,7 @@ const DistributionHistoryPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [filters, isSummaryMode, page, pageSize, searchTerm, sortOrder]);
+  }, [filters, historyDateRangeError, isSummaryMode, page, pageSize, searchTerm, sortOrder]);
 
   useEffect(() => {
     const numericTotalItems = Number(historyPagination.totalItems || 0);
@@ -575,6 +626,19 @@ const DistributionHistoryPage = () => {
             </select>
           </div>
         </div>
+        {historyDateRangeError ? (
+          <p
+            role="alert"
+            style={{
+              margin: "14px 0 0",
+              color: "#b42318",
+              fontSize: "13px",
+              fontWeight: 700,
+            }}
+          >
+            {historyDateRangeError}
+          </p>
+        ) : null}
       </section>
 
       <section
@@ -864,6 +928,10 @@ const DistributionHistoryPage = () => {
           }
         }}
         onSubmit={async () => {
+          if (exportDateRangeError) {
+            return;
+          }
+
           setExportingFormat(selectedExportFormat);
           setIsExportModalOpen(false);
 
@@ -995,6 +1063,20 @@ const DistributionHistoryPage = () => {
             />
           </div>
         </div>
+
+        {exportDateRangeError ? (
+          <p
+            role="alert"
+            style={{
+              margin: "-4px 0 0",
+              color: "#b42318",
+              fontSize: "13px",
+              fontWeight: 700,
+            }}
+          >
+            {exportDateRangeError}
+          </p>
+        ) : null}
 
         <div>
           <label htmlFor="distribution-history-export-order-list" style={exportLabelStyles}>

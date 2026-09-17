@@ -8,9 +8,39 @@ const allowedReceiptStatuses = [
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const calendarDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
+};
+
+const isValidCalendarDate = (value) => {
+  if (typeof value !== "string" || !calendarDatePattern.test(value)) {
+    return false;
+  }
+
+  const parsedDate = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    !Number.isNaN(parsedDate.getTime()) &&
+    parsedDate.toISOString().slice(0, 10) === value
+  );
+};
+
+const normalizeOptionalCalendarDate = (value, fieldName) => {
+  if (value === undefined || value === null || value === "") {
+    return { value: null };
+  }
+
+  const normalizedValue = typeof value === "string" ? value.trim() : "";
+
+  if (!isValidCalendarDate(normalizedValue)) {
+    return {
+      error: `${fieldName} must be a valid date in YYYY-MM-DD format`,
+    };
+  }
+
+  return { value: normalizedValue };
 };
 
 const validateCreateDistributionTransaction = (req, res, next) => {
@@ -250,15 +280,38 @@ const validateGetDistributionHistory = (req, res, next) => {
       });
     }
 
-    if (date_from && Number.isNaN(new Date(date_from).getTime())) {
+    const normalizedDateFromResult = normalizeOptionalCalendarDate(
+      date_from,
+      "date_from",
+    );
+
+    if (normalizedDateFromResult.error) {
       return res.status(400).json({
-        message: "date_from must be a valid date when provided",
+        message: normalizedDateFromResult.error,
       });
     }
 
-    if (date_to && Number.isNaN(new Date(date_to).getTime())) {
+    const normalizedDateToResult = normalizeOptionalCalendarDate(
+      date_to,
+      "date_to",
+    );
+
+    if (normalizedDateToResult.error) {
       return res.status(400).json({
-        message: "date_to must be a valid date when provided",
+        message: normalizedDateToResult.error,
+      });
+    }
+
+    const normalizedDateFrom = normalizedDateFromResult.value;
+    const normalizedDateTo = normalizedDateToResult.value;
+
+    if (
+      normalizedDateFrom &&
+      normalizedDateTo &&
+      normalizedDateFrom > normalizedDateTo
+    ) {
+      return res.status(400).json({
+        message: "date_from must be on or before date_to",
       });
     }
 
@@ -314,8 +367,8 @@ const validateGetDistributionHistory = (req, res, next) => {
       disaster_event_id: disaster_event_id || null,
       barangay_id: barangay_id || null,
       status: status || null,
-      date_from: date_from || null,
-      date_to: date_to || null,
+      date_from: normalizedDateFrom,
+      date_to: normalizedDateTo,
       sort_order: sort_order || "newest",
       limit: parsedLimit,
       page: parsedPage,

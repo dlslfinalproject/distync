@@ -186,3 +186,16 @@ test("Distribution History export modal exposes its report customizations", asyn
   assert.match(modalSource, /disabled=\{isSubmitting\}/);
   assert.match(modalSource, /placeFormatLast/);
 });
+
+test("Distribution History validates date ranges before loading or exporting", async () => {
+  const source = normalizeSource(
+    await readSource(["pages", "DistributionHistoryPage.jsx"]),
+  );
+
+  assert.match(source, /const getDateRangeError =/);
+  assert.match(source, /Date From must be on or before Date To\./);
+  assert.match(source, /if \(historyDateRangeError\)/);
+  assert.match(source, /if \(exportDateRangeError\) \{/);
+  assert.match(source, /timeZone: "Asia\/Manila"/);
+  assert.match(source, /role="alert"/);
+});
