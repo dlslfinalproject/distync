@@ -12,6 +12,7 @@ import { fetchSectors } from "../household-registration/householdRegistrationSer
 import {
   mapMasterlistRow,
 } from "../masterlist/masterlistService";
+import { getLatestHouseholdLifecycleEntry } from "../masterlist/barangayMasterlistUi";
 import {
   DEFAULT_TABLE_PAGE_SIZE,
   TABLE_PAGE_SIZE_OPTIONS,
@@ -31,6 +32,7 @@ import { buildMswdoOfflineMasterlistPayload } from "./mswdoMasterlistOffline.js"
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue.js";
 import { deriveBarangayDashboardMetrics } from "../barangay-dashboard/barangayDashboardOfflineMetrics.js";
 import { subscribeToSyncUpdates } from "../../offline/syncService.js";
+import { buildSyncDescriptor } from "../../offline/syncStatus";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -108,6 +110,20 @@ const getMappedRows = (
     };
   });
 };
+
+const getMappedOnlineRows = (
+  households,
+  allHouseholds = households,
+  disasterEventId = "",
+  syncQueueEntries = [],
+) =>
+  getMappedRows(households, allHouseholds, disasterEventId).map((row) => ({
+    ...row,
+    sync_status: buildSyncDescriptor(
+      getLatestHouseholdLifecycleEntry(syncQueueEntries, row),
+    ).status,
+    is_local_only: false,
+  }));
 
 const getSummaryMetrics = (dashboardPayload) => {
   const summary = dashboardPayload.summary_metrics || emptyDashboardPayload.summary_metrics;
@@ -437,35 +453,13 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
           search: debouncedSearchTerm,
           sectorCodes: selectedSectorIds,
           sortOrder: selectedSortOrder,
-          completeDataset: recordStatus === "archived",
         });
-
-        const renderedPayload = recordStatus === "archived" && !payload.pagination
-          ? buildMswdoOfflineMasterlistPayload({
-              households: payload.data || [],
-              mapRow: (household, allHouseholds) =>
-                getMappedRows(allHouseholds, allHouseholds, selectedDisasterEventId).find(
-                  (row) => row.household_id === household.household_id,
-                ),
-              selectedBarangayId,
-              recordStatus,
-              searchTerm: debouncedSearchTerm,
-              selectedSectorIds,
-              selectedSortOrder,
-              currentPage,
-              pageSize,
-              basePayload: payload,
-              syncQueueEntries,
-              selectedEventTitle: payload.disaster_event?.title || "",
-              sectorOptions: sectors,
-            })
-          : payload;
 
         if (
           isMounted &&
           masterlistRequestSequenceRef.current === requestSequence
         ) {
-          setMasterlistPayload(renderedPayload);
+          setMasterlistPayload(payload);
         }
       } catch (error) {
         if (
@@ -593,12 +587,13 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
       return masterlistPayload.offline_projected_rows;
     }
 
-    return getMappedRows(
+    return getMappedOnlineRows(
       pageHouseholds,
       pageHouseholds,
       selectedDisasterEventId,
+      syncQueueEntries,
     );
-  }, [masterlistPayload.data, selectedDisasterEventId]);
+  }, [masterlistPayload.data, selectedDisasterEventId, syncQueueEntries]);
 
   const displayedRows = mappedRows;
 

@@ -34,6 +34,7 @@ import {
   DEFAULT_TABLE_PAGE_SIZE,
   TABLE_PAGE_SIZE_OPTIONS,
 } from "../../features/pagination/pagination.mjs";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
 
 const inputStyles = {
   width: "100%",
@@ -554,6 +555,8 @@ const AnomalyDetailModal = ({
   const [reviewSubmitError, setReviewSubmitError] = useState("");
   const [isReviewUnavailable, setIsReviewUnavailable] = useState(false);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const reviewFormRef = useRef(null);
+  const shouldScrollToReviewErrorRef = useRef(false);
   const outcomeFieldRef = useRef(null);
   const noteFieldRef = useRef(null);
 
@@ -566,6 +569,18 @@ const AnomalyDetailModal = ({
     setReviewSubmitError("");
     setIsReviewUnavailable(false);
   }, [anomaly]);
+
+  useEffect(() => {
+    if (
+      !shouldScrollToReviewErrorRef.current ||
+      Object.keys(reviewErrors).length === 0
+    ) {
+      return;
+    }
+
+    shouldScrollToReviewErrorRef.current = false;
+    scheduleScrollToFirstError(reviewFormRef);
+  }, [reviewErrors]);
 
   if (!anomaly) {
     return null;
@@ -647,6 +662,7 @@ const AnomalyDetailModal = ({
     }
 
     setReviewErrors(nextErrors);
+    shouldScrollToReviewErrorRef.current = Object.keys(nextErrors).length > 0;
 
     if (nextErrors.reviewStatus) {
       outcomeFieldRef.current?.focus?.();
@@ -919,6 +935,7 @@ const AnomalyDetailModal = ({
         {shouldShowReviewForm ? (
           <form
             id="anomaly-review-form"
+            ref={reviewFormRef}
             onSubmit={handleReviewSubmit}
             noValidate
             style={{ ...modalStyles.card, gridColumn: "1 / -1", padding: "14px" }}

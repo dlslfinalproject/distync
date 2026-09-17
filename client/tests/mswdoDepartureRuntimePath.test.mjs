@@ -110,13 +110,16 @@ test("DEP-RUNTIME-05 search and Barangay filtering operate on the projected rows
   assert.deepEqual(payload.data.map((item) => item.household_id), ["household-1"]);
 });
 
-test("DEP-RUNTIME-06 MSWDO Archived uses the complete dataset before local rendering", async () => {
+test("DEP-RUNTIME-06 MSWDO archived records use server-side pagination", async () => {
   const source = await read("src/features/mswdo-masterlist/useMswdoMasterlist.js");
   const service = await read("src/features/mswdo-masterlist/mswdoMasterlistService.js");
 
-  assert.match(source, /completeDataset: recordStatus === "archived"/);
-  assert.match(source, /recordStatus === "archived" && !payload\.pagination/);
-  assert.match(source, /buildMswdoOfflineMasterlistPayload/);
+  assert.doesNotMatch(source, /completeDataset: recordStatus === "archived"/);
+  assert.doesNotMatch(source, /recordStatus === "archived" && !payload\.pagination/);
+  assert.match(source, /page: currentPage/);
+  assert.match(source, /pageSize/);
+  assert.match(source, /getLatestHouseholdLifecycleEntry/);
+  assert.match(source, /sync_status: buildSyncDescriptor/);
   assert.match(service, /completeDataset = false/);
   assert.match(service, /!completeDataset && page !== undefined && pageSize !== undefined/);
 });

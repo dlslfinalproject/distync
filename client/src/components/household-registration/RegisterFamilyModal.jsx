@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import HouseholdFormSection from "./HouseholdFormSection";
@@ -14,6 +14,7 @@ import {
   HOUSEHOLD_REGISTRATION_FLOW_STEPS,
   getInitialHouseholdRegistrationFlowStep,
 } from "../../features/household-registration/privacyNotice.mjs";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
 
 const modalStyles = {
   backdrop: {
@@ -131,7 +132,29 @@ const resolveInitialFlowStep = (requiresPrivacyAcknowledgment) =>
     requiresPrivacyAcknowledgment,
   });
 
+const hasFieldValidationErrors = (validationErrors) => {
+  if (!validationErrors || typeof validationErrors !== "object") {
+    return false;
+  }
+
+  return Object.values(validationErrors).some((value) => {
+    if (typeof value === "string") {
+      return Boolean(value.trim());
+    }
+
+    if (Array.isArray(value)) {
+      return value.some((item) => hasFieldValidationErrors(item));
+    }
+
+    return value && typeof value === "object"
+      ? hasFieldValidationErrors(value)
+      : false;
+  });
+};
+
 const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
+  const formRef = useRef(null);
+  const shouldScrollToValidationErrorsRef = useRef(false);
   const [flowStep, setFlowStep] = useState(() =>
     resolveInitialFlowStep(form.requiresPrivacyAcknowledgment),
   );
@@ -158,6 +181,19 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
     setPendingPrivacyAcknowledgment(null);
   }, [form.requiresPrivacyAcknowledgment, isOpen]);
 
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !shouldScrollToValidationErrorsRef.current ||
+      !hasFieldValidationErrors(form.validationErrors)
+    ) {
+      return;
+    }
+
+    shouldScrollToValidationErrorsRef.current = false;
+    scheduleScrollToFirstError(formRef);
+  }, [form.validationErrors, isOpen]);
+
   if (!isOpen) {
     return null;
   }
@@ -175,12 +211,14 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    shouldScrollToValidationErrorsRef.current = true;
 
     const wasSuccessful = await form.submitRegistration(
       pendingPrivacyAcknowledgment,
     );
 
     if (wasSuccessful) {
+      shouldScrollToValidationErrorsRef.current = false;
       handleClose();
       return;
     }
@@ -242,7 +280,7 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} style={modalStyles.sections}>
+            <form ref={formRef} onSubmit={handleSubmit} style={modalStyles.sections}>
               {form.errorMessage && !isDuplicateWarningOpen ? (
                 <div
                   style={{

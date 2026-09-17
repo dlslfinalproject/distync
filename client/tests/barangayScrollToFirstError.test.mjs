@@ -74,11 +74,20 @@ test("Barangay validated non-form modals schedule the same first-error scroll", 
 });
 
 test("MSWDO validation surfaces expose the first-error targets", async () => {
-  const [eventFormSource, eventPageSource, masterlistSource, syncSource] =
+  const [
+    eventFormSource,
+    eventPageSource,
+    masterlistSource,
+    registrationModalSource,
+    anomalySource,
+    syncSource,
+  ] =
     await Promise.all([
       readSource("src/components/disaster-events/DisasterEventFormModal.jsx"),
       readSource("src/pages/mswdo/DisasterEventsPage.jsx"),
       readSource("src/pages/mswdo/ConsolidatedMasterlistPage.jsx"),
+      readSource("src/components/household-registration/RegisterFamilyModal.jsx"),
+      readSource("src/pages/mswdo/AnomalyTrackingPage.jsx"),
       readSource("src/pages/SyncManagementPage.jsx"),
     ]);
 
@@ -102,6 +111,15 @@ test("MSWDO validation surfaces expose the first-error targets", async () => {
     /scheduleScrollToFirstError\(exportModalRef\)/,
   );
   assert.match(masterlistSource, /modalRef=\{exportModalRef\}/);
+  assert.match(registrationModalSource, /const formRef = useRef\(null\);/);
+  assert.match(
+    registrationModalSource,
+    /scheduleScrollToFirstError\(formRef\)/,
+  );
+  assert.match(registrationModalSource, /ref=\{formRef\}/);
+  assert.match(anomalySource, /const reviewFormRef = useRef\(null\);/);
+  assert.match(anomalySource, /scheduleScrollToFirstError\(reviewFormRef\)/);
+  assert.match(anomalySource, /ref=\{reviewFormRef\}/);
   assert.match(
     syncSource,
     /isMayorPortal \|\| isBarangayPortal \|\| isMswdoPortal/,

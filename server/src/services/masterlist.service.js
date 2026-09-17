@@ -626,22 +626,11 @@ const buildExportSummaryMetrics = (households, lineageHouseholds = households) =
 };
 
 const exportMswdoMasterlist = async (filters) => {
-  await disasterEventService.syncOverdueActiveDisasterEvents();
-
-  const [masterlist, dashboard] = await Promise.all([
-    getMasterlist({
-      disaster_event_id: filters.disaster_event_id,
-      barangay_id: null,
-      record_status: filters.record_status === "active" ? "active" : "all",
-    }),
-    getMswdoMasterlistDashboard({
-      disaster_event_id: filters.disaster_event_id,
-      barangay_id:
-        Array.isArray(filters.barangay_ids) && filters.barangay_ids.length === 1
-          ? filters.barangay_ids[0]
-          : filters.barangay_id,
-    }),
-  ]);
+  const masterlist = await getMasterlist({
+    disaster_event_id: filters.disaster_event_id,
+    barangay_id: null,
+    record_status: "all",
+  });
 
   const recordStatusFilteredRows = filterMasterlistByRecordStatus(
     masterlist.data || [],
@@ -655,14 +644,21 @@ const exportMswdoMasterlist = async (filters) => {
     barangayFilteredRows,
     filters.sector_ids || [],
   );
-  const exportSummaryMetrics =
-    Array.isArray(filters.barangay_ids) && filters.barangay_ids.length > 1
-      ? buildExportSummaryMetrics(sectorFilteredRows, recordStatusFilteredRows)
-      : dashboard.summary_metrics;
-
+  const exportHouseholdRows = sectorFilteredRows.map((household) => ({
+    household,
+    exportRow: mapHouseholdToExportRow(household),
+  }));
   const exportRows = filterExportRows(
-    sectorFilteredRows.map(mapHouseholdToExportRow),
+    exportHouseholdRows.map(({ exportRow }) => exportRow),
     filters.search || "",
+  );
+  const exportRowSet = new Set(exportRows);
+  const exportHouseholds = exportHouseholdRows
+    .filter(({ exportRow }) => exportRowSet.has(exportRow))
+    .map(({ household }) => household);
+  const exportSummaryMetrics = buildExportSummaryMetrics(
+    exportHouseholds,
+    recordStatusFilteredRows,
   );
   const sortedExportRows = sortExportRows(
     exportRows,

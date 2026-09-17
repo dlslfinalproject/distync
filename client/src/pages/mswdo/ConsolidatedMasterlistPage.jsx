@@ -298,6 +298,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         onSelectAll={handleSelectAll}
         showAddressColumn={!selectedBarangayId}
         isOffline={isOffline}
+        showOfflineSyncStatus={!isEndedView}
         pagination={{
           page: currentPage,
           pageSize,

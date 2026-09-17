@@ -75,6 +75,12 @@ const resolveFamilyHeadName = (record = {}) => {
   ).trim();
 };
 
+const getUniqueHouseholdIds = (householdIds) => [
+  ...new Set(
+    (Array.isArray(householdIds) ? householdIds : []).filter(Boolean),
+  ),
+];
+
 export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
   const {
@@ -473,9 +479,11 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       return;
     }
 
-    const selectableHouseholdIds = displayedRows
-      .filter((row) => !row.departure_time_value && row.can_record_departure)
-      .map((row) => row.household_id);
+    const selectableHouseholdIds = getUniqueHouseholdIds(
+      displayedRows
+        .filter((row) => !row.departure_time_value && row.can_record_departure)
+        .map((row) => row.household_id),
+    );
 
     const areAllSelected =
       selectableHouseholdIds.length > 0 &&
@@ -485,13 +493,19 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   };
 
   const handleOpenBulkDepartureConfirmation = async () => {
-    if (isEndedView || !selectedHouseholds.length || isRecordingDeparture) {
+    const uniqueSelectedHouseholdIds = getUniqueHouseholdIds(selectedHouseholds);
+
+    if (isEndedView || !uniqueSelectedHouseholdIds.length || isRecordingDeparture) {
       return;
     }
 
-    if (selectedHouseholds.length === 1) {
-      await handleOpenDepartureConfirmation(selectedHouseholds[0]);
+    if (uniqueSelectedHouseholdIds.length === 1) {
+      await handleOpenDepartureConfirmation(uniqueSelectedHouseholdIds[0]);
       return;
+    }
+
+    if (uniqueSelectedHouseholdIds.length !== selectedHouseholds.length) {
+      setSelectedHouseholds(uniqueSelectedHouseholdIds);
     }
 
     setPendingDepartureHouseholdId("");
@@ -501,12 +515,12 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setIsBulkDepartureConfirmOpen(true);
 
     const selectedRows = displayedRows.filter((row) =>
-      selectedHouseholds.includes(row.household_id),
+      uniqueSelectedHouseholdIds.includes(row.household_id),
     );
 
     try {
       const detailResults = await Promise.allSettled(
-        selectedHouseholds.map((householdId) =>
+        uniqueSelectedHouseholdIds.map((householdId) =>
           fetchMswdoDepartureDetails({
             householdId,
             eventId: selectedDisasterEventId,
@@ -516,7 +530,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
         ),
       );
 
-      const previewItems = selectedHouseholds.map((householdId, index) => {
+      const previewItems = uniqueSelectedHouseholdIds.map((householdId, index) => {
         const detailValue =
           detailResults[index]?.status === "fulfilled"
             ? detailResults[index].value
@@ -593,9 +607,11 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setIsRecordingDeparture(true);
 
     try {
-      if (isBulkDepartureConfirmOpen && selectedHouseholds.length > 0) {
-        await Promise.all(
-          selectedHouseholds.map((householdId) => {
+      const uniqueSelectedHouseholdIds = getUniqueHouseholdIds(selectedHouseholds);
+
+      if (isBulkDepartureConfirmOpen && uniqueSelectedHouseholdIds.length > 0) {
+        const departureResults = await Promise.allSettled(
+          uniqueSelectedHouseholdIds.map((householdId) => {
             const row = displayedRows.find((candidate) => candidate.household_id === householdId);
             return departHousehold({
               householdId,
@@ -606,7 +622,23 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
           }),
         );
 
-        setAttendanceActionMessage("Selected households marked as departed");
+        const failedDepartures = departureResults.filter(
+          (result) => result.status === "rejected",
+        );
+        const successfulDepartures = departureResults.length - failedDepartures.length;
+
+        if (failedDepartures.length === 0) {
+          setAttendanceActionMessage("Selected households marked as departed");
+        } else if (successfulDepartures > 0) {
+          setAttendanceActionMessage(
+            `${successfulDepartures} selected household${successfulDepartures === 1 ? "" : "s"} marked as departed. ${failedDepartures.length} could not be marked as departed.`,
+          );
+        } else {
+          setAttendanceActionMessage(
+            failedDepartures[0].reason?.message ||
+              "Failed to mark the selected households as departed.",
+          );
+        }
         setSelectedHouseholds([]);
         setPendingBulkDepartureHouseholds([]);
         setIsBulkDepartureConfirmOpen(false);
