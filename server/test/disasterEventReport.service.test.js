@@ -38,6 +38,7 @@ const loadServiceWithMocks = (repositoryOverrides = {}, exportOverrides = {}) =>
   const originalEntries = new Map();
   const mockRepository = {
     getActiveDisasterEvents: async () => [],
+    getDisasterEventReportSummary: async () => [],
     getDisasterEventReportBarangayBreakdown: async () => [],
     ...repositoryOverrides,
   };
@@ -95,10 +96,131 @@ const loadServiceWithMocks = (repositoryOverrides = {}, exportOverrides = {}) =>
   };
 };
 
+test("getDisasterEventReportSummary applies aggregate selection, filters, and pagination", async () => {
+  let capturedFilters = null;
+  const harness = loadServiceWithMocks({
+    getActiveDisasterEvents: async () => {
+      throw new Error("report summary should not run lifecycle cleanup");
+    },
+    getDisasterEventReportSummary: async (filters) => {
+      capturedFilters = filters;
+      return {
+        rows: [{ id: "event-1" }],
+        pagination: {
+          page: 2,
+          pageSize: 25,
+          totalItems: 26,
+          totalPages: 2,
+          hasPreviousPage: true,
+          hasNextPage: false,
+        },
+      };
+    },
+  });
+
+  try {
+    const result = await harness.service.getDisasterEventReportSummary({
+      event_selection: "ACTIVE",
+      status: "ACTIVE",
+      barangay_id: "barangay-1",
+      date_from: "2026-09-01",
+      date_to: "2026-09-15",
+      search: "Santiago",
+      sort_order: "oldest",
+      page: 2,
+      page_size: 25,
+      limit: 100,
+    });
+
+    assert.deepEqual(capturedFilters, {
+      disasterEventId: null,
+      barangayId: "barangay-1",
+      statuses: ["ACTIVE"],
+      status: null,
+      dateFrom: "2026-09-01",
+      dateTo: "2026-09-15",
+      search: "Santiago",
+      sortOrder: "oldest",
+      page: 2,
+      pageSize: 25,
+      limit: 100,
+    });
+    assert.deepEqual(result.rows, [{ id: "event-1" }]);
+    assert.equal(result.pagination.totalItems, 26);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("exportDisasterEventReportSummary uses event-summary rows for aggregate selections", async () => {
+  let capturedFilters = null;
+  const harness = loadServiceWithMocks({
+    getDisasterEventReportSummary: async (filters) => {
+      capturedFilters = filters;
+      return [
+        {
+          title: "Flood Quiapo",
+          affected_barangays_text: "Bagong Pook, Santiago",
+          status: "ACTIVE",
+          registered_households_count: 3,
+          distributed_aid_count: 2,
+          claimed_stubs_count: 1,
+          unclaimed_stubs_count: 1,
+        },
+      ];
+    },
+  });
+
+  try {
+    const result = await harness.service.exportDisasterEventReportSummary({
+      event_selection: "ALL",
+      barangay_id: "barangay-1",
+      status: "ACTIVE",
+      date_from: "2026-09-01",
+      date_to: "2026-09-15",
+      search: "Flood",
+      sort_order: "newest",
+      format: "csv",
+    });
+
+    assert.deepEqual(capturedFilters, {
+      disasterEventId: null,
+      barangayId: "barangay-1",
+      statuses: null,
+      status: "ACTIVE",
+      dateFrom: "2026-09-01",
+      dateTo: "2026-09-15",
+      search: "Flood",
+      sortOrder: "newest",
+      page: null,
+      pageSize: null,
+      limit: null,
+    });
+    assert.deepEqual(
+      result.payload.columns.map((column) => column.key),
+      [
+        "event_label",
+        "status",
+        "affected_barangays",
+        "registered_households_count",
+        "distributed_aid_count",
+        "claim_status_summary",
+      ],
+    );
+    assert.equal(result.payload.rows[0].affected_barangays, "Bagong Pook, Santiago");
+    assert.equal(
+      result.payload.rows[0].claim_status_summary,
+      "Claimed: 1\nUnclaimed: 1",
+    );
+  } finally {
+    harness.restore();
+  }
+});
+
 test("exportDisasterEventReportSummary applies ACTIVE status filtering authoritatively", async () => {
   const capturedCalls = [];
   const harness = loadServiceWithMocks({
-    getDisasterEventReportBarangayBreakdown: async (filters) => {
+    getDisasterEventReportSummary: async (filters) => {
       capturedCalls.push(filters);
       return [
         {
@@ -136,7 +258,7 @@ test("exportDisasterEventReportSummary applies ACTIVE status filtering authorita
 test("exportDisasterEventReportSummary maps ENDED to the canonical ended statuses", async () => {
   const capturedCalls = [];
   const harness = loadServiceWithMocks({
-    getDisasterEventReportBarangayBreakdown: async (filters) => {
+    getDisasterEventReportSummary: async (filters) => {
       capturedCalls.push(filters);
       return [
         {

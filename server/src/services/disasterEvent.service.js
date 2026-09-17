@@ -1008,47 +1008,105 @@ const exportDisasterEvents = async ({
   });
 };
 
-const getDisasterEventReportSummary = async (filters) => {
-  await syncOverdueActiveDisasterEvents();
+const resolveDisasterEventReportStatusFilters = ({
+  selectionStatuses,
+  status,
+}) => {
+  const normalizedStatus = String(status || "").trim().toUpperCase();
 
-  if (filters.disaster_event_id) {
-    return disasterEventRepository.getDisasterEventReportBarangayBreakdown({
-      disasterEventId: filters.disaster_event_id,
-      barangayId: filters.barangay_id || null,
-      status: filters.status || null,
-      dateFrom: filters.date_from || null,
-      dateTo: filters.date_to || null,
-      sortOrder: filters.sort_order || "newest",
-      limit: filters.limit || 100,
-    });
+  if (Array.isArray(selectionStatuses)) {
+    if (!normalizedStatus) {
+      return {
+        statuses: selectionStatuses,
+        status: null,
+      };
+    }
+
+    return {
+      statuses: selectionStatuses.includes(normalizedStatus)
+        ? [normalizedStatus]
+        : [],
+      status: null,
+    };
   }
 
-  return disasterEventRepository.getDisasterEventReportSummary({
-    disasterEventId: filters.disaster_event_id || null,
-    barangayId: filters.barangay_id || null,
-    status: filters.status || null,
-    dateFrom: filters.date_from || null,
-    dateTo: filters.date_to || null,
-    sortOrder: filters.sort_order || "newest",
-    limit: filters.limit || 100,
-  });
+  return {
+    statuses: null,
+    status: normalizedStatus || null,
+  };
 };
 
-const exportDisasterEventReportSummary = async (filters) => {
+const buildDisasterEventReportRepositoryFilters = ({
+  filters = {},
+  selection,
+  statusFilters,
+  includePagination = true,
+}) => ({
+  disasterEventId: selection.disasterEventId,
+  barangayId: filters.barangay_id || null,
+  statuses: statusFilters.statuses,
+  status: statusFilters.status,
+  dateFrom: filters.date_from || null,
+  dateTo: filters.date_to || null,
+  search: filters.search || "",
+  sortOrder: filters.sort_order || "newest",
+  page: includePagination ? filters.page : null,
+  pageSize: includePagination ? filters.page_size : null,
+  limit: includePagination ? filters.limit || 100 : null,
+});
+
+const getDisasterEventReportSummary = async (filters = {}) => {
+  const selection = resolveDisasterEventReportSelection({
+    eventSelection: filters.event_selection,
+    disasterEventId: filters.disaster_event_id || null,
+  });
+  const statusFilters = resolveDisasterEventReportStatusFilters({
+    selectionStatuses: selection.statuses,
+    status: filters.status,
+  });
+  const repositoryFilters = buildDisasterEventReportRepositoryFilters({
+    filters,
+    selection,
+    statusFilters,
+  });
+
+  if (selection.disasterEventId) {
+    return disasterEventRepository.getDisasterEventReportBarangayBreakdown(
+      repositoryFilters,
+    );
+  }
+
+  return disasterEventRepository.getDisasterEventReportSummary(
+    repositoryFilters,
+  );
+};
+
+const exportDisasterEventReportSummary = async (filters = {}) => {
   await syncOverdueActiveDisasterEvents();
   const exportSelection = resolveDisasterEventReportSelection({
     eventSelection: filters.event_selection,
     disasterEventId: filters.disaster_event_id || null,
   });
-  const rows = await disasterEventRepository.getDisasterEventReportBarangayBreakdown({
-    disasterEventId: exportSelection.disasterEventId,
-    statuses: exportSelection.statuses,
-    status: filters.status || null,
-    dateFrom: filters.date_from || null,
-    dateTo: filters.date_to || null,
-    sortOrder: filters.sort_order || "newest",
-    limit: 5000,
+  const statusFilters = resolveDisasterEventReportStatusFilters({
+    selectionStatuses: exportSelection.statuses,
+    status: filters.status,
   });
+  const repositoryFilters = buildDisasterEventReportRepositoryFilters({
+    filters,
+    selection: exportSelection,
+    statusFilters,
+    includePagination: false,
+  });
+  const repositoryResult = exportSelection.disasterEventId
+    ? await disasterEventRepository.getDisasterEventReportBarangayBreakdown(
+        repositoryFilters,
+      )
+    : await disasterEventRepository.getDisasterEventReportSummary(
+        repositoryFilters,
+      );
+  const rows = Array.isArray(repositoryResult)
+    ? repositoryResult
+    : repositoryResult?.rows || [];
 
   if (rows.length === 0) {
     const error = new Error(exportSelection.emptyMessage);
@@ -1060,41 +1118,122 @@ const exportDisasterEventReportSummary = async (filters) => {
     exportSelection.disasterEventId && rows[0]?.title
       ? rows[0].title
       : exportSelection.selectionLabel;
+  const isBarangayBreakdown = Boolean(exportSelection.disasterEventId);
+  const metadata = [
+    {
+      label: "Disaster Event",
+      value: selectedDisasterEventLabel,
+    },
+    ...(filters.barangay_id
+      ? [
+          {
+            label: "Barangay",
+            value:
+              rows.find((row) => row.barangay_name)?.barangay_name ||
+              "Selected Barangay",
+          },
+        ]
+      : []),
+    ...(filters.status
+      ? [
+          {
+            label: "Status",
+            value: formatDisasterEventStatusLabel(filters.status),
+          },
+        ]
+      : []),
+    ...(filters.date_from
+      ? [{ label: "Date From", value: filters.date_from }]
+      : []),
+    ...(filters.date_to ? [{ label: "Date To", value: filters.date_to }] : []),
+    ...(filters.search
+      ? [{ label: "Search", value: filters.search }]
+      : []),
+    {
+      label: "Order List",
+      value: filters.sort_order || "newest",
+    },
+  ];
+  const columns = isBarangayBreakdown
+    ? [
+        { key: "event_label", label: "Disaster Event", width: 30, pdfWidth: 90 },
+        { key: "barangay_name", label: "Barangay", width: 22, pdfWidth: 65 },
+        { key: "status", label: "Status", width: 14, pdfWidth: 42 },
+        { key: "disaster_type", label: "Type", width: 20, pdfWidth: 55 },
+        {
+          key: "registered_households_count",
+          label: "Registered Households",
+          width: 18,
+          pdfWidth: 55,
+        },
+        {
+          key: "distributed_aid_count",
+          label: "Aid Distributed",
+          width: 18,
+          pdfWidth: 55,
+        },
+        { key: "claimed_stubs_count", label: "Claimed", width: 14, pdfWidth: 42 },
+        {
+          key: "unclaimed_stubs_count",
+          label: "Unclaimed",
+          width: 14,
+          pdfWidth: 42,
+        },
+      ]
+    : [
+        { key: "event_label", label: "Disaster Event", width: 30, pdfWidth: 100 },
+        { key: "status", label: "Status", width: 14, pdfWidth: 45 },
+        {
+          key: "affected_barangays",
+          label: "Affected Barangays",
+          width: 28,
+          pdfWidth: 100,
+        },
+        {
+          key: "registered_households_count",
+          label: "Registered Households",
+          width: 18,
+          pdfWidth: 55,
+        },
+        {
+          key: "distributed_aid_count",
+          label: "Aid Distributed",
+          width: 18,
+          pdfWidth: 55,
+        },
+        { key: "claim_status_summary", label: "Claim Summary", width: 20, pdfWidth: 70 },
+      ];
+  const exportRows = isBarangayBreakdown
+    ? rows.map((row) => ({
+        event_label: row.title || "--",
+        barangay_name: row.barangay_name || "--",
+        status: formatDisasterEventStatusLabel(row.status),
+        disaster_type: row.disaster_type || "--",
+        registered_households_count: row.registered_households_count || 0,
+        distributed_aid_count: row.distributed_aid_count || 0,
+        claimed_stubs_count: row.claimed_stubs_count || 0,
+        unclaimed_stubs_count: row.unclaimed_stubs_count || 0,
+      }))
+    : rows.map((row) => ({
+        event_label: row.title || "--",
+        status: formatDisasterEventStatusLabel(row.status),
+        affected_barangays: row.affected_barangays_text || "--",
+        registered_households_count: row.registered_households_count || 0,
+        distributed_aid_count: row.distributed_aid_count || 0,
+        claim_status_summary: `Claimed: ${row.claimed_stubs_count || 0}\nUnclaimed: ${row.unclaimed_stubs_count || 0}`,
+      }));
 
   return mswdoReportExport.buildExportFile({
-    filePrefix: "mswdo-disaster-event-barangay-distribution",
+    filePrefix: isBarangayBreakdown
+      ? "mswdo-disaster-event-barangay-distribution"
+      : "mswdo-disaster-event-summary",
     worksheetName: "Disaster Summary",
-    reportTitle: "MSWDO Disaster Events Barangay Distribution",
-    metadata: [
-      {
-        label: "Disaster Event",
-        value: selectedDisasterEventLabel,
-      },
-      {
-        label: "Order List",
-        value: filters.sort_order || "newest",
-      },
-    ],
-    columns: [
-      { key: "event_label", label: "Disaster Event", width: 30, pdfWidth: 90 },
-      { key: "barangay_name", label: "Barangay", width: 22, pdfWidth: 65 },
-      { key: "status", label: "Status", width: 14, pdfWidth: 42 },
-      { key: "disaster_type", label: "Type", width: 20, pdfWidth: 55 },
-      { key: "registered_households_count", label: "Registered Households", width: 18, pdfWidth: 55 },
-      { key: "distributed_aid_count", label: "Distributed Aid Count", width: 18, pdfWidth: 55 },
-      { key: "claimed_stubs_count", label: "Claimed", width: 14, pdfWidth: 42 },
-      { key: "unclaimed_stubs_count", label: "Unclaimed", width: 14, pdfWidth: 42 },
-    ],
-    rows: rows.map((row) => ({
-      event_label: row.title || "--",
-      barangay_name: row.barangay_name || "--",
-      status: formatDisasterEventStatusLabel(row.status),
-      disaster_type: row.disaster_type || "--",
-      registered_households_count: row.registered_households_count || 0,
-      distributed_aid_count: row.distributed_aid_count || 0,
-      claimed_stubs_count: row.claimed_stubs_count || 0,
-      unclaimed_stubs_count: row.unclaimed_stubs_count || 0,
-    })),
+    reportTitle: isBarangayBreakdown
+      ? "MSWDO Disaster Events Barangay Distribution"
+      : "MSWDO Disaster Events Summary",
+    metadata,
+    columns,
+    rows: exportRows,
     format: filters.format,
   });
 };

@@ -90,13 +90,17 @@ router.get(
   validateDisasterEventReportSummary,
   async (req, res) => {
     try {
-      const rows = await disasterEventService.getDisasterEventReportSummary(
+      const report = await disasterEventService.getDisasterEventReportSummary(
         req.validatedQuery,
       );
+      const data = Array.isArray(report) ? report : report?.rows || [];
 
       return res.status(200).json({
         message: "Disaster event report summary fetched successfully",
-        data: rows,
+        data,
+        ...(Array.isArray(report) || !report?.pagination
+          ? {}
+          : { pagination: report.pagination }),
       });
     } catch (error) {
       return res.status(error.statusCode || 500).json({
