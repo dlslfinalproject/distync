@@ -6,6 +6,10 @@ const stubDetailModalSourcePath = new URL(
   "../src/components/stubs/StubDetailModal.jsx",
   import.meta.url,
 );
+const stubClaimConfirmModalSourcePath = new URL(
+  "../src/components/stubs/StubClaimConfirmModal.jsx",
+  import.meta.url,
+);
 const inventoryDistributionDetailModalSourcePath = new URL(
   "../src/components/inventory-distribution/InventoryDistributionDetailModal.jsx",
   import.meta.url,
@@ -116,6 +120,27 @@ test("stub detail modal hides raw QR text without changing the encoded value", a
   assert.match(detailSource, /\{getDisplayStubNumber\(stubDetails\)\}/);
   assert.match(qrPanelSource, /const qrCodeValue = String\(value \|\| ""\)\.trim\(\);/);
   assert.match(qrPanelSource, /const qrPayloadUrl = buildStubQrUrl\(qrCodeValue\);/);
+});
+
+test("shared claim modal hides raw QR text while preserving the canonical payload for Barangay and MSWDO", async () => {
+  const [claimSource, barangaySource, mswdoSource] = await Promise.all([
+    fs.readFile(stubClaimConfirmModalSourcePath, "utf8"),
+    fs.readFile(barangayStubDistributionPageSourcePath, "utf8"),
+    fs.readFile(mswdoStubDistributionPageSourcePath, "utf8"),
+  ]);
+
+  assert.match(
+    claimSource,
+    /<QrCodePanel[\s\S]*?value=\{stubDetails\?\.qr_code_value \|\| ""\}[\s\S]*?showValue=\{false\}[\s\S]*?\/>/,
+  );
+  assert.match(claimSource, /<p style=\{modalStyles\.label\}>Stub Number<\/p>/);
+  assert.match(claimSource, /\{getDisplayStubNumber\(stubDetails\)\}/);
+  assert.match(claimSource, /Standard Relief/);
+  assert.match(claimSource, /Donated Relief/);
+  assert.match(claimSource, /Family Head/);
+  assert.match(claimSource, /resolveFamilyHeadPhoto/);
+  assert.match(barangaySource, /<StubClaimConfirmModal/);
+  assert.match(mswdoSource, /<StubClaimConfirmModal/);
 });
 
 test("stub detail modal renders disaster event title only without exposing the event code", async () => {
