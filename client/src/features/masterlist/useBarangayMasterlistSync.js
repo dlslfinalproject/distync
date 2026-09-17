@@ -224,7 +224,7 @@ export const useBarangayMasterlistSync = ({
 
     const revalidate = () => {
       if (isRevalidationAllowed()) {
-        reloadMasterlist();
+        reloadMasterlist({ background: true });
       }
     };
 
