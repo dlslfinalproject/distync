@@ -352,7 +352,16 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
 
         if (typeof navigator !== "undefined" && navigator.onLine === false) {
           const cachedRows = await getCachedStubRowsForScope({ disasterEventId: selectedDisasterEventId, currentBarangayId: selectedBarangayId });
-          if (!cachedRows.length) throw new Error("This disaster event has no prepared offline relief stubs for the selected Barangay.");
+          const localRows = await getPendingLocalStubRows({
+            disasterEventId: selectedDisasterEventId,
+            barangayId: isAllBarangays ? "" : selectedBarangayId,
+            includeAllBarangays: isAllBarangays,
+            sectorOptions: sectors,
+            existingHouseholdIds: cachedRows.map(
+              (row) => row.household?.id || row.household_id,
+            ),
+          });
+          if (!cachedRows.length && !localRows.length) throw new Error("This disaster event has no prepared offline relief stubs for the selected Barangay.");
           const rows = isAllBarangays
             ? cachedRows
             : cachedRows.filter((row) => String(row.barangay?.id || row.barangay_id || "") === String(selectedBarangayId));
@@ -365,7 +374,7 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
           );
           setDashboard({ metrics: { ...emptyMetrics, total_issued_stubs: presentedRows.length, claimed_stubs: presentedRows.filter((row) => row.presentation_status === "CLAIMED").length, unclaimed_stubs: presentedRows.filter((row) => row.presentation_status === "FOR_CLAIM").length, beneficiary_families: new Set(presentedRows.map((row) => row.household_id)).size }, data: sortPresentedStubRows(presentedRows) });
           setServerPagination(null);
-          setPendingLocalRows([]);
+          setPendingLocalRows(localRows);
           return;
         }
         const dashboardPayload = isAllBarangays && selectedEvent?.status === "ACTIVE"
@@ -401,6 +410,7 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
         const localRows = await getPendingLocalStubRows({
           disasterEventId: selectedDisasterEventId,
           barangayId: isAllBarangays ? "" : selectedBarangayId,
+          includeAllBarangays: isAllBarangays,
           sectorOptions: sectors,
           existingHouseholdIds: serverRows.map(
             (row) => row.household?.id || row.household_id,
@@ -438,6 +448,7 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
           const localRows = await getPendingLocalStubRows({
             disasterEventId: selectedDisasterEventId,
             barangayId: selectedBarangayId === ALL_BARANGAYS ? "" : selectedBarangayId,
+            includeAllBarangays: selectedBarangayId === ALL_BARANGAYS,
             sectorOptions: sectors,
           });
 

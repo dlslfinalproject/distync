@@ -1801,6 +1801,7 @@ const getInventoryDistributionDetailByStubId = async (
       de.event_code,
       de.title AS disaster_event_title,
       de.disaster_type,
+      de.status AS disaster_event_status,
       h.residency_status,
       h.family_head_first_name,
       h.family_head_middle_name,

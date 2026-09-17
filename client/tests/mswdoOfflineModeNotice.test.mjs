@@ -9,17 +9,14 @@ test("MSWDO offline notice uses truthful read-only copy and the Barangay banner 
   const notice = await readSource("components/layout/MswdoOfflineModeNotice.jsx");
 
   assert.match(notice, /Offline Mode Active/);
-  assert.match(
-    notice,
-    /You can view saved evacuee masterlist and analytics data while offline\./,
-  );
-  assert.match(notice, /Other functions require an internet connection\./);
+  assert.match(notice, /BARANGAY_OFFLINE_MODE_MESSAGE/);
+  assert.match(notice, /BARANGAY_OFFLINE_MODE_SCOPE_MESSAGE/);
+  assert.doesNotMatch(notice, /analytics data while offline/i);
+  assert.match(notice, /MSWDO_OFFLINE_MODE_LIMITATION/);
   assert.match(notice, /<h2/);
   assert.match(notice, /<p/);
   assert.match(notice, /margin: "2px 0 0"/);
   assert.doesNotMatch(notice, /continue supported actions/i);
-  assert.doesNotMatch(notice, /save them on this device/i);
-  assert.doesNotMatch(notice, /sync them when the connection returns/i);
   assert.doesNotMatch(notice, /failed|conflict|SyncStatusBanner/);
 });
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createDisasterEvent,
   fetchActiveDisasterEvents,
@@ -55,18 +55,28 @@ export const useDisasterEvents = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
+  const eventsRequestSeqRef = useRef(0);
 
   const loadEvents = async (filterValue = selectedFilter) => {
+    const requestSeq = eventsRequestSeqRef.current + 1;
+    eventsRequestSeqRef.current = requestSeq;
     setIsLoading(true);
     setErrorMessage("");
 
     try {
       const eventRows = await loadEventListByFilter(filterValue);
+      if (eventsRequestSeqRef.current !== requestSeq) {
+        return;
+      }
       setEvents(Array.isArray(eventRows) ? eventRows : []);
     } catch (error) {
-      setErrorMessage(error.message);
+      if (eventsRequestSeqRef.current === requestSeq) {
+        setErrorMessage(error.message);
+      }
     } finally {
-      setIsLoading(false);
+      if (eventsRequestSeqRef.current === requestSeq) {
+        setIsLoading(false);
+      }
     }
   };
 

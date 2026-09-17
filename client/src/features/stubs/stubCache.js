@@ -138,6 +138,9 @@ export const toOfflineStubSnapshot = (
     disaster_event_name: trimValue(
       getFirstValue(disasterEvent.name, disasterEvent.title, disasterEvent.event_name),
     ),
+    disaster_event_status: trimValue(
+      getFirstValue(disasterEvent.status, serverRow.disaster_event_status),
+    ),
     barangay_id: trimValue(
       getFirstValue(serverRow.barangay_id, barangay.id, household.barangay_id),
     ),
@@ -251,6 +254,7 @@ export const toStubRowFromOfflineSnapshot = (snapshot, syncEntry = null) => {
     disaster_event: {
       id: snapshot.disaster_event_id,
       name: snapshot.disaster_event_name,
+      status: snapshot.disaster_event_status || "",
     },
     barangay: {
       id: snapshot.barangay_id,

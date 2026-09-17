@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import {
+  isMswdoOfflineBlockedRoute,
+} from "../src/features/offline/mswdoOfflineAccess.js";
 
 const read = (file) => readFile(new URL(`../src/${file}`, import.meta.url), "utf8");
 
@@ -24,9 +27,27 @@ test("MSWDO cache scope includes mode, user, role, and event", async () => {
 test("MSWDO offline navigation keeps cached pages and mutes unsupported pages", async () => {
   const source = await read("features/offline/mswdoOfflineAccess.js");
   assert.match(source, /consolidated-masterlist/);
-  assert.match(source, /analytics/);
+  assert.doesNotMatch(source, /analytics/);
   assert.match(source, /startsWith\("\/mswdo\/"\)/);
   assert.match(source, /Connect online to access this page/);
+});
+
+test("MSWDO offline access is limited to masterlist, relief distribution, and sync", () => {
+  assert.equal(
+    isMswdoOfflineBlockedRoute("/mswdo/consolidated-masterlist"),
+    false,
+  );
+  assert.equal(isMswdoOfflineBlockedRoute("/mswdo/stub-distribution"), false);
+  assert.equal(isMswdoOfflineBlockedRoute("/mswdo/sync"), false);
+  assert.equal(isMswdoOfflineBlockedRoute("/mswdo/analytics"), true);
+  assert.equal(isMswdoOfflineBlockedRoute("/mswdo/analytics-dashboard"), true);
+  assert.equal(isMswdoOfflineBlockedRoute("/mswdo/disaster-events"), true);
+  assert.equal(
+    isMswdoOfflineBlockedRoute("/mswdo/stub-distribution", {
+      isPrepared: false,
+    }),
+    true,
+  );
 });
 
 test("MSWDO pages preserve valid cache on failed online reads and refresh on reconnect", async () => {

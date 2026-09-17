@@ -427,6 +427,33 @@ test("syncOverdueActiveDisasterEvents does not emit an ended notification when a
   assert.deepEqual(emittedActions, []);
 });
 
+test("syncOverdueActiveDisasterEvents coalesces concurrent reconciliation calls", async () => {
+  let activeEventCallCount = 0;
+  let releaseActiveEventQuery;
+  const activeEventQuery = new Promise((resolve) => {
+    releaseActiveEventQuery = resolve;
+  });
+
+  disasterEventRepository.getActiveDisasterEvents = async () => {
+    activeEventCallCount += 1;
+    await activeEventQuery;
+    return [];
+  };
+
+  const firstSync = disasterEventService.syncOverdueActiveDisasterEvents();
+  const secondSync = disasterEventService.syncOverdueActiveDisasterEvents();
+
+  assert.equal(activeEventCallCount, 1);
+
+  releaseActiveEventQuery();
+  const results = await Promise.all([firstSync, secondSync]);
+
+  assert.deepEqual(results, [
+    { closedCount: 0, closedEvents: [] },
+    { closedCount: 0, closedEvents: [] },
+  ]);
+});
+
 test("startDisasterEventLifecycleMaintenance only creates one interval", () => {
   const originalSetInterval = global.setInterval;
   const originalClearInterval = global.clearInterval;

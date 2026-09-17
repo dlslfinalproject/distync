@@ -32,13 +32,14 @@ test("MSWDO offline QR checks cached attendance and QR state before queueing", a
   const service = await read("../src/features/stubs/stubService.js");
 
   assert.match(service, /details\.latest_attendance_status/);
-  assert.match(service, /attendanceStatus === "PRESENT"/);
+  assert.match(service, /attendanceStatus !== "PRESENT"/);
   assert.match(service, /details\.qr_status/);
-  assert.match(service, /qrStatus === "ACTIVE"/);
+  assert.match(service, /qrStatus && qrStatus !== "ACTIVE"/);
 });
 
 test("MSWDO offline banner states prepared relief distribution support", async () => {
   const source = await read("../src/components/layout/MswdoOfflineModeNotice.jsx");
-  assert.match(source, /analytics data while offline\./);
-  assert.match(source, /prepared relief distribution/);
+  assert.match(source, /BARANGAY_OFFLINE_MODE_MESSAGE/);
+  assert.match(source, /BARANGAY_OFFLINE_MODE_SCOPE_MESSAGE/);
+  assert.doesNotMatch(source, /analytics data while offline/i);
 });

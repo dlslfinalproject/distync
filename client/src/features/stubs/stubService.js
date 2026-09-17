@@ -11,6 +11,7 @@ import {
   upsertOfflineStubSnapshots,
 } from "./stubCache.js";
 import { resolveStubSectorIdsForApi } from "./stubSectorFilters.js";
+import { QR_SCAN_ERROR_CODES } from "./stubQrScanErrors.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -43,6 +44,82 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   }
 
   return responseData;
+};
+
+const getOfflineVerificationFailure = (details = {}) => {
+  const stubStatus = String(details.status || "").trim().toUpperCase();
+  const qrStatus = String(details.qr_status || "").trim().toUpperCase();
+  const eventStatus = String(
+    details.disaster_event?.status || details.disaster_event_status || "",
+  )
+    .trim()
+    .toUpperCase();
+  const attendanceStatus = String(
+    details.latest_attendance_status ?? details.latest_attendance?.status ?? "",
+  )
+    .trim()
+    .toUpperCase();
+  const attendanceTimeOut =
+    details.latest_attendance_time_out ?? details.latest_attendance?.time_out;
+
+  if (stubStatus === "CLAIMED") {
+    return {
+      code: QR_SCAN_ERROR_CODES.STUB_ALREADY_CLAIMED,
+      reason:
+        "This relief stub has already been used in a completed distribution and cannot be claimed again.",
+    };
+  }
+
+  if (stubStatus === "CANCELLED" || stubStatus === "VOID") {
+    return {
+      code:
+        stubStatus === "CANCELLED"
+          ? QR_SCAN_ERROR_CODES.STUB_CANCELLED
+          : QR_SCAN_ERROR_CODES.STUB_VOID,
+      reason: "This relief stub is not available for distribution processing.",
+    };
+  }
+
+  if (stubStatus !== "ISSUED") {
+    return {
+      code: QR_SCAN_ERROR_CODES.STUB_UNAVAILABLE,
+      reason: "This relief stub is not available for distribution processing.",
+    };
+  }
+
+  if (details.household?.is_active === false) {
+    return {
+      code: QR_SCAN_ERROR_CODES.HOUSEHOLD_ARCHIVED,
+      reason:
+        "This household is archived and cannot receive a new relief distribution.",
+    };
+  }
+
+  if (qrStatus && qrStatus !== "ACTIVE") {
+    return {
+      code: QR_SCAN_ERROR_CODES.QR_INACTIVE,
+      reason:
+        "This QR reference is inactive and cannot be used for relief distribution.",
+    };
+  }
+
+  if (eventStatus && eventStatus !== "ACTIVE") {
+    return {
+      code: QR_SCAN_ERROR_CODES.DISASTER_EVENT_NOT_ACTIVE,
+      reason:
+        "This relief claim cannot be completed because the disaster event is no longer active.",
+    };
+  }
+
+  if (attendanceStatus !== "PRESENT" || attendanceTimeOut) {
+    return {
+      code: QR_SCAN_ERROR_CODES.HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER,
+      reason:
+        "This stub cannot be claimed because the household is not currently present in an evacuation center.",
+    };
+  }
+
+  return null;
 };
 
 const assertNoBlockingLocalStubClaim = async (stubId) => {
@@ -263,28 +340,18 @@ export const verifyStub = async ({ stubNo, serialNo, qrCodeValue, currentBaranga
     if (!canUseOfflineStubCacheFallback(error)) throw error;
     const details = await getCachedStubDetailsByQrValue(qrCodeValue, { currentBarangayId });
     if (!details) throw error;
-    const attendanceStatus = String(
-      details.latest_attendance_status ?? details.latest_attendance?.status ?? "",
-    )
-      .trim()
-      .toUpperCase();
-    const attendanceTimeOut =
-      details.latest_attendance_time_out ?? details.latest_attendance?.time_out;
-    const qrStatus = String(details.qr_status || "").trim().toUpperCase();
-    const claimable =
-      details.status === "ISSUED" &&
-      details.household?.is_active !== false &&
-      (!qrStatus || qrStatus === "ACTIVE") &&
-      attendanceStatus === "PRESENT" &&
-      !attendanceTimeOut;
+    const verificationFailure = getOfflineVerificationFailure(details);
+    const claimable = !verificationFailure;
     return {
-      message: claimable ? "Offline QR stub verified." : "This QR stub is not claimable.",
+      message: claimable
+        ? "Offline QR stub verified."
+        : verificationFailure.reason,
       data: {
         stub: details,
         details: { stubNumber: details.display_stub_no || details.stub_no || details.stub_number },
         is_claimable: claimable,
-        code: claimable ? null : "STUB_ALREADY_CLAIMED",
-        reason: claimable ? null : "This QR stub has already been claimed or is not claimable.",
+        code: verificationFailure?.code || null,
+        reason: verificationFailure?.reason || null,
         offline: true,
       },
     };

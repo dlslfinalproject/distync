@@ -162,6 +162,16 @@ test("Distribution History export includes current search and omits current page
   assert.doesNotMatch(source, /exportDistributionHistory\(\{[\s\S]*?pageSize,/);
 });
 
+test("Distribution History uses the authorized inventory detail route and hides unsupported Mayor export", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+
+  assert.match(source, /fetchInventoryDistributionDetail\(row\.stub_id\)/);
+  assert.doesNotMatch(source, /fetchStubDetails\(row\.stub_id\)/);
+  assert.match(source, /const isMayor = currentRole === ROLE_CODES\.MAYOR/);
+  assert.match(source, /const canExport = !isMayor/);
+  assert.match(source, /\{canExport \? \(/);
+});
+
 test("Distribution History export modal exposes its report customizations", async () => {
   const [pageSource, modalSource] = await Promise.all([
     readSource(["pages", "DistributionHistoryPage.jsx"]),

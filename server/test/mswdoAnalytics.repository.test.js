@@ -77,6 +77,19 @@ test("MSWDO evacuation-center and daily admission charts use recorded log histor
   assert.doesNotMatch(centerSource, /summary_evacuees_with_latest_log/);
 });
 
+test("MSWDO analytics keeps cumulative event records while separating current presence", () => {
+  const source = readAnalyticsSource();
+  const filteredEvacueesSource = source.match(
+    /filtered_evacuees AS \([\s\S]*?\n    \),\n    summary_evacuees/,
+  )?.[0];
+
+  assert.ok(filteredEvacueesSource, "cumulative evacuee source is present");
+  assert.doesNotMatch(filteredEvacueesSource, /WHERE e\.is_active = TRUE/);
+  assert.match(source, /currently_admitted_evacuees[\s\S]*status = 'PRESENT'/);
+  assert.match(source, /total_departed_evacuees[\s\S]*status = 'LEFT'/);
+  assert.match(source, /Analytics is cumulative for the selected disaster event/);
+});
+
 test("re-admission lineage migration backfills only explicit audited links", () => {
   const migrationPath = path.resolve(
     __dirname,

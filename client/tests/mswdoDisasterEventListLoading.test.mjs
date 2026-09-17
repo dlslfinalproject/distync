@@ -21,6 +21,12 @@ test("MSWDO disaster event lists use the list response without detail fan-out", 
   assert.notEqual(loadBarangaysStart, -1);
   assert.doesNotMatch(loadEventsSource, /fetchDisasterEventById|Promise\.all/);
   assert.match(loadEventsSource, /setEvents\(Array\.isArray\(eventRows\)/);
+  assert.match(source, /const eventsRequestSeqRef = useRef\(0\)/);
+  assert.match(source, /eventsRequestSeqRef\.current = requestSeq/);
+  assert.match(
+    loadEventsSource,
+    /eventsRequestSeqRef\.current !== requestSeq/,
+  );
   assert.match(source, /const openEditModal = async[\s\S]*fetchDisasterEventById/);
 });
 

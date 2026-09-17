@@ -262,6 +262,7 @@ const mapInventoryDistributionDetail = (detail) => {
       event_code: base.event_code,
       title: base.disaster_event_title,
       disaster_type: base.disaster_type,
+      status: base.disaster_event_status,
     },
     household: {
       id: base.household_id,

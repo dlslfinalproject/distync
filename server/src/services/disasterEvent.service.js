@@ -77,6 +77,7 @@ const assertValidAffectedBarangays = async (barangayIds, dbClient = pool) => {
 
 let disasterEventLifecycleMaintenanceInterval = null;
 let isDisasterEventLifecycleMaintenanceRunning = false;
+let overdueDisasterEventSyncPromise = null;
 
 const getManilaDateParts = (value = new Date()) => {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -280,7 +281,7 @@ const closeDisasterEventWithTimestamp = async ({
   };
 };
 
-const syncOverdueActiveDisasterEvents = async () => {
+const reconcileOverdueActiveDisasterEvents = async () => {
   const currentManilaDate = getCurrentManilaDateString();
   const activeDisasterEvents =
     await disasterEventRepository.getActiveDisasterEvents();
@@ -321,6 +322,24 @@ const syncOverdueActiveDisasterEvents = async () => {
     closedCount: closedEvents.length,
     closedEvents,
   };
+};
+
+// Keep concurrent reads on one reconciliation promise so a page load cannot
+// run the same overdue-event check more than once at the same time.
+const syncOverdueActiveDisasterEvents = async () => {
+  if (!overdueDisasterEventSyncPromise) {
+    overdueDisasterEventSyncPromise = reconcileOverdueActiveDisasterEvents();
+  }
+
+  const currentSyncPromise = overdueDisasterEventSyncPromise;
+
+  try {
+    return await currentSyncPromise;
+  } finally {
+    if (overdueDisasterEventSyncPromise === currentSyncPromise) {
+      overdueDisasterEventSyncPromise = null;
+    }
+  }
 };
 
 const runDisasterEventLifecycleMaintenance = async () => {

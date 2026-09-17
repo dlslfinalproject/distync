@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
+import {
+  BARANGAY_OFFLINE_MODE_MESSAGE,
+  BARANGAY_OFFLINE_MODE_SCOPE_MESSAGE,
+} from "./BarangayOfflineModeNotice";
 
 export const MSWDO_OFFLINE_MODE_TITLE = "Offline Mode Active";
-export const MSWDO_OFFLINE_MODE_MESSAGE =
-  "You can view saved evacuee masterlist and analytics data while offline. You can also continue prepared relief distribution.";
-export const MSWDO_OFFLINE_MODE_LIMITATION =
-  "Other functions require an internet connection.";
+export const MSWDO_OFFLINE_MODE_MESSAGE = BARANGAY_OFFLINE_MODE_MESSAGE;
+export const MSWDO_OFFLINE_MODE_LIMITATION = BARANGAY_OFFLINE_MODE_SCOPE_MESSAGE;
 
 const noticeStyles = {
   backgroundColor: "#ffffff",

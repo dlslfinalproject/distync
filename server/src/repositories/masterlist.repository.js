@@ -331,6 +331,9 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
         e.age_value,
         e.age_unit,
         fh.current_stay_type
+      -- Analytics is cumulative for the selected disaster event. Departure and
+      -- closure deactivate rows operationally, but their recorded event history
+      -- remains part of the analytics totals.
       FROM evacuees e
       INNER JOIN scoped_households fh ON fh.id = e.household_id
     ),

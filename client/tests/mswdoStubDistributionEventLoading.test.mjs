@@ -63,6 +63,17 @@ test("MSWDO-LOAD-08 stale distribution responses cannot commit after a newer req
   );
 });
 
+test("MSWDO distribution includes pending local rows in specific and all-Barangay scopes", async () => {
+  const hookSource = await readSource(
+    "../src/features/stubs/useMswdoStubDistribution.js",
+  );
+  const rowsSource = await readSource("../src/features/stubs/stubOfflineRows.js");
+
+  assert.match(hookSource, /includeAllBarangays: isAllBarangays/);
+  assert.match(rowsSource, /includeAllBarangays = false/);
+  assert.match(rowsSource, /includeAllBarangays \|\|/);
+});
+
 test("MSWDO distribution active/ended tab reconciliation waits for filter resolution", async () => {
   const source = await readSource("../src/pages/mswdo/StubDistributionPage.jsx");
 

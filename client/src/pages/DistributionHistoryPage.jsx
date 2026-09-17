@@ -8,9 +8,9 @@ import { useAuth } from "../context/AuthContext";
 import { ROLE_CODES } from "../utils/roleSession";
 import {
   fetchDistributionHistory,
+  fetchInventoryDistributionDetail,
   exportDistributionHistory,
 } from "../features/distribution/distributionService";
-import { fetchStubDetails } from "../features/stubs/stubService";
 import {
   fetchAllDisasterEvents,
   fetchBarangayDisasterEventOptions,
@@ -213,6 +213,8 @@ const getAffectedBarangayIds = (event) => {
 const DistributionHistoryPage = () => {
   const { currentRole } = useAuth();
   const isBarangay = currentRole === ROLE_CODES.BARANGAY;
+  const isMayor = currentRole === ROLE_CODES.MAYOR;
+  const canExport = !isMayor;
 
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
@@ -489,7 +491,7 @@ const DistributionHistoryPage = () => {
     setIsLoadingStubDetails(true);
 
     try {
-      const response = await fetchStubDetails(row.stub_id);
+      const response = await fetchInventoryDistributionDetail(row.stub_id);
       setSelectedStubDetails(response?.data || response);
     } catch (error) {
       setStubDetailsErrorMessage(
@@ -679,44 +681,46 @@ const DistributionHistoryPage = () => {
           />
         </div>
 
-        <button
-          className="distribution-history-export-button"
-          type="button"
-          onClick={() => {
-            setSelectedExportFormat("csv");
-            setExportFilters({
-              disaster_event_id: filters.disaster_event_id,
-              barangay_id: isBarangay ? "" : filters.barangay_id,
-              date_from: filters.date_from,
-              date_to: filters.date_to,
-              search: searchTerm.trim(),
-              sort_order: sortOrder,
-            });
-            setExportFeedback({ type: "", message: "" });
-            setIsExportModalOpen(true);
-          }}
-          disabled={Boolean(exportingFormat)}
-          style={{
-            border: "1px solid #c6d8ea",
-            borderRadius: "14px",
-            minHeight: "46px",
-            padding: "12px 18px",
-            backgroundColor: "#f8fbfe",
-            color: "#2a4c6f",
-            fontSize: "14px",
-            fontWeight: 700,
-            cursor: exportingFormat ? "not-allowed" : "pointer",
-            opacity: exportingFormat ? 0.7 : 1,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-          }}
-        >
-          <FiFileText size={16} />
-          {exportingFormat
-            ? `Exporting ${exportingFormat.toUpperCase()}...`
-            : "Export"}
-        </button>
+        {canExport ? (
+          <button
+            className="distribution-history-export-button"
+            type="button"
+            onClick={() => {
+              setSelectedExportFormat("csv");
+              setExportFilters({
+                disaster_event_id: filters.disaster_event_id,
+                barangay_id: isBarangay ? "" : filters.barangay_id,
+                date_from: filters.date_from,
+                date_to: filters.date_to,
+                search: searchTerm.trim(),
+                sort_order: sortOrder,
+              });
+              setExportFeedback({ type: "", message: "" });
+              setIsExportModalOpen(true);
+            }}
+            disabled={Boolean(exportingFormat)}
+            style={{
+              border: "1px solid #c6d8ea",
+              borderRadius: "14px",
+              minHeight: "46px",
+              padding: "12px 18px",
+              backgroundColor: "#f8fbfe",
+              color: "#2a4c6f",
+              fontSize: "14px",
+              fontWeight: 700,
+              cursor: exportingFormat ? "not-allowed" : "pointer",
+              opacity: exportingFormat ? 0.7 : 1,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            <FiFileText size={16} />
+            {exportingFormat
+              ? `Exporting ${exportingFormat.toUpperCase()}...`
+              : "Export"}
+          </button>
+        ) : null}
       </section>
 
       <section className="distribution-history-records-card" style={shellStyles.card}>

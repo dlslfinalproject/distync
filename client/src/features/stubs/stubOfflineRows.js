@@ -117,8 +117,9 @@ export const getPendingLocalStubRows = async ({
   barangayId,
   sectorOptions = [],
   existingHouseholdIds = [],
+  includeAllBarangays = false,
 }) => {
-  if (!disasterEventId || !barangayId) {
+  if (!disasterEventId || (!barangayId && !includeAllBarangays)) {
     return [];
   }
 
@@ -136,8 +137,9 @@ export const getPendingLocalStubRows = async ({
         ) &&
         entry.entityType === "HOUSEHOLD" &&
         retryableStatuses.has(entry.status) &&
-        payload.disaster_event_id === disasterEventId &&
-        payload.barangay_id === barangayId &&
+        String(payload.disaster_event_id || "") === String(disasterEventId) &&
+        (includeAllBarangays ||
+          String(payload.barangay_id || "") === String(barangayId || "")) &&
         isEvacuationCenterRegistration(payload) &&
         !existingHouseholdIdSet.has(entry.entityLocalId) &&
         !existingHouseholdIdSet.has(entry.entityServerId)
@@ -151,6 +153,18 @@ export const getPendingLocalStubRows = async ({
 
       return {
         id: `local-stub-${entry.id}`,
+        disaster_event_id: payload.disaster_event_id || disasterEventId,
+        disaster_event: {
+          id: payload.disaster_event_id || disasterEventId,
+          name: payload.disaster_event_name || "",
+        },
+        barangay_id: payload.barangay_id || "",
+        barangay: payload.barangay_id || payload.barangay_name
+          ? {
+              id: payload.barangay_id || "",
+              name: payload.barangay_name || "",
+            }
+          : null,
         household_id: entry.entityLocalId || entry.id,
         family_head_name: familyHeadName,
         household: {
