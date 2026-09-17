@@ -104,6 +104,7 @@ const createValidationErrors = () => ({
 const MAX_FAMILY_HEAD_PHOTO_FILE_SIZE = 3 * 1024 * 1024;
 
 const trimValue = (value) => String(value ?? "").trim();
+const normalizeEvacuationCenterId = (value) => trimValue(value);
 const normalizeComparableText = (value) =>
   trimValue(value).replace(/\s+/g, " ").toLowerCase();
 const buildComparableFullName = (person) =>
@@ -975,8 +976,18 @@ export const useHouseholdRegistrationForm = ({
 
       if (isMounted) {
         const normalizedCenters = Array.isArray(centers) ? centers : [];
-        const preservedEvacuationCenterId =
-          household.evacuation_center_id || savedEditEvacuationCenterId;
+        const preservedEvacuationCenterId = normalizeEvacuationCenterId(
+          household.evacuation_center_id || savedEditEvacuationCenterId,
+        );
+        const inferredEvacuationCenterId =
+          isPrefilledHouseholdMode &&
+          household.current_stay_type === "EVAC_CENTER" &&
+          !preservedEvacuationCenterId &&
+          normalizedCenters.length === 1
+            ? normalizeEvacuationCenterId(normalizedCenters[0]?.id)
+            : "";
+        const nextEvacuationCenterId =
+          preservedEvacuationCenterId || inferredEvacuationCenterId;
 
         if (normalizedCenters.length > 0 && selectedBarangayId) {
           cacheRegistrationEvacuationCentersByBarangay(selectedBarangayId, centers);
@@ -985,14 +996,14 @@ export const useHouseholdRegistrationForm = ({
         setHousehold((currentValue) => ({
           ...currentValue,
           evacuation_center_id:
-            preservedEvacuationCenterId &&
+            nextEvacuationCenterId &&
             (normalizedCenters.some(
               (center) =>
                 String(center.id ?? "") ===
-                String(preservedEvacuationCenterId ?? ""),
+                nextEvacuationCenterId,
             ) ||
               isPrefilledHouseholdMode)
-              ? preservedEvacuationCenterId
+              ? nextEvacuationCenterId
               : "",
         }));
 
@@ -1000,12 +1011,12 @@ export const useHouseholdRegistrationForm = ({
           const existingSelectedCenter = normalizedCenters.find(
             (center) =>
               String(center.id ?? "") ===
-              String(preservedEvacuationCenterId ?? ""),
+              nextEvacuationCenterId,
           );
 
           if (
             !isPrefilledHouseholdMode ||
-            !preservedEvacuationCenterId ||
+            !nextEvacuationCenterId ||
             existingSelectedCenter
           ) {
             return normalizedCenters;
@@ -1013,7 +1024,7 @@ export const useHouseholdRegistrationForm = ({
 
           return [
             {
-              id: preservedEvacuationCenterId,
+              id: nextEvacuationCenterId,
               name: "Saved evacuation center",
               barangay_id: selectedBarangayId || null,
               is_active: false,
@@ -1031,7 +1042,6 @@ export const useHouseholdRegistrationForm = ({
     };
   }, [
     isOpen,
-    household.evacuation_center_id,
     initialHouseholdDetails,
     isPrefilledHouseholdMode,
     residencyStatus,
@@ -1102,9 +1112,14 @@ export const useHouseholdRegistrationForm = ({
       return;
     }
 
+    const normalizedValue =
+      fieldName === "evacuation_center_id"
+        ? normalizeEvacuationCenterId(value)
+        : value;
+
     setHousehold((currentValue) => ({
       ...currentValue,
-      [fieldName]: value,
+      [fieldName]: normalizedValue,
     }));
 
     if (fieldName === "evacuation_center_id") {
@@ -1353,18 +1368,9 @@ export const useHouseholdRegistrationForm = ({
     setPhotoVerificationNotes(value);
   };
 
-  const normalizedSelectedEvacuationCenterId = String(
-    household.evacuation_center_id ?? "",
+  const effectiveEvacuationCenterId = normalizeEvacuationCenterId(
+    household.evacuation_center_id,
   );
-  const inferredSingleEvacuationCenterId =
-    isPrefilledHouseholdMode &&
-    household.current_stay_type === "EVAC_CENTER" &&
-    !normalizedSelectedEvacuationCenterId &&
-    evacuationCenters.length === 1
-      ? String(evacuationCenters[0]?.id ?? "")
-      : "";
-  const effectiveEvacuationCenterId =
-    normalizedSelectedEvacuationCenterId || inferredSingleEvacuationCenterId;
   const hasSelectedEvacuationCenterInOptions = evacuationCenters.some(
     (center) =>
       String(center.id ?? "") === effectiveEvacuationCenterId,

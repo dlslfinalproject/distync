@@ -217,7 +217,7 @@ const HouseholdFormSection = ({ form }) => {
         <label style={fieldStyles.field}>
           <span style={fieldStyles.label}>Evacuation Center</span>
           <select
-            value={form.effectiveEvacuationCenterId || form.household.evacuation_center_id}
+            value={form.household.evacuation_center_id}
             onChange={(event) =>
               form.updateHouseholdField("evacuation_center_id", event.target.value)
             }
