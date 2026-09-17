@@ -102,6 +102,8 @@ const orderOptions = [
   { value: "za", label: "Sort Z-A" },
 ];
 
+const ALL_BARANGAYS = "__ALL_BARANGAYS__";
+
 const formatEventOptionLabel = (event) => {
   const title = String(event?.title || event?.event_name || "").trim();
   const titleWithoutBackendCode = title
@@ -134,6 +136,7 @@ const StubPrintSheetModal = ({
   selectedDisasterEventId = "",
   selectedBarangayId = "",
   showBarangaySelection = true,
+  allowAllBarangays = false,
   onClose,
   onPrint,
 }) => {
@@ -165,10 +168,14 @@ const StubPrintSheetModal = ({
       return [];
     }
 
-    return barangays.filter((barangay) =>
+    const affectedBarangays = barangays.filter((barangay) =>
       affectedBarangayIds.includes(barangay.id),
     );
-  }, [barangays, selectedEvent, showBarangaySelection]);
+
+    return allowAllBarangays
+      ? [{ id: ALL_BARANGAYS, name: "All Barangays" }, ...affectedBarangays]
+      : affectedBarangays;
+  }, [allowAllBarangays, barangays, selectedEvent, showBarangaySelection]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -178,7 +185,10 @@ const StubPrintSheetModal = ({
     setErrors({});
     setFormValues({
       disasterEventId: selectedDisasterEventId || disasterEvents[0]?.id || "",
-      barangayId: selectedBarangayId || barangays[0]?.id || "",
+      barangayId:
+        selectedBarangayId ||
+        (allowAllBarangays ? ALL_BARANGAYS : barangays[0]?.id) ||
+        "",
       stubStatus: "",
       orderList: "oldest_newest",
     });
@@ -186,6 +196,7 @@ const StubPrintSheetModal = ({
     barangays,
     disasterEvents,
     isOpen,
+    allowAllBarangays,
     selectedBarangayId,
     selectedDisasterEventId,
   ]);

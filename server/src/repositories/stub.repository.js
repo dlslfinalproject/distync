@@ -34,7 +34,7 @@ const presentationStatusExpression = `
       CASE
         WHEN s.status = 'CLAIMED' THEN 'CLAIMED'
         WHEN h.is_active = FALSE
-          OR latest_attendance.status <> 'PRESENT'
+          OR latest_attendance.status IS DISTINCT FROM 'PRESENT'
           OR latest_attendance.time_out IS NOT NULL
         THEN 'NOT_PRESENT'
         ELSE 'FOR_CLAIM'
@@ -359,9 +359,129 @@ const getBarangayStubDashboardRows = async (
   return result.rows;
 };
 
+const buildMunicipalDashboardFilters = ({
+  disasterEventId,
+  barangayIds,
+  status = "all",
+  search = "",
+  sectorIds = [],
+} = {}) => {
+  const normalizedBarangayIds = [
+    ...new Set((Array.isArray(barangayIds) ? barangayIds : []).filter(Boolean)),
+  ];
+  const values = [disasterEventId, normalizedBarangayIds];
+  const conditions = [
+    "s.disaster_event_id = $1",
+    "h.barangay_id = ANY($2::uuid[])",
+    "h.current_stay_type = 'EVAC_CENTER'",
+    "s.status IN ('ISSUED', 'CLAIMED')",
+  ];
+
+  if (status === "claimed") {
+    conditions.push("s.status = 'CLAIMED'");
+  } else if (status === "unclaimed" || status === "issued" || status === "for_claim") {
+    conditions.push(`s.status = 'ISSUED' AND ${presentationStatusExpression} = 'FOR_CLAIM'`);
+  } else if (status === "not_present") {
+    conditions.push(`${presentationStatusExpression} = 'NOT_PRESENT'`);
+  }
+
+  if (Array.isArray(sectorIds) && sectorIds.length > 0) {
+    values.push(sectorIds);
+    conditions.push(`(
+      EXISTS (
+        SELECT 1
+        FROM household_sectors municipal_hs
+        WHERE municipal_hs.household_id = h.id
+          AND municipal_hs.sector_id = ANY($${values.length}::uuid[])
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM evacuees municipal_e
+        INNER JOIN evacuee_sectors municipal_es
+          ON municipal_es.evacuee_id = municipal_e.id
+        WHERE municipal_e.household_id = h.id
+          AND municipal_es.sector_id = ANY($${values.length}::uuid[])
+      )
+    )`);
+  }
+
+  const normalizedSearch = String(search || "").trim();
+
+  if (normalizedSearch) {
+    values.push(`%${normalizedSearch}%`);
+    conditions.push(`(
+      CONCAT_WS(
+        ' ',
+        h.family_head_first_name,
+        h.family_head_middle_name,
+        h.family_head_last_name,
+        h.family_head_suffix
+      ) ILIKE $${values.length}
+      OR b.name ILIKE $${values.length}
+      OR EXISTS (
+        SELECT 1
+        FROM household_sectors municipal_search_hs
+        INNER JOIN sectors municipal_search_s
+          ON municipal_search_s.id = municipal_search_hs.sector_id
+        WHERE municipal_search_hs.household_id = h.id
+          AND municipal_search_s.name ILIKE $${values.length}
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM evacuees municipal_search_e
+        INNER JOIN evacuee_sectors municipal_search_es
+          ON municipal_search_es.evacuee_id = municipal_search_e.id
+        INNER JOIN sectors municipal_search_s
+          ON municipal_search_s.id = municipal_search_es.sector_id
+        WHERE municipal_search_e.household_id = h.id
+          AND municipal_search_s.name ILIKE $${values.length}
+      )
+      OR CONCAT('STUB#', ${stubSequenceExpression}) ILIKE $${values.length}
+      OR CAST(${stubSequenceExpression} AS TEXT) ILIKE $${values.length}
+    )`);
+  }
+
+  return {
+    values,
+    whereClause: `WHERE ${conditions.join("\n      AND ")}`,
+    normalizedBarangayIds,
+  };
+};
+
+const getMunicipalDashboardOrderBy = (sortOrder = "oldest") => {
+  if (sortOrder === "az" || sortOrder === "za") {
+    const direction = sortOrder === "za" ? "DESC" : "ASC";
+
+    return `
+    ORDER BY
+      b.name ASC,
+      b.id ASC,
+      CONCAT_WS(
+        ' ',
+        h.family_head_first_name,
+        h.family_head_middle_name,
+        h.family_head_last_name,
+        h.family_head_suffix
+      ) ${direction},
+      s.id ASC`;
+  }
+
+  const direction = sortOrder === "newest" ? "DESC" : "ASC";
+
+  return `
+    ORDER BY
+      b.name ASC,
+      b.id ASC,
+      CASE WHEN h.is_active = FALSE THEN 1 ELSE 0 END ASC,
+      latest_attendance.time_in ${direction} NULLS LAST,
+      s.issued_at ${direction} NULLS LAST,
+      s.id ASC`;
+};
+
 const getMunicipalStubDashboardRows = async (
   disasterEventId,
   barangayIds,
+  options = {},
 ) => {
   const normalizedBarangayIds = [
     ...new Set((Array.isArray(barangayIds) ? barangayIds : []).filter(Boolean)),
@@ -371,6 +491,20 @@ const getMunicipalStubDashboardRows = async (
     return [];
   }
 
+  const { values, whereClause } = buildMunicipalDashboardFilters({
+    disasterEventId,
+    barangayIds: normalizedBarangayIds,
+    status: options.status || "all",
+    search: options.search || "",
+    sectorIds: options.sectorIds || [],
+  });
+  const limitClause = buildBarangayDashboardLimitClause({
+    values,
+    limit: options.limit || null,
+    offset: options.offset || null,
+  });
+  const orderBy = getMunicipalDashboardOrderBy(options.sortOrder || "oldest");
+
   const query = `
     SELECT
       s.id,
@@ -379,6 +513,7 @@ const getMunicipalStubDashboardRows = async (
       s.stub_no,
       s.serial_no,
       s.status,
+      ${presentationStatusExpression} AS presentation_status,
       s.issued_at,
       s.claimed_at,
       s.updated_at,
@@ -482,32 +617,107 @@ const getMunicipalStubDashboardRows = async (
       ORDER BY dt.distribution_date DESC, dt.created_at DESC
       LIMIT 1
     ) latest_distribution ON TRUE
-    WHERE s.disaster_event_id = $1
-      AND h.barangay_id = ANY($2::uuid[])
-      AND h.current_stay_type = 'EVAC_CENTER'
-      AND s.status IN ('ISSUED', 'CLAIMED')
-      AND (
-        (
-          h.is_active = TRUE
-          AND latest_attendance.status = 'PRESENT'
-          AND latest_attendance.time_out IS NULL
-        )
-        OR h.is_active = FALSE
-      )
-    ORDER BY
-      b.name ASC,
-      b.id ASC,
-      CASE WHEN h.is_active = FALSE THEN 1 ELSE 0 END ASC,
-      latest_attendance.time_in ASC NULLS LAST,
-      s.issued_at ASC,
-      s.id ASC
+    ${whereClause}
+    ${orderBy}
+    ${limitClause}
   `;
 
-  const result = await pool.query(query, [
-    disasterEventId,
-    normalizedBarangayIds,
-  ]);
+  const result = await pool.query(query, values);
   return result.rows;
+};
+
+const countMunicipalStubDashboardRows = async (
+  disasterEventId,
+  barangayIds,
+  options = {},
+) => {
+  const { values, whereClause, normalizedBarangayIds } =
+    buildMunicipalDashboardFilters({
+      disasterEventId,
+      barangayIds,
+      status: options.status || "all",
+      search: options.search || "",
+      sectorIds: options.sectorIds || [],
+    });
+
+  if (normalizedBarangayIds.length === 0) {
+    return 0;
+  }
+
+  const query = `
+    SELECT COUNT(s.id)::int AS total
+    FROM stubs s
+    INNER JOIN households h ON h.id = s.household_id
+    INNER JOIN barangays b ON b.id = h.barangay_id
+    LEFT JOIN LATERAL (
+      SELECT el.status, el.time_in, el.time_out
+      FROM evacuation_logs el
+      WHERE el.household_id = h.id
+        AND el.disaster_event_id = s.disaster_event_id
+      ORDER BY
+        COALESCE(el.time_out, el.time_in) DESC,
+        el.updated_at DESC,
+        el.created_at DESC
+      LIMIT 1
+    ) latest_attendance ON TRUE
+    ${whereClause}
+  `;
+
+  const result = await pool.query(query, values);
+  return Number(result.rows[0]?.total || 0);
+};
+
+const getMunicipalStubDashboardMetrics = async (
+  disasterEventId,
+  barangayIds,
+) => {
+  const { values, whereClause, normalizedBarangayIds } =
+    buildMunicipalDashboardFilters({
+      disasterEventId,
+      barangayIds,
+    });
+
+  if (normalizedBarangayIds.length === 0) {
+    return {
+      total_issued_stubs: 0,
+      claimed_stubs: 0,
+      unclaimed_stubs: 0,
+      beneficiary_families: 0,
+    };
+  }
+
+  const query = `
+    SELECT
+      COUNT(s.id)::int AS total_issued_stubs,
+      COUNT(*) FILTER (WHERE s.status = 'CLAIMED')::int AS claimed_stubs,
+      COUNT(*) FILTER (
+        WHERE ${presentationStatusExpression} = 'FOR_CLAIM'
+      )::int AS unclaimed_stubs,
+      COUNT(DISTINCT s.household_id)::int AS beneficiary_families
+    FROM stubs s
+    INNER JOIN households h ON h.id = s.household_id
+    INNER JOIN barangays b ON b.id = h.barangay_id
+    LEFT JOIN LATERAL (
+      SELECT el.status, el.time_in, el.time_out
+      FROM evacuation_logs el
+      WHERE el.household_id = h.id
+        AND el.disaster_event_id = s.disaster_event_id
+      ORDER BY
+        COALESCE(el.time_out, el.time_in) DESC,
+        el.updated_at DESC,
+        el.created_at DESC
+      LIMIT 1
+    ) latest_attendance ON TRUE
+    ${whereClause}
+  `;
+
+  const result = await pool.query(query, values);
+  return result.rows[0] || {
+    total_issued_stubs: 0,
+    claimed_stubs: 0,
+    unclaimed_stubs: 0,
+    beneficiary_families: 0,
+  };
 };
 
 const countBarangayStubDashboardRows = async (
@@ -1188,6 +1398,8 @@ module.exports = {
   getStubDashboardMetrics,
   getBarangayStubDashboardRows,
   getMunicipalStubDashboardRows,
+  countMunicipalStubDashboardRows,
+  getMunicipalStubDashboardMetrics,
   countBarangayStubDashboardRows,
   getStubSearchResults,
   getStubById,

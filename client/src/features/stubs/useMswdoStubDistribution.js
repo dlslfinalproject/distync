@@ -28,6 +28,9 @@ import {
   getVisibleSyncQueueEntries,
 } from "../../offline/syncQueue.js";
 import {
+  DEFAULT_TABLE_PAGE_SIZE,
+} from "../pagination/pagination.mjs";
+import {
   sortPresentedStubRows,
   withStubPresentationStatus,
 } from "./stubPresentation.js";
@@ -145,6 +148,8 @@ const getDisplayedRows = (rows, searchTerm, selectedSectorIds, selectedStubStatu
 
     const searchableValues = [
       row.family_head_name,
+      row.barangay_name,
+      row.barangay?.name,
       row.sectors_text,
       row.display_stub_no,
       row.stub_number,
@@ -184,7 +189,11 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
   const [selectedStubStatus, setSelectedStubStatus] = useState(
     STATUS_FILTERS.ALL,
   );
+  const [selectedSortOrder, setSelectedSortOrder] = useState("oldest");
   const [searchTerm, setSearchTerm] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const [serverPagination, setServerPagination] = useState(null);
   const [dashboard, setDashboard] = useState(emptyDashboard);
   const [pendingLocalRows, setPendingLocalRows] = useState([]);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
@@ -220,6 +229,7 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
       setSelectedBarangayId("");
       setDashboard(emptyDashboard);
       setPendingLocalRows([]);
+      setServerPagination(null);
       setErrorMessage("");
 
       try {
@@ -328,6 +338,7 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
       ) {
         setDashboard(emptyDashboard);
         setPendingLocalRows([]);
+        setServerPagination(null);
         setErrorMessage("");
         setIsLoadingData(false);
         return;
@@ -353,14 +364,31 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
             }),
           );
           setDashboard({ metrics: { ...emptyMetrics, total_issued_stubs: presentedRows.length, claimed_stubs: presentedRows.filter((row) => row.presentation_status === "CLAIMED").length, unclaimed_stubs: presentedRows.filter((row) => row.presentation_status === "FOR_CLAIM").length, beneficiary_families: new Set(presentedRows.map((row) => row.household_id)).size }, data: sortPresentedStubRows(presentedRows) });
+          setServerPagination(null);
           setPendingLocalRows([]);
           return;
         }
         const dashboardPayload = isAllBarangays && selectedEvent?.status === "ACTIVE"
-          ? await fetchMunicipalStubDashboard({ disasterEventId: selectedDisasterEventId })
+          ? await fetchMunicipalStubDashboard({
+              disasterEventId: selectedDisasterEventId,
+              page,
+              pageSize,
+              search: searchTerm,
+              status: selectedStubStatus,
+              sectorIds: selectedSectorIds,
+              sectorOptions: sectors,
+              sortOrder: selectedSortOrder,
+            })
           : await fetchBarangayStubDashboard({
               disasterEventId: selectedDisasterEventId,
               barangayId: selectedBarangayId,
+              page,
+              pageSize,
+              search: searchTerm,
+              status: selectedStubStatus,
+              sectorIds: selectedSectorIds,
+              sectorOptions: sectors,
+              sortOrder: selectedSortOrder,
             });
 
         if (!isMounted) {
@@ -403,7 +431,8 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
           },
           data: sortPresentedStubRows(presentedRows),
         });
-        setPendingLocalRows(localRows);
+        setServerPagination(dashboardPayload.pagination || null);
+        setPendingLocalRows(page === 1 ? localRows : []);
       } catch (error) {
         if (isMounted) {
           const localRows = await getPendingLocalStubRows({
@@ -417,6 +446,7 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
           }
 
           setDashboard(emptyDashboard);
+          setServerPagination(null);
           setPendingLocalRows(localRows);
           setErrorMessage(
             localRows.length > 0 ? "" : getFriendlyErrorMessage(error),
@@ -440,16 +470,24 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     reloadKey,
     disasterEvents,
     sectors,
+    page,
+    pageSize,
+    searchTerm,
     selectedBarangayId,
     selectedDisasterEventId,
+    selectedSectorIds,
+    selectedSortOrder,
+    selectedStubStatus,
   ]);
 
   const rows = useMemo(() => {
-    return sortPresentedStubRows([
-      ...pendingLocalRows,
+    const loadedRows = [
+      ...(serverPagination && page > 1 ? [] : pendingLocalRows),
       ...getMappedRows(dashboard.data || [], selectedDisasterEventId),
-    ]);
-  }, [dashboard.data, pendingLocalRows, selectedDisasterEventId]);
+    ];
+
+    return serverPagination ? loadedRows : sortPresentedStubRows(loadedRows);
+  }, [dashboard.data, page, pendingLocalRows, selectedDisasterEventId, serverPagination]);
 
   const selectedDisasterEvent = useMemo(() => {
     return disasterEvents.find((event) => event.id === selectedDisasterEventId) || null;
@@ -482,6 +520,26 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
       selectedStubStatus,
     );
   }, [rows, searchTerm, selectedSectorIds, selectedStubStatus]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [
+    searchTerm,
+    selectedBarangayId,
+    selectedDisasterEventId,
+    selectedSectorIds,
+    selectedSortOrder,
+    selectedStubStatus,
+  ]);
+
+  useEffect(() => {
+    if (
+      serverPagination?.totalPages > 0 &&
+      page > serverPagination.totalPages
+    ) {
+      setPage(serverPagination.totalPages);
+    }
+  }, [page, serverPagination]);
 
   const summaryCards = useMemo(() => {
     return [
@@ -550,6 +608,9 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     selectedBarangay,
     searchTerm,
     displayedRows,
+    pagination: serverPagination,
+    page,
+    pageSize,
     summaryCards,
     isLoadingFilters,
     isLoadingData,
@@ -561,6 +622,9 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     setSelectedBarangayId,
     setSelectedSectorIds,
     setSelectedStubStatus,
+    setSelectedSortOrder,
+    setPage,
+    setPageSize,
     setSearchTerm,
     reloadDashboard: () => {
       setReloadKey((currentValue) => currentValue + 1);

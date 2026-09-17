@@ -205,6 +205,26 @@ const getPrimaryAssignedReliefPackTemplate = (row) => {
   );
 };
 
+const getReliefPackNames = (row) => {
+  const assignedPackNames = [
+    ...(Array.isArray(row?.assigned_relief_packs)
+      ? row.assigned_relief_packs
+      : []),
+    ...(Array.isArray(row?.assigned_donated_relief_packs)
+      ? row.assigned_donated_relief_packs
+      : []),
+  ]
+    .map((pack) => pack?.name || pack?.pack_name || "")
+    .map((name) => String(name).trim())
+    .filter(Boolean);
+  const fallbackNames = String(row?.relief_pack_name || "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => name && name !== "--");
+
+  return [...new Set([...assignedPackNames, ...fallbackNames])];
+};
+
 const getReliefPackDisplay = (row) => {
   const primaryTemplate = getPrimaryAssignedReliefPackTemplate(row);
   const householdSize = row?.household?.members_count || row?.members_count || 0;
@@ -212,9 +232,17 @@ const getReliefPackDisplay = (row) => {
     primaryTemplate,
     householdSize,
   );
-  const baseDisplay = row?.relief_pack_name || "--";
+  const packNames = getReliefPackNames(row);
 
-  return packMultiplier > 1 ? `${baseDisplay} (${packMultiplier})` : baseDisplay;
+  if (packNames.length === 0) {
+    return "--";
+  }
+
+  return packNames
+    .map((name, index) =>
+      index === 0 && packMultiplier > 1 ? `${name} (${packMultiplier})` : name,
+    )
+    .join(";\n");
 };
 
 const getStatusLabel = (status) => {
@@ -478,6 +506,7 @@ const StubResultsTable = ({
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                      whiteSpace: "pre-line",
                     }}
                   >
                     <div style={tableStyles.familyHeadCell}>

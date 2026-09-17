@@ -92,3 +92,74 @@ test("Stage 5 municipal Stub repository short-circuits an empty authoritative sc
   assert.deepEqual(rows, []);
   assert.equal(queryCount, 0);
 });
+
+test("municipal Stub repository applies status, search, sector, and page filters in SQL", async () => {
+  let capturedQuery = "";
+  let capturedValues = [];
+
+  pool.query = async (query, values) => {
+    capturedQuery = query;
+    capturedValues = values;
+    return { rows: [{ id: "stub-2" }] };
+  };
+
+  const sectorId = "66666666-6666-4666-8666-666666666666";
+  const rows = await stubRepository.getMunicipalStubDashboardRows(
+    "event-1",
+    ["barangay-1"],
+    {
+      status: "not_present",
+      search: "family",
+      sectorIds: [sectorId],
+      sortOrder: "newest",
+      limit: 25,
+      offset: 25,
+    },
+  );
+
+  assert.deepEqual(rows, [{ id: "stub-2" }]);
+  assert.deepEqual(capturedValues, [
+    "event-1",
+    ["barangay-1"],
+    [sectorId],
+    "%family%",
+    25,
+    25,
+  ]);
+  assert.match(capturedQuery, /presentation_status/i);
+  assert.match(capturedQuery, /IS DISTINCT FROM 'PRESENT'/i);
+  assert.match(capturedQuery, /ILIKE \$4/i);
+  assert.match(capturedQuery, /ANY\(\$3::uuid\[\]\)/i);
+  assert.match(capturedQuery, /latest_attendance\.time_in DESC NULLS LAST/i);
+  assert.match(capturedQuery, /LIMIT \$5\s+OFFSET \$6/i);
+  assert.match(capturedQuery, /THEN 'NOT_PRESENT'/i);
+});
+
+test("municipal Stub repository keeps count and metrics on the same base scope", async () => {
+  const capturedQueries = [];
+
+  pool.query = async (query, values) => {
+    capturedQueries.push({ query, values });
+    return { rows: [{ total: 3, total_issued_stubs: 3 }] };
+  };
+
+  const barangayIds = ["barangay-1", "barangay-2"];
+  const total = await stubRepository.countMunicipalStubDashboardRows(
+    "event-1",
+    barangayIds,
+    { status: "claimed", search: "family" },
+  );
+  const metrics = await stubRepository.getMunicipalStubDashboardMetrics(
+    "event-1",
+    barangayIds,
+  );
+
+  assert.equal(total, 3);
+  assert.equal(metrics.total_issued_stubs, 3);
+  assert.equal(capturedQueries.length, 2);
+  capturedQueries.forEach(({ query, values }) => {
+    assert.deepEqual(values.slice(0, 2), ["event-1", barangayIds]);
+    assert.match(query, /h\.barangay_id = ANY\(\$2::uuid\[\]\)/i);
+    assert.match(query, /s\.status IN \('ISSUED', 'CLAIMED'\)/i);
+  });
+});

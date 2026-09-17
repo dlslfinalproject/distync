@@ -724,11 +724,11 @@ const StubDistributionPage = () => {
             });
           }),
         );
-        const rejectedClaim = claimResults.find(
+        const rejectedClaimCount = claimResults.filter(
           (result) => result.status === "rejected",
-        );
+        ).length;
 
-        if (rejectedClaim) {
+        if (rejectedClaimCount > 0) {
           const fulfilledStubIds = claimResults
             .map((result, index) =>
               result.status === "fulfilled" ? claimableSelectedStubIds[index] : "",
@@ -744,11 +744,8 @@ const StubDistributionPage = () => {
 
           setIsBulkClaimConfirmOpen(false);
           setPendingClaimStubDetails(null);
-          setClaimErrorDialog(
-            getStubClaimErrorDialog(
-              rejectedClaim.reason,
-              "Unable to mark one or more selected stubs as claimed.",
-            ),
+          setClaimErrorMessage(
+            "Some selected stubs could not be claimed. Please check the table and try again.",
           );
           return;
         }

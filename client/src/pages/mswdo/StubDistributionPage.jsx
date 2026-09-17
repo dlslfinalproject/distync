@@ -280,6 +280,7 @@ const StubDistributionPage = () => {
     selectedDisasterEvent,
     searchTerm,
     displayedRows,
+    pagination,
     summaryCards,
     isLoadingFilters,
     isLoadingData,
@@ -291,6 +292,9 @@ const StubDistributionPage = () => {
     setSelectedBarangayId,
     setSelectedSectorIds,
     setSelectedStubStatus,
+    setSelectedSortOrder,
+    setPage,
+    setPageSize,
     setSearchTerm,
     reloadDashboard,
   } = useMswdoStubDistribution({
@@ -368,7 +372,11 @@ const StubDistributionPage = () => {
   const selectedSortOrder =
     filtersByTab[activeTab]?.sortOrder ?? DEFAULT_STUB_SORT_ORDER;
   const displayedRowsWithSyncStatus = useMemo(() => {
-    return sortStubRows(displayedRows, selectedSortOrder).map((row) => {
+    const orderedRows = pagination
+      ? displayedRows
+      : sortStubRows(displayedRows, selectedSortOrder);
+
+    return orderedRows.map((row) => {
       const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
         if (entry.moduleName !== "stubs") {
           return false;
@@ -388,7 +396,7 @@ const StubDistributionPage = () => {
           : buildSyncDescriptor(matchingEntry).status,
       };
     });
-  }, [displayedRows, selectedSortOrder, syncQueueEntries]);
+  }, [displayedRows, pagination, selectedSortOrder, syncQueueEntries]);
   const selectedClaimRows = useMemo(() => {
     const selectedStubIdSet = new Set(selectedStubIds);
 
@@ -442,11 +450,14 @@ const StubDistributionPage = () => {
   useEffect(() => {
     setSelectedSectorIds(selectedSectorIds);
     setSelectedStubStatus(selectedStubStatus);
+    setSelectedSortOrder(selectedSortOrder);
   }, [
     selectedSectorIds,
     selectedStubStatus,
+    selectedSortOrder,
     setSelectedSectorIds,
     setSelectedStubStatus,
+    setSelectedSortOrder,
   ]);
 
   useEffect(() => {
@@ -682,7 +693,7 @@ const StubDistributionPage = () => {
       setClaimingStubId("bulk");
 
       try {
-        await Promise.all(
+        const claimResults = await Promise.allSettled(
           selectedStubIds.map((stubId) => {
             const row = displayedRowsWithSyncStatus.find(
               (candidate) => candidate.id === stubId,
@@ -698,10 +709,21 @@ const StubDistributionPage = () => {
           }),
         );
 
+        const failedClaimCount = claimResults.filter(
+          (result) => result.status === "rejected",
+        ).length;
+
         reloadDashboard();
-        setSelectedStubIds([]);
         setIsBulkClaimConfirmOpen(false);
         setPendingClaimStubDetails(null);
+
+        if (failedClaimCount > 0) {
+          setClaimErrorMessage(
+            "Some selected stubs could not be claimed. Please check the table and try again.",
+          );
+        } else {
+          setSelectedStubIds([]);
+        }
       } catch (error) {
         setClaimErrorMessage(
           error.message || "Unable to mark the selected stubs as claimed.",
@@ -1191,6 +1213,13 @@ const StubDistributionPage = () => {
         selectedStubIds={selectedStubIds}
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}
+        pagination={pagination}
+        onPageChange={setPage}
+        onPageSizeChange={(nextPageSize) => {
+          setPage(1);
+          setPageSize(nextPageSize);
+        }}
+        showBarangayColumn={selectedBarangayId === ALL_BARANGAYS}
       />
 
       <StubClaimConfirmModal
@@ -1219,6 +1248,7 @@ const StubDistributionPage = () => {
         selectedDisasterEventId={selectedDisasterEventId}
         selectedBarangayId={selectedBarangayId}
         showBarangaySelection
+        allowAllBarangays
         onClose={() => setIsPrintSheetModalOpen(false)}
         onPrint={handlePrintStubSheet}
       />

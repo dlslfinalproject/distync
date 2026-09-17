@@ -3,9 +3,16 @@ import { FiPrinter, FiX } from "react-icons/fi";
 import { useSearchParams } from "react-router-dom";
 import QrCodePanel from "../../components/stubs/QrCodePanel";
 import {
+  fetchAllDisasterEvents,
+  fetchBarangays,
+} from "../../features/disaster-events/disasterEventService";
+import {
   fetchBarangayStubDashboard,
+  fetchMunicipalStubDashboard,
   fetchStubDetails,
 } from "../../features/stubs/stubService";
+
+const ALL_BARANGAYS = "__ALL_BARANGAYS__";
 
 const printStyles = `
   @page {
@@ -187,6 +194,74 @@ const parseStubIds = (value) => {
     .filter(Boolean);
 };
 
+const getAffectedBarangayIds = (event) => {
+  if (!Array.isArray(event?.affected_barangays)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      event.affected_barangays
+        .map((barangay) =>
+          typeof barangay === "string"
+            ? barangay
+            : barangay?.id || barangay?.barangay_id || "",
+        )
+        .filter(Boolean),
+    ),
+  ];
+};
+
+const getDashboardRowsForPrint = async ({ eventId, barangayId }) => {
+  if (barangayId !== ALL_BARANGAYS) {
+    const payload = await fetchBarangayStubDashboard({
+      disasterEventId: eventId,
+      barangayId,
+    });
+
+    return Array.isArray(payload?.data) ? payload.data : [];
+  }
+
+  const eventsPayload = await fetchAllDisasterEvents();
+  const selectedEvent = (Array.isArray(eventsPayload) ? eventsPayload : []).find(
+    (event) => event.id === eventId,
+  );
+
+  if (!selectedEvent) {
+    throw new Error("The selected disaster event could not be found.");
+  }
+
+  if (selectedEvent.status === "ACTIVE") {
+    const payload = await fetchMunicipalStubDashboard({
+      disasterEventId: eventId,
+    });
+
+    return Array.isArray(payload?.data) ? payload.data : [];
+  }
+
+  const barangaysPayload = await fetchBarangays();
+  const availableBarangayIds = new Set(
+    (Array.isArray(barangaysPayload) ? barangaysPayload : []).map(
+      (barangay) => barangay.id,
+    ),
+  );
+  const affectedBarangayIds = getAffectedBarangayIds(selectedEvent).filter(
+    (affectedBarangayId) => availableBarangayIds.has(affectedBarangayId),
+  );
+  const barangayPayloads = await Promise.all(
+    affectedBarangayIds.map((affectedBarangayId) =>
+      fetchBarangayStubDashboard({
+        disasterEventId: eventId,
+        barangayId: affectedBarangayId,
+      }),
+    ),
+  );
+
+  return barangayPayloads.flatMap((payload) =>
+    Array.isArray(payload?.data) ? payload.data : [],
+  );
+};
+
 const getStubIssuedDate = (stub) => {
   const timestamp = stub?.issued_at || stub?.created_at || "";
   const parsedDate = new Date(timestamp);
@@ -206,6 +281,27 @@ const getStubSequenceNumber = (stub) => {
   }
 
   return Number(stub?.stub_sequence_no || stub?.stub_number || 0);
+};
+
+const matchesPrintStatus = (row, statusFilter) => {
+  if (!statusFilter) {
+    return true;
+  }
+
+  if (statusFilter === "CLAIMED") {
+    return String(row?.status || "").toUpperCase() === "CLAIMED";
+  }
+
+  if (statusFilter === "ISSUED") {
+    return (
+      String(row?.status || "").toUpperCase() === "ISSUED" &&
+      ["FOR_CLAIM", "NOT_PRESENT"].includes(
+        String(row?.presentation_status || "").toUpperCase(),
+      )
+    );
+  }
+
+  return String(row?.status || "").toUpperCase() === statusFilter;
 };
 
 const sortStubDetails = (stubDetails, sortOrder) => {
@@ -287,23 +383,13 @@ const PrintStubsPage = () => {
             throw new Error("No printable stub request was provided.");
           }
 
-          const dashboardPayload = await fetchBarangayStubDashboard({
-            disasterEventId: eventId,
+          const dashboardRows = await getDashboardRowsForPrint({
+            eventId,
             barangayId,
           });
 
-          const dashboardRows = Array.isArray(dashboardPayload?.data)
-            ? dashboardPayload.data
-            : [];
-
           stubIdsToLoad = dashboardRows
-            .filter((row) => {
-              if (!statusFilter) {
-                return true;
-              }
-
-              return String(row.status || "").toUpperCase() === statusFilter;
-            })
+            .filter((row) => matchesPrintStatus(row, statusFilter))
             .map((row) => row.id)
             .filter(Boolean);
         }

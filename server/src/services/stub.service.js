@@ -131,6 +131,23 @@ const buildSectors = (householdId, householdSectorsByHouseholdId, memberSectorsB
   return [...uniqueSectorsById.values()];
 };
 
+const buildReliefPackNameList = (
+  assignedReliefPacks = [],
+  assignedDonatedReliefPacks = [],
+) => {
+  const names = [
+    ...(Array.isArray(assignedReliefPacks) ? assignedReliefPacks : []),
+    ...(Array.isArray(assignedDonatedReliefPacks)
+      ? assignedDonatedReliefPacks
+      : []),
+  ]
+    .map((pack) => pack?.name || pack?.pack_name || "")
+    .map((name) => String(name).trim())
+    .filter(Boolean);
+
+  return [...new Set(names)].join(", ");
+};
+
 const groupByKey = (items, keyName) => {
   return items.reduce((groups, item) => {
     const key = item[keyName];
@@ -623,10 +640,10 @@ const getBarangayStubDashboard = async (filters) => {
       });
       const assignedDonatedReliefPacks =
         assignedDonatedReliefPacksByStubId.get(row.id) || [];
-      const reliefPackName = assignedReliefPacks
-        .map((template) => template.name)
-        .filter(Boolean)
-        .join(", ");
+      const reliefPackName = buildReliefPackNameList(
+        assignedReliefPacks,
+        assignedDonatedReliefPacks,
+      );
       const sectors = buildSectors(
         row.household_id,
         householdSectorsByHouseholdId,
@@ -714,6 +731,13 @@ const getMunicipalStubDashboard = async ({
   disaster_event_id: disasterEventId,
   requester,
   qr_generated_by: qrGeneratedBy,
+  page = 1,
+  pageSize = 25,
+  search = "",
+  status = "all",
+  sector_ids: sectorIds = [],
+  sort_order: sortOrder = "oldest",
+  is_paginated: isPaginated = false,
 } = {}) => {
   if (![MAYOR_ROLE_CODE, MSWDO_ROLE_CODE].includes(requester?.roleCode)) {
     const error = new Error(
@@ -782,6 +806,19 @@ const getMunicipalStubDashboard = async ({
       String(left.id || "").localeCompare(String(right.id || "")),
   );
   const barangayIds = affectedBarangays.map((barangay) => barangay.id);
+  const shouldPaginate = Boolean(isPaginated);
+  const safePage = Number.isInteger(page) && page > 0 ? page : 1;
+  const safePageSize = Number.isInteger(pageSize) && pageSize > 0 ? pageSize : 25;
+  const rowOptions = shouldPaginate
+    ? {
+        status: status || "all",
+        search: search || "",
+        sectorIds: Array.isArray(sectorIds) ? sectorIds : [],
+        sortOrder: sortOrder || "oldest",
+        limit: safePageSize,
+        offset: (safePage - 1) * safePageSize,
+      }
+    : {};
   const responseContext = {
     scope: "municipal",
     disaster_event: scopedDisasterEvent,
@@ -790,17 +827,49 @@ const getMunicipalStubDashboard = async ({
   };
 
   if (barangayIds.length === 0) {
-    return {
+    const emptyResponse = {
       ...responseContext,
       count: 0,
       data: [],
     };
+
+    if (shouldPaginate) {
+      emptyResponse.metrics = {
+        total_issued_stubs: 0,
+        claimed_stubs: 0,
+        unclaimed_stubs: 0,
+        beneficiary_families: 0,
+      };
+      emptyResponse.pagination = buildPaginationMetadata({
+        page: safePage,
+        pageSize: safePageSize,
+        totalItems: 0,
+      });
+    }
+
+    return emptyResponse;
   }
 
-  const rows = await stubRepository.getMunicipalStubDashboardRows(
-    disasterEventId,
-    barangayIds,
-  );
+  const [rows, totalItems, metrics] = await Promise.all([
+    stubRepository.getMunicipalStubDashboardRows(
+      disasterEventId,
+      barangayIds,
+      rowOptions,
+    ),
+    shouldPaginate
+      ? stubRepository.countMunicipalStubDashboardRows(
+          disasterEventId,
+          barangayIds,
+          rowOptions,
+        )
+      : Promise.resolve(null),
+    shouldPaginate
+      ? stubRepository.getMunicipalStubDashboardMetrics(
+          disasterEventId,
+          barangayIds,
+        )
+      : Promise.resolve(null),
+  ]);
   const rowsWithQr = await Promise.all(
     rows.map((row) => ensureStubQrMetadata(row, qrGeneratedBy)),
   );
@@ -867,10 +936,10 @@ const getMunicipalStubDashboard = async ({
       });
       const assignedDonatedReliefPacks =
         assignedDonatedReliefPacksByStubId.get(row.id) || [];
-      const reliefPackName = assignedReliefPacks
-        .map((template) => template.name)
-        .filter(Boolean)
-        .join(", ");
+      const reliefPackName = buildReliefPackNameList(
+        assignedReliefPacks,
+        assignedDonatedReliefPacks,
+      );
       const sectors = buildSectors(
         row.household_id,
         householdSectorsByHouseholdId,
@@ -883,6 +952,15 @@ const getMunicipalStubDashboard = async ({
         serial_no: row.serial_no,
         stub_sequence_no: row.stub_sequence_no,
         status: row.status,
+        presentation_status:
+          row.presentation_status ||
+          (row.status === "CLAIMED"
+            ? "CLAIMED"
+            : row.is_active === false ||
+                row.latest_attendance_status !== "PRESENT" ||
+                row.latest_attendance_time_out
+              ? "NOT_PRESENT"
+              : "FOR_CLAIM"),
         issued_at: row.issued_at,
         claimed_at: row.claimed_at || null,
         distribution_date: row.distribution_date || null,
@@ -936,11 +1014,23 @@ const getMunicipalStubDashboard = async ({
     }),
   );
 
-  return {
+  const response = {
     ...responseContext,
     count: data.length,
     data,
   };
+
+  if (shouldPaginate) {
+    response.count = totalItems;
+    response.metrics = metrics;
+    response.pagination = buildPaginationMetadata({
+      page: safePage,
+      pageSize: safePageSize,
+      totalItems,
+    });
+  }
+
+  return response;
 };
 
 const claimBarangayStub = async (params) => {
@@ -1236,10 +1326,6 @@ const getStubDetails = async (id, requester = null) => {
       is_additional_pack: Boolean(template.is_additional_pack),
       sector_id: template.sector_id || null,
     }));
-  const assignedReliefPackNames = assignedReliefPacks
-    .map((template) => template.name)
-    .filter(Boolean)
-    .join(", ");
   if (useLiveAssignment) {
     await donatedReliefPackAssignmentService.ensureDonatedReliefPackAssignmentsForEvent(
       ensuredStub.disaster_event_id,
@@ -1257,6 +1343,10 @@ const getStubDetails = async (id, requester = null) => {
           (pack) => pack.assignment_status === "RESERVED",
         )
       : [];
+  const reliefPackName = buildReliefPackNameList(
+    assignedReliefPacks,
+    assignedDonatedReliefPacks,
+  );
   return {
     id: ensuredStub.id,
     stub_no: ensuredStub.stub_no,
@@ -1308,7 +1398,7 @@ const getStubDetails = async (id, requester = null) => {
     available_donated_loose_items: [],
     relief_pack_name:
       latestDistributionTransaction?.relief_pack_template_name ||
-      assignedReliefPackNames ||
+      reliefPackName ||
       null,
     latest_attendance: latestAttendance,
     barangay: {

@@ -181,7 +181,25 @@ const validateGetBarangayStubDashboard = (req, res, next) => {
 const validateGetMunicipalStubDashboard = (req, res, next) => {
   try {
     const query = req.query || {};
-    const supportedParameters = new Set(["disaster_event_id"]);
+    const {
+      disaster_event_id,
+      page,
+      pageSize,
+      search,
+      status,
+      sector_ids,
+      sort_order,
+    } = query;
+
+    const supportedParameters = new Set([
+      "disaster_event_id",
+      "page",
+      "pageSize",
+      "search",
+      "status",
+      "sector_ids",
+      "sort_order",
+    ]);
     const unsupportedParameter = Object.keys(query).find(
       (parameter) => !supportedParameters.has(parameter),
     );
@@ -192,14 +210,67 @@ const validateGetMunicipalStubDashboard = (req, res, next) => {
       });
     }
 
-    if (!isValidUuid(query.disaster_event_id)) {
+    if (!isValidUuid(disaster_event_id)) {
       return res.status(400).json({
         message: "disaster_event_id is required and must be a valid UUID",
       });
     }
 
+    const selectedSectorIds = parseSectorIds(sector_ids);
+
+    for (const sectorId of selectedSectorIds) {
+      if (!isValidUuid(sectorId)) {
+        return res.status(400).json({
+          message: "sector_ids must contain valid UUID values",
+        });
+      }
+    }
+
+    const normalizedStatus = String(status || "all").trim().toLowerCase();
+
+    if (
+      ![
+        "all",
+        "claimed",
+        "unclaimed",
+        "issued",
+        "for_claim",
+        "not_present",
+      ].includes(normalizedStatus)
+    ) {
+      return res.status(400).json({
+        message: "status must be one of: all, claimed, unclaimed, not_present",
+      });
+    }
+
+    const normalizedSortOrder = String(sort_order || "oldest").trim().toLowerCase();
+
+    if (!["oldest", "newest", "az", "za"].includes(normalizedSortOrder)) {
+      return res.status(400).json({
+        message: "sort_order must be one of: oldest, newest, az, za",
+      });
+    }
+
+    const hasPagination =
+      page !== undefined ||
+      pageSize !== undefined ||
+      search !== undefined ||
+      status !== undefined ||
+      sector_ids !== undefined ||
+      sort_order !== undefined;
+
     req.validatedQuery = {
-      disaster_event_id: query.disaster_event_id,
+      disaster_event_id,
+      page: parsePositiveInteger(page, 1),
+      pageSize: Math.min(parsePositiveInteger(pageSize, 25), 100),
+      search: typeof search === "string" ? search.trim() : "",
+      status:
+        normalizedStatus === "issued" || normalizedStatus === "for_claim"
+          ? "unclaimed"
+          : normalizedStatus,
+      sector_ids: selectedSectorIds,
+      sort_order: normalizedSortOrder,
+      is_paginated: hasPagination,
     };
 
     return next();

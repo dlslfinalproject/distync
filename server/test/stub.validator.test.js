@@ -152,7 +152,33 @@ test("DEPLOY-MSWDO-RGD-01 claim validator rejects malformed barangay_id", async 
   assert.match(result.payload.message, /barangay_id must be a valid UUID/);
 });
 
-test("Stage 5 municipal validator accepts only disaster_event_id", async () => {
+test("municipal validator accepts dashboard filters and pagination", async () => {
+  const result = await runMiddleware(validateGetMunicipalStubDashboard, {
+    query: {
+      disaster_event_id: eventId,
+      page: "2",
+      pageSize: "50",
+      search: "family",
+      status: "issued",
+      sector_ids: barangayId,
+      sort_order: "za",
+    },
+  });
+
+  assert.equal(result.calledNext, true);
+  assert.deepEqual(result.req.validatedQuery, {
+    disaster_event_id: eventId,
+    page: 2,
+    pageSize: 50,
+    search: "family",
+    status: "unclaimed",
+    sector_ids: [barangayId],
+    sort_order: "za",
+    is_paginated: true,
+  });
+});
+
+test("municipal validator supplies the default dashboard query contract", async () => {
   const result = await runMiddleware(validateGetMunicipalStubDashboard, {
     query: { disaster_event_id: eventId },
   });
@@ -160,6 +186,13 @@ test("Stage 5 municipal validator accepts only disaster_event_id", async () => {
   assert.equal(result.calledNext, true);
   assert.deepEqual(result.req.validatedQuery, {
     disaster_event_id: eventId,
+    page: 1,
+    pageSize: 25,
+    search: "",
+    status: "all",
+    sector_ids: [],
+    sort_order: "oldest",
+    is_paginated: false,
   });
 });
 
@@ -178,22 +211,16 @@ test("Stage 5 municipal validator rejects missing or malformed disaster_event_id
   }
 });
 
-test("Stage 5 municipal validator rejects every unsupported scope, filter, and pagination parameter", async () => {
+test("municipal validator rejects unsupported scope and pagination parameters", async () => {
   for (const parameter of [
     "barangay_id",
     "barangay_ids",
     "user_id",
     "override_barangay_id",
     "scope",
-    "page",
-    "pageSize",
     "cursor",
     "limit",
     "offset",
-    "search",
-    "status",
-    "sector_ids",
-    "sort_order",
   ]) {
     const result = await runMiddleware(validateGetMunicipalStubDashboard, {
       query: {

@@ -164,11 +164,48 @@ export const fetchBarangayStubDashboard = async ({
 
 export const fetchMunicipalStubDashboard = async ({
   disasterEventId,
+  page,
+  pageSize,
+  search,
+  status,
+  sectorIds,
+  sectorOptions = [],
+  sortOrder,
   skipOfflineCache = false,
 }) => {
   const searchParams = new URLSearchParams({
     disaster_event_id: disasterEventId,
   });
+
+  if (page) {
+    searchParams.set("page", page);
+  }
+
+  if (pageSize) {
+    searchParams.set("pageSize", pageSize);
+  }
+
+  if (typeof search === "string" && search.trim()) {
+    searchParams.set("search", search.trim());
+  }
+
+  if (status) {
+    searchParams.set("status", status);
+  }
+
+  const resolvedSectorIds = resolveStubSectorIdsForApi(
+    sectorIds,
+    sectorOptions,
+  );
+
+  if (resolvedSectorIds.length > 0) {
+    searchParams.set("sector_ids", resolvedSectorIds.join(","));
+  }
+
+  if (sortOrder) {
+    searchParams.set("sort_order", sortOrder);
+  }
+
   const response = await fetch(
     `${API_BASE_URL}/api/v1/stubs/municipal-dashboard?${searchParams.toString()}`,
   );
@@ -226,7 +263,20 @@ export const verifyStub = async ({ stubNo, serialNo, qrCodeValue, currentBaranga
     if (!canUseOfflineStubCacheFallback(error)) throw error;
     const details = await getCachedStubDetailsByQrValue(qrCodeValue, { currentBarangayId });
     if (!details) throw error;
-    const claimable = details.status === "ISSUED" && details.household?.is_active !== false;
+    const attendanceStatus = String(
+      details.latest_attendance_status ?? details.latest_attendance?.status ?? "",
+    )
+      .trim()
+      .toUpperCase();
+    const attendanceTimeOut =
+      details.latest_attendance_time_out ?? details.latest_attendance?.time_out;
+    const qrStatus = String(details.qr_status || "").trim().toUpperCase();
+    const claimable =
+      details.status === "ISSUED" &&
+      details.household?.is_active !== false &&
+      (!qrStatus || qrStatus === "ACTIVE") &&
+      attendanceStatus === "PRESENT" &&
+      !attendanceTimeOut;
     return {
       message: claimable ? "Offline QR stub verified." : "This QR stub is not claimable.",
       data: {

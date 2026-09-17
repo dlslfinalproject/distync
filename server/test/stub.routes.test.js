@@ -234,7 +234,6 @@ test("Stage 5 municipal route rejects missing, malformed, and unsupported query 
           "",
           "disaster_event_id=not-a-uuid",
           `disaster_event_id=${eventId}&barangay_id=${selectedBarangayId}`,
-          `disaster_event_id=${eventId}&page=1`,
         ]) {
           const response = await fetch(
             `http://127.0.0.1:${server.address().port}/api/v1/stubs/municipal-dashboard?${query}`,

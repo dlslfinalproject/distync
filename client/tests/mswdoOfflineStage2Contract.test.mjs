@@ -28,6 +28,15 @@ test("MSWDO offline lookup and claims reuse the durable stub cache and queue", a
   assert.match(service, /performSyncableMutation/);
 });
 
+test("MSWDO offline QR checks cached attendance and QR state before queueing", async () => {
+  const service = await read("../src/features/stubs/stubService.js");
+
+  assert.match(service, /details\.latest_attendance_status/);
+  assert.match(service, /attendanceStatus === "PRESENT"/);
+  assert.match(service, /details\.qr_status/);
+  assert.match(service, /qrStatus === "ACTIVE"/);
+});
+
 test("MSWDO offline banner states prepared relief distribution support", async () => {
   const source = await read("../src/components/layout/MswdoOfflineModeNotice.jsx");
   assert.match(source, /analytics data while offline\./);

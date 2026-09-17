@@ -132,8 +132,8 @@ test("DEPLOY-BRG-RGD-02 bulk claim reports failure without all-success messaging
     source.indexOf("return;", source.indexOf("const claimResults = await Promise.allSettled")),
   );
 
-  assert.match(bulkBlock, /rejectedClaim/);
-  assert.match(bulkBlock, /setClaimErrorDialog\(/);
-  assert.match(bulkBlock, /Unable to mark one or more selected stubs as claimed\./);
+  assert.match(bulkBlock, /rejectedClaimCount/);
+  assert.match(bulkBlock, /setClaimErrorMessage\(/);
+  assert.match(bulkBlock, /Some selected stubs could not be claimed/);
   assert.doesNotMatch(bulkBlock, /setScanToast|success/i);
 });

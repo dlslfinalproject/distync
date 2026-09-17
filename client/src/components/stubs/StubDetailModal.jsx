@@ -253,6 +253,30 @@ const buildSectorsText = (sectors = []) => {
   return [...orderedSectorLabels, ...remainingSectorLabels].join(", ");
 };
 
+const getReliefPackDisplayNames = (stubDetails, distributionTransaction) => {
+  const assignedPackNames = [
+    ...(Array.isArray(stubDetails?.assigned_relief_packs)
+      ? stubDetails.assigned_relief_packs
+      : []),
+    ...(Array.isArray(stubDetails?.assigned_donated_relief_packs)
+      ? stubDetails.assigned_donated_relief_packs
+      : []),
+  ]
+    .map((pack) => pack?.name || pack?.pack_name || "")
+    .map((name) => String(name).trim())
+    .filter(Boolean);
+  const fallbackPackNames = [
+    distributionTransaction?.relief_pack_template_name,
+    stubDetails?.relief_pack_name,
+  ]
+    .filter(Boolean)
+    .flatMap((value) => String(value).split(","))
+    .map((name) => name.trim())
+    .filter((name) => name && name !== "--");
+
+  return [...new Set([...assignedPackNames, ...fallbackPackNames])];
+};
+
 const formatRelationship = (relationship) => {
   if (!relationship) {
     return "--";
@@ -324,13 +348,12 @@ const StubDetailModal = ({
     : [];
   const sectorsText = buildSectorsText([...memberSectors, ...householdSectors]);
   const stayTypeLabel = formatStayTypeLabel(household.current_stay_type);
+  const reliefPackNames = getReliefPackDisplayNames(
+    stubDetails,
+    distributionTransaction,
+  );
   const reliefPackName =
-    distributionTransaction?.relief_pack_template_name ||
-    stubDetails?.relief_pack_name ||
-    stubDetails?.assigned_relief_packs
-      ?.map((template) => template?.name)
-      .filter(Boolean)
-      .join(", ") ||
+    reliefPackNames.join(";\n") ||
     distributionTransaction?.released_items_summary ||
     "-";
   const isNonAdmittedResident = isNonAdmittedResidentHousehold(
@@ -524,7 +547,9 @@ const StubDetailModal = ({
 
                   <div>
                     <p style={modalStyles.label}>Relief Pack</p>
-                    <p style={modalStyles.value}>{reliefPackName}</p>
+                    <p style={{ ...modalStyles.value, whiteSpace: "pre-line" }}>
+                      {reliefPackName}
+                    </p>
                   </div>
 
                   <div>

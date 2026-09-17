@@ -200,6 +200,26 @@ const getPrimaryAssignedReliefPackTemplate = (row) => {
   );
 };
 
+const getReliefPackNames = (row) => {
+  const assignedPackNames = [
+    ...(Array.isArray(row?.assigned_relief_packs)
+      ? row.assigned_relief_packs
+      : []),
+    ...(Array.isArray(row?.assigned_donated_relief_packs)
+      ? row.assigned_donated_relief_packs
+      : []),
+  ]
+    .map((pack) => pack?.name || pack?.pack_name || "")
+    .map((name) => String(name).trim())
+    .filter(Boolean);
+  const fallbackNames = String(row?.relief_pack_name || "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => name && name !== "--");
+
+  return [...new Set([...assignedPackNames, ...fallbackNames])];
+};
+
 const getReliefPackDisplay = (row) => {
   const primaryTemplate = getPrimaryAssignedReliefPackTemplate(row);
   const householdSize = row?.members_count || 0;
@@ -207,9 +227,17 @@ const getReliefPackDisplay = (row) => {
     primaryTemplate,
     householdSize,
   );
-  const baseDisplay = row?.relief_pack_name || "--";
+  const packNames = getReliefPackNames(row);
 
-  return packMultiplier > 1 ? `${baseDisplay} (${packMultiplier})` : baseDisplay;
+  if (packNames.length === 0) {
+    return "--";
+  }
+
+  return packNames
+    .map((name, index) =>
+      index === 0 && packMultiplier > 1 ? `${name} (${packMultiplier})` : name,
+    )
+    .join(";\n");
 };
 
 const getStatusLabel = (status) => {
@@ -252,21 +280,35 @@ const MswdoStubResultsTable = ({
   onSelectAll,
   onViewStub = () => {},
   isOffline = false,
+  pagination: controlledPagination = null,
+  onPageChange = () => {},
+  onPageSizeChange = () => {},
+  showBarangayColumn = false,
 }) => {
   const safeRows = Array.isArray(rows) ? rows : [];
   const safeSelectedStubIds = Array.isArray(selectedStubIds) ? selectedStubIds : [];
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
-  const pagination = getTablePaginationState({
+  const localPagination = getTablePaginationState({
     totalItems: safeRows.length,
     currentPage,
     pageSize,
     pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
   });
-  const paginatedRows = safeRows.slice(
-    (pagination.currentPage - 1) * pagination.pageSize,
-    pagination.currentPage * pagination.pageSize,
-  );
+  const pagination = controlledPagination
+    ? getTablePaginationState({
+        totalItems: controlledPagination.totalItems,
+        currentPage: controlledPagination.currentPage,
+        pageSize: controlledPagination.pageSize,
+        pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+      })
+    : localPagination;
+  const paginatedRows = controlledPagination
+    ? safeRows
+    : safeRows.slice(
+        (pagination.currentPage - 1) * pagination.pageSize,
+        pagination.currentPage * pagination.pageSize,
+      );
 
   useEffect(() => {
     setCurrentPage(1);
@@ -291,6 +333,16 @@ const MswdoStubResultsTable = ({
 
     setPageSize(nextPageSize);
     setCurrentPage(1);
+  };
+
+  const handleControlledPageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+      return;
+    }
+
+    onPageSizeChange(nextPageSize);
   };
 
   if (!hasSelectedEvent) {
@@ -397,8 +449,12 @@ const MswdoStubResultsTable = ({
         currentPage={pagination.currentPage}
         pageSize={pagination.pageSize}
         pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
-        onPageChange={setCurrentPage}
-        onPageSizeChange={handlePageSizeChange}
+        onPageChange={controlledPagination ? onPageChange : setCurrentPage}
+        onPageSizeChange={
+          controlledPagination
+            ? handleControlledPageSizeChange
+            : handlePageSizeChange
+        }
         isVisible={!isLoading && !errorMessage && pagination.totalItems > 0}
         ariaLabel="Relief goods distribution pagination"
         previousAriaLabel="Go to previous relief goods distribution page"
@@ -423,7 +479,10 @@ const MswdoStubResultsTable = ({
         style={{ overflowX: "auto" }}
       >
         <table
-          style={tableStyles.table}
+          style={{
+            ...tableStyles.table,
+            ...(showBarangayColumn ? { minWidth: "1160px" } : {}),
+          }}
           className="stub-results-table mswdo-stub-results-table"
         >
           <thead>
@@ -443,6 +502,9 @@ const MswdoStubResultsTable = ({
                 />
               </th>
               <th style={tableStyles.headerCell}>Family Head</th>
+              {showBarangayColumn ? (
+                <th style={tableStyles.headerCell}>Barangay</th>
+              ) : null}
               <th
                 style={{
                   ...tableStyles.headerCell,
@@ -526,6 +588,11 @@ const MswdoStubResultsTable = ({
                       ) : null}
                     </div>
                   </td>
+                  {showBarangayColumn ? (
+                    <td style={tableStyles.bodyCell}>
+                      {row.barangay_name || row.barangay?.name || "-"}
+                    </td>
+                  ) : null}
                   <td
                     style={{
                       ...tableStyles.bodyCell,
@@ -537,7 +604,7 @@ const MswdoStubResultsTable = ({
                   <td style={tableStyles.bodyCell}>
                     {formatOrderedSectorText(row.sectors_text)}
                   </td>
-                  <td style={tableStyles.bodyCell}>
+                  <td style={{ ...tableStyles.bodyCell, whiteSpace: "pre-line" }}>
                     {getReliefPackDisplay(row)}
                   </td>
                   <td

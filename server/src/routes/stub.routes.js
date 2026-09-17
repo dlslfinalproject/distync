@@ -111,7 +111,7 @@ router.get(
   async (req, res) => {
     try {
       const dashboard = await stubService.getMunicipalStubDashboard({
-        disaster_event_id: req.validatedQuery.disaster_event_id,
+        ...req.validatedQuery,
         requester: req.auth,
         qr_generated_by: req.auth.userId,
       });
