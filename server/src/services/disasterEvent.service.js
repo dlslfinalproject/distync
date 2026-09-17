@@ -27,6 +27,54 @@ const DISASTER_EVENT_TYPE_OPTIONS = [
 const requiresCompletedEndDate = (status) => status === "CLOSED";
 const DISASTER_EVENT_RECONCILIATION_INTERVAL_MS = 60 * 1000;
 
+const normalizeAffectedBarangayIds = (barangayIds) => {
+  if (!Array.isArray(barangayIds)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      barangayIds
+        .map((barangayId) => String(barangayId || "").trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+};
+
+const assertValidAffectedBarangays = async (barangayIds, dbClient = pool) => {
+  const normalizedBarangayIds = normalizeAffectedBarangayIds(barangayIds);
+
+  if (normalizedBarangayIds.length === 0) {
+    return normalizedBarangayIds;
+  }
+
+  const barangayRows = await disasterEventRepository.getBarangaysByIds(
+    normalizedBarangayIds,
+    dbClient,
+  );
+  const barangaysById = new Map(
+    (barangayRows || []).map((barangay) => [
+      String(barangay.id || "").toLowerCase(),
+      barangay,
+    ]),
+  );
+  const invalidBarangayIds = normalizedBarangayIds.filter((barangayId) => {
+    const barangay = barangaysById.get(barangayId);
+    return !barangay || barangay.code === nonResidentBarangayCode;
+  });
+
+  if (invalidBarangayIds.length > 0) {
+    const error = new Error(
+      "Affected barangays must be existing resident barangays.",
+    );
+    error.statusCode = 400;
+    error.code = "INVALID_AFFECTED_BARANGAY";
+    throw error;
+  }
+
+  return normalizedBarangayIds;
+};
+
 let disasterEventLifecycleMaintenanceInterval = null;
 let isDisasterEventLifecycleMaintenanceRunning = false;
 
@@ -484,6 +532,11 @@ const createDisasterEvent = async (disasterEventData) => {
   try {
     await client.query("BEGIN");
 
+    const affectedBarangayIds = await assertValidAffectedBarangays(
+      disasterEventData.barangay_ids,
+      client,
+    );
+
     await assertNoConflictingOpenDisasterEventTitle({
       title: disasterEventData.title,
       dbClient: client,
@@ -502,10 +555,10 @@ const createDisasterEvent = async (disasterEventData) => {
       client,
     );
 
-    if (disasterEventData.barangay_ids.length > 0) {
+    if (affectedBarangayIds.length > 0) {
       await disasterEventRepository.insertDisasterEventBarangays(
         createdDisasterEvent.id,
-        disasterEventData.barangay_ids,
+        affectedBarangayIds,
         client,
       );
     }
@@ -592,7 +645,10 @@ const updateDisasterEvent = async (id, disasterEventData) => {
 
   const currentAffectedBarangays =
     await disasterEventRepository.getAffectedBarangaysByDisasterEventId(id);
-  const requestedBarangayIdSet = new Set(disasterEventData.barangay_ids || []);
+  const affectedBarangayIds = await assertValidAffectedBarangays(
+    disasterEventData.barangay_ids,
+  );
+  const requestedBarangayIdSet = new Set(affectedBarangayIds);
   const removedBarangayIds = currentAffectedBarangays
     .map((barangay) => barangay.id)
     .filter((barangayId) => !requestedBarangayIdSet.has(barangayId));
@@ -646,10 +702,10 @@ const updateDisasterEvent = async (id, disasterEventData) => {
       client,
     );
 
-    if (disasterEventData.barangay_ids.length > 0) {
+    if (affectedBarangayIds.length > 0) {
       await disasterEventRepository.insertDisasterEventBarangays(
         id,
-        disasterEventData.barangay_ids,
+        affectedBarangayIds,
         client,
       );
     }

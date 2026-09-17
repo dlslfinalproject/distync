@@ -155,7 +155,8 @@ CREATE TABLE public.disaster_event_barangays (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT disaster_event_barangays_pkey PRIMARY KEY (id),
   CONSTRAINT disaster_event_barangays_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
-  CONSTRAINT disaster_event_barangays_barangay_id_fkey FOREIGN KEY (barangay_id) REFERENCES public.barangays(id)
+  CONSTRAINT disaster_event_barangays_barangay_id_fkey FOREIGN KEY (barangay_id) REFERENCES public.barangays(id),
+  CONSTRAINT uq_disaster_event_barangay UNIQUE (disaster_event_id, barangay_id)
 );
 
 CREATE TABLE public.evacuation_centers (

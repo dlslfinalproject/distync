@@ -62,26 +62,7 @@ export const useDisasterEvents = () => {
 
     try {
       const eventRows = await loadEventListByFilter(filterValue);
-
-      const detailedEvents = await Promise.all(
-        eventRows.map(async (event) => {
-          try {
-            const detail = await fetchDisasterEventById(event.id);
-
-            return {
-              ...event,
-              affected_barangays: detail.affected_barangays || [],
-            };
-          } catch (error) {
-            return {
-              ...event,
-              affected_barangays: [],
-            };
-          }
-        }),
-      );
-
-      setEvents(detailedEvents);
+      setEvents(Array.isArray(eventRows) ? eventRows : []);
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
@@ -123,6 +104,10 @@ export const useDisasterEvents = () => {
     setIsCreateModalOpen(false);
     setFormErrorMessage("");
     setEditingEvent(null);
+  };
+
+  const clearSuccessMessage = () => {
+    setSuccessMessage("");
   };
 
   const openEditModal = async (eventId) => {
@@ -222,6 +207,7 @@ export const useDisasterEvents = () => {
     detailErrorMessage,
     formErrorMessage,
     successMessage,
+    clearSuccessMessage,
     isCreateModalOpen,
     isDetailModalOpen,
     editingEvent,

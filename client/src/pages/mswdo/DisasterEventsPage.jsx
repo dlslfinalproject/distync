@@ -19,7 +19,6 @@ import {
   exportDisasterEvents,
   fetchActiveDisasterEvents,
   fetchAllDisasterEvents,
-  fetchDisasterEventById,
   fetchEndedDisasterEvents,
 } from "../../features/disaster-events/disasterEventService";
 import { MASTERLIST_SORT_OPTIONS } from "../../features/masterlist/masterlistService";
@@ -171,6 +170,7 @@ const DisasterEventsPage = () => {
     detailErrorMessage,
     formErrorMessage,
     successMessage,
+    clearSuccessMessage,
     isCreateModalOpen,
     isDetailModalOpen,
     editingEvent,
@@ -356,27 +356,7 @@ const DisasterEventsPage = () => {
         }
 
         if (!isCancelled) {
-          const detailedRows = await Promise.all(
-            (Array.isArray(eventRows) ? eventRows : []).map(async (event) => {
-              try {
-                const detail = await fetchDisasterEventById(event.id);
-
-                return {
-                  ...event,
-                  affected_barangays: detail?.affected_barangays || [],
-                };
-              } catch (_error) {
-                return {
-                  ...event,
-                  affected_barangays: Array.isArray(event?.affected_barangays)
-                    ? event.affected_barangays
-                    : [],
-                };
-              }
-            }),
-          );
-
-          setExportScopeEvents(detailedRows);
+          setExportScopeEvents(Array.isArray(eventRows) ? eventRows : []);
         }
       } catch (_error) {
         if (!isCancelled) {
@@ -1051,6 +1031,12 @@ const DisasterEventsPage = () => {
         type={exportFeedback.type}
         message={exportFeedback.message}
         onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
+
+      <FeedbackToast
+        type="success"
+        message={successMessage}
+        onClose={clearSuccessMessage}
       />
     </div>
   );

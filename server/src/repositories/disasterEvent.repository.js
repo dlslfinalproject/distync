@@ -134,8 +134,8 @@ const findConflictingOpenDisasterEventByTitle = async ({
 }) => {
   const query = `
     ${selectDisasterEventColumns}
-    WHERE LOWER(REGEXP_REPLACE(TRIM(title), '\s+', ' ', 'g')) =
-      LOWER(REGEXP_REPLACE(TRIM($1), '\s+', ' ', 'g'))
+    WHERE LOWER(REGEXP_REPLACE(TRIM(title), '\\s+', ' ', 'g')) =
+      LOWER(REGEXP_REPLACE(TRIM($1), '\\s+', ' ', 'g'))
       AND status = ANY($2::TEXT[])
       AND ($3::UUID IS NULL OR id <> $3::UUID)
     ORDER BY created_at DESC
@@ -262,6 +262,25 @@ const getValidBarangayCount = async () => {
 
   const result = await pool.query(query, ["NON_RESIDENT_OUTSIDE_MALVAR"]);
   return result.rows[0]?.count || 0;
+};
+
+const getBarangaysByIds = async (barangayIds, dbClient = pool) => {
+  if (!Array.isArray(barangayIds) || barangayIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    SELECT
+      id,
+      code,
+      name,
+      is_active
+    FROM barangays
+    WHERE id = ANY($1::UUID[])
+  `;
+
+  const result = await dbClient.query(query, [barangayIds]);
+  return result.rows;
 };
 
 const getAffectedBarangaysByDisasterEventIds = async (disasterEventIds) => {
@@ -670,13 +689,22 @@ const insertDisasterEventBarangays = async (
 ) => {
   const insertedRows = [];
 
-  for (const barangayId of barangayIds) {
+  const uniqueBarangayIds = [
+    ...new Set(
+      (Array.isArray(barangayIds) ? barangayIds : [])
+        .map((barangayId) => String(barangayId || "").trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+
+  for (const barangayId of uniqueBarangayIds) {
     const query = `
       INSERT INTO disaster_event_barangays (
         disaster_event_id,
         barangay_id
       )
       VALUES ($1, $2)
+      ON CONFLICT DO NOTHING
       RETURNING
         id,
         disaster_event_id,
@@ -1059,6 +1087,7 @@ module.exports = {
   getAffectedBarangaysByDisasterEventId,
   getAffectedBarangayScopeByDisasterEventId,
   getHouseholdCountsByDisasterEventBarangayIds,
+  getBarangaysByIds,
   getAffectedBarangaysByDisasterEventIds,
   listActiveDisasterEventsForEvacuationSummary,
   getEvacuationSummaryForWindow,

@@ -26,7 +26,10 @@ router.get("/", requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.MAYOR), async (req, re
   }
 });
 
-router.get("/active", async (req, res) => {
+router.get(
+  "/active",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  async (req, res) => {
   try {
     const activeDisasterEvents =
       await disasterEventService.getActiveDisasterEvents();
@@ -38,7 +41,8 @@ router.get("/active", async (req, res) => {
       error: error.message,
     });
   }
-});
+  },
+);
 
 router.get(
   "/ended",

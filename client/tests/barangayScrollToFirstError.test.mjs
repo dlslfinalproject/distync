@@ -90,6 +90,9 @@ test("MSWDO validation surfaces expose the first-error targets", async () => {
     eventFormSource,
     /data-error-anchor=\{[\s\S]*fieldErrors\.barangay_ids/,
   );
+  assert.match(eventFormSource, /const formRef = useRef\(null\);/);
+  assert.match(eventFormSource, /scheduleScrollToFirstError\(formRef\)/);
+  assert.match(eventFormSource, /ref=\{formRef\}/);
   assert.match(eventPageSource, /const exportModalRef = useRef\(null\);/);
   assert.match(eventPageSource, /scheduleScrollToFirstError\(exportModalRef\)/);
   assert.match(eventPageSource, /modalRef=\{exportModalRef\}/);

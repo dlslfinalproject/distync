@@ -112,15 +112,21 @@ const validateCreateDisasterEvent = (req, res, next) => {
 
     if (Array.isArray(barangay_ids)) {
       const hasInvalidBarangayId = barangay_ids.some(
-        (barangayId) => typeof barangayId !== "string" || !barangayId.trim(),
+        (barangayId) =>
+          typeof barangayId !== "string" ||
+          !uuidPattern.test(barangayId.trim()),
       );
 
       if (hasInvalidBarangayId) {
         return res.status(400).json({
-          message: "barangay_ids must contain only non-empty string values",
+          message: "barangay_ids must contain valid UUID values",
         });
       }
     }
+
+    const normalizedBarangayIds = Array.isArray(barangay_ids)
+      ? [...new Set(barangay_ids.map((barangayId) => barangayId.trim().toLowerCase()))]
+      : [];
 
     req.validatedBody = {
       event_code:
@@ -134,7 +140,7 @@ const validateCreateDisasterEvent = (req, res, next) => {
       end_date: end_date ?? null,
       status: normalizedStatus,
       created_by: created_by ?? null,
-      barangay_ids: barangay_ids ?? [],
+      barangay_ids: normalizedBarangayIds,
     };
 
     return next();

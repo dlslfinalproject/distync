@@ -18,6 +18,7 @@ const originalRepositoryMethods = {
   getDisasterEventById: disasterEventRepository.getDisasterEventById,
   getAffectedBarangaysByDisasterEventId:
     disasterEventRepository.getAffectedBarangaysByDisasterEventId,
+  getBarangaysByIds: disasterEventRepository.getBarangaysByIds,
   getLatestHouseholdActivityByDisasterEventId:
     disasterEventRepository.getLatestHouseholdActivityByDisasterEventId,
   getHouseholdCountsByDisasterEventBarangayIds:
@@ -162,6 +163,42 @@ test("createDisasterEvent allows a name reused from a completed event", async ()
   assert.deepEqual(fakeClient.queries, ["BEGIN", "COMMIT"]);
 });
 
+test("createDisasterEvent rejects missing or non-resident affected barangays", async () => {
+  const fakeClient = buildFakeClient();
+
+  pool.connect = async () => fakeClient;
+  disasterEventRepository.getActiveDisasterEvents = async () => [];
+  disasterEventRepository.getBarangaysByIds = async (barangayIds) => [
+    {
+      id: barangayIds[0],
+      code: "NON_RESIDENT_OUTSIDE_MALVAR",
+      name: "Outside Malvar",
+    },
+  ];
+  disasterEventRepository.findConflictingOpenDisasterEventByTitle = async () => null;
+
+  await assert.rejects(
+    disasterEventService.createDisasterEvent({
+      title: "Flood Response",
+      disaster_type: "Flood",
+      description: null,
+      start_date: "2026-08-04",
+      end_date: "2026-08-10",
+      status: "ACTIVE",
+      created_by: "user-1",
+      barangay_ids: ["barangay-outside-malvar"],
+    }),
+    (error) => {
+      assert.equal(error.statusCode, 400);
+      assert.equal(error.code, "INVALID_AFFECTED_BARANGAY");
+      assert.match(error.message, /existing resident barangays/i);
+      return true;
+    },
+  );
+
+  assert.deepEqual(fakeClient.queries, ["BEGIN", "ROLLBACK"]);
+});
+
 test("updateDisasterEvent checks duplicate names against other open events only", async () => {
   let capturedExcludeId = null;
 
@@ -244,6 +281,12 @@ test("updateDisasterEvent immediately closes an edited active event when the new
   disasterEventRepository.getAffectedBarangaysByDisasterEventId = async () => [
     { id: "barangay-1", name: "San Juan" },
   ];
+  disasterEventRepository.getBarangaysByIds = async (barangayIds) =>
+    barangayIds.map((id) => ({
+      id,
+      code: "SAN_JUAN",
+      name: "San Juan",
+    }));
   disasterEventRepository.getHouseholdCountsByDisasterEventBarangayIds = async () => [];
   disasterEventRepository.updateDisasterEventById = async () => ({
     id: "event-3",

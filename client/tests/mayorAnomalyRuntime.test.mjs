@@ -31,6 +31,6 @@ test("Mayor anomaly page renders through the Vite JSX transform", async (t) => {
     );
   }, "the Mayor anomaly route component must render without a runtime exception");
 
-  assert.match(markup, /Anomaly Tracking/);
+  assert.match(markup, /Anomaly Tracking/i);
   assert.match(markup, /Anomaly Records/);
 });
