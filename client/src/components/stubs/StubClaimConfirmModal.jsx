@@ -406,6 +406,7 @@ const StubClaimConfirmModal = ({
               <QrCodePanel
                 value={stubDetails?.qr_code_value || ""}
                 emptyLabel="No QR available"
+                showValue={false}
                 containerStyle={modalStyles.qrPanel}
                 imageStyle={modalStyles.qrImage}
                 valueStyle={modalStyles.qrValue}

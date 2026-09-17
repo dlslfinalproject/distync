@@ -659,6 +659,10 @@ const SyncManagementPage = () => {
   });
   const syncHistoryRequestId = useRef(0);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [isBackgroundRefreshingHistory, setIsBackgroundRefreshingHistory] =
+    useState(false);
+  const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
+  const hasLoadedHistoryRef = useRef(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [isRetrying, setIsRetrying] = useState(false);
   const [isLoadingConflictDetail, setIsLoadingConflictDetail] = useState(false);
@@ -693,6 +697,8 @@ const SyncManagementPage = () => {
     title: "",
     message: "",
   });
+  const isInitialHistoryLoading =
+    isLoadingHistory && (!isBackgroundRefreshingHistory || !hasLoadedHistory);
 
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntriesByUpdatedAt(), [], []) ||
@@ -1054,10 +1060,13 @@ const SyncManagementPage = () => {
     }));
   };
 
-  const loadSyncHistory = useCallback(async () => {
+  const loadSyncHistory = useCallback(async ({ background = false } = {}) => {
     const requestId = syncHistoryRequestId.current + 1;
     syncHistoryRequestId.current = requestId;
+    const preserveExistingData =
+      Boolean(background) && hasLoadedHistoryRef.current;
     setIsLoadingHistory(true);
+    setIsBackgroundRefreshingHistory(preserveExistingData);
     setErrorMessage("");
 
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
@@ -1068,6 +1077,7 @@ const SyncManagementPage = () => {
         backendReachable: false,
       });
       setIsLoadingHistory(false);
+      setIsBackgroundRefreshingHistory(false);
       return;
     }
 
@@ -1111,6 +1121,8 @@ const SyncManagementPage = () => {
         conflicts: Array.isArray(response.conflicts) ? response.conflicts : [],
         pagination: response.pagination || null,
       });
+      hasLoadedHistoryRef.current = true;
+      setHasLoadedHistory(true);
       setSyncStatusSummary({
         conflictCount: Number.isFinite(summaryResponse.conflictCount)
           ? summaryResponse.conflictCount
@@ -1128,6 +1140,7 @@ const SyncManagementPage = () => {
     } finally {
       if (syncHistoryRequestId.current === requestId) {
         setIsLoadingHistory(false);
+        setIsBackgroundRefreshingHistory(false);
       }
     }
   }, [
@@ -1160,7 +1173,7 @@ const SyncManagementPage = () => {
         return;
       }
 
-      void loadSyncHistory();
+      void loadSyncHistory({ background: true });
     };
 
     const handleVisibilityRefresh = () => {
@@ -1242,7 +1255,7 @@ const SyncManagementPage = () => {
         setResolutionReason("");
         setReplacementBarcode("");
       } else {
-        void loadSyncHistory();
+        void loadSyncHistory({ background: true });
       }
     };
 
@@ -1266,7 +1279,7 @@ const SyncManagementPage = () => {
   useEffect(() => {
     const unsubscribe = subscribeToSyncUpdates(() => {
       if (typeof navigator !== "undefined" && navigator.onLine) {
-        void loadSyncHistory();
+        void loadSyncHistory({ background: true });
       }
     });
 
@@ -2100,15 +2113,15 @@ const SyncManagementPage = () => {
           onPageSizeChange={(pageSize) =>
             updatePaginationPageSize("AUDIT", pageSize)
           }
-          isVisible={!isLoadingHistory && !errorMessage}
-          disabled={isLoadingHistory}
-          disablePageSize={isLoadingHistory}
+          isVisible={!isInitialHistoryLoading && !errorMessage}
+          disabled={isInitialHistoryLoading}
+          disablePageSize={isInitialHistoryLoading}
           ariaLabel="Sync history pagination"
           previousAriaLabel="Go to previous sync history page"
           nextAriaLabel="Go to next sync history page"
         />
 
-        {isLoadingHistory ? (
+        {isInitialHistoryLoading ? (
           <p style={shellStyles.mutedText}>Loading sync history...</p>
         ) : errorMessage ? (
           <p style={{ ...shellStyles.mutedText, color: "#a14d58" }}>

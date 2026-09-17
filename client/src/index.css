@@ -682,7 +682,7 @@ body {
 }
 
 .mayor-inventory-forecast-stat-grid {
-  grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
 }
 
 @media (max-width: 1100px) {
@@ -691,7 +691,7 @@ body {
   }
 
   .mayor-inventory-forecast-stat-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
 
   .inventory-item-detail-info-grid,

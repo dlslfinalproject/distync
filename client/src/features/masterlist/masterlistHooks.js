@@ -33,22 +33,42 @@ export const useMasterlist = ({
   const [infoMessage, setInfoMessage] = useState("");
   const [isAuthoritative, setIsAuthoritative] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const backgroundReloadRef = useRef(false);
   const lastSuccessfulDataRef = useRef(null);
+  const lastSuccessfulRequestKeyRef = useRef("");
+  const requestKey = JSON.stringify({
+    disasterEventId,
+    barangayId,
+    recordStatus,
+    page,
+    pageSize,
+    search,
+    sectorIds: Array.isArray(sectorIds) ? sectorIds : [],
+    sortOrder,
+  });
 
   useEffect(() => {
     let isMounted = true;
 
     const loadMasterlist = async () => {
+      const preserveExistingData =
+        backgroundReloadRef.current &&
+        lastSuccessfulRequestKeyRef.current === requestKey;
+      backgroundReloadRef.current = false;
+
       if (!disasterEventId) {
         setData(emptyData);
         setIsAuthoritative(false);
         setErrorMessage("");
         setInfoMessage("");
         setIsLoading(false);
+        setIsRefreshing(false);
         return;
       }
 
       setIsLoading(true);
+      setIsRefreshing(preserveExistingData);
       setIsAuthoritative(false);
       setErrorMessage("");
       setInfoMessage("");
@@ -69,6 +89,7 @@ export const useMasterlist = ({
           setData(result);
           setIsAuthoritative(true);
           lastSuccessfulDataRef.current = result;
+          lastSuccessfulRequestKeyRef.current = requestKey;
           setInfoMessage("");
         }
       } catch (error) {
@@ -102,11 +123,13 @@ export const useMasterlist = ({
             setData(fallbackData);
             setIsAuthoritative(false);
             lastSuccessfulDataRef.current = fallbackData;
+            lastSuccessfulRequestKeyRef.current = requestKey;
             setErrorMessage("");
             setInfoMessage(isOffline ? "" : error.message || "Showing the last saved Masterlist.");
           } else {
             setData(emptyData);
             setIsAuthoritative(false);
+            lastSuccessfulRequestKeyRef.current = "";
             setInfoMessage("");
             setErrorMessage(
               isOffline
@@ -118,6 +141,7 @@ export const useMasterlist = ({
       } finally {
         if (isMounted) {
           setIsLoading(false);
+          setIsRefreshing(false);
         }
       }
     };
@@ -134,6 +158,7 @@ export const useMasterlist = ({
     pageSize,
     recordStatus,
     reloadKey,
+    requestKey,
     search,
     sectorIds,
     sortOrder,
@@ -145,6 +170,11 @@ export const useMasterlist = ({
     errorMessage,
     infoMessage,
     isAuthoritative,
-    reloadMasterlist: () => setReloadKey((currentValue) => currentValue + 1),
+    isInitialLoading: isLoading && !isRefreshing,
+    isRefreshing,
+    reloadMasterlist: (options = {}) => {
+      backgroundReloadRef.current = Boolean(options?.background);
+      setReloadKey((currentValue) => currentValue + 1);
+    },
   };
 };

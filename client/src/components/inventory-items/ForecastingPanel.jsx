@@ -5,7 +5,6 @@ import {
   FiAlertTriangle,
   FiBarChart2,
   FiCheckCircle,
-  FiFlag,
   FiFileText,
   FiPackage,
   FiPlusCircle,
@@ -692,6 +691,10 @@ const ForecastModelIcon = ({ modelName }) => {
 const ForecastMetricIcon = ({ icon }) => {
   const iconProps = { size: 20, "aria-hidden": "true" };
 
+  if (icon === "need") {
+    return <FiFileText {...iconProps} />;
+  }
+
   if (icon === "restock") {
     return <FiPackage {...iconProps} />;
   }
@@ -702,10 +705,6 @@ const ForecastMetricIcon = ({ icon }) => {
 
   if (icon === "critical") {
     return <FiAlertCircle {...iconProps} />;
-  }
-
-  if (icon === "priority") {
-    return <FiFlag {...iconProps} />;
   }
 
   if (icon === "addStock") {
@@ -1273,9 +1272,6 @@ const ForecastingPanel = ({
         Number(row.recommended_reorder_quantity || 0) > 0,
     )
     .slice(0, 6);
-  const topRestockRow = sortedRestockRows.find(
-    (row) => Number(row.recommended_reorder_quantity || 0) > 0,
-  );
   const donorNeedRows = recommendationRows.slice(0, 6);
   const modelHasResults = resultRows.length > 0;
   const selectedModelLabel = getForecastModelLabel(selectedForecastModel);
@@ -1353,7 +1349,7 @@ const ForecastingPanel = ({
       label: "Total Need",
       value: modelHasResults ? displayedTotalForecastNeed : "--",
       accent: accentMap.blue,
-      icon: null,
+      icon: "need",
     },
     {
       label: "Items Checked",
@@ -1392,13 +1388,6 @@ const ForecastingPanel = ({
       icon: "critical",
       targetId: "forecast-detailed-results",
       opensDetails: true,
-    },
-    {
-      label: "Top Priority",
-      value: topRestockRow?.item_name || "None",
-      accent: accentMap.orange,
-      icon: "priority",
-      targetId: "forecast-stock-actions",
     },
   ];
 
