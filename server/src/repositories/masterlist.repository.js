@@ -362,9 +362,10 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
       WHERE el.disaster_event_id = $1
       ORDER BY
         el.evacuee_id,
-        COALESCE(el.time_out, el.time_in) DESC,
-        el.updated_at DESC,
-        el.created_at DESC
+        COALESCE(el.time_out, el.time_in) DESC NULLS LAST,
+        el.updated_at DESC NULLS LAST,
+        el.created_at DESC NULLS LAST,
+        el.id DESC
     ),
     summary_evacuees_with_latest_log AS (
       SELECT
@@ -1124,7 +1125,7 @@ const getHouseholdsByFilters = async (
       FROM household_scope hs
     ),
     attendance_occurrences AS (
-      SELECT
+      SELECT DISTINCT ON (hs.household_id)
         hs.household_id,
         el.id AS attendance_log_id,
         el.status AS attendance_status,
@@ -1140,6 +1141,12 @@ const getHouseholdsByFilters = async (
         ON el.household_id = hs.household_id
         AND el.disaster_event_id = $1
         AND el.evacuee_id = fhe.family_head_evacuee_id
+      ORDER BY
+        hs.household_id,
+        COALESCE(el.time_out, el.time_in) DESC NULLS LAST,
+        el.updated_at DESC NULLS LAST,
+        el.created_at DESC NULLS LAST,
+        el.id DESC
     ),
     records AS (
       SELECT
@@ -1532,9 +1539,10 @@ const getLatestAttendanceByHouseholdIds = async (householdIds) => {
     WHERE el.household_id = ANY($1::uuid[])
     ORDER BY
       el.household_id,
-      COALESCE(el.time_out, el.time_in) DESC,
-      el.updated_at DESC,
-      el.created_at DESC
+      COALESCE(el.time_out, el.time_in) DESC NULLS LAST,
+      el.updated_at DESC NULLS LAST,
+      el.created_at DESC NULLS LAST,
+      el.id DESC
   `;
 
   const result = await pool.query(query, [householdIds]);

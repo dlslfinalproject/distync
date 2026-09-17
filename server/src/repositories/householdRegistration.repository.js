@@ -1823,9 +1823,10 @@ const getLatestAttendanceByHouseholdId = async (householdId, dbClient = pool) =>
     FROM evacuation_logs
     WHERE household_id = $1
     ORDER BY
-      COALESCE(time_out, time_in) DESC,
-      updated_at DESC,
-      created_at DESC
+      COALESCE(time_out, time_in) DESC NULLS LAST,
+      updated_at DESC NULLS LAST,
+      created_at DESC NULLS LAST,
+      id DESC
     LIMIT 1
   `;
 
