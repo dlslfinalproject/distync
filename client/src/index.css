@@ -633,9 +633,17 @@ body {
   overflow-wrap: anywhere;
 }
 
+.mayor-inventory-forecast-stat-grid {
+  grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+}
+
 @media (max-width: 1100px) {
   .inventory-items-summary-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .mayor-inventory-forecast-stat-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   }
 
   .inventory-item-detail-info-grid,
@@ -3651,6 +3659,16 @@ img {
     max-width: none !important;
     min-width: 0 !important;
     justify-content: center;
+  }
+
+  .mayor-inventory-forecast-event-header {
+    align-items: flex-start !important;
+    flex-direction: column;
+    gap: 14px !important;
+  }
+
+  .mayor-inventory-forecast-model-summary {
+    align-self: flex-start;
   }
 }
 
