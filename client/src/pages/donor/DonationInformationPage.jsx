@@ -1140,7 +1140,6 @@ const styles = {
     width: "92px",
     height: "92px",
     objectFit: "contain",
-    transform: "translateX(3px)",
   },
   footerBrandCopy: {
     minWidth: 0,
