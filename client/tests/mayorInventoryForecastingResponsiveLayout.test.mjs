@@ -57,6 +57,9 @@ test("Mayor inventory forecasting controls, KPIs, charts, and tables expose mobi
   assert.match(panelSource, /gridTemplateColumns: "repeat\(auto-fit, minmax\(min\(100%, 220px\), 1fr\)\)"/);
   assert.match(panelSource, /gridTemplateColumns: "repeat\(auto-fit, minmax\(min\(100%, 150px\), 1fr\)\)"/);
   assert.match(panelSource, /className="mayor-inventory-forecast-stat-grid"/);
+  assert.match(panelSource, /label: "Total Need"[\s\S]*?icon: "need"/);
+  assert.doesNotMatch(panelSource, /Top Priority Items|topPriority|forecast-top-priorities/);
+  assert.doesNotMatch(cssSource, /mayor-inventory-forecast-priority-grid/);
   assert.match(
     cssSource,
     /@media \(max-width: 768px\)[\s\S]*?\.mayor-inventory-forecast-stat-grid \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
