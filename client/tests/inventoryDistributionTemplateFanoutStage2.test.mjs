@@ -247,7 +247,7 @@ test("event changes retain the existing stale-response guard and do not restore 
   assert.match(hookSource, /let isMounted = true;/);
   assert.match(hookSource, /if \(isMounted\) \{/);
   assert.match(hookSource, /isMounted = false;/);
-  assert.match(hookSource, /\}, \[selectedDisasterEventId\]\);/);
+  assert.match(hookSource, /\}, \[reloadToken, selectedDisasterEventId\]\);/);
   assert.doesNotMatch(hookSource, /setIsLoadingTemplateDetails/);
   assert.doesNotMatch(hookSource, /Promise\.all\([\s\S]*fetchReliefPackTemplateById/);
 });

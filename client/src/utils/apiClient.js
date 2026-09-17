@@ -30,6 +30,14 @@ const shouldAttachAccessToken = (requestUrl) => {
   );
 };
 
+const shouldBypassApiHttpCache = (request, requestUrl) => {
+  return (
+    requestUrl.origin === API_BASE_ORIGIN &&
+    requestUrl.pathname.startsWith("/api/v1/") &&
+    (request.method === "GET" || request.method === "HEAD")
+  );
+};
+
 export const installAuthenticatedFetch = () => {
   if (window.__distyncAuthenticatedFetchInstalled) {
     return;
@@ -40,25 +48,28 @@ export const installAuthenticatedFetch = () => {
   window.fetch = async (input, init) => {
     const request = new Request(input, init);
     const requestUrl = new URL(request.url, window.location.origin);
+    const freshRequest = shouldBypassApiHttpCache(request, requestUrl)
+      ? new Request(request, { cache: "no-store" })
+      : request;
 
     if (!shouldAttachAccessToken(requestUrl)) {
-      return nativeFetch(input, init);
+      return nativeFetch(freshRequest);
     }
 
     const accessToken = getAuthenticatedAccessToken();
 
     if (!accessToken) {
-      return nativeFetch(input, init);
+      return nativeFetch(freshRequest);
     }
 
-    const headers = new Headers(request.headers);
+    const headers = new Headers(freshRequest.headers);
 
     if (!headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${accessToken}`);
     }
 
     const authenticatedResponse = await nativeFetch(
-      new Request(request, {
+      new Request(freshRequest, {
         headers,
       }),
     );

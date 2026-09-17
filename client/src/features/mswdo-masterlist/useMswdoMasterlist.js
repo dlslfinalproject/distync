@@ -33,6 +33,7 @@ import { getVisibleSyncQueueEntries } from "../../offline/syncQueue.js";
 import { deriveBarangayDashboardMetrics } from "../barangay-dashboard/barangayDashboardOfflineMetrics.js";
 import { subscribeToSyncUpdates } from "../../offline/syncService.js";
 import { buildSyncDescriptor } from "../../offline/syncStatus";
+import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -208,14 +209,46 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
   const [masterlistPayload, setMasterlistPayload] = useState(emptyMasterlistPayload);
   const [dashboardPayload, setDashboardPayload] = useState(emptyDashboardPayload);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
+  const [isRefreshingFilters, setIsRefreshingFilters] = useState(false);
   const [isLoadingMasterlist, setIsLoadingMasterlist] = useState(false);
+  const [isRefreshingMasterlist, setIsRefreshingMasterlist] = useState(false);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
+  const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [dashboardErrorMessage, setDashboardErrorMessage] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const [filtersReloadKey, setFiltersReloadKey] = useState(0);
   const [currentPage, setCurrentPageState] = useState(1);
   const [pageSize, setPageSizeState] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const masterlistRequestSequenceRef = useRef(0);
+  const backgroundMasterlistReloadRef = useRef(false);
+  const backgroundDashboardReloadRef = useRef(false);
+  const backgroundFiltersReloadRef = useRef(false);
+  const hasLoadedFiltersRef = useRef(false);
+  const hasLoadedMasterlistRef = useRef(false);
+  const hasLoadedDashboardRef = useRef(false);
+  const reloadMasterlist = (options = {}) => {
+    const isBackground = Boolean(options?.background);
+
+    backgroundMasterlistReloadRef.current = isBackground;
+    backgroundDashboardReloadRef.current = isBackground;
+    backgroundFiltersReloadRef.current = isBackground;
+    if (isBackground) {
+      setFiltersReloadKey((currentValue) => currentValue + 1);
+    }
+    setReloadKey((currentValue) => currentValue + 1);
+  };
+
+  useDashboardRevalidation(
+    () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return;
+      }
+
+      reloadMasterlist({ background: true });
+    },
+    { enabled: Boolean(selectedDisasterEventId) },
+  );
   const resetPage = useCallback(() => {
     setCurrentPageState(1);
   }, []);
@@ -302,7 +335,13 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
     let isMounted = true;
 
     const loadInitialFilters = async () => {
-      setIsLoadingFilters(true);
+      const preserveExistingFilters =
+        backgroundFiltersReloadRef.current && hasLoadedFiltersRef.current;
+      backgroundFiltersReloadRef.current = false;
+      if (!preserveExistingFilters) {
+        setIsLoadingFilters(true);
+      }
+      setIsRefreshingFilters(preserveExistingFilters);
       setErrorMessage("");
 
       try {
@@ -336,17 +375,21 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
         setDisasterEvents(allEvents);
         setBarangays(barangayRows);
         setSectors(sectorRows);
+        hasLoadedFiltersRef.current = true;
 
         const storedEventId = readOperationalDisasterEventId({
           roleCode: ROLE_CODES.MSWDO,
           userId,
         });
         const fallbackEventId = activeEvents[0]?.id || allEvents[0]?.id || "";
-        const nextSelectedEventId = resolveOperationalDisasterEventId({
-          availableEvents: allEvents,
-          preferredEventId: storedEventId,
-          fallbackEventId,
-        });
+        const nextSelectedEventId = preserveExistingFilters &&
+          allEvents.some((event) => event.id === selectedDisasterEventId)
+          ? selectedDisasterEventId
+          : resolveOperationalDisasterEventId({
+              availableEvents: allEvents,
+              preferredEventId: storedEventId,
+              fallbackEventId,
+            });
 
         setSelectedDisasterEventIdState(nextSelectedEventId);
         persistOperationalDisasterEventSelection({
@@ -371,12 +414,17 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
             setSelectedDisasterEventIdState(restoredEvent.id);
             setErrorMessage("");
           } else {
-            setErrorMessage(error.message || "Failed to load monitoring filters");
+            if (!preserveExistingFilters) {
+              setErrorMessage(error.message || "Failed to load monitoring filters");
+            }
           }
         }
       } finally {
         if (isMounted) {
-          setIsLoadingFilters(false);
+          if (!preserveExistingFilters) {
+            setIsLoadingFilters(false);
+          }
+          setIsRefreshingFilters(false);
         }
       }
     };
@@ -386,7 +434,7 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
     return () => {
       isMounted = false;
     };
-  }, [userId]);
+  }, [filtersReloadKey, userId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -394,6 +442,11 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
     masterlistRequestSequenceRef.current = requestSequence;
 
     const loadMasterlist = async () => {
+      const isBackgroundReload = backgroundMasterlistReloadRef.current;
+      backgroundMasterlistReloadRef.current = false;
+      const preserveExistingData =
+        isBackgroundReload && hasLoadedMasterlistRef.current;
+
       if (!selectedDisasterEventId) {
         if (
           isMounted &&
@@ -401,10 +454,12 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
         ) {
           setMasterlistPayload(emptyMasterlistPayload);
         }
+        setIsRefreshingMasterlist(false);
         return;
       }
 
       setIsLoadingMasterlist(true);
+      setIsRefreshingMasterlist(preserveExistingData);
       setErrorMessage("");
 
       try {
@@ -441,6 +496,7 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
             sectorOptions: cached.datasets.filters.sectors || [],
           });
           setMasterlistPayload(offlinePayload);
+          hasLoadedMasterlistRef.current = true;
           return;
         }
 
@@ -460,12 +516,18 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
           masterlistRequestSequenceRef.current === requestSequence
         ) {
           setMasterlistPayload(payload);
+          hasLoadedMasterlistRef.current = true;
         }
       } catch (error) {
         if (
           isMounted &&
           masterlistRequestSequenceRef.current === requestSequence
         ) {
+          if (preserveExistingData) {
+            setErrorMessage("");
+            return;
+          }
+
           const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
           if (cached) {
             const completeHouseholds = cached.datasets.masterlist.rows || [];
@@ -488,8 +550,10 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
               sectorOptions: cached.datasets.filters.sectors || [],
             }));
             setErrorMessage("");
+            hasLoadedMasterlistRef.current = true;
           } else {
             setMasterlistPayload(emptyMasterlistPayload);
+            hasLoadedMasterlistRef.current = false;
             setErrorMessage(error.message || "Failed to load consolidated masterlist");
           }
         }
@@ -499,6 +563,7 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
           masterlistRequestSequenceRef.current === requestSequence
         ) {
           setIsLoadingMasterlist(false);
+          setIsRefreshingMasterlist(false);
         }
       }
     };
@@ -527,10 +592,18 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
     const loadDashboard = async () => {
       if (!selectedDisasterEventId) {
         setDashboardPayload(emptyDashboardPayload);
+        setIsRefreshingDashboard(false);
+        hasLoadedDashboardRef.current = false;
         return;
       }
 
+      const isBackgroundReload = backgroundDashboardReloadRef.current;
+      backgroundDashboardReloadRef.current = false;
+      const preserveExistingData =
+        isBackgroundReload && hasLoadedDashboardRef.current;
+
       setIsLoadingDashboard(true);
+      setIsRefreshingDashboard(preserveExistingData);
       setDashboardErrorMessage("");
 
       try {
@@ -541,9 +614,14 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
 
         if (isMounted) {
           setDashboardPayload(payload);
+          hasLoadedDashboardRef.current = true;
         }
       } catch (error) {
         if (isMounted) {
+          if (preserveExistingData) {
+            setDashboardErrorMessage("");
+            return;
+          }
           const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
           if (cached) {
             setDashboardPayload(buildOfflineMswdoDashboardPayload({
@@ -552,15 +630,18 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
               selectedBarangayId,
               syncQueueEntries,
             }));
+            hasLoadedDashboardRef.current = true;
             setDashboardErrorMessage("");
           } else {
             setDashboardPayload(emptyDashboardPayload);
+            hasLoadedDashboardRef.current = false;
             setDashboardErrorMessage("Unable to load descriptive analytics.");
           }
         }
       } finally {
         if (isMounted) {
           setIsLoadingDashboard(false);
+          setIsRefreshingDashboard(false);
         }
       }
     };
@@ -573,12 +654,15 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
   }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
-    const refresh = () => setReloadKey((value) => value + 1);
+    const refresh = () => reloadMasterlist({ background: true });
     window?.addEventListener?.("online", refresh);
     return () => window?.removeEventListener?.("online", refresh);
   }, []);
 
-  useEffect(() => subscribeToSyncUpdates(() => setReloadKey((value) => value + 1)), []);
+  useEffect(
+    () => subscribeToSyncUpdates(() => reloadMasterlist({ background: true })),
+    [],
+  );
 
   const mappedRows = useMemo(() => {
     const pageHouseholds = masterlistPayload.data || [];
@@ -647,8 +731,15 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
     pageSize,
     summaryMetrics,
     isLoadingFilters,
+    isInitialLoadingFilters: isLoadingFilters && !isRefreshingFilters,
+    isRefreshingFilters,
     isLoadingMasterlist,
+    isInitialLoadingMasterlist:
+      isLoadingMasterlist && !isRefreshingMasterlist,
+    isRefreshingMasterlist,
     isLoadingDashboard,
+    isInitialLoadingDashboard: isLoadingDashboard && !isRefreshingDashboard,
+    isRefreshingDashboard,
     errorMessage,
     dashboardErrorMessage,
     hasDashboardData: Boolean(dashboardPayload.has_data),
@@ -660,8 +751,6 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
     setRecordStatus,
     setCurrentPage: setCurrentPageState,
     setPageSize,
-    reloadMasterlist: () => {
-      setReloadKey((currentValue) => currentValue + 1);
-    },
+    reloadMasterlist,
   };
 };

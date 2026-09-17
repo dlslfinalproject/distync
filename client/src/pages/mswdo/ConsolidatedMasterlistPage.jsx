@@ -36,9 +36,9 @@ const ConsolidatedEvacueeMasterlist = () => {
     currentPage,
     pageSize,
     summaryMetrics,
-    isLoadingFilters,
-    isLoadingMasterlist,
-    isLoadingDashboard,
+    isInitialLoadingFilters,
+    isInitialLoadingMasterlist,
+    isInitialLoadingDashboard,
     errorMessage,
     dashboardErrorMessage,
     activeTab,
@@ -199,7 +199,7 @@ const ConsolidatedEvacueeMasterlist = () => {
 
       <MswdoMasterlistScopeSection
         activeTab={activeTab}
-        isLoadingFilters={isLoadingFilters}
+        isLoadingFilters={isInitialLoadingFilters}
         scopedDisasterEvents={scopedDisasterEvents}
         selectedDisasterEventId={selectedDisasterEventId}
         selectedBarangayId={selectedBarangayId}
@@ -212,11 +212,11 @@ const ConsolidatedEvacueeMasterlist = () => {
       <MswdoMasterlistEventSummary
         activeEventLabel={activeEventLabel}
         selectedDisasterEvent={selectedDisasterEvent}
-        isLoadingFilters={isLoadingFilters}
+        isLoadingFilters={isInitialLoadingFilters}
         reliefPeriodText={reliefPeriodText}
       />
 
-      {selectedDisasterEvent && !isLoadingDashboard && !dashboardErrorMessage ? (
+      {selectedDisasterEvent && !isInitialLoadingDashboard && !dashboardErrorMessage ? (
         <MswdoSummaryCards
           summary={summaryMetrics}
           selectedBarangayId={selectedBarangayId}
@@ -285,7 +285,7 @@ const ConsolidatedEvacueeMasterlist = () => {
       <MasterlistTable
         rows={displayedRows}
         hasSelectedEvent={Boolean(selectedDisasterEventId)}
-        isLoading={isLoadingFilters || isLoadingMasterlist}
+        isLoading={isInitialLoadingFilters || isInitialLoadingMasterlist}
         errorMessage={errorMessage}
         onMarkDeparted={handleOpenDepartureConfirmation}
         onViewHousehold={handleOpenHouseholdDetails}

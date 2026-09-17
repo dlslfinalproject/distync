@@ -34,6 +34,7 @@ import {
   sortPresentedStubRows,
   withStubPresentationStatus,
 } from "./stubPresentation.js";
+import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
 
 export const ALL_BARANGAYS = "__ALL_BARANGAYS__";
 
@@ -197,11 +198,38 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
   const [dashboard, setDashboard] = useState(emptyDashboard);
   const [pendingLocalRows, setPendingLocalRows] = useState([]);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
+  const [isRefreshingFilters, setIsRefreshingFilters] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isRefreshingData, setIsRefreshingData] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const [isEventSelectionResolved, setIsEventSelectionResolved] = useState(false);
   const dataRequestSeqRef = useRef(0);
+  const backgroundReloadRef = useRef(false);
+  const backgroundFiltersReloadRef = useRef(false);
+  const hasLoadedDataRef = useRef(false);
+  const hasLoadedFiltersRef = useRef(false);
+  const [filtersReloadKey, setFiltersReloadKey] = useState(0);
+  const reloadDashboard = (options = {}) => {
+    const isBackground = Boolean(options?.background);
+    backgroundReloadRef.current = isBackground;
+    backgroundFiltersReloadRef.current = isBackground;
+    if (isBackground) {
+      setFiltersReloadKey((currentValue) => currentValue + 1);
+    }
+    setReloadKey((currentValue) => currentValue + 1);
+  };
+
+  useDashboardRevalidation(
+    () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return;
+      }
+
+      reloadDashboard({ background: true });
+    },
+    { enabled: true },
+  );
 
   const setSelectedDisasterEventId = useCallback(
     (nextEventId) => {
@@ -223,13 +251,19 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     let isMounted = true;
 
     const loadInitialFilters = async () => {
-      setIsLoadingFilters(true);
-      setIsEventSelectionResolved(false);
-      setSelectedDisasterEventIdState("");
-      setSelectedBarangayId("");
-      setDashboard(emptyDashboard);
-      setPendingLocalRows([]);
-      setServerPagination(null);
+      const preserveExistingFilters =
+        backgroundFiltersReloadRef.current && hasLoadedFiltersRef.current;
+      backgroundFiltersReloadRef.current = false;
+      if (!preserveExistingFilters) {
+        setIsLoadingFilters(true);
+        setIsEventSelectionResolved(false);
+        setSelectedDisasterEventIdState("");
+        setSelectedBarangayId("");
+        setDashboard(emptyDashboard);
+        setPendingLocalRows([]);
+        setServerPagination(null);
+      }
+      setIsRefreshingFilters(preserveExistingFilters);
       setErrorMessage("");
 
       try {
@@ -245,10 +279,14 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
           setDisasterEvents(allEvents);
           setBarangays(barangayRows);
           setSectors(sectorRows);
-          const nextSelectedEventId = resolveOperationalDisasterEventId({ availableEvents: allEvents, preferredEventId: storedEventId, fallbackEventId: activeEvents[0]?.id || allEvents[0]?.id || "" });
+          const nextSelectedEventId = preserveExistingFilters &&
+            allEvents.some((event) => event.id === selectedDisasterEventId)
+            ? selectedDisasterEventId
+            : resolveOperationalDisasterEventId({ availableEvents: allEvents, preferredEventId: storedEventId, fallbackEventId: activeEvents[0]?.id || allEvents[0]?.id || "" });
           const setOfflineEventId = setSelectedDisasterEventIdState;
           setOfflineEventId(nextSelectedEventId);
           setIsEventSelectionResolved(true);
+          hasLoadedFiltersRef.current = true;
           return;
         }
         const [
@@ -281,14 +319,25 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
           userId,
         });
         const fallbackEventId = activeEvents[0]?.id || allEvents[0]?.id || "";
-        const nextSelectedEventId = resolveOperationalDisasterEventId({
-          availableEvents: allEvents,
-          preferredEventId: storedEventId,
-          fallbackEventId,
-        });
+        const nextSelectedEventId = preserveExistingFilters &&
+          allEvents.some((event) => event.id === selectedDisasterEventId)
+          ? selectedDisasterEventId
+          : resolveOperationalDisasterEventId({
+              availableEvents: allEvents,
+              preferredEventId: storedEventId,
+              fallbackEventId,
+            });
 
         setSelectedDisasterEventIdState(nextSelectedEventId);
+        if (
+          preserveExistingFilters &&
+          selectedBarangayId !== ALL_BARANGAYS &&
+          !barangayRows.some((barangay) => barangay.id === selectedBarangayId)
+        ) {
+          setSelectedBarangayId("");
+        }
         setIsEventSelectionResolved(true);
+        hasLoadedFiltersRef.current = true;
         persistOperationalDisasterEventSelection({
           roleCode: ROLE_CODES.MSWDO,
           userId,
@@ -302,13 +351,18 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
       } catch (error) {
         if (isMounted) {
           setIsEventSelectionResolved(true);
-          setErrorMessage(
-            error.message || "Failed to load relief distribution filters.",
-          );
+          if (!preserveExistingFilters) {
+            setErrorMessage(
+              error.message || "Failed to load relief distribution filters.",
+            );
+          }
         }
       } finally {
         if (isMounted) {
-          setIsLoadingFilters(false);
+          if (!preserveExistingFilters) {
+            setIsLoadingFilters(false);
+          }
+          setIsRefreshingFilters(false);
         }
       }
     };
@@ -318,7 +372,7 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     return () => {
       isMounted = false;
     };
-  }, [userId]);
+  }, [filtersReloadKey, userId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -326,6 +380,10 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     const loadDistributionData = async () => {
       const requestSeq = dataRequestSeqRef.current + 1;
       dataRequestSeqRef.current = requestSeq;
+      const isBackgroundReload = backgroundReloadRef.current;
+      backgroundReloadRef.current = false;
+      const preserveExistingData =
+        isBackgroundReload && hasLoadedDataRef.current;
       const selectedEvent = disasterEvents.find(
         (event) => event.id === selectedDisasterEventId,
       );
@@ -341,10 +399,12 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
         setServerPagination(null);
         setErrorMessage("");
         setIsLoadingData(false);
+        setIsRefreshingData(false);
         return;
       }
 
       setIsLoadingData(true);
+      setIsRefreshingData(preserveExistingData);
       setErrorMessage("");
 
       try {
@@ -375,6 +435,7 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
           setDashboard({ metrics: { ...emptyMetrics, total_issued_stubs: presentedRows.length, claimed_stubs: presentedRows.filter((row) => row.presentation_status === "CLAIMED").length, unclaimed_stubs: presentedRows.filter((row) => row.presentation_status === "FOR_CLAIM").length, beneficiary_families: new Set(presentedRows.map((row) => row.household_id)).size }, data: sortPresentedStubRows(presentedRows) });
           setServerPagination(null);
           setPendingLocalRows(localRows);
+          hasLoadedDataRef.current = true;
           return;
         }
         const dashboardPayload = isAllBarangays && selectedEvent?.status === "ACTIVE"
@@ -443,8 +504,14 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
         });
         setServerPagination(dashboardPayload.pagination || null);
         setPendingLocalRows(page === 1 ? localRows : []);
+        hasLoadedDataRef.current = true;
       } catch (error) {
         if (isMounted) {
+          if (preserveExistingData) {
+            setErrorMessage("");
+            return;
+          }
+
           const localRows = await getPendingLocalStubRows({
             disasterEventId: selectedDisasterEventId,
             barangayId: selectedBarangayId === ALL_BARANGAYS ? "" : selectedBarangayId,
@@ -462,10 +529,12 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
           setErrorMessage(
             localRows.length > 0 ? "" : getFriendlyErrorMessage(error),
           );
+          hasLoadedDataRef.current = localRows.length > 0;
         }
       } finally {
         if (isMounted && dataRequestSeqRef.current === requestSeq) {
           setIsLoadingData(false);
+          setIsRefreshingData(false);
         }
       }
     };
@@ -510,7 +579,7 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     }
 
     const handleSyncQueueUpdated = () => {
-      setReloadKey((currentValue) => currentValue + 1);
+      reloadDashboard({ background: true });
     };
 
     window.addEventListener("distync-sync-queue-updated", handleSyncQueueUpdated);
@@ -624,7 +693,11 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     pageSize,
     summaryCards,
     isLoadingFilters,
+    isInitialLoadingFilters: isLoadingFilters && !isRefreshingFilters,
+    isRefreshingFilters,
     isLoadingData,
+    isInitialLoadingData: isLoadingData && !isRefreshingData,
+    isRefreshingData,
     isEventSelectionResolved,
     errorMessage,
     hasSelectedEvent: Boolean(selectedDisasterEventId),
@@ -637,8 +710,6 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     setPage,
     setPageSize,
     setSearchTerm,
-    reloadDashboard: () => {
-      setReloadKey((currentValue) => currentValue + 1);
-    },
+    reloadDashboard,
   };
 };

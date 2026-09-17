@@ -169,7 +169,7 @@ const BarangayMasterlistPage = () => {
     selectedEvent,
     summaryCards,
     devBarangayOptions,
-    isLoading: isLoadingDashboard,
+    isInitialLoading: isLoadingDashboard,
     isContextResolved: isBarangayContextResolved,
     errorMessage: dashboardErrorMessage,
     errorCode: dashboardErrorCode,

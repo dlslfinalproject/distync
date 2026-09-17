@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FiFileText, FiX } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import {
@@ -35,6 +35,7 @@ import {
   getTablePaginationState,
   TABLE_PAGE_SIZE_OPTIONS,
 } from "../../features/pagination/pagination.mjs";
+import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
 
 const inputStyles = {
   width: "100%",
@@ -303,7 +304,9 @@ const DisasterEventReportsPage = () => {
     sort_order: "newest",
   });
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
+  const [isRefreshingFilters, setIsRefreshingFilters] = useState(false);
   const [isLoadingRows, setIsLoadingRows] = useState(true);
+  const [isRefreshingRows, setIsRefreshingRows] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [page, setPage] = useState(1);
@@ -333,6 +336,23 @@ const DisasterEventReportsPage = () => {
   const [selectedExportSortOrder, setSelectedExportSortOrder] =
     useState("newest");
   const [isExporting, setIsExporting] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
+  const [filtersReloadToken, setFiltersReloadToken] = useState(0);
+  const backgroundFiltersReloadRef = useRef(false);
+  const backgroundRowsReloadRef = useRef(false);
+  const hasLoadedFiltersRef = useRef(false);
+  const hasLoadedRowsRef = useRef(false);
+
+  useDashboardRevalidation(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return;
+    }
+
+    backgroundFiltersReloadRef.current = true;
+    backgroundRowsReloadRef.current = true;
+    setFiltersReloadToken((value) => value + 1);
+    setReloadToken((value) => value + 1);
+  });
 
   const updateFilters = (updater) => {
     setPage(1);
@@ -359,7 +379,11 @@ const DisasterEventReportsPage = () => {
     let isMounted = true;
 
     const loadFilters = async () => {
+      const preserveExistingFilters =
+        backgroundFiltersReloadRef.current && hasLoadedFiltersRef.current;
+      backgroundFiltersReloadRef.current = false;
       setIsLoadingFilters(true);
+      setIsRefreshingFilters(preserveExistingFilters);
 
       try {
         const [eventRows, barangayRows] = await Promise.all([
@@ -373,15 +397,19 @@ const DisasterEventReportsPage = () => {
 
         setDisasterEvents(Array.isArray(eventRows) ? eventRows : []);
         setBarangays(Array.isArray(barangayRows) ? barangayRows : []);
+        hasLoadedFiltersRef.current = true;
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(
-            error.message || "Failed to load disaster report filters.",
-          );
+          if (!preserveExistingFilters) {
+            setErrorMessage(
+              error.message || "Failed to load disaster report filters.",
+            );
+          }
         }
       } finally {
         if (isMounted) {
           setIsLoadingFilters(false);
+          setIsRefreshingFilters(false);
         }
       }
     };
@@ -391,13 +419,17 @@ const DisasterEventReportsPage = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [filtersReloadToken]);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadRows = async () => {
+      const preserveExistingRows =
+        backgroundRowsReloadRef.current && hasLoadedRowsRef.current;
+      backgroundRowsReloadRef.current = false;
       setIsLoadingRows(true);
+      setIsRefreshingRows(preserveExistingRows);
       setErrorMessage("");
 
       try {
@@ -432,8 +464,13 @@ const DisasterEventReportsPage = () => {
             ? currentPage
             : nextPagination.page,
         );
+        hasLoadedRowsRef.current = true;
       } catch (error) {
         if (isMounted) {
+          if (preserveExistingRows) {
+            setErrorMessage("");
+            return;
+          }
           setRows([]);
           setPagination(
             getPaginationFromResponse({
@@ -450,6 +487,7 @@ const DisasterEventReportsPage = () => {
       } finally {
         if (isMounted) {
           setIsLoadingRows(false);
+          setIsRefreshingRows(false);
         }
       }
     };
@@ -469,6 +507,7 @@ const DisasterEventReportsPage = () => {
     page,
     pageSize,
     searchTerm,
+    reloadToken,
   ]);
 
   const displayedRows = rows;
@@ -495,7 +534,9 @@ const DisasterEventReportsPage = () => {
   const activeColumnWidthStyles = isSpecificDisasterEventSelected
     ? specificEventColumnWidthStyles
     : columnWidthStyles;
-  const isExportDisabled = isLoadingRows || pagination.totalItems === 0;
+  const isInitialLoadingRows = isLoadingRows && !isRefreshingRows;
+  const isInitialLoadingFilters = isLoadingFilters && !isRefreshingFilters;
+  const isExportDisabled = isInitialLoadingRows || pagination.totalItems === 0;
   const exportDisasterEventOptions = useMemo(
     () => buildDisasterEventReportExportOptions(disasterEvents),
     [disasterEvents],
@@ -661,7 +702,7 @@ const DisasterEventReportsPage = () => {
                   disaster_event_id: event.target.value,
                 }))
               }
-              disabled={isLoadingFilters}
+              disabled={isInitialLoadingFilters}
               style={inputStyles}
             >
               <option value="">All disaster events</option>
@@ -686,7 +727,7 @@ const DisasterEventReportsPage = () => {
                   barangay_id: event.target.value,
                 }))
               }
-              disabled={isLoadingFilters}
+              disabled={isInitialLoadingFilters}
               style={inputStyles}
             >
               <option value="">All barangays</option>
@@ -814,9 +855,9 @@ const DisasterEventReportsPage = () => {
           pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
           onPageChange={setPage}
           onPageSizeChange={handlePageSizeChange}
-          isVisible={!isLoadingRows && !errorMessage}
-          disabled={isLoadingRows}
-          disablePageSize={isLoadingRows}
+          isVisible={!isInitialLoadingRows && !errorMessage}
+          disabled={isInitialLoadingRows}
+          disablePageSize={isInitialLoadingRows}
           ariaLabel="Disaster events summary pagination"
           previousAriaLabel="Go to previous disaster events summary page"
           nextAriaLabel="Go to next disaster events summary page"
@@ -824,7 +865,7 @@ const DisasterEventReportsPage = () => {
 
         {errorMessage ? <ErrorState message={errorMessage} style={{ marginBottom: "16px" }} /> : null}
 
-        {isLoadingRows ? (
+        {isInitialLoadingRows ? (
           <LoadingState message="Loading disaster event reports..." />
         ) : displayedRows.length === 0 ? (
           <EmptyState message="No matching records found. Try adjusting your search or filters." />

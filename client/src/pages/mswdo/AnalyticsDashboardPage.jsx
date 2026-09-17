@@ -130,8 +130,8 @@ const AnalyticsDashboardPage = () => {
     barangayCoverageDistribution,
     barangayCoverageCount,
     evacuationCenterDistribution,
-    isLoadingFilters,
-    isLoadingDashboard,
+    isInitialLoadingFilters,
+    isInitialLoadingDashboard,
     errorMessage,
     hasSelectedEvent,
     hasData,
@@ -201,13 +201,15 @@ const AnalyticsDashboardPage = () => {
       ...filterStyles.exportButton,
       width: isNarrow ? "100%" : "auto",
       cursor:
-        !hasSelectedEvent || isLoadingFilters || isLoadingDashboard
+        !hasSelectedEvent || isInitialLoadingFilters || isInitialLoadingDashboard
           ? "not-allowed"
           : "pointer",
       opacity:
-        !hasSelectedEvent || isLoadingFilters || isLoadingDashboard ? 0.7 : 1,
+        !hasSelectedEvent || isInitialLoadingFilters || isInitialLoadingDashboard
+          ? 0.7
+          : 1,
     }),
-    [hasSelectedEvent, isLoadingDashboard, isLoadingFilters, isNarrow],
+    [hasSelectedEvent, isInitialLoadingDashboard, isInitialLoadingFilters, isNarrow],
   );
   const mixedChartGridStyle = useMemo(
     () => ({
@@ -283,7 +285,7 @@ const AnalyticsDashboardPage = () => {
               id="analytics-disaster-event"
               value={selectedDisasterEventId}
               onChange={(event) => setSelectedDisasterEventId(event.target.value)}
-              disabled={isLoadingFilters}
+              disabled={isInitialLoadingFilters}
               style={filterStyles.field}
             >
               <option value="">Select disaster event</option>
@@ -303,7 +305,7 @@ const AnalyticsDashboardPage = () => {
               id="analytics-barangay"
               value={selectedBarangayId}
               onChange={(event) => setSelectedBarangayId(event.target.value)}
-              disabled={isLoadingFilters}
+              disabled={isInitialLoadingFilters}
               style={filterStyles.field}
             >
               <option value="">All barangays</option>
@@ -322,7 +324,7 @@ const AnalyticsDashboardPage = () => {
           className="mswdo-analytics-export-button"
           type="button"
           onClick={handleOpenExportModal}
-          disabled={!hasSelectedEvent || isLoadingFilters || isLoadingDashboard}
+          disabled={!hasSelectedEvent || isInitialLoadingFilters || isInitialLoadingDashboard}
           style={exportButtonStyle}
         >
           <FiFileText size={16} />
@@ -339,7 +341,7 @@ const AnalyticsDashboardPage = () => {
         </section>
       ) : null}
 
-      {hasSelectedEvent && (isLoadingFilters || isLoadingDashboard) ? (
+      {hasSelectedEvent && (isInitialLoadingFilters || isInitialLoadingDashboard) ? (
         <section style={shellStyles.card}>
           <h3 style={{ marginTop: 0, color: "#17324d" }}>Loading Dashboard</h3>
           <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
@@ -348,7 +350,7 @@ const AnalyticsDashboardPage = () => {
         </section>
       ) : null}
 
-      {hasSelectedEvent && !isLoadingDashboard && errorMessage ? (
+      {hasSelectedEvent && !isInitialLoadingDashboard && errorMessage ? (
         <section style={shellStyles.card}>
           <h3 style={{ marginTop: 0, color: "#17324d" }}>Dashboard Error</h3>
           <p style={{ ...shellStyles.mutedText, marginTop: "10px", color: "#a14d58" }}>
@@ -357,7 +359,7 @@ const AnalyticsDashboardPage = () => {
         </section>
       ) : null}
 
-      {hasSelectedEvent && !isLoadingDashboard && !errorMessage && !hasData ? (
+      {hasSelectedEvent && !isInitialLoadingDashboard && !errorMessage && !hasData ? (
         <section style={shellStyles.card}>
           <h3 style={{ marginTop: 0, color: "#17324d" }}>No Analytics Data</h3>
           <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
@@ -366,7 +368,7 @@ const AnalyticsDashboardPage = () => {
         </section>
       ) : null}
 
-      {hasSelectedEvent && !isLoadingDashboard && !errorMessage && hasData ? (
+      {hasSelectedEvent && !isInitialLoadingDashboard && !errorMessage && hasData ? (
         <>
           <div style={mixedChartGridStyle}>
             <DistributionPieChart

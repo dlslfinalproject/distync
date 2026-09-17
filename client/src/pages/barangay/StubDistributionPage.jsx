@@ -330,7 +330,7 @@ const StubDistributionPage = () => {
     availableEvents,
     selectedEvent,
     devBarangayOptions,
-    isLoading,
+    isInitialLoading: isInitialLoadingDashboard,
     isContextResolved: isBarangayContextResolved,
     errorMessage,
     errorCode,
@@ -357,7 +357,7 @@ const StubDistributionPage = () => {
     rows: stubRows,
     summaryCards,
     pagination: stubPagination,
-    isLoading: isLoadingStubDashboard,
+    isInitialLoading: isInitialLoadingStubDashboard,
     errorMessage: stubDashboardErrorMessage,
     hasData: hasStubData,
     reloadDashboard,
@@ -1187,7 +1187,7 @@ const StubDistributionPage = () => {
         availableEvents={availableEvents}
         selectedEvent={selectedEvent}
         devBarangayOptions={devBarangayOptions}
-        isLoading={isLoading || isLoadingStubDashboard}
+        isLoading={isInitialLoadingDashboard || isInitialLoadingStubDashboard}
         isContextResolved={isBarangayContextResolved}
         errorMessage={errorMessage}
         errorCode={errorCode}
@@ -1201,7 +1201,7 @@ const StubDistributionPage = () => {
         setOverrideBarangayId={setOverrideBarangayId}
       />
 
-      {hasSelectedEvent && !isLoadingStubDashboard && !stubDashboardErrorMessage ? (
+      {hasSelectedEvent && !isInitialLoadingStubDashboard && !stubDashboardErrorMessage ? (
         <StubSummaryCards cards={summaryCards} />
       ) : null}
 
@@ -1325,7 +1325,7 @@ const StubDistributionPage = () => {
 
       <StubResultsTable
         rows={filteredRows}
-        isLoading={isLoadingStubDashboard}
+        isLoading={isInitialLoadingStubDashboard}
         errorMessage={stubDashboardErrorMessage}
         hasSelectedEvent={hasSelectedEvent}
         claimingStubId={claimingStubId}

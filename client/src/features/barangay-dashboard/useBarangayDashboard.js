@@ -18,6 +18,7 @@ import {
   readOperationalDisasterEventContext,
   readOperationalDisasterEventScope,
 } from "../disaster-events/operationalDisasterEventSelection";
+import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
 
 const emptyMetrics = {
   total_evacuees_individuals: 0,
@@ -140,8 +141,14 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
   const [errorMessage, setErrorMessage] = useState("");
   const [errorCode, setErrorCode] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const backgroundReloadRef = useRef(false);
+  const hasResolvedPayloadRef = useRef(false);
   const reloadDashboard = useCallback(
-    () => setReloadKey((currentValue) => currentValue + 1),
+    (options = {}) => {
+      backgroundReloadRef.current = Boolean(options?.background);
+      setReloadKey((currentValue) => currentValue + 1);
+    },
     [],
   );
   const [devBarangayOptions, setDevBarangayOptions] = useState([]);
@@ -157,7 +164,7 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
   const syncQueueEntries = useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
-    const reloadWhenOnline = () => reloadDashboard();
+    const reloadWhenOnline = () => reloadDashboard({ background: true });
     window.addEventListener("online", reloadWhenOnline);
     return () => window.removeEventListener("online", reloadWhenOnline);
   }, [reloadDashboard]);
@@ -165,7 +172,7 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
   useEffect(() => {
     const unsubscribe = subscribeToSyncUpdates((event) => {
       if (event?.type === "finished") {
-        reloadDashboard();
+        reloadDashboard({ background: true });
       }
     });
 
@@ -179,6 +186,17 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
     isDevOverride: false,
   });
   const hasScopedBarangayContext = Boolean(userId || overrideBarangayId);
+
+  useDashboardRevalidation(
+    () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return;
+      }
+
+      reloadDashboard({ background: true });
+    },
+    { enabled: hasScopedBarangayContext },
+  );
 
   const persistSelection = useCallback(
     (eventId, scope = eventScope) => {
@@ -263,6 +281,8 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
       setPayload(emptyPayload);
       setSelectedDisasterEventIdState("");
       setIsLoading(false);
+      setIsRefreshing(false);
+      hasResolvedPayloadRef.current = false;
 
       if (allowFallback) {
         setIsContextResolved(true);
@@ -292,12 +312,20 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
     }
 
     const loadDashboard = async () => {
+      const isBackgroundReload = backgroundReloadRef.current;
+      backgroundReloadRef.current = false;
+      const preserveExistingPayload =
+        isBackgroundReload && hasResolvedPayloadRef.current;
+
       setIsLoading(true);
-      setIsContextResolved(false);
-      setPayload({
-        ...emptyPayload,
-        event_scope: eventScope,
-      });
+      setIsRefreshing(preserveExistingPayload);
+      if (!preserveExistingPayload) {
+        setIsContextResolved(false);
+        setPayload({
+          ...emptyPayload,
+          event_scope: eventScope,
+        });
+      }
       setErrorMessage("");
 
       const restoreOfflineContext = async () => {
@@ -417,6 +445,7 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
         }
         setErrorMessage(restored ? "" : "Unable to load analytics.");
         setIsContextResolved(true);
+        hasResolvedPayloadRef.current = restored;
         setIsLoading(false);
         return;
       }
@@ -452,6 +481,7 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
           has_data: Boolean(response.has_data),
           is_dev_override: Boolean(response.is_dev_override),
         });
+        hasResolvedPayloadRef.current = true;
         setErrorCode("");
         setErrorMessage("");
         setIsContextResolved(true);
@@ -479,12 +509,20 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
         });
       } catch (error) {
         if (isMounted && requestSeqRef.current === requestSeq) {
+          if (preserveExistingPayload) {
+            setIsContextResolved(true);
+            setErrorMessage("");
+            setErrorCode("");
+            return;
+          }
+
           if (canRestoreOfflineContext(error)) {
             const restored = await restoreOfflineContext();
             if (!restored) {
               setPayload(emptyPayload);
               setSelectedDisasterEventIdState("");
             }
+            hasResolvedPayloadRef.current = restored;
             setErrorMessage(restored ? "" : getFriendlyDashboardErrorMessage(error));
           } else {
             setPayload(emptyPayload);
@@ -495,6 +533,7 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
               eventId: "",
               eventScope,
             });
+            hasResolvedPayloadRef.current = false;
           }
           setErrorMessage(getFriendlyDashboardErrorMessage(error));
           setErrorCode(error.code || "");
@@ -503,6 +542,7 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
       } finally {
         if (isMounted && requestSeqRef.current === requestSeq) {
           setIsLoading(false);
+          setIsRefreshing(false);
         }
       }
     };
@@ -593,6 +633,8 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
     selectedEvent: payload.selected_event,
     summaryCards,
     isLoading,
+    isInitialLoading: isLoading && !isRefreshing,
+    isRefreshing,
     isContextResolved,
     errorMessage,
     errorCode,

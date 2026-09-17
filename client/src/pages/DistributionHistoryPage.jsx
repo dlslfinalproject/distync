@@ -35,6 +35,7 @@ import {
   downloadExportFile,
   resolveExportErrorMessage,
 } from "../utils/exportHelpers";
+import { useDashboardRevalidation } from "../utils/dashboardRevalidation";
 
 const inputStyles = {
   width: "100%",
@@ -230,7 +231,9 @@ const DistributionHistoryPage = () => {
     date_to: "",
   });
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
+  const [isRefreshingFilters, setIsRefreshingFilters] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [, setIsRefreshingHistory] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
@@ -256,6 +259,23 @@ const DistributionHistoryPage = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const historyRequestIdRef = useRef(0);
+  const [reloadToken, setReloadToken] = useState(0);
+  const [filtersReloadToken, setFiltersReloadToken] = useState(0);
+  const backgroundFiltersReloadRef = useRef(false);
+  const backgroundHistoryReloadRef = useRef(false);
+  const hasLoadedFiltersRef = useRef(false);
+  const hasLoadedHistoryRef = useRef(false);
+
+  useDashboardRevalidation(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return;
+    }
+
+    backgroundFiltersReloadRef.current = true;
+    backgroundHistoryReloadRef.current = true;
+    setFiltersReloadToken((value) => value + 1);
+    setReloadToken((value) => value + 1);
+  });
 
   const isSummaryMode = !filters.disaster_event_id;
   const historyDateRangeError = useMemo(
@@ -266,7 +286,7 @@ const DistributionHistoryPage = () => {
     () => getDateRangeError(exportFilters),
     [exportFilters.date_from, exportFilters.date_to],
   );
-
+  const isInitialLoadingFilters = isLoadingFilters && !isRefreshingFilters;
   const updateFilters = (updater) => {
     setPage(1);
     setFilters(updater);
@@ -291,7 +311,11 @@ const DistributionHistoryPage = () => {
     let isMounted = true;
 
     const loadFilterData = async () => {
+      const preserveExistingFilters =
+        backgroundFiltersReloadRef.current && hasLoadedFiltersRef.current;
+      backgroundFiltersReloadRef.current = false;
       setIsLoadingFilters(true);
+      setIsRefreshingFilters(preserveExistingFilters);
 
       try {
         const [eventRows, barangayRows] = await Promise.all([
@@ -307,13 +331,17 @@ const DistributionHistoryPage = () => {
 
         setDisasterEvents(Array.isArray(eventRows) ? eventRows : []);
         setBarangays(Array.isArray(barangayRows) ? barangayRows : []);
+        hasLoadedFiltersRef.current = true;
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error.message || "Failed to load distribution history filters.");
+          if (!preserveExistingFilters) {
+            setErrorMessage(error.message || "Failed to load distribution history filters.");
+          }
         }
       } finally {
         if (isMounted) {
           setIsLoadingFilters(false);
+          setIsRefreshingFilters(false);
         }
       }
     };
@@ -323,7 +351,7 @@ const DistributionHistoryPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [isBarangay]);
+  }, [filtersReloadToken, isBarangay]);
 
   useEffect(() => {
     let isMounted = true;
@@ -331,9 +359,11 @@ const DistributionHistoryPage = () => {
     historyRequestIdRef.current = requestId;
 
     if (historyDateRangeError) {
+      backgroundHistoryReloadRef.current = false;
       setHistoryRows([]);
       setHistoryPagination(createDefaultPagination());
       setIsLoadingHistory(false);
+      setIsRefreshingHistory(false);
       setErrorMessage(historyDateRangeError);
 
       return () => {
@@ -342,7 +372,13 @@ const DistributionHistoryPage = () => {
     }
 
     const loadHistory = async () => {
-      setIsLoadingHistory(true);
+      const preserveExistingHistory =
+        backgroundHistoryReloadRef.current && hasLoadedHistoryRef.current;
+      backgroundHistoryReloadRef.current = false;
+      if (!preserveExistingHistory) {
+        setIsLoadingHistory(true);
+      }
+      setIsRefreshingHistory(preserveExistingHistory);
       setErrorMessage("");
 
       try {
@@ -361,8 +397,13 @@ const DistributionHistoryPage = () => {
 
         setHistoryRows(Array.isArray(response.data) ? response.data : []);
         setHistoryPagination(response.pagination || createDefaultPagination());
+        hasLoadedHistoryRef.current = true;
       } catch (error) {
         if (isMounted && historyRequestIdRef.current === requestId) {
+          if (preserveExistingHistory) {
+            setErrorMessage("");
+            return;
+          }
           setHistoryRows([]);
           setHistoryPagination(createDefaultPagination());
           setErrorMessage(error.message || "Failed to load distribution history.");
@@ -370,6 +411,7 @@ const DistributionHistoryPage = () => {
       } finally {
         if (isMounted && historyRequestIdRef.current === requestId) {
           setIsLoadingHistory(false);
+          setIsRefreshingHistory(false);
         }
       }
     };
@@ -379,7 +421,7 @@ const DistributionHistoryPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [filters, historyDateRangeError, isSummaryMode, page, pageSize, searchTerm, sortOrder]);
+  }, [filters, historyDateRangeError, isSummaryMode, page, pageSize, reloadToken, searchTerm, sortOrder]);
 
   useEffect(() => {
     const numericTotalItems = Number(historyPagination.totalItems || 0);
@@ -535,7 +577,7 @@ const DistributionHistoryPage = () => {
                   barangay_id: "",
                 }))
               }
-              disabled={isLoadingFilters}
+              disabled={isInitialLoadingFilters}
               style={inputStyles}
             >
               <option value="">All disaster events</option>
@@ -561,7 +603,7 @@ const DistributionHistoryPage = () => {
                     barangay_id: event.target.value,
                   }))
                 }
-                disabled={isLoadingFilters}
+                disabled={isInitialLoadingFilters}
                 style={inputStyles}
               >
                 <option value="">All barangays</option>

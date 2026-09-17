@@ -289,8 +289,8 @@ const InventoryDistributionPage = () => {
     templateDetails,
     displayedRows,
     analytics,
-    isLoadingFilters,
-    isLoadingMasterlist,
+    isInitialLoadingFilters,
+    isInitialLoadingMasterlist,
     errorMessage,
     hasActiveEvents,
     handleEventScopeChange,
@@ -693,7 +693,7 @@ const InventoryDistributionPage = () => {
     }
   }, [selectedDisasterEventId]);
 
-  if (!hasActiveEvents && !isLoadingFilters) {
+  if (!hasActiveEvents && !isInitialLoadingFilters) {
     return (
       <div className="inventory-distribution-page" style={layoutStyles.page}>
         <PageHeader title="INVENTORY DISTRIBUTION MANAGEMENT" />
@@ -766,7 +766,7 @@ const InventoryDistributionPage = () => {
                     onChange={(event) =>
                       setSelectedDisasterEventId(event.target.value)
                     }
-                    disabled={isLoadingFilters}
+                    disabled={isInitialLoadingFilters}
                     style={filterStyles.field}
                   >
                     <option value="">
@@ -798,7 +798,7 @@ const InventoryDistributionPage = () => {
                     id="inventory-distribution-barangay"
                     value={selectedBarangayId}
                     onChange={(event) => setSelectedBarangayId(event.target.value)}
-                    disabled={isLoadingFilters}
+                    disabled={isInitialLoadingFilters}
                     style={filterStyles.field}
                   >
                     <option value="">All Barangays</option>
@@ -1018,7 +1018,7 @@ const InventoryDistributionPage = () => {
             selectedSectorIds.join(","),
           ].join("|")}
           rows={displayedRows}
-          isLoading={isLoadingFilters || isLoadingMasterlist}
+          isLoading={isInitialLoadingFilters || isInitialLoadingMasterlist}
           errorMessage={errorMessage}
           hasSelectedEvent={Boolean(selectedDisasterEventId)}
           showBarangayColumn={!selectedBarangayId}

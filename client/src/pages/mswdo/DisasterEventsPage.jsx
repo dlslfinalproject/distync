@@ -163,7 +163,7 @@ const DisasterEventsPage = () => {
     events,
     barangays,
     selectedEvent,
-    isLoading,
+    isInitialLoading: isLoading,
     isDetailLoading,
     isSubmitting,
     errorMessage,

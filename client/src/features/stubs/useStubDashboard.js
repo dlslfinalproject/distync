@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchBarangayStubDashboard } from "./stubService";
 import { getPendingLocalStubRows } from "./stubOfflineRows";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue.js";
@@ -16,6 +16,7 @@ import {
 } from "./stubCache";
 import { deriveStubDashboardMetrics } from "./stubDashboardOfflineMetrics.js";
 import { matchesStubSectorFilter } from "./stubSectorFilters.js";
+import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
 
 const emptyMetrics = {
   total_issued_stubs: 0,
@@ -112,8 +113,26 @@ export const useStubDashboard = ({
   const [dashboard, setDashboard] = useState(emptyDashboard);
   const [pendingLocalRows, setPendingLocalRows] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const backgroundReloadRef = useRef(false);
+  const hasLoadedDataRef = useRef(false);
+  const reloadDashboard = (options = {}) => {
+    backgroundReloadRef.current = Boolean(options?.background);
+    setReloadKey((currentValue) => currentValue + 1);
+  };
+
+  useDashboardRevalidation(
+    () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return;
+      }
+
+      reloadDashboard({ background: true });
+    },
+    { enabled: Boolean(disasterEventId && (userId || overrideBarangayId)) },
+  );
 
   useEffect(() => {
     const hasScopedBarangayContext = Boolean(userId || overrideBarangayId);
@@ -121,6 +140,8 @@ export const useStubDashboard = ({
     if (!disasterEventId || !hasScopedBarangayContext) {
       setDashboard(emptyDashboard);
       setIsLoading(false);
+      setIsRefreshing(false);
+      hasLoadedDataRef.current = false;
       setErrorMessage("");
       return;
     }
@@ -128,7 +149,13 @@ export const useStubDashboard = ({
     let isMounted = true;
 
     const loadDashboard = async () => {
+      const isBackgroundReload = backgroundReloadRef.current;
+      backgroundReloadRef.current = false;
+      const preserveExistingData =
+        isBackgroundReload && hasLoadedDataRef.current;
+
       setIsLoading(true);
+      setIsRefreshing(preserveExistingData);
       setErrorMessage("");
 
       try {
@@ -191,6 +218,7 @@ export const useStubDashboard = ({
               ),
             ),
           );
+          hasLoadedDataRef.current = true;
         }
 
         const scopedBarangayId =
@@ -231,6 +259,11 @@ export const useStubDashboard = ({
         }
       } catch (error) {
         if (isMounted) {
+          if (preserveExistingData) {
+            setErrorMessage("");
+            return;
+          }
+
           const scopedBarangayId = overrideBarangayId || assignedBarangayId || null;
           const pendingRows = await getPendingLocalStubRows({
             disasterEventId,
@@ -283,10 +316,12 @@ export const useStubDashboard = ({
               ? ""
               : getFriendlyStubDashboardErrorMessage(error),
           );
+          hasLoadedDataRef.current = presentedRows.length > 0;
         }
       } finally {
         if (isMounted) {
           setIsLoading(false);
+          setIsRefreshing(false);
         }
       }
     };
@@ -318,7 +353,7 @@ export const useStubDashboard = ({
     }
 
     const handleSyncQueueUpdated = () => {
-      setReloadKey((currentValue) => currentValue + 1);
+      reloadDashboard({ background: true });
     };
 
     window.addEventListener("distync-sync-queue-updated", handleSyncQueueUpdated);
@@ -357,10 +392,10 @@ export const useStubDashboard = ({
     summaryCards,
     pagination: dashboard.pagination || createDefaultPagination(page, pageSize),
     isLoading,
+    isInitialLoading: isLoading && !isRefreshing,
+    isRefreshing,
     errorMessage,
     hasData: dashboard.data.length > 0,
-    reloadDashboard: () => {
-      setReloadKey((currentValue) => currentValue + 1);
-    },
+    reloadDashboard,
   };
 };

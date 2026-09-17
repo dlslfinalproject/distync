@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchAllDisasterEvents } from "../disaster-events/disasterEventService";
 import {
   fetchInventoryForecastContext,
@@ -11,6 +11,7 @@ import {
   getForecastModelLabel,
   getForecastModelRecommendation,
 } from "./inventoryItemExportOptions";
+import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
 
 const getEventTimestamp = (event, fieldName) => {
   const timestamp = new Date(event?.[fieldName] || 0).getTime();
@@ -48,11 +49,38 @@ export const useInventoryForecast = () => {
   const [isRunningForecast, setIsRunningForecast] = useState(false);
   const [forecastErrorMessage, setForecastErrorMessage] = useState("");
   const [forecastSuccessMessage, setForecastSuccessMessage] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
+  const [isRefreshingForecastContext, setIsRefreshingForecastContext] = useState(false);
+  const [isRefreshingForecast, setIsRefreshingForecast] = useState(false);
+  const [isRefreshingForecastHistory, setIsRefreshingForecastHistory] = useState(false);
+  const backgroundEventsReloadRef = useRef(false);
+  const backgroundContextReloadRef = useRef(false);
+  const backgroundForecastReloadRef = useRef(false);
+  const backgroundHistoryReloadRef = useRef(false);
+  const hasLoadedEventsRef = useRef(false);
+  const hasLoadedContextRef = useRef(false);
+  const hasLoadedForecastRef = useRef(false);
+  const hasLoadedHistoryRef = useRef(false);
+
+  useDashboardRevalidation(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return;
+    }
+
+    backgroundEventsReloadRef.current = true;
+    backgroundContextReloadRef.current = true;
+    backgroundForecastReloadRef.current = true;
+    backgroundHistoryReloadRef.current = true;
+    setReloadToken((value) => value + 1);
+  });
 
   useEffect(() => {
     let isMounted = true;
 
     const loadForecastEvents = async () => {
+      const preserveExistingEvents =
+        backgroundEventsReloadRef.current && hasLoadedEventsRef.current;
+      backgroundEventsReloadRef.current = false;
       try {
         const eventRows = await fetchAllDisasterEvents();
 
@@ -65,17 +93,19 @@ export const useInventoryForecast = () => {
           .sort(compareMostRecentForecastEvent);
         setForecastEvents(activeEvents);
 
-        if (activeEvents.length > 0) {
-          const preferredEvent = activeEvents[0];
-          setSelectedForecastEventId(preferredEvent.id);
-        } else {
-          setSelectedForecastEventId("");
-        }
+        hasLoadedEventsRef.current = true;
+        setSelectedForecastEventId((currentEventId) =>
+          activeEvents.some((event) => event.id === currentEventId)
+            ? currentEventId
+            : activeEvents[0]?.id || "",
+        );
       } catch (error) {
         if (isMounted) {
-          setForecastErrorMessage(
-            error.message || "Failed to load disaster events for forecasting.",
-          );
+          if (!preserveExistingEvents) {
+            setForecastErrorMessage(
+              error.message || "Failed to load disaster events for forecasting.",
+            );
+          }
         }
       }
     };
@@ -85,7 +115,7 @@ export const useInventoryForecast = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [reloadToken]);
 
   useEffect(() => {
     let isMounted = true;
@@ -93,10 +123,16 @@ export const useInventoryForecast = () => {
     const loadForecastContext = async () => {
       if (!selectedForecastEventId) {
         setForecastContext(null);
+        setIsRefreshingForecastContext(false);
+        hasLoadedContextRef.current = false;
         return;
       }
 
+      const preserveExistingContext =
+        backgroundContextReloadRef.current && hasLoadedContextRef.current;
+      backgroundContextReloadRef.current = false;
       setIsForecastContextLoading(true);
+      setIsRefreshingForecastContext(preserveExistingContext);
 
       try {
         const response = await fetchInventoryForecastContext(
@@ -105,17 +141,21 @@ export const useInventoryForecast = () => {
 
         if (isMounted) {
           setForecastContext(response?.data || null);
+          hasLoadedContextRef.current = true;
         }
       } catch (error) {
         if (isMounted) {
-          setForecastContext(null);
-          setForecastErrorMessage(
-            error.message || "Failed to load forecast event context.",
-          );
+          if (!preserveExistingContext) {
+            setForecastContext(null);
+            setForecastErrorMessage(
+              error.message || "Failed to load forecast event context.",
+            );
+          }
         }
       } finally {
         if (isMounted) {
           setIsForecastContextLoading(false);
+          setIsRefreshingForecastContext(false);
         }
       }
     };
@@ -125,7 +165,7 @@ export const useInventoryForecast = () => {
     return () => {
       isMounted = false;
     };
-  }, [selectedForecastEventId]);
+  }, [reloadToken, selectedForecastEventId]);
 
   useEffect(() => {
     if (
@@ -155,10 +195,16 @@ export const useInventoryForecast = () => {
     const loadLatestForecast = async () => {
       if (!selectedForecastEventId) {
         setForecastRunData(null);
+        setIsRefreshingForecast(false);
+        hasLoadedForecastRef.current = false;
         return;
       }
 
+      const preserveExistingForecast =
+        backgroundForecastReloadRef.current && hasLoadedForecastRef.current;
+      backgroundForecastReloadRef.current = false;
       setIsForecastLoading(true);
+      setIsRefreshingForecast(preserveExistingForecast);
       setForecastErrorMessage("");
 
       try {
@@ -166,17 +212,21 @@ export const useInventoryForecast = () => {
 
         if (isMounted) {
           setForecastRunData(response?.data || null);
+          hasLoadedForecastRef.current = true;
         }
       } catch (error) {
         if (isMounted) {
-          setForecastRunData(null);
-          setForecastErrorMessage(
-            error.message || "Failed to load the latest forecast.",
-          );
+          if (!preserveExistingForecast) {
+            setForecastRunData(null);
+            setForecastErrorMessage(
+              error.message || "Failed to load the latest forecast.",
+            );
+          }
         }
       } finally {
         if (isMounted) {
           setIsForecastLoading(false);
+          setIsRefreshingForecast(false);
         }
       }
     };
@@ -186,7 +236,7 @@ export const useInventoryForecast = () => {
     return () => {
       isMounted = false;
     };
-  }, [selectedForecastEventId]);
+  }, [reloadToken, selectedForecastEventId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -195,10 +245,16 @@ export const useInventoryForecast = () => {
       if (!selectedForecastEventId) {
         setForecastHistory([]);
         setForecastHistoryDetails(null);
+        setIsRefreshingForecastHistory(false);
+        hasLoadedHistoryRef.current = false;
         return;
       }
 
+      const preserveExistingHistory =
+        backgroundHistoryReloadRef.current && hasLoadedHistoryRef.current;
+      backgroundHistoryReloadRef.current = false;
       setIsForecastHistoryLoading(true);
+      setIsRefreshingForecastHistory(preserveExistingHistory);
 
       try {
         const response = await fetchForecastHistory({
@@ -210,15 +266,19 @@ export const useInventoryForecast = () => {
           const historyRows = response?.data || [];
           setForecastHistory(historyRows);
           setForecastHistoryDetails(null);
+          hasLoadedHistoryRef.current = true;
         }
       } catch (_error) {
         if (isMounted) {
-          setForecastHistory([]);
-          setForecastHistoryDetails(null);
+          if (!preserveExistingHistory) {
+            setForecastHistory([]);
+            setForecastHistoryDetails(null);
+          }
         }
       } finally {
         if (isMounted) {
           setIsForecastHistoryLoading(false);
+          setIsRefreshingForecastHistory(false);
         }
       }
     };
@@ -228,7 +288,7 @@ export const useInventoryForecast = () => {
     return () => {
       isMounted = false;
     };
-  }, [selectedForecastEventId]);
+  }, [reloadToken, selectedForecastEventId]);
 
   const handleRunForecast = async () => {
     if (!selectedForecastEventId) {
@@ -301,8 +361,13 @@ export const useInventoryForecast = () => {
     forecastHistory,
     forecastHistoryDetails,
     isForecastContextLoading,
+    isInitialForecastContextLoading:
+      isForecastContextLoading && !isRefreshingForecastContext,
     isForecastLoading,
+    isInitialForecastLoading: isForecastLoading && !isRefreshingForecast,
     isForecastHistoryLoading,
+    isInitialForecastHistoryLoading:
+      isForecastHistoryLoading && !isRefreshingForecastHistory,
     isForecastHistoryDetailLoading,
     isRunningForecast,
     forecastErrorMessage,

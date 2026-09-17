@@ -35,6 +35,7 @@ import { getInventoryBatchProjectionItemId } from "../../features/inventory-item
 import { MAYOR_INVENTORY_PREPARATION_STATUS } from "../../offline/mayorInventoryPreparation";
 import { useMayorInventoryOfflinePreparation } from "../../features/offline/useMayorInventoryOfflinePreparation";
 import { ROLE_CODES } from "../../utils/roleSession";
+import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
 import {
   DEFAULT_TABLE_PAGE_SIZE,
   TABLE_PAGE_SIZE_OPTIONS,
@@ -450,6 +451,21 @@ const InventoryBatchesPage = () => {
           isLatestRefresh: isLatest,
         }),
     });
+
+  useDashboardRevalidation(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return;
+    }
+
+    void requestPageRefresh({
+      activeFilters: filters,
+      activePage: currentPage,
+      activePageSize: pageSize,
+      trigger: "dashboard-revalidate",
+      showLoading: false,
+      clearError: false,
+    });
+  });
 
   useEffect(() => {
     const wasOffline = previousOnlineRef.current === false;

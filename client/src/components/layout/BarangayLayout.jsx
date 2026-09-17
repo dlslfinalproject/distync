@@ -26,6 +26,9 @@ import {
   isBarangayOfflineBlockedRoute,
 } from "../../features/offline/barangayOfflineAccess";
 import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
+import {
+  DASHBOARD_REVALIDATION_EVENT,
+} from "../../utils/dashboardRevalidation";
 
 const SIDEBAR_EXPANDED_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "0px";
@@ -34,6 +37,7 @@ const SHELL_HEADER_HEIGHT = "68px";
 const MOBILE_NAV_QUERY = "(max-width: 1024px)";
 const COMPACT_NAV_QUERY = "(max-width: 1024px)";
 const SIDEBAR_NAVIGATION_ID = "distync-sidebar-navigation";
+const DASHBOARD_REVALIDATION_INTERVAL_MS = 30 * 1000;
 const BARANGAY_OFFLINE_READINESS_ROUTES = new Set([
   "/barangay/masterlist",
   "/barangay/stub-distribution",
@@ -221,6 +225,54 @@ const BarangayLayout = () => {
   useEffect(() => {
     initializeSyncService();
   }, []);
+
+  useEffect(() => {
+    if (isDonorPortal || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const dispatchRevalidation = (trigger) => {
+      if (
+        (typeof navigator !== "undefined" && navigator.onLine === false) ||
+        (typeof document !== "undefined" &&
+          document.visibilityState === "hidden" &&
+          trigger !== "online")
+      ) {
+        return;
+      }
+
+      window.dispatchEvent(
+        new CustomEvent(DASHBOARD_REVALIDATION_EVENT, {
+          detail: {
+            trigger,
+            requestedAt: Date.now(),
+          },
+        }),
+      );
+    };
+    const handleFocus = () => dispatchRevalidation("focus");
+    const handleOnline = () => dispatchRevalidation("online");
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        dispatchRevalidation("visibility");
+      }
+    };
+    const intervalId = window.setInterval(
+      () => dispatchRevalidation("interval"),
+      DASHBOARD_REVALIDATION_INTERVAL_MS,
+    );
+
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("online", handleOnline);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("online", handleOnline);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isDonorPortal]);
 
   useEffect(() => {
     if (!isMswdoPortal || typeof window === "undefined") return undefined;

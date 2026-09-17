@@ -832,7 +832,7 @@ const SyncManagementPage = () => {
     () => ({
       ...getSyncHealthPresentation({
         ...summary,
-        isLoading: isLoadingHistory,
+        isLoading: isInitialHistoryLoading,
         hasError:
           Boolean(errorMessage) &&
           summary.pending === 0 &&
@@ -842,7 +842,7 @@ const SyncManagementPage = () => {
       isOnline,
       lastSuccessfulSyncAt: summary.lastSuccessfulSyncAt,
     }),
-    [errorMessage, isLoadingHistory, isOnline, summary],
+    [errorMessage, isInitialHistoryLoading, isLoadingHistory, isOnline, summary],
   );
 
   const filteredQueueEntries = useMemo(
@@ -1134,9 +1134,11 @@ const SyncManagementPage = () => {
       if (syncHistoryRequestId.current !== requestId) {
         return;
       }
-      setErrorMessage(
-        getSafeSyncErrorMessage(error, "Failed to load sync history."),
-      );
+      if (!preserveExistingData) {
+        setErrorMessage(
+          getSafeSyncErrorMessage(error, "Failed to load sync history."),
+        );
+      }
     } finally {
       if (syncHistoryRequestId.current === requestId) {
         setIsLoadingHistory(false);

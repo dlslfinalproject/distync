@@ -282,8 +282,8 @@ const StubDistributionPage = () => {
     displayedRows,
     pagination,
     summaryCards,
-    isLoadingFilters,
-    isLoadingData,
+    isInitialLoadingFilters,
+    isInitialLoadingData,
     isEventSelectionResolved,
     errorMessage,
     hasSelectedEvent,
@@ -991,7 +991,7 @@ const StubDistributionPage = () => {
                 id="mswdo-stub-event"
                 value={selectedDisasterEventId || ""}
                 onChange={(event) => setSelectedDisasterEventId(event.target.value)}
-                disabled={isLoadingFilters || scopedDisasterEvents.length === 0}
+                disabled={isInitialLoadingFilters || scopedDisasterEvents.length === 0}
                 style={filterStyles.field}
               >
                 <option value="">
@@ -1014,7 +1014,7 @@ const StubDistributionPage = () => {
                 value={selectedBarangayId}
                 onChange={(event) => setSelectedBarangayId(event.target.value)}
                 disabled={
-                  isLoadingFilters ||
+                  isInitialLoadingFilters ||
                   !selectedDisasterEventId ||
                   barangays.length === 0
                 }
@@ -1073,7 +1073,7 @@ const StubDistributionPage = () => {
           </div>
         </div>
 
-        {isLoadingFilters ? (
+        {isInitialLoadingFilters ? (
           <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
             Loading MSWDO stub distribution filters...
           </p>
@@ -1090,7 +1090,7 @@ const StubDistributionPage = () => {
 
       {hasSelectedEvent &&
       hasSelectedBarangay &&
-      !isLoadingData &&
+      !isInitialLoadingData &&
       !errorMessage ? (
         <StubSummaryCards cards={summaryCards} />
       ) : null}
@@ -1209,7 +1209,7 @@ const StubDistributionPage = () => {
 
       <MswdoStubResultsTable
         rows={displayedRowsWithSyncStatus}
-        isLoading={isLoadingData}
+        isLoading={isInitialLoadingData}
         errorMessage={errorMessage}
         hasSelectedEvent={hasSelectedEvent}
         hasSelectedBarangay={hasSelectedBarangay}

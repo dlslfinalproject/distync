@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FiX } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
 import { shellStyles } from "../components/layout/BarangayLayout";
@@ -41,6 +41,7 @@ import {
 } from "../features/donations/donationPageUi";
 import { useDonationManagementModals } from "../features/donations/useDonationManagementModals";
 import { useAuth } from "../context/AuthContext";
+import { useDashboardRevalidation } from "../utils/dashboardRevalidation";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
@@ -330,10 +331,16 @@ const DonationManagementPage = () => {
     errorMessage: "",
     isSubmitting: false,
   });
+  const pageRequestSequenceRef = useRef(0);
 
-  const loadPageData = async (eventId = selectedEventId) => {
-    setIsLoading(true);
-    setPageErrorMessage("");
+  const loadPageData = async (eventId = selectedEventId, { silent = false } = {}) => {
+    const requestSequence = pageRequestSequenceRef.current + 1;
+    pageRequestSequenceRef.current = requestSequence;
+
+    if (!silent) {
+      setIsLoading(true);
+      setPageErrorMessage("");
+    }
 
     try {
       const [eventRows, inventoryItemRows] =
@@ -363,16 +370,47 @@ const DonationManagementPage = () => {
         transparencyDataRequest,
       ]);
 
+      if (requestSequence !== pageRequestSequenceRef.current) {
+        return;
+      }
+
+      const availableEventRows = Array.isArray(eventRows)
+        ? eventRows
+        : Array.isArray(eventRows?.data)
+          ? eventRows.data
+          : [];
+
       setDisasterEvents(normalizeDonationEventRows(eventRows));
       setInventoryItems(Array.isArray(inventoryItemRows) ? inventoryItemRows : []);
       setDonations(Array.isArray(donationRows) ? donationRows : []);
       setPortalData(donationPortal || defaultPortalData);
+      setSelectedEventId((currentEventId) =>
+        !currentEventId ||
+        availableEventRows.some(
+          (event) => String(event?.id || "") === String(currentEventId),
+        )
+          ? currentEventId
+          : "",
+      );
+      setPageErrorMessage("");
     } catch (error) {
-      setPageErrorMessage(error.message || "Failed to load donation management data.");
+      if (requestSequence === pageRequestSequenceRef.current && !silent) {
+        setPageErrorMessage(error.message || "Failed to load donation management data.");
+      }
     } finally {
-      setIsLoading(false);
+      if (requestSequence === pageRequestSequenceRef.current && !silent) {
+        setIsLoading(false);
+      }
     }
   };
+
+  useDashboardRevalidation(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return;
+    }
+
+    void loadPageData(selectedEventId, { silent: true });
+  });
 
   useEffect(() => {
     if (!canManageDonations) {

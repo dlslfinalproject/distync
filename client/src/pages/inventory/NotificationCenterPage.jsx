@@ -13,6 +13,7 @@ import { fetchNotifications, markAllNotificationsAsRead, markNotificationAsRead 
 import { getNotificationDeepLink } from "../../features/notifications/notificationRouting";
 import { getNotificationCategoryLabel, toNotificationViewModel } from "../../features/notifications/notificationPresentation";
 import { ROLE_CODES } from "../../utils/roleSession";
+import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
 
 const priorityStyles = { INFO: { backgroundColor: "#e0f2fe", color: "#075985" }, WARNING: { backgroundColor: "#fef3c7", color: "#92400e" }, CRITICAL: { backgroundColor: "#fee2e2", color: "#b91c1c" } };
 const filterTab = (active) => ({ border: "1px solid #c6d8ea", borderRadius: 12, padding: "10px 14px", backgroundColor: active ? "#e1eef9" : "#f8fbfe", color: "#1f4f7d", fontSize: 13, fontWeight: 700, cursor: "pointer", minHeight: 42 });
@@ -39,19 +40,27 @@ const NotificationCenterPage = () => {
   const sessionScope = isAuthenticated && authenticatedUser?.id && currentRole ? `${accessMode}:${authenticatedUser.id}:${currentRole}` : "";
   const roleDescription = { [ROLE_CODES.MAYOR]: "Review inventory, donation, and system alerts.", [ROLE_CODES.MSWDO]: "Review operational updates for relief coordination.", [ROLE_CODES.BARANGAY]: "Review updates for your barangay operations." };
 
-  const loadNotifications = async ({ append = false, cursor = null, refreshing = false } = {}) => {
+  const loadNotifications = async ({ append = false, cursor = null, refreshing = false, silent = false } = {}) => {
     if (!isOnline || !sessionScope) { setIsLoading(false); return false; }
     if ((append && isLoadingMoreRef.current) || (refreshing && isRefreshingRef.current)) return false;
     const requestGeneration = ++requestGenerationRef.current; const requestScope = sessionScope;
-    if (append) { isLoadingMoreRef.current = true; setIsLoadingMore(true); } if (refreshing) { isRefreshingRef.current = true; setIsRefreshing(true); } if (!append) setIsLoading(true);
+    if (append) { isLoadingMoreRef.current = true; setIsLoadingMore(true); } if (refreshing) { isRefreshingRef.current = true; if (!silent) setIsRefreshing(true); } if (!append && !silent) setIsLoading(true);
     try {
       const response = await fetchNotifications({ status: statusFilter, category: filters.category, priority: filters.priority, cursor, limit: 25 });
       if (requestGeneration !== requestGenerationRef.current || requestScope !== sessionScopeRef.current) return false;
       const items = Array.isArray(response?.items) ? response.items : [];
       setNotifications((current) => append ? [...current, ...items] : items); setNextCursor(response?.nextCursor || null); if (!append) setCategoryOptions(response?.filterOptions?.categories || []); return true;
-    } catch (_error) { if (requestGeneration === requestGenerationRef.current && requestScope === sessionScopeRef.current) setToast({ message: "Unable to load notifications. Please try again.", type: "error" }); return false; }
-    finally { if (requestGeneration === requestGenerationRef.current && requestScope === sessionScopeRef.current && !append) setIsLoading(false); if (append) { isLoadingMoreRef.current = false; setIsLoadingMore(false); } if (refreshing) { isRefreshingRef.current = false; setIsRefreshing(false); } }
+    } catch (_error) { if (!silent && requestGeneration === requestGenerationRef.current && requestScope === sessionScopeRef.current) setToast({ message: "Unable to load notifications. Please try again.", type: "error" }); return false; }
+    finally { if (requestGeneration === requestGenerationRef.current && requestScope === sessionScopeRef.current && !append && !silent) setIsLoading(false); if (append) { isLoadingMoreRef.current = false; setIsLoadingMore(false); } if (refreshing) { isRefreshingRef.current = false; if (!silent) setIsRefreshing(false); } }
   };
+
+  useDashboardRevalidation(() => {
+    if (!isOnline || !sessionScope) {
+      return;
+    }
+
+    void loadNotifications({ refreshing: true, silent: true });
+  });
 
   useEffect(() => { requestGenerationRef.current += 1; sessionScopeRef.current = sessionScope; pendingReadIdsRef.current.clear(); pendingPrimaryIdsRef.current.clear(); isMarkingAllReadRef.current = false; setNotifications([]); setNextCursor(null); setCategoryOptions([]); setSelectedNotification(null); setActiveNotificationId(""); setPendingReadIds(new Set()); setPendingPrimaryIds(new Set()); setIsLoading(Boolean(sessionScope && isOnline)); }, [sessionScope]);
   useEffect(() => { if (sessionScope && isOnline) loadNotifications(); }, [statusFilter, filters, sessionScope, isOnline]);

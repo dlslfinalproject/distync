@@ -8,6 +8,7 @@ import {
   fetchEndedDisasterEvents,
   updateDisasterEvent,
 } from "./disasterEventService";
+import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
 
 const NON_RESIDENT_BARANGAY_CODE = "NON_RESIDENT_OUTSIDE_MALVAR";
 
@@ -46,6 +47,7 @@ export const useDisasterEvents = () => {
   const [barangays, setBarangays] = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -56,11 +58,16 @@ export const useDisasterEvents = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const eventsRequestSeqRef = useRef(0);
+  const hasLoadedEventsRef = useRef(false);
 
-  const loadEvents = async (filterValue = selectedFilter) => {
+  const loadEvents = async (filterValue = selectedFilter, options = {}) => {
     const requestSeq = eventsRequestSeqRef.current + 1;
     eventsRequestSeqRef.current = requestSeq;
+    const isBackgroundReload = Boolean(options?.background);
+    const preserveExistingEvents =
+      isBackgroundReload && hasLoadedEventsRef.current;
     setIsLoading(true);
+    setIsRefreshing(preserveExistingEvents);
     setErrorMessage("");
 
     try {
@@ -69,18 +76,22 @@ export const useDisasterEvents = () => {
         return;
       }
       setEvents(Array.isArray(eventRows) ? eventRows : []);
+      hasLoadedEventsRef.current = true;
     } catch (error) {
       if (eventsRequestSeqRef.current === requestSeq) {
-        setErrorMessage(error.message);
+        if (!preserveExistingEvents) {
+          setErrorMessage(error.message);
+        }
       }
     } finally {
       if (eventsRequestSeqRef.current === requestSeq) {
         setIsLoading(false);
+        setIsRefreshing(false);
       }
     }
   };
 
-  const loadBarangays = async () => {
+  const loadBarangays = async ({ silent = false } = {}) => {
     try {
       const barangayRows = await fetchBarangays();
       const validAffectedBarangays = (barangayRows || []).filter(
@@ -88,7 +99,9 @@ export const useDisasterEvents = () => {
       );
       setBarangays(validAffectedBarangays);
     } catch (error) {
-      setFormErrorMessage(error.message);
+      if (!silent) {
+        setFormErrorMessage(error.message);
+      }
     }
   };
 
@@ -99,6 +112,15 @@ export const useDisasterEvents = () => {
   useEffect(() => {
     loadBarangays();
   }, []);
+
+  useDashboardRevalidation(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return;
+    }
+
+    loadEvents(selectedFilter, { background: true });
+    loadBarangays({ silent: true });
+  });
 
   const openCreateModal = () => {
     setFormErrorMessage("");
@@ -211,6 +233,8 @@ export const useDisasterEvents = () => {
     barangays,
     selectedEvent,
     isLoading,
+    isInitialLoading: isLoading && !isRefreshing,
+    isRefreshing,
     isDetailLoading,
     isSubmitting,
     errorMessage,
@@ -229,6 +253,6 @@ export const useDisasterEvents = () => {
     submitCreateEvent,
     submitEditEvent,
     filterOptions,
-    refreshEvents: () => loadEvents(selectedFilter),
+    refreshEvents: (options = {}) => loadEvents(selectedFilter, options),
   };
 };

@@ -27,6 +27,7 @@ import {
 import { readMswdoOfflineSnapshot } from "../offline/mswdoOfflinePreparation.js";
 import { getCachedStubRowsForScope } from "../stubs/stubCache.js";
 import { getSyncQueueActorContext } from "../../offline/syncQueue.js";
+import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
 
 const emptyMasterlistPayload = {
   disaster_event: null,
@@ -429,11 +430,35 @@ export const useInventoryDistribution = () => {
     useState(emptyStubDashboardPayload);
   const [templateDetails, setTemplateDetails] = useState([]);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
+  const [isRefreshingFilters, setIsRefreshingFilters] = useState(false);
   const [isLoadingMasterlist, setIsLoadingMasterlist] = useState(false);
+  const [isRefreshingMasterlist, setIsRefreshingMasterlist] = useState(false);
   const [isLoadingTemplateList, setIsLoadingTemplateList] = useState(false);
+  const [isRefreshingTemplateList, setIsRefreshingTemplateList] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [templateNotice, setTemplateNotice] = useState("");
   const stubRequestGenerationRef = useRef(0);
+  const [reloadToken, setReloadToken] = useState(0);
+  const backgroundFiltersReloadRef = useRef(false);
+  const backgroundMasterlistReloadRef = useRef(false);
+  const backgroundStubReloadRef = useRef(false);
+  const backgroundTemplateReloadRef = useRef(false);
+  const hasLoadedFiltersRef = useRef(false);
+  const hasLoadedMasterlistRef = useRef(false);
+  const hasLoadedStubRef = useRef(false);
+  const hasLoadedTemplateRef = useRef(false);
+
+  useDashboardRevalidation(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return;
+    }
+
+    backgroundFiltersReloadRef.current = true;
+    backgroundMasterlistReloadRef.current = true;
+    backgroundStubReloadRef.current = true;
+    backgroundTemplateReloadRef.current = true;
+    setReloadToken((value) => value + 1);
+  });
 
   const selectedDisasterEventId =
     selectedDisasterEventIdsByTab[activeTab] || "";
@@ -469,9 +494,16 @@ export const useInventoryDistribution = () => {
     let isMounted = true;
 
     const loadInitialFilters = async () => {
-      setIsLoadingFilters(true);
-      setErrorMessage("");
-      setTemplateNotice("");
+      const preserveExistingFilters =
+        backgroundFiltersReloadRef.current && hasLoadedFiltersRef.current;
+      backgroundFiltersReloadRef.current = false;
+
+      if (!preserveExistingFilters) {
+        setIsLoadingFilters(true);
+        setErrorMessage("");
+        setTemplateNotice("");
+      }
+      setIsRefreshingFilters(preserveExistingFilters);
 
       try {
         const [eventsPayload, barangaysPayload, sectorsPayload] =
@@ -492,15 +524,19 @@ export const useInventoryDistribution = () => {
         setDisasterEvents(eventRows);
         setBarangays(barangayRows);
         setSectors(sectorRows);
+        hasLoadedFiltersRef.current = true;
       } catch (error) {
-        if (isMounted) {
+        if (isMounted && !preserveExistingFilters) {
           setErrorMessage(
             error.message || "Failed to load inventory distribution filters.",
           );
         }
       } finally {
         if (isMounted) {
-          setIsLoadingFilters(false);
+          if (!preserveExistingFilters) {
+            setIsLoadingFilters(false);
+          }
+          setIsRefreshingFilters(false);
         }
       }
     };
@@ -510,21 +546,30 @@ export const useInventoryDistribution = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [reloadToken]);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadEventTemplates = async () => {
+      const preserveExistingTemplates =
+        backgroundTemplateReloadRef.current && hasLoadedTemplateRef.current;
+      backgroundTemplateReloadRef.current = false;
+
       if (!selectedDisasterEventId) {
         setTemplateDetails([]);
         setIsLoadingTemplateList(false);
+        setIsRefreshingTemplateList(false);
+        hasLoadedTemplateRef.current = false;
         return;
       }
 
       setIsLoadingTemplateList(true);
-      setTemplateDetails([]);
-      setTemplateNotice("");
+      setIsRefreshingTemplateList(preserveExistingTemplates);
+      if (!preserveExistingTemplates) {
+        setTemplateDetails([]);
+        setTemplateNotice("");
+      }
 
       try {
         const templatePayload = await fetchReliefPackTemplates({
@@ -544,18 +589,24 @@ export const useInventoryDistribution = () => {
               ? getTemplateNotice(loadedTemplateDetails)
               : "",
           );
+          hasLoadedTemplateRef.current = true;
         }
       } catch (error) {
         if (isMounted) {
-          setTemplateDetails([]);
-          setTemplateNotice(
-            error.message ||
-              "Failed to load relief pack templates for the selected disaster event.",
-          );
+          if (!preserveExistingTemplates) {
+            setTemplateDetails([]);
+            setTemplateNotice(
+              error.message ||
+                "Failed to load relief pack templates for the selected disaster event.",
+            );
+          }
         }
       } finally {
         if (isMounted) {
-          setIsLoadingTemplateList(false);
+          if (!preserveExistingTemplates) {
+            setIsLoadingTemplateList(false);
+          }
+          setIsRefreshingTemplateList(false);
         }
       }
     };
@@ -565,18 +616,25 @@ export const useInventoryDistribution = () => {
     return () => {
       isMounted = false;
     };
-  }, [selectedDisasterEventId]);
+  }, [reloadToken, selectedDisasterEventId]);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadMasterlist = async () => {
+      const preserveExistingData =
+        backgroundMasterlistReloadRef.current && hasLoadedMasterlistRef.current;
+      backgroundMasterlistReloadRef.current = false;
+
       if (!selectedDisasterEventId) {
         setMasterlistPayload(emptyMasterlistPayload);
+        setIsRefreshingMasterlist(false);
+        hasLoadedMasterlistRef.current = false;
         return;
       }
 
       setIsLoadingMasterlist(true);
+      setIsRefreshingMasterlist(preserveExistingData);
       setErrorMessage("");
 
       try {
@@ -589,9 +647,15 @@ export const useInventoryDistribution = () => {
 
         if (isMounted) {
           setMasterlistPayload(payload || emptyMasterlistPayload);
+          hasLoadedMasterlistRef.current = true;
         }
       } catch (error) {
         if (isMounted) {
+          if (preserveExistingData) {
+            setErrorMessage("");
+            return;
+          }
+
           const offline = typeof navigator !== "undefined" && navigator.onLine === false;
           const snapshot = offline
             ? await readMswdoOfflineSnapshot({
@@ -610,14 +674,17 @@ export const useInventoryDistribution = () => {
                 : snapshotRows,
             });
             setErrorMessage("");
+            hasLoadedMasterlistRef.current = true;
           } else {
             setMasterlistPayload(emptyMasterlistPayload);
+            hasLoadedMasterlistRef.current = false;
             setErrorMessage(error.message || "Failed to load inventory distribution records.");
           }
         }
       } finally {
         if (isMounted) {
           setIsLoadingMasterlist(false);
+          setIsRefreshingMasterlist(false);
         }
       }
     };
@@ -627,7 +694,7 @@ export const useInventoryDistribution = () => {
     return () => {
       isMounted = false;
     };
-  }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
+  }, [activeTab, reloadToken, selectedBarangayId, selectedDisasterEventId]);
 
   const selectedDisasterEvent = useMemo(() => {
     return (
@@ -674,6 +741,9 @@ export const useInventoryDistribution = () => {
       isMounted && stubRequestGenerationRef.current === requestGeneration;
 
     const loadStubDashboard = async () => {
+      const preserveExistingData =
+        backgroundStubReloadRef.current && hasLoadedStubRef.current;
+      backgroundStubReloadRef.current = false;
       const requestedBarangayIds =
         getInventoryDistributionStubDashboardBarangayIds({
           activeTab,
@@ -693,13 +763,17 @@ export const useInventoryDistribution = () => {
         !shouldLoadStubDashboard ||
         (selectedBarangayId && requestedBarangayIds.length === 0)
       ) {
-        setStubDashboardPayload(emptyStubDashboardPayload);
-        setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
+        if (!preserveExistingData) {
+          setStubDashboardPayload(emptyStubDashboardPayload);
+          setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
+        }
         return;
       }
 
-      setStubDashboardPayload(emptyStubDashboardPayload);
-      setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
+      if (!preserveExistingData) {
+        setStubDashboardPayload(emptyStubDashboardPayload);
+        setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
+      }
 
       if (selectedBarangayId) {
         try {
@@ -715,6 +789,7 @@ export const useInventoryDistribution = () => {
               data: Array.isArray(payload?.data) ? payload.data : [],
             });
             setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
+            hasLoadedStubRef.current = true;
           }
         } catch (_error) {
           if (isCurrentRequest()) {
@@ -736,9 +811,15 @@ export const useInventoryDistribution = () => {
             metrics: emptyStubDashboardPayload.metrics,
             data: Array.isArray(payload?.data) ? payload.data : [],
           });
+          hasLoadedStubRef.current = true;
         }
       } catch (error) {
         if (isCurrentRequest()) {
+          if (preserveExistingData) {
+            setErrorMessage("");
+            return;
+          }
+
           const offline = typeof navigator !== "undefined" && navigator.onLine === false;
           const cachedRows = offline
             ? await getCachedStubRowsForScope({ disasterEventId: selectedDisasterEventId })
@@ -755,6 +836,7 @@ export const useInventoryDistribution = () => {
               setAllBarangaysStubDashboardPayload({ metrics: emptyStubDashboardPayload.metrics, data: visibleRows });
             }
             setErrorMessage("");
+            hasLoadedStubRef.current = true;
           } else {
             setErrorMessage(error.message || "Failed to fetch municipal stub dashboard.");
             setStubDashboardPayload(emptyStubDashboardPayload);
@@ -771,6 +853,7 @@ export const useInventoryDistribution = () => {
     };
   }, [
     activeTab,
+    reloadToken,
     selectableBarangays,
     selectedBarangayId,
     selectedDisasterEvent?.status,
@@ -978,8 +1061,15 @@ export const useInventoryDistribution = () => {
     displayedRows,
     analytics,
     isLoadingFilters,
+    isInitialLoadingFilters: isLoadingFilters && !isRefreshingFilters,
+    isRefreshingFilters,
     isLoadingMasterlist,
+    isInitialLoadingMasterlist:
+      isLoadingMasterlist && !isRefreshingMasterlist,
+    isRefreshingMasterlist,
     isLoadingTemplate,
+    isInitialLoadingTemplate: isLoadingTemplate && !isRefreshingTemplateList,
+    isRefreshingTemplateList,
     errorMessage,
     hasActiveEvents: disasterEvents.length > 0,
     handleEventScopeChange,

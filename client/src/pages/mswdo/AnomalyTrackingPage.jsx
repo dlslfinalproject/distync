@@ -35,6 +35,7 @@ import {
   TABLE_PAGE_SIZE_OPTIONS,
 } from "../../features/pagination/pagination.mjs";
 import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
+import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
 
 const inputStyles = {
   width: "100%",
@@ -1112,9 +1113,16 @@ const AnomalyTrackingPage = ({
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedAnomaly, setSelectedAnomaly] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const [filtersReloadToken, setFiltersReloadToken] = useState(0);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
+  const [isRefreshingFilters, setIsRefreshingFilters] = useState(false);
   const [isLoadingRows, setIsLoadingRows] = useState(true);
+  const [isRefreshingRows, setIsRefreshingRows] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const backgroundFiltersReloadRef = useRef(false);
+  const backgroundRowsReloadRef = useRef(false);
+  const hasLoadedFiltersRef = useRef(false);
+  const hasLoadedRowsRef = useRef(false);
   const anomalyDetailsTriggerRef = useRef(null);
   const anomalyRecordsHeadingRef = useRef(null);
   const anomalyDetailsFinalFocusRef = useMemo(
@@ -1137,6 +1145,17 @@ const AnomalyTrackingPage = ({
     }),
     [],
   );
+
+  useDashboardRevalidation(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return;
+    }
+
+    backgroundFiltersReloadRef.current = true;
+    backgroundRowsReloadRef.current = true;
+    setFiltersReloadToken((value) => value + 1);
+    setReloadToken((value) => value + 1);
+  });
 
   const updateFilters = (updater) => {
     setPage(1);
@@ -1253,7 +1272,11 @@ const AnomalyTrackingPage = ({
     let isMounted = true;
 
     const loadFilters = async () => {
+      const preserveExistingFilters =
+        backgroundFiltersReloadRef.current && hasLoadedFiltersRef.current;
+      backgroundFiltersReloadRef.current = false;
       setIsLoadingFilters(true);
+      setIsRefreshingFilters(preserveExistingFilters);
 
       try {
         const [eventRows, barangayRows] = await Promise.all([
@@ -1269,13 +1292,17 @@ const AnomalyTrackingPage = ({
 
         setDisasterEvents(Array.isArray(eventRows) ? eventRows : []);
         setBarangays(Array.isArray(barangayRows) ? barangayRows : []);
+        hasLoadedFiltersRef.current = true;
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error.message || "Failed to load anomaly filters.");
+          if (!preserveExistingFilters) {
+            setErrorMessage(error.message || "Failed to load anomaly filters.");
+          }
         }
       } finally {
         if (isMounted) {
           setIsLoadingFilters(false);
+          setIsRefreshingFilters(false);
         }
       }
     };
@@ -1285,12 +1312,16 @@ const AnomalyTrackingPage = ({
     return () => {
       isMounted = false;
     };
-  }, [isBarangayScope]);
+  }, [filtersReloadToken, isBarangayScope]);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadRows = async () => {
+      const preserveExistingRows =
+        backgroundRowsReloadRef.current && hasLoadedRowsRef.current;
+      backgroundRowsReloadRef.current = false;
+
       if (isBarangayScope && !resolvedAssignedBarangay?.id) {
         setRows([]);
         setPagination({
@@ -1305,10 +1336,12 @@ const AnomalyTrackingPage = ({
           scopeErrorMessage || "No assigned barangay. Please contact administrator.",
         );
         setIsLoadingRows(false);
+        setIsRefreshingRows(false);
         return;
       }
 
       setIsLoadingRows(true);
+      setIsRefreshingRows(preserveExistingRows);
       setErrorMessage("");
 
       try {
@@ -1340,8 +1373,13 @@ const AnomalyTrackingPage = ({
             hasNextPage: false,
           },
         );
+        hasLoadedRowsRef.current = true;
       } catch (error) {
         if (isMounted) {
+          if (preserveExistingRows) {
+            setErrorMessage("");
+            return;
+          }
           setRows([]);
           setPagination({
             page,
@@ -1356,6 +1394,7 @@ const AnomalyTrackingPage = ({
       } finally {
         if (isMounted) {
           setIsLoadingRows(false);
+          setIsRefreshingRows(false);
         }
       }
     };
@@ -1375,6 +1414,9 @@ const AnomalyTrackingPage = ({
     scopeErrorMessage,
     viewState,
   ]);
+
+  const isInitialLoadingFilters = isLoadingFilters && !isRefreshingFilters;
+  const isInitialLoadingRows = isLoadingRows && !isRefreshingRows;
 
   useEffect(() => {
     const numericTotalItems = Number(pagination.totalItems || 0);
@@ -1469,7 +1511,7 @@ const AnomalyTrackingPage = ({
                     : "",
                 }))
               }
-              disabled={isLoadingFilters}
+              disabled={isInitialLoadingFilters}
               style={inputStyles}
             >
               <option value="">All disaster events</option>
@@ -1495,7 +1537,7 @@ const AnomalyTrackingPage = ({
                     barangay_id: event.target.value,
                   }))
                 }
-                disabled={isLoadingFilters}
+                disabled={isInitialLoadingFilters}
                 style={inputStyles}
               >
                 <option value="">All Barangays</option>
@@ -1770,10 +1812,10 @@ const AnomalyTrackingPage = ({
             setPageSize(Number(value));
           }}
           isVisible={
-            !isLoadingRows && !errorMessage && shouldShowPaginationControls
+            !isInitialLoadingRows && !errorMessage && shouldShowPaginationControls
           }
-          disabled={isLoadingRows}
-          disablePageSize={isLoadingRows}
+          disabled={isInitialLoadingRows}
+          disablePageSize={isInitialLoadingRows}
           ariaLabel="Anomaly tracking pagination"
           previousAriaLabel="Go to previous anomaly tracking page"
           nextAriaLabel="Go to next anomaly tracking page"
@@ -1781,7 +1823,7 @@ const AnomalyTrackingPage = ({
 
         {errorMessage ? <ErrorState message={errorMessage} style={{ marginBottom: "16px" }} /> : null}
 
-        {isLoadingRows ? (
+        {isInitialLoadingRows ? (
           <LoadingState message="Loading anomaly tracking..." />
         ) : rows.length === 0 ? (
           <EmptyState
@@ -1935,9 +1977,11 @@ const AnomalyTrackingPage = ({
         isBarangayScope={isBarangayScope}
         isMayorScope={isMayorScope}
         onReviewSaved={async () => {
+          backgroundRowsReloadRef.current = true;
           setReloadToken((currentValue) => currentValue + 1);
         }}
         onReviewStale={async () => {
+          backgroundRowsReloadRef.current = true;
           setReloadToken((currentValue) => currentValue + 1);
         }}
       />

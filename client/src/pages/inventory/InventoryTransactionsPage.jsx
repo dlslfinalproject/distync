@@ -36,6 +36,7 @@ import {
   shouldRefreshInventoryOnSyncEvent,
 } from "../../features/inventory/shared/inventoryRefreshGate.js";
 import { ROLE_CODES } from "../../utils/roleSession";
+import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
@@ -767,6 +768,18 @@ const InventoryTransactionsPage = () => {
           isLatestRefresh: isLatest,
         }),
     });
+
+  useDashboardRevalidation(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return;
+    }
+
+    void requestPageRefresh({
+      trigger: "dashboard-revalidate",
+      showLoading: false,
+      clearError: false,
+    });
+  });
 
   useEffect(() => {
     void requestPageRefresh({ trigger: "initial" });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../context/AuthContext.jsx";
 import {
   fetchActiveDisasterEvents,
@@ -16,6 +16,7 @@ import {
 import { readOperationalDisasterEventContext, readOperationalDisasterEventId, persistOperationalDisasterEventSelection } from "../disaster-events/operationalDisasterEventSelection.js";
 import { readMswdoOfflineSnapshot } from "../offline/mswdoOfflinePreparation.js";
 import { mapBarangayCoverageDistribution } from "./barangayCoverage.mjs";
+import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
 
 const emptyOperationalPayload = {
   disaster_event: null,
@@ -171,15 +172,50 @@ export const useMswdoAnalytics = () => {
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
   const [operationalPayload, setOperationalPayload] = useState(emptyOperationalPayload);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
+  const [isRefreshingFilters, setIsRefreshingFilters] = useState(false);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
+  const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const [filtersReloadKey, setFiltersReloadKey] = useState(0);
+  const backgroundFiltersReloadRef = useRef(false);
+  const backgroundDashboardReloadRef = useRef(false);
+  const hasLoadedFiltersRef = useRef(false);
+  const hasLoadedDashboardRef = useRef(false);
+
+  const reloadDashboard = (options = {}) => {
+    const isBackground = Boolean(options?.background);
+
+    backgroundFiltersReloadRef.current = isBackground;
+    backgroundDashboardReloadRef.current = isBackground;
+    if (isBackground) {
+      setFiltersReloadKey((value) => value + 1);
+    }
+    setReloadKey((value) => value + 1);
+  };
+
+  useDashboardRevalidation(
+    () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return;
+      }
+
+      reloadDashboard({ background: true });
+    },
+    { enabled: true },
+  );
 
   useEffect(() => {
     let isMounted = true;
 
     const loadInitialFilters = async () => {
+      const isBackgroundReload = backgroundFiltersReloadRef.current;
+      backgroundFiltersReloadRef.current = false;
+      const preserveExistingFilters =
+        isBackgroundReload && hasLoadedFiltersRef.current;
+
       setIsLoadingFilters(true);
+      setIsRefreshingFilters(preserveExistingFilters);
       setErrorMessage("");
 
       try {
@@ -200,14 +236,23 @@ export const useMswdoAnalytics = () => {
 
         setDisasterEvents(allEvents);
         setBarangays(barangayRows);
+        hasLoadedFiltersRef.current = true;
 
-        if (activeEvents.length > 0) {
-          setSelectedDisasterEventId(readOperationalDisasterEventId({ roleCode: "MSWDO", userId }) || activeEvents[0].id);
-        } else if (allEvents.length > 0) {
-          setSelectedDisasterEventId(readOperationalDisasterEventId({ roleCode: "MSWDO", userId }) || allEvents[0].id);
-        }
+        const storedEventId = readOperationalDisasterEventId({ roleCode: "MSWDO", userId });
+        const availableEventIds = new Set(allEvents.map((event) => event.id));
+        const nextEventId =
+          [selectedDisasterEventId, storedEventId].find((eventId) =>
+            availableEventIds.has(eventId),
+          ) || activeEvents[0]?.id || allEvents[0]?.id || "";
+
+        setSelectedDisasterEventId(nextEventId);
       } catch (error) {
         if (isMounted) {
+          if (preserveExistingFilters) {
+            setErrorMessage("");
+            return;
+          }
+
           const restoredEvent = readOperationalDisasterEventContext({ roleCode: "MSWDO", userId });
           const cached = restoredEvent ? await readMswdoOfflineSnapshot({ userId, eventId: restoredEvent.id }) : null;
           if (cached) {
@@ -220,6 +265,7 @@ export const useMswdoAnalytics = () => {
       } finally {
         if (isMounted) {
           setIsLoadingFilters(false);
+          setIsRefreshingFilters(false);
         }
       }
     };
@@ -229,7 +275,7 @@ export const useMswdoAnalytics = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [filtersReloadKey]);
 
   useEffect(() => {
     let isMounted = true;
@@ -237,10 +283,18 @@ export const useMswdoAnalytics = () => {
     const loadDashboard = async () => {
       if (!selectedDisasterEventId) {
         setOperationalPayload(emptyOperationalPayload);
+        setIsRefreshingDashboard(false);
+        hasLoadedDashboardRef.current = false;
         return;
       }
 
+      const isBackgroundReload = backgroundDashboardReloadRef.current;
+      backgroundDashboardReloadRef.current = false;
+      const preserveExistingDashboard =
+        isBackgroundReload && hasLoadedDashboardRef.current;
+
       setIsLoadingDashboard(true);
+      setIsRefreshingDashboard(preserveExistingDashboard);
       setErrorMessage("");
 
       try {
@@ -251,21 +305,29 @@ export const useMswdoAnalytics = () => {
 
         if (isMounted) {
           setOperationalPayload(payload);
+          hasLoadedDashboardRef.current = true;
         }
       } catch (error) {
         if (isMounted) {
+          if (preserveExistingDashboard) {
+            setErrorMessage("");
+            return;
+          }
           const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
           if (cached) {
             setOperationalPayload(cached.datasets.dashboard.payload || emptyOperationalPayload);
+            hasLoadedDashboardRef.current = true;
             setErrorMessage("");
           } else {
             setOperationalPayload(emptyOperationalPayload);
+            hasLoadedDashboardRef.current = false;
             setErrorMessage(error.message || "Failed to load analytics dashboard");
           }
         }
       } finally {
         if (isMounted) {
           setIsLoadingDashboard(false);
+          setIsRefreshingDashboard(false);
         }
       }
     };
@@ -278,7 +340,7 @@ export const useMswdoAnalytics = () => {
   }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
-    const refresh = () => setReloadKey((value) => value + 1);
+    const refresh = () => reloadDashboard({ background: true });
     window?.addEventListener?.("online", refresh);
     return () => window?.removeEventListener?.("online", refresh);
   }, []);
@@ -432,11 +494,16 @@ export const useMswdoAnalytics = () => {
     barangayCoverageCount,
     evacuationCenterDistribution,
     isLoadingFilters,
+    isInitialLoadingFilters: isLoadingFilters && !isRefreshingFilters,
+    isRefreshingFilters,
     isLoadingDashboard,
+    isInitialLoadingDashboard: isLoadingDashboard && !isRefreshingDashboard,
+    isRefreshingDashboard,
     errorMessage,
     hasSelectedEvent: Boolean(selectedDisasterEventId),
     hasData: Boolean(operationalPayload.has_data),
     setSelectedDisasterEventId,
     setSelectedBarangayId,
+    reloadDashboard,
   };
 };

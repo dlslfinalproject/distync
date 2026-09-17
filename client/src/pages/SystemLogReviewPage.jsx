@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FiEye, FiRefreshCw } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
 import {
@@ -14,6 +14,7 @@ import {
   TABLE_PAGE_SIZE_OPTIONS,
 } from "../features/pagination/pagination.mjs";
 import { fetchSystemLogReview } from "../features/system-logs/systemLogService";
+import { useDashboardRevalidation } from "../utils/dashboardRevalidation";
 
 const ALL_MODULES_VALUE = "all";
 const MODULE_FILTER_OPTIONS = [
@@ -1087,6 +1088,7 @@ const SystemLogReviewPage = () => {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selectedAuditEntry, setSelectedAuditEntry] = useState(null);
+  const logRequestSequenceRef = useRef(0);
 
   const loadLogs = async (
     page = currentPage,
@@ -1096,9 +1098,15 @@ const SystemLogReviewPage = () => {
     nextDateFrom = dateFrom,
     nextDateTo = dateTo,
     nextPageSize = pageSize,
+    { silent = false } = {},
   ) => {
-    setIsLoading(true);
-    setErrorMessage("");
+    const requestSequence = logRequestSequenceRef.current + 1;
+    logRequestSequenceRef.current = requestSequence;
+
+    if (!silent) {
+      setIsLoading(true);
+      setErrorMessage("");
+    }
 
     try {
       const response = await fetchSystemLogReview({
@@ -1112,24 +1120,43 @@ const SystemLogReviewPage = () => {
         search,
       });
 
-      setAuditLogs(response.audit_logs || []);
-      setPagination(
-        response.pagination?.audit_logs || {
-          page,
-          limit: nextPageSize,
-          total_records: response.audit_logs?.length || 0,
-          total_pages: 1,
-          has_previous_page: false,
-          has_next_page: false,
-          retention_years: 5,
-        },
-      );
+      if (requestSequence === logRequestSequenceRef.current) {
+        setAuditLogs(response.audit_logs || []);
+        setPagination(
+          response.pagination?.audit_logs || {
+            page,
+            limit: nextPageSize,
+            total_records: response.audit_logs?.length || 0,
+            total_pages: 1,
+            has_previous_page: false,
+            has_next_page: false,
+            retention_years: 5,
+          },
+        );
+      }
     } catch (error) {
-      setErrorMessage(error.message || "Failed to load audit trail.");
+      if (!silent && requestSequence === logRequestSequenceRef.current) {
+        setErrorMessage(error.message || "Failed to load audit trail.");
+      }
     } finally {
-      setIsLoading(false);
+      if (!silent && requestSequence === logRequestSequenceRef.current) {
+        setIsLoading(false);
+      }
     }
   };
+
+  useDashboardRevalidation(() => {
+    void loadLogs(
+      currentPage,
+      searchTerm,
+      selectedModule,
+      selectedAuditAction,
+      dateFrom,
+      dateTo,
+      pageSize,
+      { silent: true },
+    );
+  });
 
   useEffect(() => {
     loadLogs(
