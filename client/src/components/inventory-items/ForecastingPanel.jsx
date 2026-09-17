@@ -118,7 +118,7 @@ const panelStyles = {
   },
   executiveGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))",
+    gridTemplateColumns: "minmax(0, 1fr)",
     gap: "clamp(16px, 2vw, 24px)",
     alignItems: "stretch",
     minWidth: 0,
@@ -126,33 +126,44 @@ const panelStyles = {
   executiveCard: {
     ...shellStyles.card,
     display: "grid",
-    gap: "14px",
+    gap: "16px",
     minWidth: 0,
   },
-  insightCard: {
-    borderRadius: "10px",
-    border: "1px solid #dbe6f0",
-    backgroundColor: "#f7fbff",
-    padding: "16px",
-    minHeight: "116px",
-    boxSizing: "border-box",
-    minWidth: 0,
-  },
-  modelCardContent: {
+  eventHeader: {
     display: "flex",
-    flexDirection: "column",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "space-between",
+    gap: "clamp(16px, 3vw, 32px)",
+    minWidth: 0,
+  },
+  eventTitleBlock: {
+    display: "grid",
     gap: "8px",
-    width: "100%",
-    minHeight: "84px",
     minWidth: 0,
-    overflow: "hidden",
+    flex: "1 1 auto",
   },
-  modelInsightCard: {
-    display: "flex",
+  eventTitle: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "clamp(24px, 2.6vw, 32px)",
+    lineHeight: 1.15,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  eventPeriod: {
+    margin: 0,
+    color: "#58708a",
+    fontSize: "14px",
+    fontWeight: 400,
+    lineHeight: 1.5,
+  },
+  modelSummary: {
+    display: "inline-flex",
     alignItems: "center",
-    justifyContent: "center",
+    gap: "10px",
+    flex: "0 0 auto",
+    minWidth: 0,
   },
   modelIconWrap: {
     width: "50px",
@@ -169,27 +180,10 @@ const panelStyles = {
     margin: 0,
     color: "#17324d",
     fontSize: "16px",
-    fontWeight: 800,
+    fontWeight: 400,
     lineHeight: 1.25,
-    textAlign: "center",
     overflowWrap: "anywhere",
     minWidth: 0,
-  },
-  totalNeedCard: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "8px",
-  },
-  insightValue: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "clamp(28px, 4vw, 40px)",
-    lineHeight: 1.05,
-    fontWeight: 800,
-    maxWidth: "100%",
-    overflowWrap: "anywhere",
   },
   interpretationBanner: {
     borderRadius: "10px",
@@ -198,7 +192,7 @@ const panelStyles = {
     padding: "16px 18px",
     color: "#17324d",
     fontSize: "15px",
-    fontWeight: 700,
+    fontWeight: 400,
     lineHeight: 1.45,
     overflowWrap: "anywhere",
   },
@@ -271,7 +265,7 @@ const panelStyles = {
   },
   statButton: {
     width: "100%",
-    minHeight: "92px",
+    minHeight: "116px",
     textAlign: "left",
     cursor: "pointer",
     appearance: "none",
@@ -1202,6 +1196,13 @@ const ForecastingPanel = ({
       ) || null,
     [forecastEvents, selectedForecastEventId],
   );
+  const eventStartDate =
+    eventInfo?.start_date || selectedForecastEvent?.start_date;
+  const eventEndDate = eventInfo?.end_date || selectedForecastEvent?.end_date;
+  const eventPeriod =
+    eventStartDate || eventEndDate
+      ? `Period: ${formatDate(eventStartDate)} - ${formatDate(eventEndDate)}`
+      : null;
   const suggestedModel = useMemo(
     () =>
       getForecastModelRecommendation({
@@ -1348,6 +1349,12 @@ const ForecastingPanel = ({
   ];
 
   const forecastCards = [
+    {
+      label: "Total Need",
+      value: modelHasResults ? displayedTotalForecastNeed : "--",
+      accent: accentMap.blue,
+      icon: null,
+    },
     {
       label: "Items Checked",
       value: modelHasResults ? resultRows.length : "--",
@@ -1583,44 +1590,35 @@ const ForecastingPanel = ({
 
       <div style={panelStyles.executiveGrid}>
         <div style={panelStyles.executiveCard}>
-          <div>
-            <h3
-              style={{
-                margin: 0,
-                color: "#17324d",
-                fontSize: "clamp(24px, 2.6vw, 32px)",
-                lineHeight: 1.15,
-                overflowWrap: "anywhere",
-              }}
+          <div
+            className="mayor-inventory-forecast-event-header"
+            style={panelStyles.eventHeader}
+          >
+            <div style={panelStyles.eventTitleBlock}>
+              <h3
+                style={panelStyles.eventTitle}
+                title={eventInfo?.title || "No selected disaster event"}
+              >
+                {eventInfo?.title || "No selected disaster event"}
+              </h3>
+              {eventPeriod ? (
+                <p style={panelStyles.eventPeriod}>{eventPeriod}</p>
+              ) : null}
+            </div>
+
+            <div
+              className="mayor-inventory-forecast-model-summary"
+              style={panelStyles.modelSummary}
+              aria-label={`Forecast model: ${selectedModelLabel}`}
             >
-              {eventInfo?.title || "No selected disaster event"}
-            </h3>
+              <span style={panelStyles.modelIconWrap}>
+                <ForecastModelIcon modelName={selectedForecastModel} />
+              </span>
+              <p style={panelStyles.modelName}>{selectedModelLabel}</p>
+            </div>
           </div>
 
           <div style={panelStyles.interpretationBanner}>{interpretationText}</div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))",
-              gap: "12px",
-            }}
-          >
-            <div style={{ ...panelStyles.insightCard, ...panelStyles.modelInsightCard }}>
-              <div style={panelStyles.modelCardContent}>
-                <span style={panelStyles.modelIconWrap}>
-                  <ForecastModelIcon modelName={selectedForecastModel} />
-                </span>
-                <p style={panelStyles.modelName}>{selectedModelLabel}</p>
-              </div>
-            </div>
-            <div style={{ ...panelStyles.insightCard, ...panelStyles.totalNeedCard }}>
-              <p style={panelStyles.insightValue}>
-                {modelHasResults ? formatNumber(displayedTotalForecastNeed) : "--"}
-              </p>
-              <p style={{ ...panelStyles.label, marginBottom: 0 }}>Total Need</p>
-            </div>
-          </div>
         </div>
 
         <div style={{ display: "grid", alignItems: "stretch" }}>
@@ -1628,41 +1626,60 @@ const ForecastingPanel = ({
             className="mayor-inventory-forecast-stat-grid"
             style={panelStyles.statGrid}
           >
-            {forecastCards.map((card) => (
-              <button
-                key={card.label}
-                type="button"
-                onClick={() => handleForecastCardClick(card)}
-                aria-label={`View details for ${card.label}`}
-                style={{
-                  ...panelStyles.statCard,
-                  ...panelStyles.statButton,
-                }}
-              >
-                <p style={panelStyles.statLabel}>{card.label}</p>
-                <div style={panelStyles.statValueRow}>
-                  <span
+            {forecastCards.map((card) => {
+              const hasMetricIcon = Boolean(card.icon);
+              const CardElement = card.targetId ? "button" : "div";
+
+              return (
+                <CardElement
+                  key={card.label}
+                  {...(card.targetId
+                    ? {
+                        type: "button",
+                        onClick: () => handleForecastCardClick(card),
+                        "aria-label": `View details for ${card.label}`,
+                      }
+                    : {})}
+                  style={{
+                    ...panelStyles.statCard,
+                    ...panelStyles.statButton,
+                    textAlign: hasMetricIcon ? "left" : "center",
+                    cursor: card.targetId ? "pointer" : "default",
+                  }}
+                >
+                  <p style={panelStyles.statLabel}>{card.label}</p>
+                  <div
                     style={{
-                      ...panelStyles.statIconWrap,
-                      color: card.accent,
-                      backgroundColor: `${card.accent}18`,
+                      ...panelStyles.statValueRow,
+                      ...(hasMetricIcon ? null : { justifyContent: "center" }),
                     }}
                   >
-                    <ForecastMetricIcon icon={card.icon} />
-                  </span>
-                  <p
-                    style={{
-                      ...panelStyles.statValue,
-                      fontSize: typeof card.value === "string" ? "20px" : "32px",
-                      lineHeight: typeof card.value === "string" ? 1.2 : 1,
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {formatMetricValue(card.value)}
-                  </p>
-                </div>
-              </button>
-            ))}
+                    {hasMetricIcon ? (
+                      <span
+                        style={{
+                          ...panelStyles.statIconWrap,
+                          color: card.accent,
+                          backgroundColor: `${card.accent}18`,
+                        }}
+                      >
+                        <ForecastMetricIcon icon={card.icon} />
+                      </span>
+                    ) : null}
+                    <p
+                      style={{
+                        ...panelStyles.statValue,
+                        fontSize: typeof card.value === "string" ? "20px" : "32px",
+                        lineHeight: typeof card.value === "string" ? 1.2 : 1,
+                        fontWeight: typeof card.value === "string" ? 400 : 800,
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {formatMetricValue(card.value)}
+                    </p>
+                  </div>
+                </CardElement>
+              );
+            })}
           </div>
         </div>
       </div>

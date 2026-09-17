@@ -382,6 +382,9 @@ export const registerHousehold = async (payload, options = {}) => {
         ...(isReAdmission
           ? ["registration_operation", "re_admission_source_household_id"]
           : []),
+        ...(payload.current_stay_type === "EVAC_CENTER"
+          ? ["evacuation_center_id"]
+          : []),
       ],
       request: async () => {
         const response = await fetch(`${API_BASE_URL}/api/v1/households/register`, {
