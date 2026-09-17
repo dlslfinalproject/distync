@@ -309,6 +309,70 @@ const panelStyles = {
     color: "#17324d",
     minWidth: 0,
   },
+  topPrioritySection: {
+    ...shellStyles.card,
+    display: "grid",
+    gap: "14px",
+    minWidth: 0,
+  },
+  topPriorityTitleRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    minWidth: 0,
+  },
+  topPriorityIconWrap: {
+    width: "38px",
+    height: "38px",
+    borderRadius: "12px",
+    backgroundColor: "#f8efe5",
+    color: accentMap.orange,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flex: "0 0 auto",
+  },
+  topPriorityGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: "12px",
+    minWidth: 0,
+  },
+  topPriorityCard: {
+    borderRadius: "12px",
+    border: "1px solid #d7e2ef",
+    backgroundColor: "#f8fbfe",
+    padding: "16px",
+    display: "grid",
+    gap: "10px",
+    alignContent: "start",
+    minWidth: 0,
+    boxSizing: "border-box",
+  },
+  topPriorityCardHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "12px",
+    minWidth: 0,
+  },
+  topPriorityName: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "16px",
+    fontWeight: 400,
+    lineHeight: 1.3,
+    overflowWrap: "anywhere",
+    minWidth: 0,
+  },
+  topPriorityMeta: {
+    margin: 0,
+    color: "#58708a",
+    fontSize: "13px",
+    fontWeight: 400,
+    lineHeight: 1.45,
+    overflowWrap: "anywhere",
+  },
   priorityGrid: {
     display: "grid",
     gridTemplateColumns: "1fr",
@@ -507,6 +571,24 @@ const formatMetricValue = (value) => {
   }
 
   return formatNumber(value);
+};
+
+const getPriorityTimingText = (row) => {
+  if (row?.shortage_within_seven_days) {
+    return row.days_until_depletion === null ||
+      row.days_until_depletion === undefined
+      ? "Shortage within 7 days"
+      : `Shortage in ${row.days_until_depletion} day(s)`;
+  }
+
+  if (
+    row?.days_until_depletion !== null &&
+    row?.days_until_depletion !== undefined
+  ) {
+    return `Depletes in ${row.days_until_depletion} day(s)`;
+  }
+
+  return "Immediate review required";
 };
 
 const formatDate = (value) => {
@@ -1273,9 +1355,13 @@ const ForecastingPanel = ({
         Number(row.recommended_reorder_quantity || 0) > 0,
     )
     .slice(0, 6);
-  const topRestockRow = sortedRestockRows.find(
-    (row) => Number(row.recommended_reorder_quantity || 0) > 0,
-  );
+  const topPriorityRows = priorityResultRows
+    .filter(
+      (row) =>
+        Boolean(row.shortage_within_seven_days) ||
+        getRiskPriority(row.risk_level) >= getRiskPriority("HIGH"),
+    )
+    .slice(0, 6);
   const donorNeedRows = recommendationRows.slice(0, 6);
   const modelHasResults = resultRows.length > 0;
   const selectedModelLabel = getForecastModelLabel(selectedForecastModel);
@@ -1392,13 +1478,6 @@ const ForecastingPanel = ({
       icon: "critical",
       targetId: "forecast-detailed-results",
       opensDetails: true,
-    },
-    {
-      label: "Top Priority",
-      value: topRestockRow?.item_name || "None",
-      accent: accentMap.orange,
-      icon: "priority",
-      targetId: "forecast-stock-actions",
     },
   ];
 
@@ -1683,6 +1762,64 @@ const ForecastingPanel = ({
           </div>
         </div>
       </div>
+
+      <section id="forecast-top-priorities" style={panelStyles.topPrioritySection}>
+        <div style={panelStyles.topPriorityTitleRow}>
+          <span style={panelStyles.topPriorityIconWrap}>
+            <FiFlag size={20} aria-hidden="true" />
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <h4 style={panelStyles.tableTitle}>Top Priority Items</h4>
+            <p style={{ ...panelStyles.emptyState, fontSize: "13px" }}>
+              Immediate items ordered by analytics risk, shortage timing, and restock need.
+            </p>
+          </div>
+        </div>
+
+        {!modelHasResults ? (
+          <p style={panelStyles.emptyState}>
+            Run a forecast to identify immediate top-priority items.
+          </p>
+        ) : !topPriorityRows.length ? (
+          <p style={panelStyles.emptyState}>
+            No immediate top-priority items are flagged for this forecast.
+          </p>
+        ) : (
+          <div
+            className="mayor-inventory-forecast-priority-grid"
+            style={panelStyles.topPriorityGrid}
+          >
+            {topPriorityRows.map((row) => (
+              <article
+                key={row.inventory_item_id}
+                style={panelStyles.topPriorityCard}
+              >
+                <div style={panelStyles.topPriorityCardHeader}>
+                  <p
+                    style={panelStyles.topPriorityName}
+                    title={row.item_name}
+                  >
+                    {row.item_name}
+                  </p>
+                  <span style={getRiskLevelStyle(row.risk_level)}>
+                    {row.risk_level || "LOW"}
+                  </span>
+                </div>
+                <p style={panelStyles.topPriorityMeta}>
+                  {getPriorityTimingText(row)}
+                </p>
+                <p style={panelStyles.topPriorityMeta}>
+                  Recommended restock: {formatForecastQuantity(
+                    row.recommended_reorder_quantity,
+                    row.unit_of_measure,
+                    { roundUp: true },
+                  )} {row.unit_of_measure || "units"}
+                </p>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
 
       <div style={panelStyles.section}>
         <div style={panelStyles.sectionHeader}>
