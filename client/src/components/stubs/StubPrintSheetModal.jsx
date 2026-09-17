@@ -137,6 +137,7 @@ const StubPrintSheetModal = ({
   selectedBarangayId = "",
   showBarangaySelection = true,
   allowAllBarangays = false,
+  isOnline = true,
   onClose,
   onPrint,
 }) => {
@@ -235,6 +236,12 @@ const StubPrintSheetModal = ({
   };
 
   const handleSubmit = () => {
+    if (!isOnline) {
+      setErrors({ offline: "Connect to the internet to print stubs." });
+      scheduleScrollToFirstError(modalRef);
+      return;
+    }
+
     const nextErrors = {};
 
     if (!formValues.disasterEventId) {
@@ -342,11 +349,24 @@ const StubPrintSheetModal = ({
           </label>
         </div>
 
+        {errors.offline ? (
+          <p style={modalStyles.error}>{errors.offline}</p>
+        ) : null}
+
         <div style={modalStyles.actions}>
           <button type="button" onClick={onClose} style={pageHeaderStyles.secondaryButton}>
             Cancel
           </button>
-          <button type="button" onClick={handleSubmit} style={pageHeaderStyles.primaryButton}>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!isOnline}
+            title={!isOnline ? "Connect to the internet to print stubs." : undefined}
+            style={{
+              ...pageHeaderStyles.primaryButton,
+              opacity: !isOnline ? 0.7 : 1,
+            }}
+          >
             Print
           </button>
         </div>

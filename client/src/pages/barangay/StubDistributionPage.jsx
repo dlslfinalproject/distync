@@ -841,6 +841,10 @@ const StubDistributionPage = () => {
   }, [filteredRows, selectedStubIds]);
 
   const openStubPrintPage = (printUrl) => {
+    if (!isOnline) {
+      return;
+    }
+
     window.open(printUrl, "_blank", "noopener,noreferrer");
   };
 
@@ -1119,6 +1123,10 @@ const StubDistributionPage = () => {
     stubStatus,
     orderList,
   }) => {
+    if (!isOnline) {
+      return;
+    }
+
     setIsPrintSheetModalOpen(false);
     openStubPrintPage(
       buildStubPrintRoute({
@@ -1229,14 +1237,17 @@ const StubDistributionPage = () => {
                   className="stub-distribution-print-button"
                   type="button"
                   onClick={() => setIsPrintSheetModalOpen(true)}
-                  disabled={!hasSelectedEvent || !selectedBarangayForPrintId}
+                  disabled={!isOnline || !hasSelectedEvent || !selectedBarangayForPrintId}
+                  title={!isOnline ? "Connect to the internet to print stubs." : undefined}
                   style={{
                     ...pageHeaderStyles.secondaryButton,
                     display: "flex",
                     alignItems: "center",
                     gap: "8px",
                     opacity:
-                      !hasSelectedEvent || !selectedBarangayForPrintId ? 0.7 : 1,
+                      !isOnline || !hasSelectedEvent || !selectedBarangayForPrintId
+                        ? 0.7
+                        : 1,
                   }}
                 >
                   <FiPrinter size={16} />
@@ -1358,6 +1369,7 @@ const StubDistributionPage = () => {
         selectedDisasterEventId={selectedEvent?.id || selectedDisasterEventId}
         selectedBarangayId={selectedBarangayForPrintId}
         showBarangaySelection={false}
+        isOnline={isOnline}
         onClose={() => setIsPrintSheetModalOpen(false)}
         onPrint={handlePrintStubSheet}
       />

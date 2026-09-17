@@ -356,7 +356,23 @@ const PrintStubsPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [hasTriggeredAutoPrint, setHasTriggeredAutoPrint] = useState(false);
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine !== false,
+  );
   const printableRootRef = useRef(null);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   const requestedStubIds = useMemo(
     () => parseStubIds(searchParams.get("stubIds")),
@@ -449,6 +465,10 @@ const PrintStubsPage = () => {
         return;
       }
 
+      if (!isOnline) {
+        return;
+      }
+
       window.print();
       setHasTriggeredAutoPrint(true);
     };
@@ -458,7 +478,7 @@ const PrintStubsPage = () => {
     return () => {
       isCancelled = true;
     };
-  }, [errorMessage, hasTriggeredAutoPrint, isLoading, stubDetails]);
+  }, [errorMessage, hasTriggeredAutoPrint, isLoading, isOnline, stubDetails]);
 
   return (
     <div className="stub-print-page" style={pageStyles.page}>
@@ -477,8 +497,18 @@ const PrintStubsPage = () => {
           <div style={pageStyles.toolbarActions}>
             <button
               type="button"
-              onClick={() => window.print()}
-              style={{ ...pageStyles.button, ...pageStyles.primaryButton }}
+              onClick={() => {
+                if (isOnline) {
+                  window.print();
+                }
+              }}
+              disabled={!isOnline}
+              title={!isOnline ? "Connect to the internet to print stubs." : undefined}
+              style={{
+                ...pageStyles.button,
+                ...pageStyles.primaryButton,
+                opacity: !isOnline ? 0.7 : 1,
+              }}
             >
               <FiPrinter size={16} />
               Print
