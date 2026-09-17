@@ -55,4 +55,12 @@ test("MSWDO exposes all required labels and blocks Unclaimed rows in the UI path
   for (const label of ["All", "For Claim", "Claimed", "Unclaimed"]) assert.match(page, new RegExp(`label: "${label}"`));
   assert.match(table, /presentation_status === STUB_PRESENTATION_STATUSES\.FOR_CLAIM/);
   assert.match(table, /presentation_status === STUB_PRESENTATION_STATUSES\.NOT_PRESENT/);
+  assert.match(page, /isOfflineForDisplay/);
+  assert.match(page, /isOffline=\{isOfflineForDisplay\}/);
+  assert.match(page, /isEndedEvent=\{isEndedView\}/);
+  assert.match(table, /isOffline = false/);
+  assert.match(
+    table,
+    /!isEndedEvent &&[\s\S]*?row\.sync_status &&[\s\S]*?row\.sync_status !== "SYNCED" \|\| isOffline[\s\S]*?<SyncStatusIcon status=\{row\.sync_status\} \/>/,
+  );
 });

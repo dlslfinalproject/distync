@@ -29,6 +29,18 @@ const isValidDateString = (value) => {
   return !Number.isNaN(date.getTime());
 };
 
+const isStrictPositiveInteger = (value) => {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value > 0;
+  }
+
+  return (
+    typeof value === "string" &&
+    /^[1-9]\d*$/.test(value) &&
+    Number.isSafeInteger(Number(value))
+  );
+};
+
 const requiresCompletedEndDate = (status) => status === "CLOSED";
 
 const validateCreateDisasterEvent = (req, res, next) => {
@@ -112,15 +124,21 @@ const validateCreateDisasterEvent = (req, res, next) => {
 
     if (Array.isArray(barangay_ids)) {
       const hasInvalidBarangayId = barangay_ids.some(
-        (barangayId) => typeof barangayId !== "string" || !barangayId.trim(),
+        (barangayId) =>
+          typeof barangayId !== "string" ||
+          !uuidPattern.test(barangayId.trim()),
       );
 
       if (hasInvalidBarangayId) {
         return res.status(400).json({
-          message: "barangay_ids must contain only non-empty string values",
+          message: "barangay_ids must contain valid UUID values",
         });
       }
     }
+
+    const normalizedBarangayIds = Array.isArray(barangay_ids)
+      ? [...new Set(barangay_ids.map((barangayId) => barangayId.trim().toLowerCase()))]
+      : [];
 
     req.validatedBody = {
       event_code:
@@ -134,7 +152,7 @@ const validateCreateDisasterEvent = (req, res, next) => {
       end_date: end_date ?? null,
       status: normalizedStatus,
       created_by: created_by ?? null,
-      barangay_ids: barangay_ids ?? [],
+      barangay_ids: normalizedBarangayIds,
     };
 
     return next();
@@ -272,10 +290,13 @@ const validateDisasterEventReportSummary = (req, res, next) => {
       date_to,
       sort_order,
       limit,
+      page,
+      page_size,
+      search,
     } = req.query;
 
     const normalizedDisasterEventId =
-      typeof disaster_event_id === "string" ? disaster_event_id : "";
+      typeof disaster_event_id === "string" ? disaster_event_id.trim() : "";
     const normalizedEventSelection = normalizeDisasterEventReportSelection({
       eventSelection:
         typeof event_selection === "string" ? event_selection : "",
@@ -299,30 +320,67 @@ const validateDisasterEventReportSummary = (req, res, next) => {
       });
     }
 
-    if (barangay_id && !uuidPattern.test(String(barangay_id))) {
+    const normalizedBarangayId =
+      typeof barangay_id === "string" ? barangay_id.trim() : "";
+
+    if (normalizedBarangayId && !uuidPattern.test(normalizedBarangayId)) {
       return res.status(400).json({
         message: "barangay_id must be a valid UUID",
       });
     }
 
-    if (status && !reportAllowedStatuses.includes(String(status).toUpperCase())) {
+    const normalizedStatus =
+      typeof status === "string" && status.trim()
+        ? status.trim().toUpperCase()
+        : "";
+
+    if (
+      normalizedStatus &&
+      !reportAllowedStatuses.includes(normalizedStatus)
+    ) {
       return res.status(400).json({
         message:
           "status must be one of: PLANNED, ACTIVE, CLOSED",
       });
     }
 
-    if (date_from && !isValidDateString(date_from)) {
+    const normalizedDateFrom =
+      typeof date_from === "string" && date_from.trim()
+        ? date_from.trim()
+        : "";
+    const normalizedDateTo =
+      typeof date_to === "string" && date_to.trim() ? date_to.trim() : "";
+
+    if (normalizedDateFrom && !isValidDateString(normalizedDateFrom)) {
       return res.status(400).json({
         message: "date_from must be a valid date",
       });
     }
 
-    if (date_to && !isValidDateString(date_to)) {
+    if (normalizedDateTo && !isValidDateString(normalizedDateTo)) {
       return res.status(400).json({
         message: "date_to must be a valid date",
       });
     }
+
+    if (
+      normalizedDateFrom &&
+      normalizedDateTo &&
+      new Date(normalizedDateFrom) > new Date(normalizedDateTo)
+    ) {
+      return res.status(400).json({
+        message: "date_from cannot be later than date_to",
+      });
+    }
+
+    if (search !== undefined && typeof search !== "string") {
+      return res.status(400).json({
+        message: "search must be a text value",
+      });
+    }
+
+    const normalizedSearch =
+      typeof search === "string" ? search.trim().slice(0, 120) : "";
 
     const normalizedSortOrder = String(sort_order || "newest").toLowerCase();
 
@@ -332,7 +390,8 @@ const validateDisasterEventReportSummary = (req, res, next) => {
       });
     }
 
-    const parsedLimit = limit ? Number.parseInt(limit, 10) : 100;
+    const parsedLimit =
+      limit === undefined ? 100 : Number.parseInt(String(limit), 10);
 
     if (!Number.isInteger(parsedLimit) || parsedLimit <= 0 || parsedLimit > 1000) {
       return res.status(400).json({
@@ -340,15 +399,42 @@ const validateDisasterEventReportSummary = (req, res, next) => {
       });
     }
 
+    const hasPage = page !== undefined;
+    const hasPageSize = page_size !== undefined;
+
+    if (hasPage !== hasPageSize) {
+      return res.status(400).json({
+        message: "page and page_size must be provided together",
+      });
+    }
+
+    if (hasPage && !isStrictPositiveInteger(page)) {
+      return res.status(400).json({
+        message: "page must be a positive integer",
+      });
+    }
+
+    if (
+      hasPageSize &&
+      (!isStrictPositiveInteger(page_size) || Number(page_size) > 100)
+    ) {
+      return res.status(400).json({
+        message: "page_size must be an integer between 1 and 100",
+      });
+    }
+
     req.validatedQuery = {
       disaster_event_id: resolvedDisasterEventId,
       event_selection: normalizedEventSelection,
-      barangay_id: typeof barangay_id === "string" ? barangay_id : "",
-      status: typeof status === "string" ? status.toUpperCase() : "",
-      date_from: typeof date_from === "string" ? date_from : "",
-      date_to: typeof date_to === "string" ? date_to : "",
+      barangay_id: normalizedBarangayId,
+      status: normalizedStatus,
+      date_from: normalizedDateFrom,
+      date_to: normalizedDateTo,
+      search: normalizedSearch,
       sort_order: normalizedSortOrder,
       limit: parsedLimit,
+      page: hasPage ? Number(page) : 1,
+      page_size: hasPageSize ? Number(page_size) : Math.min(parsedLimit, 100),
     };
 
     return next();

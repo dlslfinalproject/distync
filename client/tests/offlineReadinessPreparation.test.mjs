@@ -13,7 +13,7 @@ test("offline preparation has explicit scoped readiness states and completion me
   assert.match(source, /cache_version/);
   assert.match(source, /stub_pages/);
   assert.match(source, /masterlist_pages/);
-  assert.doesNotMatch(source, /length\s*>\s*0/);
+  assert.match(source, /readiness_generation/);
 });
 
 test("preparation traverses every server page and preserves scoped storage", async () => {

@@ -484,6 +484,7 @@ const StubDetailModal = ({
                     <QrCodePanel
                       value={stubDetails?.qr_code_value || ""}
                       emptyLabel="No QR available"
+                      showValue={false}
                       valueStyle={{ overflowWrap: "anywhere" }}
                     />
                   </div>

@@ -266,6 +266,10 @@ const buildQrScanErrorDetails = (verification, stubDetails) => {
 
 const StubDistributionPage = () => {
   const { authenticatedUser } = useAuth();
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine !== false,
+  );
+  const isOfflineForDisplay = !isOnline;
   const {
     disasterEvents,
     barangays,
@@ -292,6 +296,23 @@ const StubDistributionPage = () => {
   } = useMswdoStubDistribution({
     userId: authenticatedUser?.id || "",
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   const [activeTab, setActiveTab] = useState(
     () =>
@@ -1165,6 +1186,8 @@ const StubDistributionPage = () => {
         onClaimStub={handleOpenClaimConfirmation}
         onViewStub={handleOpenStubDetails}
         isClaimReadOnly={isEndedView}
+        isEndedEvent={isEndedView}
+        isOffline={isOfflineForDisplay}
         selectedStubIds={selectedStubIds}
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}

@@ -133,6 +133,18 @@ test("re-admission successor detection only treats a later active occurrence as 
   assert.match(successorSource, /active_log\.time_out IS NULL/);
 });
 
+test("new household insertion persists explicit re-admission lineage", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+  const insertSource = source.match(
+    /const insertHousehold = async \([\s\S]*?const insertHouseholdPrivacyConsent/,
+  )?.[0];
+
+  assert.ok(insertSource, "insertHousehold source is present");
+  assert.match(insertSource, /source_household_id/);
+  assert.match(insertSource, /NOW\(\), \$22/);
+  assert.match(insertSource, /householdData\.source_household_id \?\? null/);
+});
+
 test("active cross-event family-head lookup surfaces active registrations without presence filtering", () => {
   const source = fs.readFileSync(repositoryPath, "utf8");
   const match = source.match(

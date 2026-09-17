@@ -2,8 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { deriveBarangayDashboardMetrics } from "../src/features/barangay-dashboard/barangayDashboardOfflineMetrics.js";
 
-const row = (id, name, size, active = true, stay = "EVAC_CENTER", registeredAt = "2026-01-01") => ({
+const row = (
+  id,
+  name,
+  size,
+  active = true,
+  stay = "EVAC_CENTER",
+  registeredAt = "2026-01-01",
+  sourceHouseholdId = null,
+) => ({
   household_id: id,
+  source_household_id: sourceHouseholdId,
   family_head_name: name,
   members_count: size,
   current_stay_type: stay,
@@ -12,6 +21,7 @@ const row = (id, name, size, active = true, stay = "EVAC_CENTER", registeredAt =
   offline_household_details: {
     household: {
       id,
+      source_household_id: sourceHouseholdId,
       household_size: size,
       family_head_first_name: name,
       current_stay_type: stay,
@@ -41,11 +51,22 @@ test("does not change totals when the caller supplies a page-sized subset", () =
 
 test("deduplicates historical occurrences using the server family identity", () => {
   assert.deepEqual(deriveBarangayDashboardMetrics({
-    rows: [row("old", "Ana", 2, false, "EVAC_CENTER", "2026-01-01"), row("new", "Ana", 2, true, "EVAC_CENTER", "2026-01-02")],
+    rows: [row("old", "Ana", 2, false, "EVAC_CENTER", "2026-01-01"), row("new", "Ana", 2, true, "EVAC_CENTER", "2026-01-02", "old")],
   }), {
     total_evacuees_individuals: 2,
     total_families: 1,
     currently_admitted_evacuees: 2,
+    total_departed_evacuees: 0,
+  });
+});
+
+test("keeps separate same-name families separate without explicit lineage", () => {
+  assert.deepEqual(deriveBarangayDashboardMetrics({
+    rows: [row("one", "Ana", 2), row("two", "Ana", 3)],
+  }), {
+    total_evacuees_individuals: 5,
+    total_families: 2,
+    currently_admitted_evacuees: 5,
     total_departed_evacuees: 0,
   });
 });

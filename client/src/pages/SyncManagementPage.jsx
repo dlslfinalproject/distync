@@ -392,6 +392,7 @@ const syncCenterPageStyles = {
   flexDirection: "column",
   gap: "16px",
   minWidth: 0,
+  maxWidth: "100%",
   width: "100%",
 };
 
@@ -402,7 +403,9 @@ const syncCenterFilterCardStyles = {
 
 const syncCenterTabsModuleStyles = {
   ...shellStyles.card,
+  maxWidth: "100%",
   padding: 0,
+  width: "100%",
 };
 
 const syncCenterTabListStyles = {
@@ -415,8 +418,12 @@ const syncCenterTabListStyles = {
   flexWrap: "nowrap",
   gap: "4px",
   overflowX: "auto",
+  overflowY: "hidden",
+  overscrollBehaviorX: "contain",
   padding: "8px clamp(14px, 2vw, 24px) 0",
   minHeight: "56px",
+  maxWidth: "100%",
+  width: "100%",
   WebkitOverflowScrolling: "touch",
 };
 
@@ -456,6 +463,10 @@ const tableStyles = {
     lineHeight: 1.5,
     verticalAlign: "middle",
   },
+};
+
+const primaryRecordTextStyles = {
+  fontWeight: 700,
 };
 
 const syncStatusHeaderStyles = {
@@ -1585,7 +1596,10 @@ const SyncManagementPage = () => {
       !trimmedReason
     ) {
       setResolutionReasonError("Review note is required.");
-      if ((isMayorPortal || isBarangayPortal) && typeof document !== "undefined") {
+      if (
+        (isMayorPortal || isBarangayPortal || isMswdoPortal) &&
+        typeof document !== "undefined"
+      ) {
         scrollToErrorElement(
           document.getElementById("sync-conflict-review-note"),
         );
@@ -1725,7 +1739,7 @@ const SyncManagementPage = () => {
           {includeOperation ? details.operation : details.actionLabel}
         </td>
         <td style={tableStyles.td}>
-          <div>{details.subject}</div>
+          <div style={primaryRecordTextStyles}>{details.subject}</div>
           {details.secondaryLabel ? (
             <div style={detailTextStyles}>{details.secondaryLabel}</div>
           ) : null}
@@ -2233,7 +2247,9 @@ const SyncManagementPage = () => {
                       {isMswdoPortal ? (
                         <td style={tableStyles.td}>{details.barangay}</td>
                       ) : null}
-                      <td style={tableStyles.td}>{details.subject}</td>
+                      <td style={tableStyles.td}>
+                        <span style={primaryRecordTextStyles}>{details.subject}</span>
+                      </td>
                       <td style={tableStyles.td}>{getConflictReasonLabel(conflict)}</td>
                       <td style={syncStatusCellStyles}>
                         <SyncStatusBadge

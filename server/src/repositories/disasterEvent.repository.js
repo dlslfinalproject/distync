@@ -1,5 +1,30 @@
 const pool = require("../config/db");
 
+const HOUSEHOLD_LINEAGE_CTE = `
+WITH RECURSIVE household_lineage AS (
+  SELECT
+    h.id AS occurrence_household_id,
+    h.id AS household_identity_id,
+    h.disaster_event_id,
+    ARRAY[h.id]::uuid[] AS lineage_path
+  FROM households h
+  WHERE h.source_household_id IS NULL
+
+  UNION ALL
+
+  SELECT
+    child.id AS occurrence_household_id,
+    parent.household_identity_id,
+    child.disaster_event_id,
+    array_append(parent.lineage_path, child.id) AS lineage_path
+  FROM households child
+  INNER JOIN household_lineage parent
+    ON parent.occurrence_household_id = child.source_household_id
+   AND parent.disaster_event_id = child.disaster_event_id
+  WHERE NOT (child.id = ANY(parent.lineage_path))
+)
+`;
+
 const selectDisasterEventColumns = `
   SELECT
     id,
@@ -109,8 +134,8 @@ const findConflictingOpenDisasterEventByTitle = async ({
 }) => {
   const query = `
     ${selectDisasterEventColumns}
-    WHERE LOWER(REGEXP_REPLACE(TRIM(title), '\s+', ' ', 'g')) =
-      LOWER(REGEXP_REPLACE(TRIM($1), '\s+', ' ', 'g'))
+    WHERE LOWER(REGEXP_REPLACE(TRIM(title), '\\s+', ' ', 'g')) =
+      LOWER(REGEXP_REPLACE(TRIM($1), '\\s+', ' ', 'g'))
       AND status = ANY($2::TEXT[])
       AND ($3::UUID IS NULL OR id <> $3::UUID)
     ORDER BY created_at DESC
@@ -237,6 +262,25 @@ const getValidBarangayCount = async () => {
 
   const result = await pool.query(query, ["NON_RESIDENT_OUTSIDE_MALVAR"]);
   return result.rows[0]?.count || 0;
+};
+
+const getBarangaysByIds = async (barangayIds, dbClient = pool) => {
+  if (!Array.isArray(barangayIds) || barangayIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    SELECT
+      id,
+      code,
+      name,
+      is_active
+    FROM barangays
+    WHERE id = ANY($1::UUID[])
+  `;
+
+  const result = await dbClient.query(query, [barangayIds]);
+  return result.rows;
 };
 
 const getAffectedBarangaysByDisasterEventIds = async (disasterEventIds) => {
@@ -645,13 +689,22 @@ const insertDisasterEventBarangays = async (
 ) => {
   const insertedRows = [];
 
-  for (const barangayId of barangayIds) {
+  const uniqueBarangayIds = [
+    ...new Set(
+      (Array.isArray(barangayIds) ? barangayIds : [])
+        .map((barangayId) => String(barangayId || "").trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+
+  for (const barangayId of uniqueBarangayIds) {
     const query = `
       INSERT INTO disaster_event_barangays (
         disaster_event_id,
         barangay_id
       )
       VALUES ($1, $2)
+      ON CONFLICT DO NOTHING
       RETURNING
         id,
         disaster_event_id,
@@ -754,6 +807,63 @@ const closeDisasterEventIfActive = async (
   return result.rows[0] || null;
 };
 
+const buildDisasterEventReportPagination = ({
+  page,
+  pageSize,
+  totalItems,
+}) => {
+  const totalPages = totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
+
+  return {
+    page,
+    pageSize,
+    totalItems,
+    totalPages,
+    hasPreviousPage: page > 1 && totalPages > 0,
+    hasNextPage: totalPages > 0 && page < totalPages,
+  };
+};
+
+const addDisasterEventReportSearchCondition = ({
+  values,
+  conditions,
+  search,
+  mode,
+}) => {
+  const normalizedSearch = String(search || "").trim();
+
+  if (!normalizedSearch) {
+    return;
+  }
+
+  values.push(`%${normalizedSearch}%`);
+  const searchIndex = values.length;
+
+  if (mode === "breakdown") {
+    conditions.push(`(
+      de.title ILIKE $${searchIndex}
+      OR de.event_code ILIKE $${searchIndex}
+      OR de.disaster_type ILIKE $${searchIndex}
+      OR b.name ILIKE $${searchIndex}
+    )`);
+    return;
+  }
+
+  conditions.push(`(
+    de.title ILIKE $${searchIndex}
+    OR de.event_code ILIKE $${searchIndex}
+    OR de.disaster_type ILIKE $${searchIndex}
+    OR EXISTS (
+      SELECT 1
+      FROM disaster_event_barangays deb_search
+      INNER JOIN barangays b_search
+        ON b_search.id = deb_search.barangay_id
+      WHERE deb_search.disaster_event_id = de.id
+        AND b_search.name ILIKE $${searchIndex}
+    )
+  )`);
+};
+
 const getDisasterEventReportSummary = async ({
   disasterEventId = null,
   barangayId = null,
@@ -761,16 +871,21 @@ const getDisasterEventReportSummary = async ({
   status = null,
   dateFrom = null,
   dateTo = null,
+  search = "",
   sortOrder = "newest",
+  page = null,
+  pageSize = null,
   limit = 100,
 }) => {
   const values = [];
   const conditions = [];
   const orderClauses = {
-    newest: "ORDER BY de.start_date DESC NULLS LAST, de.created_at DESC",
-    oldest: "ORDER BY de.start_date ASC NULLS LAST, de.created_at ASC",
-    az: "ORDER BY LOWER(de.title) ASC, de.start_date DESC NULLS LAST",
-    za: "ORDER BY LOWER(de.title) DESC, de.start_date DESC NULLS LAST",
+    newest:
+      "ORDER BY de.start_date DESC NULLS LAST, de.created_at DESC, de.id ASC",
+    oldest:
+      "ORDER BY de.start_date ASC NULLS LAST, de.created_at ASC, de.id ASC",
+    az: "ORDER BY LOWER(de.title) ASC, de.start_date DESC NULLS LAST, de.id ASC",
+    za: "ORDER BY LOWER(de.title) DESC, de.start_date DESC NULLS LAST, de.id ASC",
   };
   const orderClause = orderClauses[sortOrder] || orderClauses.newest;
 
@@ -779,9 +894,13 @@ const getDisasterEventReportSummary = async ({
     conditions.push(`de.id = $${values.length}`);
   }
 
-  if (Array.isArray(statuses) && statuses.length > 0) {
-    values.push(statuses);
-    conditions.push(`de.status = ANY($${values.length}::TEXT[])`);
+  if (Array.isArray(statuses)) {
+    if (statuses.length === 0) {
+      conditions.push("FALSE");
+    } else {
+      values.push(statuses);
+      conditions.push(`de.status = ANY($${values.length}::TEXT[])`);
+    }
   } else if (status) {
     values.push(status);
     conditions.push(`de.status = $${values.length}`);
@@ -810,8 +929,13 @@ const getDisasterEventReportSummary = async ({
     `);
   }
 
-  values.push(limit);
-  const limitIndex = values.length;
+  addDisasterEventReportSearchCondition({
+    values,
+    conditions,
+    search,
+    mode: "summary",
+  });
+
   const whereClause =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const barangayScopedHouseholds = barangayFilterIndex
@@ -826,8 +950,29 @@ const getDisasterEventReportSummary = async ({
   const barangayScopedAffected = barangayFilterIndex
     ? `AND deb.barangay_id = $${barangayFilterIndex}`
     : "";
+  const parsedPage = Number(page);
+  const parsedPageSize = Number(pageSize);
+  const isPaginated =
+    Number.isInteger(parsedPage) &&
+    parsedPage > 0 &&
+    Number.isInteger(parsedPageSize) &&
+    parsedPageSize > 0;
+  const queryValues = [...values];
+  let paginationClause = "";
+
+  if (isPaginated) {
+    queryValues.push(parsedPageSize);
+    const limitIndex = queryValues.length;
+    queryValues.push((parsedPage - 1) * parsedPageSize);
+    const offsetIndex = queryValues.length;
+    paginationClause = `LIMIT $${limitIndex} OFFSET $${offsetIndex}`;
+  } else if (limit !== null && limit !== undefined) {
+    queryValues.push(limit);
+    paginationClause = `LIMIT $${queryValues.length}`;
+  }
 
   const query = `
+    ${HOUSEHOLD_LINEAGE_CTE}
     SELECT
       de.id,
       de.event_code,
@@ -854,34 +999,12 @@ const getDisasterEventReportSummary = async ({
       ${barangayScopedAffected}
     ) affected_barangays ON TRUE
     LEFT JOIN LATERAL (
-      SELECT COUNT(*)::int AS registered_households_count
-      FROM (
-        SELECT DISTINCT ON (scoped_households.household_key)
-          scoped_households.household_key
-        FROM (
-          SELECT
-            h.registered_at,
-            h.updated_at,
-            LOWER(
-              CONCAT_WS(
-                '|',
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_first_name, '')), '\\s+', ' ', 'g'),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_middle_name, '')), '\\s+', ' ', 'g'),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_last_name, '')), '\\s+', ' ', 'g'),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_suffix, '')), '\\s+', ' ', 'g'),
-                COALESCE(h.sex, ''),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.contact_number, '')), '\\s+', '', 'g')
-              )
-            ) AS household_key
-          FROM households h
-          WHERE h.disaster_event_id = de.id
-          ${barangayScopedHouseholds}
-        ) scoped_households
-        ORDER BY
-          scoped_households.household_key,
-          COALESCE(scoped_households.updated_at, scoped_households.registered_at) DESC,
-          scoped_households.registered_at DESC
-      ) latest_households
+      SELECT COUNT(DISTINCT COALESCE(hl.household_identity_id, h.id))::int AS registered_households_count
+      FROM households h
+      LEFT JOIN household_lineage hl
+        ON hl.occurrence_household_id = h.id
+      WHERE h.disaster_event_id = de.id
+      ${barangayScopedHouseholds}
     ) household_counts ON TRUE
     LEFT JOIN LATERAL (
       SELECT
@@ -915,11 +1038,33 @@ const getDisasterEventReportSummary = async ({
     ) distribution_counts ON TRUE
     ${whereClause}
     ${orderClause}
-    LIMIT $${limitIndex}
+    ${paginationClause}
   `;
 
-  const result = await pool.query(query, values);
-  return result.rows;
+  if (!isPaginated) {
+    const result = await pool.query(query, queryValues);
+    return result.rows;
+  }
+
+  const countQuery = `
+    SELECT COUNT(*)::int AS total_items
+    FROM disaster_events de
+    ${whereClause}
+  `;
+  const [countResult, result] = await Promise.all([
+    pool.query(countQuery, values),
+    pool.query(query, queryValues),
+  ]);
+  const totalItems = Number(countResult.rows[0]?.total_items || 0);
+
+  return {
+    rows: result.rows,
+    pagination: buildDisasterEventReportPagination({
+      page: parsedPage,
+      pageSize: parsedPageSize,
+      totalItems,
+    }),
+  };
 };
 
 const getDisasterEventReportBarangayBreakdown = async ({
@@ -929,16 +1074,21 @@ const getDisasterEventReportBarangayBreakdown = async ({
   status = null,
   dateFrom = null,
   dateTo = null,
+  search = "",
   sortOrder = "newest",
+  page = null,
+  pageSize = null,
   limit = 1000,
 }) => {
   const values = [];
   const conditions = [];
   const orderClauses = {
-    newest: "ORDER BY de.start_date DESC NULLS LAST, de.created_at DESC, b.name ASC",
-    oldest: "ORDER BY de.start_date ASC NULLS LAST, de.created_at ASC, b.name ASC",
-    az: "ORDER BY LOWER(de.title) ASC, b.name ASC",
-    za: "ORDER BY LOWER(de.title) DESC, b.name ASC",
+    newest:
+      "ORDER BY de.start_date DESC NULLS LAST, de.created_at DESC, de.id ASC, b.name ASC",
+    oldest:
+      "ORDER BY de.start_date ASC NULLS LAST, de.created_at ASC, de.id ASC, b.name ASC",
+    az: "ORDER BY LOWER(de.title) ASC, b.name ASC, de.id ASC",
+    za: "ORDER BY LOWER(de.title) DESC, b.name ASC, de.id ASC",
   };
   const orderClause = orderClauses[sortOrder] || orderClauses.newest;
 
@@ -952,9 +1102,13 @@ const getDisasterEventReportBarangayBreakdown = async ({
     conditions.push(`deb_row.barangay_id = $${values.length}`);
   }
 
-  if (Array.isArray(statuses) && statuses.length > 0) {
-    values.push(statuses);
-    conditions.push(`de.status = ANY($${values.length}::TEXT[])`);
+  if (Array.isArray(statuses)) {
+    if (statuses.length === 0) {
+      conditions.push("FALSE");
+    } else {
+      values.push(statuses);
+      conditions.push(`de.status = ANY($${values.length}::TEXT[])`);
+    }
   } else if (status) {
     values.push(status);
     conditions.push(`de.status = $${values.length}`);
@@ -970,12 +1124,38 @@ const getDisasterEventReportBarangayBreakdown = async ({
     conditions.push(`de.start_date <= $${values.length}`);
   }
 
-  values.push(limit);
-  const limitIndex = values.length;
+  addDisasterEventReportSearchCondition({
+    values,
+    conditions,
+    search,
+    mode: "breakdown",
+  });
+
   const whereClause =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const parsedPage = Number(page);
+  const parsedPageSize = Number(pageSize);
+  const isPaginated =
+    Number.isInteger(parsedPage) &&
+    parsedPage > 0 &&
+    Number.isInteger(parsedPageSize) &&
+    parsedPageSize > 0;
+  const queryValues = [...values];
+  let paginationClause = "";
+
+  if (isPaginated) {
+    queryValues.push(parsedPageSize);
+    const limitIndex = queryValues.length;
+    queryValues.push((parsedPage - 1) * parsedPageSize);
+    const offsetIndex = queryValues.length;
+    paginationClause = `LIMIT $${limitIndex} OFFSET $${offsetIndex}`;
+  } else if (limit !== null && limit !== undefined) {
+    queryValues.push(limit);
+    paginationClause = `LIMIT $${queryValues.length}`;
+  }
 
   const query = `
+    ${HOUSEHOLD_LINEAGE_CTE}
     SELECT
       de.id,
       de.event_code,
@@ -997,34 +1177,12 @@ const getDisasterEventReportBarangayBreakdown = async ({
     INNER JOIN barangays b
       ON b.id = deb_row.barangay_id
     LEFT JOIN LATERAL (
-      SELECT COUNT(*)::int AS registered_households_count
-      FROM (
-        SELECT DISTINCT ON (scoped_households.household_key)
-          scoped_households.household_key
-        FROM (
-          SELECT
-            h.registered_at,
-            h.updated_at,
-            LOWER(
-              CONCAT_WS(
-                '|',
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_first_name, '')), '\\s+', ' ', 'g'),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_middle_name, '')), '\\s+', ' ', 'g'),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_last_name, '')), '\\s+', ' ', 'g'),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_suffix, '')), '\\s+', ' ', 'g'),
-                COALESCE(h.sex, ''),
-                REGEXP_REPLACE(BTRIM(COALESCE(h.contact_number, '')), '\\s+', '', 'g')
-              )
-            ) AS household_key
-          FROM households h
-          WHERE h.disaster_event_id = de.id
-            AND h.barangay_id = deb_row.barangay_id
-        ) scoped_households
-        ORDER BY
-          scoped_households.household_key,
-          COALESCE(scoped_households.updated_at, scoped_households.registered_at) DESC,
-          scoped_households.registered_at DESC
-      ) latest_households
+      SELECT COUNT(DISTINCT COALESCE(hl.household_identity_id, h.id))::int AS registered_households_count
+      FROM households h
+      LEFT JOIN household_lineage hl
+        ON hl.occurrence_household_id = h.id
+      WHERE h.disaster_event_id = de.id
+        AND h.barangay_id = deb_row.barangay_id
     ) household_counts ON TRUE
     LEFT JOIN LATERAL (
       SELECT
@@ -1058,11 +1216,37 @@ const getDisasterEventReportBarangayBreakdown = async ({
     ) distribution_counts ON TRUE
     ${whereClause}
     ${orderClause}
-    LIMIT $${limitIndex}
+    ${paginationClause}
   `;
 
-  const result = await pool.query(query, values);
-  return result.rows;
+  if (!isPaginated) {
+    const result = await pool.query(query, queryValues);
+    return result.rows;
+  }
+
+  const countQuery = `
+    SELECT COUNT(*)::int AS total_items
+    FROM disaster_events de
+    INNER JOIN disaster_event_barangays deb_row
+      ON deb_row.disaster_event_id = de.id
+    INNER JOIN barangays b
+      ON b.id = deb_row.barangay_id
+    ${whereClause}
+  `;
+  const [countResult, result] = await Promise.all([
+    pool.query(countQuery, values),
+    pool.query(query, queryValues),
+  ]);
+  const totalItems = Number(countResult.rows[0]?.total_items || 0);
+
+  return {
+    rows: result.rows,
+    pagination: buildDisasterEventReportPagination({
+      page: parsedPage,
+      pageSize: parsedPageSize,
+      totalItems,
+    }),
+  };
 };
 
 module.exports = {
@@ -1076,6 +1260,7 @@ module.exports = {
   getAffectedBarangaysByDisasterEventId,
   getAffectedBarangayScopeByDisasterEventId,
   getHouseholdCountsByDisasterEventBarangayIds,
+  getBarangaysByIds,
   getAffectedBarangaysByDisasterEventIds,
   listActiveDisasterEventsForEvacuationSummary,
   getEvacuationSummaryForWindow,

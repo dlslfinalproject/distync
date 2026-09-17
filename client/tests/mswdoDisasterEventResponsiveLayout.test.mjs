@@ -22,9 +22,13 @@ test("MSWDO Disaster Event page exposes scoped responsive hooks", async () => {
   assert.match(pageSource, /className="disaster-events-filter-button-wrap"/);
   assert.match(pageSource, /className="disaster-events-create-button"/);
   assert.match(pageSource, /className="disaster-events-export-button"/);
+  assert.match(pageSource, /FiAlertTriangle/);
+  assert.match(pageSource, /right: "-5px",[\s\S]*?top: "-4px"/);
+  assert.doesNotMatch(pageSource, /right: "-5px",[\s\S]*?bottom: "-4px"/);
   assert.match(pageSource, /className="disaster-events-list-card"/);
   assert.match(tableSource, /className="disaster-events-table-scroll"/);
   assert.match(tableSource, /className="disaster-events-table"/);
+  assert.match(tableSource, /\n\s+Disaster Event\r?\n\s+<\/th>/);
   assert.match(tableSource, /import TablePagination/);
   assert.match(tableSource, /getTablePaginationState/);
   assert.match(tableSource, /ariaLabel="Disaster event management pagination"/);
@@ -42,16 +46,31 @@ test("MSWDO Disaster Event table overflow is locally contained without fixed lay
 
   assert.match(tableSource, /tableLayout: "auto"/);
   assert.doesNotMatch(tableSource, /tableLayout: "fixed"/);
+  assert.match(tableSource, /headerCell: \{[\s\S]*?whiteSpace: "nowrap"/);
   assert.match(tableSource, /className="disaster-events-text-cell"/);
-  assert.match(tableSource, /className="disaster-events-date-cell"/);
+  assert.match(
+    tableSource,
+    /className="disaster-events-date-cell"[\s\S]*?whiteSpace: "nowrap"/,
+  );
   assert.match(tableSource, /className="disaster-events-actions-cell"/);
   assert.match(
     cssSource,
     /\.disaster-events-table-scroll \{[\s\S]*?max-width: 100%;[\s\S]*?overflow-x: auto !important;[\s\S]*?-webkit-overflow-scrolling: touch;/,
   );
   assert.match(cssSource, /\.disaster-events-table \{[\s\S]*?table-layout: auto !important;/);
+  assert.match(
+    cssSource,
+    /@media \(min-width: 769px\) \{[\s\S]*?\.disaster-events-table \{[\s\S]*?min-width: 1160px !important;[\s\S]*?max-width: none !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(min-width: 1025px\) \{[\s\S]*?\.distync-sidebar\[data-collapsed="true"\][\s\S]*?\.disaster-events-table \{[\s\S]*?width: 100% !important;[\s\S]*?min-width: 0 !important;[\s\S]*?max-width: 100% !important;/,
+  );
+  assert.match(
+    cssSource,
+    /\.distync-sidebar\[data-collapsed="true"\][\s\S]*?\.disaster-events-table-scroll \{[\s\S]*?overflow-x: hidden !important;/,
+  );
   assert.doesNotMatch(cssSource, /html,[\s\S]*?body,[\s\S]*?#root\s*\{[\s\S]*?overflow-x:\s*hidden/);
-  assert.doesNotMatch(cssSource, /\.disaster-events-table\s*\{[\s\S]*?min-width:\s*(?:900|960|1024|1100|1200)px/);
 });
 
 test("MSWDO Disaster Event table keeps canonical pagination above its headers", async () => {
@@ -119,7 +138,7 @@ test("MSWDO Disaster Event toolbar and actions stack without page overflow on mo
   );
   assert.match(
     cssSource,
-    /@media \(max-width: 768px\)[\s\S]*?\.disaster-events-toolbar-actions \{[\s\S]*?display: grid !important;[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
+    /@media \(max-width: 768px\)[\s\S]*?\.disaster-events-toolbar-actions \{[\s\S]*?grid-template-columns: minmax\(0, 0\.8fr\) minmax\(0, 1\.2fr\) !important;/,
   );
   assert.match(
     cssSource,
@@ -132,6 +151,10 @@ test("MSWDO Disaster Event toolbar and actions stack without page overflow on mo
   assert.match(
     cssSource,
     /@media \(max-width: 480px\)[\s\S]*?\.disaster-events-toolbar-actions > \*,[\s\S]*?\.disaster-events-toolbar-actions button \{[\s\S]*?width: 100%;[\s\S]*?white-space: normal;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.disaster-events-toolbar-actions \.disaster-events-create-button \{[\s\S]*?white-space: nowrap !important;/,
   );
   assert.match(
     cssSource,

@@ -100,3 +100,46 @@ export const fetchMasterlistOperationalAnalytics = async ({
     "Failed to fetch operational masterlist analytics",
   );
 };
+
+export const exportMasterlistOperationalAnalytics = async ({
+  disasterEventId,
+  barangayId,
+}) => {
+  if (!disasterEventId) {
+    throw new Error("Disaster event is required.");
+  }
+
+  const searchParams = new URLSearchParams({
+    disaster_event_id: disasterEventId,
+  });
+
+  if (barangayId) {
+    searchParams.set("barangay_id", barangayId);
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/masterlist/mswdo-dashboard/export?${searchParams.toString()}`,
+  );
+
+  if (!response.ok) {
+    let message = "Failed to export operational masterlist analytics";
+
+    try {
+      const payload = await response.json();
+      message = payload.message || message;
+    } catch (_error) {
+      message = "Failed to export operational masterlist analytics";
+    }
+
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+
+  return {
+    blob,
+    filename: fileNameMatch?.[1] || "mswdo-evacuee-analytics-report.pdf",
+  };
+};

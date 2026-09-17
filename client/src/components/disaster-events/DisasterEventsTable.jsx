@@ -29,7 +29,7 @@ const tableStyles = {
     textTransform: "uppercase",
     color: "#66809c",
     borderBottom: "1px solid #e0eaf4",
-    whiteSpace: "normal",
+    whiteSpace: "nowrap",
     lineHeight: 1.4,
   },
   bodyCell: {
@@ -198,7 +198,7 @@ const DisasterEventsTable = ({
                   textAlign: "left",
                 }}
               >
-                Name
+                Disaster Event
               </th>
               <th
                 style={{
@@ -338,6 +338,7 @@ const DisasterEventsTable = ({
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                      whiteSpace: "nowrap",
                     }}
                   >
                     {formatDisasterEventDate(row.start_date)}
@@ -348,6 +349,7 @@ const DisasterEventsTable = ({
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                      whiteSpace: "nowrap",
                     }}
                   >
                     {formatDisasterEventDate(row.end_date)}

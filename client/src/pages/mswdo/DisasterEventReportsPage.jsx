@@ -20,6 +20,8 @@ import {
 import {
   buildDisasterEventReportExportOptions,
   DISASTER_EVENT_REPORT_EXPORT_SELECTIONS,
+  formatDisasterEventReportSelectionValue,
+  parseDisasterEventReportSelectionValue,
 } from "../../features/disaster-events/disasterEventReportExportOptions.mjs";
 import {
   buildExportSuccessMessage,
@@ -31,7 +33,6 @@ import {
 import {
   DEFAULT_TABLE_PAGE_SIZE,
   getTablePaginationState,
-  paginateRows,
   TABLE_PAGE_SIZE_OPTIONS,
 } from "../../features/pagination/pagination.mjs";
 
@@ -136,7 +137,7 @@ const tableStyles = {
     textTransform: "uppercase",
     color: "#66809c",
     borderBottom: "1px solid #e0eaf4",
-    whiteSpace: "normal",
+    whiteSpace: "nowrap",
     lineHeight: 1.35,
   },
   td: {
@@ -153,14 +154,6 @@ const tableStyles = {
 const centeredColumnStyles = {
   textAlign: "center",
   verticalAlign: "middle",
-};
-
-const headerLabelStyles = {
-  display: "inline-flex",
-  flexDirection: "column",
-  alignItems: "center",
-  gap: "2px",
-  lineHeight: 1.25,
 };
 
 const columnWidthStyles = {
@@ -184,6 +177,28 @@ const columnWidthStyles = {
   },
 };
 
+const specificEventColumnWidthStyles = {
+  disasterEvent: {
+    width: "24%",
+  },
+  status: {
+    width: "9%",
+  },
+  affectedBarangays: {
+    width: "15%",
+    minWidth: "170px",
+  },
+  registeredHouseholds: {
+    width: "17%",
+  },
+  distributedAid: {
+    width: "17%",
+  },
+  claimStatus: {
+    width: "18%",
+  },
+};
+
 const SORT_OPTIONS = [
   { value: "newest", label: "Newest-Oldest" },
   { value: "oldest", label: "Oldest-Newest" },
@@ -191,77 +206,23 @@ const SORT_OPTIONS = [
   { value: "za", label: "Sort Z-A" },
 ];
 
-const sortSummaryRows = (summaryRows, sortOrder = "newest") =>
-  [...summaryRows].sort((leftRow, rightRow) => {
-    if (sortOrder === "oldest" || sortOrder === "newest") {
-      const leftTime = new Date(
-        leftRow?.start_date || leftRow?.created_at || leftRow?.updated_at || 0,
-      ).getTime();
-      const rightTime = new Date(
-        rightRow?.start_date || rightRow?.created_at || rightRow?.updated_at || 0,
-      ).getTime();
-
-      if (leftTime !== rightTime) {
-        return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
-      }
-    }
-
-    const leftTitle = String(leftRow?.title || "").trim().toUpperCase();
-    const rightTitle = String(rightRow?.title || "").trim().toUpperCase();
-
-    if (leftTitle !== rightTitle) {
-      return sortOrder === "za"
-        ? rightTitle.localeCompare(leftTitle)
-        : leftTitle.localeCompare(rightTitle);
-    }
-
-    const leftBarangay = String(
-      leftRow?.barangay_name || leftRow?.affected_barangays_text || "",
-    )
-      .trim()
-      .toUpperCase();
-    const rightBarangay = String(
-      rightRow?.barangay_name || rightRow?.affected_barangays_text || "",
-    )
-      .trim()
-      .toUpperCase();
-
-    return leftBarangay.localeCompare(rightBarangay);
-  });
+const STATUS_OPTIONS = [
+  { value: "", label: "All statuses" },
+  { value: "ACTIVE", label: "Active" },
+  { value: "CLOSED", label: "Ended" },
+];
 
 const formatDisasterEventTitle = (event) =>
   String(event?.title || "").trim() || "--";
 
-const normalizeSearchText = (value) => String(value || "").trim().toLowerCase();
-
-const doesRowMatchSearch = (row, searchTerm) => {
-  const normalizedSearch = normalizeSearchText(searchTerm);
-
-  if (!normalizedSearch) {
-    return true;
-  }
-
-  const searchableText = [
-    formatDisasterEventTitle(row),
-    row.disaster_type,
-    row.barangay_name,
-    row.affected_barangays_text,
-  ]
-    .map((value) => String(value || "").toLowerCase())
-    .join(" ");
-
-  return searchableText.includes(normalizedSearch);
-};
-
-const renderStackedHeader = (firstLine, secondLine) => (
-  <span style={headerLabelStyles}>
-    <span>{firstLine}</span>
-    <span>{secondLine}</span>
-  </span>
-);
-
 const getDisasterEventStatusLabel = (status) =>
-  String(status || "").toUpperCase() === "ACTIVE" ? "Active" : "Ended";
+  String(status || "").toUpperCase() === "ACTIVE"
+    ? "Active"
+    : String(status || "").toUpperCase() === "CLOSED"
+      ? "Ended"
+      : String(status || "").toUpperCase() === "PLANNED"
+        ? "Planned"
+        : "--";
 
 const getDisasterEventStatusStyles = (status) => {
   const isActive = String(status || "").toUpperCase() === "ACTIVE";
@@ -295,6 +256,40 @@ const getAffectedBarangayIds = (event) => {
     .filter(Boolean);
 };
 
+const getPaginationFromResponse = ({
+  responsePagination,
+  rowCount,
+  page,
+  pageSize,
+}) => {
+  if (responsePagination && typeof responsePagination === "object") {
+    return {
+      page: Number(responsePagination.page) || page,
+      pageSize: Number(responsePagination.pageSize) || pageSize,
+      totalItems: Number(responsePagination.totalItems) || 0,
+      totalPages: Number(responsePagination.totalPages) || 0,
+      hasPreviousPage: Boolean(responsePagination.hasPreviousPage),
+      hasNextPage: Boolean(responsePagination.hasNextPage),
+    };
+  }
+
+  const fallbackPagination = getTablePaginationState({
+    totalItems: rowCount,
+    currentPage: page,
+    pageSize,
+    pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+  });
+
+  return {
+    page: fallbackPagination.currentPage,
+    pageSize: fallbackPagination.pageSize,
+    totalItems: fallbackPagination.totalItems,
+    totalPages: fallbackPagination.totalPages,
+    hasPreviousPage: fallbackPagination.hasPreviousPage,
+    hasNextPage: fallbackPagination.hasNextPage,
+  };
+};
+
 const DisasterEventReportsPage = () => {
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
@@ -302,6 +297,9 @@ const DisasterEventReportsPage = () => {
   const [filters, setFilters] = useState({
     disaster_event_id: "",
     barangay_id: "",
+    status: "",
+    date_from: "",
+    date_to: "",
     sort_order: "newest",
   });
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
@@ -310,6 +308,14 @@ const DisasterEventReportsPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: DEFAULT_TABLE_PAGE_SIZE,
+    totalItems: 0,
+    totalPages: 0,
+    hasPreviousPage: false,
+    hasNextPage: false,
+  });
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
     message: "",
@@ -318,6 +324,12 @@ const DisasterEventReportsPage = () => {
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
   const [selectedExportEventSelection, setSelectedExportEventSelection] =
     useState(DISASTER_EVENT_REPORT_EXPORT_SELECTIONS.ALL);
+  const [selectedExportBarangayId, setSelectedExportBarangayId] =
+    useState("");
+  const [selectedExportStatus, setSelectedExportStatus] = useState("");
+  const [selectedExportDateFrom, setSelectedExportDateFrom] = useState("");
+  const [selectedExportDateTo, setSelectedExportDateTo] = useState("");
+  const [selectedExportSearch, setSelectedExportSearch] = useState("");
   const [selectedExportSortOrder, setSelectedExportSortOrder] =
     useState("newest");
   const [isExporting, setIsExporting] = useState(false);
@@ -392,18 +404,45 @@ const DisasterEventReportsPage = () => {
         const response = await fetchDisasterEventReportSummary({
           disaster_event_id: filters.disaster_event_id,
           barangay_id: filters.barangay_id,
+          status: filters.status,
+          date_from: filters.date_from,
+          date_to: filters.date_to,
+          search: searchTerm,
           sort_order: filters.sort_order,
-          limit: 100,
+          page,
+          page_size: pageSize,
         });
 
         if (!isMounted) {
           return;
         }
 
-        setRows(Array.isArray(response.data) ? response.data : []);
+        const nextRows = Array.isArray(response.data) ? response.data : [];
+        const nextPagination = getPaginationFromResponse({
+          responsePagination: response.pagination,
+          rowCount: nextRows.length,
+          page,
+          pageSize,
+        });
+
+        setRows(nextRows);
+        setPagination(nextPagination);
+        setPage((currentPage) =>
+          currentPage === nextPagination.page
+            ? currentPage
+            : nextPagination.page,
+        );
       } catch (error) {
         if (isMounted) {
           setRows([]);
+          setPagination(
+            getPaginationFromResponse({
+              responsePagination: null,
+              rowCount: 0,
+              page: 1,
+              pageSize,
+            }),
+          );
           setErrorMessage(
             error.message || "Failed to load disaster event reports.",
           );
@@ -420,16 +459,19 @@ const DisasterEventReportsPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [filters.disaster_event_id, filters.barangay_id, filters.sort_order]);
+  }, [
+    filters.disaster_event_id,
+    filters.barangay_id,
+    filters.status,
+    filters.date_from,
+    filters.date_to,
+    filters.sort_order,
+    page,
+    pageSize,
+    searchTerm,
+  ]);
 
-  const sortedRows = useMemo(
-    () => sortSummaryRows(rows, filters.sort_order),
-    [rows, filters.sort_order],
-  );
-  const displayedRows = useMemo(
-    () => sortedRows.filter((row) => doesRowMatchSearch(row, searchTerm)),
-    [searchTerm, sortedRows],
-  );
+  const displayedRows = rows;
   const selectedDisasterEvent = useMemo(
     () =>
       disasterEvents.find((event) => event.id === filters.disaster_event_id) ||
@@ -450,11 +492,45 @@ const DisasterEventReportsPage = () => {
     return barangays.filter((barangay) => affectedBarangayIds.includes(barangay.id));
   }, [barangays, selectedDisasterEvent]);
   const isSpecificDisasterEventSelected = Boolean(filters.disaster_event_id);
-  const isExportDisabled = isLoadingRows || rows.length === 0;
+  const activeColumnWidthStyles = isSpecificDisasterEventSelected
+    ? specificEventColumnWidthStyles
+    : columnWidthStyles;
+  const isExportDisabled = isLoadingRows || pagination.totalItems === 0;
   const exportDisasterEventOptions = useMemo(
     () => buildDisasterEventReportExportOptions(disasterEvents),
     [disasterEvents],
   );
+
+  const selectedExportEventId = useMemo(
+    () =>
+      parseDisasterEventReportSelectionValue(selectedExportEventSelection)
+        .disasterEventId,
+    [selectedExportEventSelection],
+  );
+  const selectedExportDisasterEvent = useMemo(
+    () =>
+      disasterEvents.find((event) => event.id === selectedExportEventId) ||
+      null,
+    [disasterEvents, selectedExportEventId],
+  );
+  const isSelectedExportEventBreakdown = Boolean(selectedExportEventId);
+  const selectableExportBarangays = useMemo(() => {
+    if (!selectedExportDisasterEvent) {
+      return barangays;
+    }
+
+    const affectedBarangayIds = getAffectedBarangayIds(
+      selectedExportDisasterEvent,
+    );
+
+    if (affectedBarangayIds.length === 0) {
+      return [];
+    }
+
+    return barangays.filter((barangay) =>
+      affectedBarangayIds.includes(barangay.id),
+    );
+  }, [barangays, selectedExportDisasterEvent]);
 
   useEffect(() => {
     if (!filters.barangay_id) {
@@ -474,31 +550,40 @@ const DisasterEventReportsPage = () => {
     }
   }, [filters.barangay_id, selectableBarangays]);
 
-  const pagination = useMemo(
-    () =>
-      getTablePaginationState({
-        totalItems: displayedRows.length,
-        currentPage: page,
-        pageSize,
-        pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
-      }),
-    [displayedRows.length, page, pageSize],
-  );
-  const paginatedRows = useMemo(
-    () => paginateRows(displayedRows, pagination.currentPage, pagination.pageSize),
-    [displayedRows, pagination.currentPage, pagination.pageSize],
-  );
-
   useEffect(() => {
-    setPage((currentPage) =>
-      currentPage === pagination.currentPage
-        ? currentPage
-        : pagination.currentPage,
+    if (!selectedExportBarangayId) {
+      return;
+    }
+
+    const isSelectedBarangayAvailable = selectableExportBarangays.some(
+      (barangay) => barangay.id === selectedExportBarangayId,
     );
-  }, [pagination.currentPage]);
+
+    if (!isSelectedBarangayAvailable) {
+      setSelectedExportBarangayId("");
+    }
+  }, [selectedExportBarangayId, selectableExportBarangays]);
+
+  const getCurrentExportEventSelection = () => {
+    if (filters.disaster_event_id) {
+      return formatDisasterEventReportSelectionValue(
+        filters.disaster_event_id,
+      );
+    }
+
+    if (filters.status === "ACTIVE") {
+      return DISASTER_EVENT_REPORT_EXPORT_SELECTIONS.ACTIVE;
+    }
+
+    if (filters.status === "CLOSED") {
+      return DISASTER_EVENT_REPORT_EXPORT_SELECTIONS.ENDED;
+    }
+
+    return DISASTER_EVENT_REPORT_EXPORT_SELECTIONS.ALL;
+  };
 
   const openExportModal = () => {
-    if (rows.length === 0) {
+    if (pagination.totalItems === 0) {
       setExportFeedback({
         type: "error",
         message: NO_EXPORT_DATA_MESSAGE,
@@ -507,9 +592,12 @@ const DisasterEventReportsPage = () => {
     }
 
     setSelectedExportFormat("csv");
-    setSelectedExportEventSelection(
-      DISASTER_EVENT_REPORT_EXPORT_SELECTIONS.ALL,
-    );
+    setSelectedExportEventSelection(getCurrentExportEventSelection());
+    setSelectedExportBarangayId(filters.barangay_id);
+    setSelectedExportStatus(filters.status);
+    setSelectedExportDateFrom(filters.date_from);
+    setSelectedExportDateTo(filters.date_to);
+    setSelectedExportSearch(searchTerm);
     setSelectedExportSortOrder(filters.sort_order);
     setIsExportModalOpen(true);
   };
@@ -520,6 +608,11 @@ const DisasterEventReportsPage = () => {
     try {
       const file = await exportDisasterEventReportSummary({
         event_selection: selectedExportEventSelection,
+        barangay_id: selectedExportBarangayId,
+        status: selectedExportStatus,
+        date_from: selectedExportDateFrom,
+        date_to: selectedExportDateTo,
+        search: selectedExportSearch,
         sort_order: selectedExportSortOrder,
         format: selectedExportFormat,
       });
@@ -606,6 +699,65 @@ const DisasterEventReportsPage = () => {
           </div>
 
           <div>
+            <label htmlFor="disaster-report-status" style={labelStyles}>
+              Status
+            </label>
+            <select
+              id="disaster-report-status"
+              value={filters.status}
+              onChange={(event) =>
+                updateFilters((currentValue) => ({
+                  ...currentValue,
+                  status: event.target.value,
+                }))
+              }
+              style={inputStyles}
+            >
+              {STATUS_OPTIONS.map((option) => (
+                <option key={option.value || "all"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="disaster-report-date-from" style={labelStyles}>
+              Date From
+            </label>
+            <input
+              id="disaster-report-date-from"
+              type="date"
+              value={filters.date_from}
+              onChange={(event) =>
+                updateFilters((currentValue) => ({
+                  ...currentValue,
+                  date_from: event.target.value,
+                }))
+              }
+              style={inputStyles}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="disaster-report-date-to" style={labelStyles}>
+              Date To
+            </label>
+            <input
+              id="disaster-report-date-to"
+              type="date"
+              value={filters.date_to}
+              onChange={(event) =>
+                updateFilters((currentValue) => ({
+                  ...currentValue,
+                  date_to: event.target.value,
+                }))
+              }
+              style={inputStyles}
+            />
+          </div>
+
+          <div>
             <label htmlFor="disaster-report-sort-order" style={labelStyles}>
               Order List
             </label>
@@ -657,7 +809,7 @@ const DisasterEventReportsPage = () => {
 
         <TablePagination
           totalItems={pagination.totalItems}
-          currentPage={pagination.currentPage}
+          currentPage={pagination.page || page}
           pageSize={pagination.pageSize}
           pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
           onPageChange={setPage}
@@ -683,7 +835,7 @@ const DisasterEventReportsPage = () => {
                 <tr>
                   <th
                     className="disaster-summary-text-cell"
-                    style={{ ...tableStyles.th, ...columnWidthStyles.disasterEvent }}
+                    style={{ ...tableStyles.th, ...activeColumnWidthStyles.disasterEvent }}
                   >
                     Disaster Event
                   </th>
@@ -692,14 +844,14 @@ const DisasterEventReportsPage = () => {
                     style={{
                       ...tableStyles.th,
                       ...centeredColumnStyles,
-                      ...columnWidthStyles.status,
+                      ...activeColumnWidthStyles.status,
                     }}
                   >
                     Status
                   </th>
                   <th
                     className="disaster-summary-text-cell"
-                    style={{ ...tableStyles.th, ...columnWidthStyles.affectedBarangays }}
+                    style={{ ...tableStyles.th, ...activeColumnWidthStyles.affectedBarangays }}
                   >
                     {isSpecificDisasterEventSelected ? "Barangay" : "Affected Barangays"}
                   </th>
@@ -708,39 +860,39 @@ const DisasterEventReportsPage = () => {
                     style={{
                       ...tableStyles.th,
                       ...centeredColumnStyles,
-                      ...columnWidthStyles.registeredHouseholds,
+                      ...activeColumnWidthStyles.registeredHouseholds,
                     }}
                   >
-                    {renderStackedHeader("Registered", "Households")}
+                    Registered Households
                   </th>
                   <th
                     className="disaster-summary-number-cell"
                     style={{
                       ...tableStyles.th,
                       ...centeredColumnStyles,
-                      ...columnWidthStyles.distributedAid,
+                      ...activeColumnWidthStyles.distributedAid,
                     }}
                   >
-                    {renderStackedHeader("Distributed", "Aid Count")}
+                    Aid Distributed
                   </th>
                   <th
                     className="disaster-summary-number-cell"
                     style={{
                       ...tableStyles.th,
                       ...centeredColumnStyles,
-                      ...columnWidthStyles.claimStatus,
+                      ...activeColumnWidthStyles.claimStatus,
                     }}
                   >
-                    {renderStackedHeader("Claim Status", "Summary")}
+                    Claim Summary
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {paginatedRows.map((row) => (
+                {displayedRows.map((row) => (
                   <tr key={`${row.id}-${row.barangay_id || "summary"}`}>
                     <td
                       className="disaster-summary-text-cell"
-                      style={{ ...tableStyles.td, ...columnWidthStyles.disasterEvent }}
+                      style={{ ...tableStyles.td, ...activeColumnWidthStyles.disasterEvent }}
                     >
                       <div style={{ fontWeight: 700 }}>
                         {formatDisasterEventTitle(row)}
@@ -754,7 +906,7 @@ const DisasterEventReportsPage = () => {
                       style={{
                         ...tableStyles.td,
                         ...centeredColumnStyles,
-                        ...columnWidthStyles.status,
+                        ...activeColumnWidthStyles.status,
                       }}
                     >
                       <span style={getDisasterEventStatusStyles(row.status)}>
@@ -762,8 +914,12 @@ const DisasterEventReportsPage = () => {
                       </span>
                     </td>
                     <td
-                      className="disaster-summary-text-cell"
-                      style={{ ...tableStyles.td, ...columnWidthStyles.affectedBarangays }}
+                      className={`disaster-summary-text-cell${
+                        isSpecificDisasterEventSelected
+                          ? " disaster-summary-specific-barangay-cell"
+                          : ""
+                      }`}
+                      style={{ ...tableStyles.td, ...activeColumnWidthStyles.affectedBarangays }}
                     >
                       {isSpecificDisasterEventSelected ? (
                         <div>{row.barangay_name || "--"}</div>
@@ -781,7 +937,7 @@ const DisasterEventReportsPage = () => {
                       style={{
                         ...tableStyles.td,
                         ...centeredColumnStyles,
-                        ...columnWidthStyles.registeredHouseholds,
+                        ...activeColumnWidthStyles.registeredHouseholds,
                       }}
                     >
                       {row.registered_households_count || 0}
@@ -791,7 +947,7 @@ const DisasterEventReportsPage = () => {
                       style={{
                         ...tableStyles.td,
                         ...centeredColumnStyles,
-                        ...columnWidthStyles.distributedAid,
+                        ...activeColumnWidthStyles.distributedAid,
                       }}
                     >
                       {row.distributed_aid_count || 0}
@@ -801,7 +957,7 @@ const DisasterEventReportsPage = () => {
                       style={{
                         ...tableStyles.td,
                         ...centeredColumnStyles,
-                        ...columnWidthStyles.claimStatus,
+                        ...activeColumnWidthStyles.claimStatus,
                       }}
                     >
                       <div>Claimed: {row.claimed_stubs_count || 0}</div>
@@ -838,7 +994,9 @@ const DisasterEventReportsPage = () => {
                     fontWeight: 800,
                   }}
                 >
-                  Disaster Events Barangay Distribution Report
+                  {isSelectedExportEventBreakdown
+                    ? "Disaster Event Barangay Distribution Report"
+                    : "Disaster Events Summary Report"}
                 </h3>
               </div>
               <button
@@ -886,6 +1044,98 @@ const DisasterEventReportsPage = () => {
                         </option>
                       ))}
                     </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="summary-export-barangay" style={exportLabelStyles}>
+                      Barangay
+                    </label>
+                    <select
+                      id="summary-export-barangay"
+                      value={selectedExportBarangayId}
+                      onChange={(event) =>
+                        setSelectedExportBarangayId(event.target.value)
+                      }
+                      disabled={isExporting}
+                      style={inputStyles}
+                    >
+                      <option value="">All barangays</option>
+                      {selectableExportBarangays.map((row) => (
+                        <option key={row.id} value={row.id}>
+                          {row.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="summary-export-status" style={exportLabelStyles}>
+                      Status
+                    </label>
+                    <select
+                      id="summary-export-status"
+                      value={selectedExportStatus}
+                      onChange={(event) =>
+                        setSelectedExportStatus(event.target.value)
+                      }
+                      disabled={isExporting}
+                      style={inputStyles}
+                    >
+                      {STATUS_OPTIONS.map((option) => (
+                        <option key={option.value || "all"} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="summary-export-date-from" style={exportLabelStyles}>
+                      Date From
+                    </label>
+                    <input
+                      id="summary-export-date-from"
+                      type="date"
+                      value={selectedExportDateFrom}
+                      onChange={(event) =>
+                        setSelectedExportDateFrom(event.target.value)
+                      }
+                      disabled={isExporting}
+                      style={inputStyles}
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="summary-export-date-to" style={exportLabelStyles}>
+                      Date To
+                    </label>
+                    <input
+                      id="summary-export-date-to"
+                      type="date"
+                      value={selectedExportDateTo}
+                      onChange={(event) =>
+                        setSelectedExportDateTo(event.target.value)
+                      }
+                      disabled={isExporting}
+                      style={inputStyles}
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="summary-export-search" style={exportLabelStyles}>
+                      Search
+                    </label>
+                    <input
+                      id="summary-export-search"
+                      type="search"
+                      value={selectedExportSearch}
+                      onChange={(event) =>
+                        setSelectedExportSearch(event.target.value)
+                      }
+                      disabled={isExporting}
+                      placeholder="Search event, type, or Barangay"
+                      style={inputStyles}
+                    />
                   </div>
 
                   <div>

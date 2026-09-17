@@ -155,7 +155,8 @@ CREATE TABLE public.disaster_event_barangays (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT disaster_event_barangays_pkey PRIMARY KEY (id),
   CONSTRAINT disaster_event_barangays_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
-  CONSTRAINT disaster_event_barangays_barangay_id_fkey FOREIGN KEY (barangay_id) REFERENCES public.barangays(id)
+  CONSTRAINT disaster_event_barangays_barangay_id_fkey FOREIGN KEY (barangay_id) REFERENCES public.barangays(id),
+  CONSTRAINT uq_disaster_event_barangay UNIQUE (disaster_event_id, barangay_id)
 );
 
 CREATE TABLE public.evacuation_centers (
@@ -188,6 +189,7 @@ CREATE TABLE public.sectors (
 
 CREATE TABLE public.households (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
+  source_household_id uuid,
   disaster_event_id uuid NOT NULL,
   barangay_id uuid NOT NULL,
   evacuation_center_id uuid,
@@ -212,6 +214,8 @@ CREATE TABLE public.households (
   photo_captured_by uuid,
   photo_verification_notes text,
   CONSTRAINT households_pkey PRIMARY KEY (id),
+  CONSTRAINT fk_households_source_household FOREIGN KEY (source_household_id) REFERENCES public.households(id) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT chk_households_source_household_not_self CHECK (source_household_id IS NULL OR source_household_id <> id),
   CONSTRAINT households_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
   CONSTRAINT households_barangay_id_fkey FOREIGN KEY (barangay_id) REFERENCES public.barangays(id),
   CONSTRAINT households_evacuation_center_id_fkey FOREIGN KEY (evacuation_center_id) REFERENCES public.evacuation_centers(id),
@@ -221,6 +225,10 @@ CREATE TABLE public.households (
   CONSTRAINT fk_households_family_head_same_household FOREIGN KEY (family_head_evacuee_id, id) REFERENCES public.evacuees(id, household_id) MATCH SIMPLE ON UPDATE NO ACTION ON DELETE SET NULL (family_head_evacuee_id),
   CONSTRAINT households_photo_captured_by_fkey FOREIGN KEY (photo_captured_by) REFERENCES public.users(id)
 );
+
+CREATE INDEX idx_households_source_household_id
+  ON public.households(source_household_id)
+  WHERE source_household_id IS NOT NULL;
 
 CREATE TABLE public.household_privacy_consents (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

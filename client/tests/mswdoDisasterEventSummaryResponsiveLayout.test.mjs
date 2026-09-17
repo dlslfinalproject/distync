@@ -23,7 +23,10 @@ test("MSWDO Disaster Events Summary exposes scoped responsive hooks", async () =
   assert.match(pageSource, /className="disaster-summary-table-scroll"/);
   assert.match(pageSource, /className="disaster-summary-table"/);
   assert.match(pageSource, /import TablePagination/);
-  assert.match(pageSource, /paginateRows/);
+  assert.doesNotMatch(pageSource, /paginateRows/);
+  assert.match(pageSource, /id="disaster-report-status"/);
+  assert.match(pageSource, /id="disaster-report-date-from"/);
+  assert.match(pageSource, /id="disaster-report-date-to"/);
   assert.match(pageSource, /ariaLabel="Disaster events summary pagination"/);
   assert.match(pageSource, /className="disaster-summary-modal-backdrop"/);
   assert.match(pageSource, /className="disaster-summary-export-modal"/);
@@ -45,13 +48,27 @@ test("MSWDO Disaster Events Summary table overflow is locally contained without 
   assert.match(pageSource, /className="disaster-summary-text-cell"/);
   assert.match(pageSource, /className="disaster-summary-status-cell"/);
   assert.match(pageSource, /className="disaster-summary-number-cell"/);
+  assert.match(pageSource, /const activeColumnWidthStyles = isSpecificDisasterEventSelected/);
+  assert.match(
+    pageSource,
+    /const specificEventColumnWidthStyles = \{[\s\S]*?affectedBarangays: \{[\s\S]*?width: "15%",[\s\S]*?minWidth: "170px"[\s\S]*?registeredHouseholds: \{[\s\S]*?width: "17%"[\s\S]*?distributedAid: \{[\s\S]*?width: "17%"[\s\S]*?claimStatus: \{[\s\S]*?width: "18%"/,
+  );
+  assert.match(pageSource, /Registered Households/);
+  assert.match(pageSource, /Aid Distributed/);
+  assert.match(pageSource, /Claim Summary/);
+  assert.doesNotMatch(pageSource, /renderStackedHeader/);
+  assert.match(pageSource, /disaster-summary-specific-barangay-cell/);
+  assert.doesNotMatch(pageSource, /sortSummaryRows|doesRowMatchSearch/);
   assert.match(
     cssSource,
     /\.disaster-summary-table-scroll \{[\s\S]*?max-width: 100%;[\s\S]*?overflow-x: auto !important;[\s\S]*?-webkit-overflow-scrolling: touch;/,
   );
   assert.match(cssSource, /\.disaster-summary-table \{[\s\S]*?table-layout: auto !important;/);
+  assert.match(
+    cssSource,
+    /\.disaster-summary-specific-barangay-cell \{[\s\S]*?white-space: nowrap;/,
+  );
   assert.doesNotMatch(cssSource, /html,[\s\S]*?body,[\s\S]*?#root\s*\{[\s\S]*?overflow-x:\s*hidden/);
-  assert.doesNotMatch(cssSource, /\.disaster-summary-table\s*\{[\s\S]*?min-width:\s*(?:900|960|1024|1100|1200)px/);
 });
 
 test("MSWDO Disaster Events Summary toolbar and modal stack on narrow screens", async () => {
@@ -99,7 +116,7 @@ test("MSWDO Disaster Events Summary preserves presentation-only scope", async ()
   assert.match(routeSource, /requireRoles\(ROLE_CODES\.MSWDO\)/);
 });
 
-test("MSWDO Disaster Events Summary paginates the record collection only", async () => {
+test("MSWDO Disaster Events Summary uses server-side pagination for the record collection", async () => {
   const source = (await readSource(["pages", "mswdo", "DisasterEventReportsPage.jsx"]))
     .replace(/\r\n/g, "\n");
   const recordsCardStart = source.indexOf(
@@ -112,7 +129,9 @@ test("MSWDO Disaster Events Summary paginates the record collection only", async
     recordsCardSource,
     /<h3[\s\S]*>Disaster Events Record<\/h3>[\s\S]*<TablePagination/,
   );
-  assert.match(recordsCardSource, /<TablePagination[\s\S]*paginatedRows\.map/);
+  assert.match(recordsCardSource, /<TablePagination[\s\S]*displayedRows\.map/);
   assert.match(source, /setPage\(1\)/);
-  assert.match(source, /totalItems: displayedRows\.length/);
+  assert.match(source, /page_size: pageSize/);
+  assert.match(source, /totalItems=\{pagination\.totalItems\}/);
+  assert.doesNotMatch(source, /totalItems: displayedRows\.length/);
 });

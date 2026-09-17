@@ -208,7 +208,7 @@ const StubQrScanErrorModal = ({
           : undefined
       }
       onClose={onTryAgain}
-      showCloseButton={!isCenteredAlert && modalContent.showCloseButton !== false}
+      showCloseButton={false}
       closeOnBackdrop={false}
       footer={isCenteredAlert ? null : actionButtons}
     >

@@ -85,7 +85,29 @@ test("qr scan error modal centered alert styles constrain width and stack button
 
   assert.match(source, /width:\s*"100%"/);
   assert.match(source, /maxWidth:\s*"100%"/);
-  assert.match(source, /showCloseButton=\{!isCenteredAlert && modalContent\.showCloseButton !== false\}/);
+  assert.match(source, /showCloseButton=\{false\}/);
+  assert.doesNotMatch(source, /showCloseButton=\{!isCenteredAlert/);
   assert.match(source, /gridTemplateColumns:\s*"repeat\(2, minmax\(0, 1fr\)\)"/);
   assert.match(source, /gridTemplateColumns:\s*"minmax\(0, 1fr\)"/);
+});
+
+test("all shared QR result dialogs keep explicit actions and omit the redundant close control", async () => {
+  const source = await fs.readFile(
+    new URL("../src/components/stubs/StubQrScanErrorModal.jsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, />\s*Close Scanner\s*</);
+  assert.match(source, />\s*Try Again\s*</);
+  assert.match(source, /showCloseButton=\{false\}/);
+});
+
+test("parent QR scanner modal retains its close control", async () => {
+  const source = await fs.readFile(
+    new URL("../src/components/stubs/StubQrScanModal.jsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /<FiX\s+size=\{18\}\s*\/>/);
+  assert.match(source, /aria-label="Close QR scanner"/);
 });

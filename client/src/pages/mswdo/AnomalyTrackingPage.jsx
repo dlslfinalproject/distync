@@ -227,6 +227,8 @@ const modalStyles = {
     color: "#17324d",
     fontSize: "14px",
     lineHeight: 1.6,
+    minWidth: 0,
+    maxWidth: "100%",
     wordBreak: "break-word",
   },
   actions: {
@@ -1419,7 +1421,7 @@ const AnomalyTrackingPage = ({
   }, []);
 
   return (
-    <div style={pageSpacingStyles.pageStack}>
+    <div className="anomaly-tracking-page" style={pageSpacingStyles.pageStack}>
       <PageHeader
         title="ANOMALY TRACKING"
         actions={[]}
@@ -1434,7 +1436,7 @@ const AnomalyTrackingPage = ({
           data-filter-count={isBarangayScope ? "4" : "5"}
           style={pageSpacingStyles.filterGrid}
         >
-          <div>
+          <div className="mayor-anomaly-filter-field">
             <label htmlFor="anomaly-event" style={labelStyles}>
               Disaster Event
             </label>
@@ -1463,7 +1465,7 @@ const AnomalyTrackingPage = ({
           </div>
 
           {!isBarangayScope ? (
-            <div>
+            <div className="mayor-anomaly-filter-field">
               <label htmlFor="anomaly-barangay" style={labelStyles}>
                 Barangay
               </label>
@@ -1489,7 +1491,7 @@ const AnomalyTrackingPage = ({
             </div>
           ) : null}
 
-          <div>
+          <div className="mayor-anomaly-filter-field">
             <label htmlFor="anomaly-type" style={labelStyles}>
               Anomaly Type
             </label>
@@ -1512,7 +1514,7 @@ const AnomalyTrackingPage = ({
             </select>
           </div>
 
-          <div>
+          <div className="mayor-anomaly-filter-field">
             <label htmlFor="anomaly-date-from" style={labelStyles}>
               Date From
             </label>
@@ -1531,7 +1533,7 @@ const AnomalyTrackingPage = ({
             />
           </div>
 
-          <div>
+          <div className="mayor-anomaly-filter-field">
             <label htmlFor="anomaly-date-to" style={labelStyles}>
               Date To
             </label>
@@ -1594,6 +1596,7 @@ const AnomalyTrackingPage = ({
             }}
           />
           <input
+            className="mayor-anomaly-search-input"
             type="search"
             value={viewState.search}
             onChange={(event) =>
@@ -1619,6 +1622,7 @@ const AnomalyTrackingPage = ({
           style={pageSpacingStyles.actionGroup}
         >
           <div
+            className="mayor-anomaly-toolbar-status-filter"
             style={{
               display: "flex",
               alignItems: "center",
@@ -1661,7 +1665,7 @@ const AnomalyTrackingPage = ({
             </select>
           </div>
 
-          <div>
+          <div className="mayor-anomaly-toolbar-filter-button-wrap">
             <ResponsiveFilterPopover
               isOpen={isFilterOpen}
               onOpenChange={setIsFilterOpen}
@@ -1772,8 +1776,9 @@ const AnomalyTrackingPage = ({
           />
         ) : (
           <>
-            <div style={{ overflowX: "auto", width: "100%", minWidth: 0 }}>
+            <div style={{ overflowX: "auto", width: "100%", minWidth: 0 }} className="mayor-anomaly-table-scroll">
               <table
+                className="mayor-anomaly-table"
                 style={{
                   ...tableStyles.table,
                   minWidth: isBarangayScope

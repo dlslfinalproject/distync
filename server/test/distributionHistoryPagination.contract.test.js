@@ -245,6 +245,46 @@ test("distribution history summary search stays raw-row based before aggregation
   assert.match(summarySearchBody, /CONCAT\(\s*'STUB#'[\s\S]*?s_search\.id/);
 });
 
+test("distribution history relief pack values include all pack names without item contents", async () => {
+  const repositorySource = await readSource([
+    "repositories",
+    "distributionTransaction.repository.js",
+  ]);
+  const serviceSource = await readSource([
+    "services",
+    "distributionTransaction.service.js",
+  ]);
+
+  assert.match(
+    repositorySource,
+    /const buildDistributionHistoryReliefPackNamesQuery =/,
+  );
+  assert.match(
+    repositorySource,
+    /distribution_transaction_relief_pack_templates linked_template_row/,
+  );
+  assert.match(repositorySource, /relief_pack_template\.name/);
+  assert.match(repositorySource, /donated_relief_pack_name_snapshot/);
+  assert.match(
+    repositorySource,
+    /STRING_AGG\(relief_pack_name, ';' \|\| CHR\(10\) ORDER BY relief_pack_name\)/,
+  );
+  assert.match(
+    repositorySource,
+    /STRING_AGG\(relief_name, ';' \|\| CHR\(10\) ORDER BY relief_name\)/,
+  );
+  assert.match(
+    repositorySource,
+    /history_relief_pack_names\.names AS relief_pack_template_name/,
+  );
+  assert.match(repositorySource, /relief_pack_summary/);
+  assert.match(serviceSource, /label: "Relief Pack"/);
+  assert.match(
+    serviceSource,
+    /relief_summary: row\.relief_pack_template_name \|\| "--"/,
+  );
+});
+
 test("old complete-data summary fixture verifies every user-visible value", () => {
   const disasterEvents = [
     {

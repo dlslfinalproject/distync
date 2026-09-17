@@ -6,11 +6,36 @@ const read = (file) => readFile(new URL(`../src/${file}`, import.meta.url), "utf
 
 test("both operational role consumers use the shared readiness presentation", async () => {
   const layout = await read("components/layout/BarangayLayout.jsx");
+  const mswdoOfflineAccess = await read("features/offline/mswdoOfflineAccess.js");
   assert.match(
     layout,
     /shouldShowBarangayOfflineReadiness \? \([\s\S]*?<OfflineDataReadiness \{\.\.\.offlinePreparation\} \/>/,
   );
-  assert.match(layout, /isMswdoPortal \? <OfflineDataReadiness \{\.\.\.mswdoOfflinePreparation\} variant="mswdo" \/>/);
+  assert.match(layout, /MSWDO_OFFLINE_READINESS_ROUTES/);
+  assert.match(
+    layout,
+    /shouldShowMswdoOfflineReadiness =\s*isMswdoPortal && MSWDO_OFFLINE_READINESS_ROUTES\.has\(location\.pathname\)/,
+  );
+  assert.match(
+    layout,
+    /shouldShowMswdoOfflineReadiness \? \([\s\S]*?<OfflineDataReadiness \{\.\.\.mswdoOfflinePreparation\} variant="mswdo" \/>/,
+  );
+  assert.doesNotMatch(
+    layout,
+    /isMswdoPortal \? <OfflineDataReadiness \{\.\.\.mswdoOfflinePreparation\} variant="mswdo" \/>/,
+  );
+  assert.match(mswdoOfflineAccess, /"\/mswdo\/consolidated-masterlist"/);
+  assert.match(mswdoOfflineAccess, /"\/mswdo\/stub-distribution"/);
+  assert.match(
+    mswdoOfflineAccess,
+    /MSWDO_OFFLINE_READINESS_ROUTES = new Set\(\[[\s\S]*"\/mswdo\/consolidated-masterlist"[\s\S]*"\/mswdo\/stub-distribution"/,
+  );
+  assert.doesNotMatch(
+    mswdoOfflineAccess,
+    /MSWDO_OFFLINE_READINESS_ROUTES = new Set\(\[[\s\S]*"\/mswdo\/analytics(?:-dashboard)?"/,
+  );
+  assert.doesNotMatch(mswdoOfflineAccess, /"\/mswdo\/distribution-history"/);
+  assert.doesNotMatch(mswdoOfflineAccess, /"\/mswdo\/disaster-events"/);
 });
 
 test("hidden readiness states have no notification copy while internal statuses remain", async () => {
@@ -21,7 +46,7 @@ test("hidden readiness states have no notification copy while internal statuses 
     assert.match(preparation, new RegExp(status));
   }
   assert.match(mswdoPreparation, /status: "PREPARING"/);
-  assert.match(popup, /if \(isBarangayOrMswdo && !ready\) return null/);
+  assert.match(popup, /if \(!ready\) return null/);
   assert.doesNotMatch(popup, /Offline Data Not Ready/);
   assert.doesNotMatch(popup, /Offline Data Needs Refresh/);
 });

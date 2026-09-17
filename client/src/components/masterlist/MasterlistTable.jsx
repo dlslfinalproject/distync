@@ -382,9 +382,10 @@ const MasterlistTable = ({
               const syncLabel = isArchivedRow
                 ? row.departure_sync_tooltip || "Departure synchronized"
                 : null;
-              const shouldShowSyncStatus = showOfflineSyncStatus
-                ? shouldShowSyncStatusIcon(syncStatus, isOffline)
-                : isArchivedRow;
+              const shouldShowSyncStatus =
+                !isArchivedRow &&
+                showOfflineSyncStatus &&
+                shouldShowSyncStatusIcon(syncStatus, isOffline);
 
               return (
                 <tr
@@ -470,6 +471,8 @@ const MasterlistTable = ({
                       ...tableStyles.bodyCell,
                       ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
+                      whiteSpace: "nowrap",
+                      wordBreak: "normal",
                     }}
                   >
                     {row.arrival_time_text}
@@ -479,6 +482,8 @@ const MasterlistTable = ({
                       ...tableStyles.bodyCell,
                       ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
+                      whiteSpace: "nowrap",
+                      wordBreak: "normal",
                     }}
                   >
                     {isDepartureReadOnly ? (

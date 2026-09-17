@@ -19,7 +19,6 @@ import {
   exportDisasterEvents,
   fetchActiveDisasterEvents,
   fetchAllDisasterEvents,
-  fetchDisasterEventById,
   fetchEndedDisasterEvents,
 } from "../../features/disaster-events/disasterEventService";
 import { MASTERLIST_SORT_OPTIONS } from "../../features/masterlist/masterlistService";
@@ -28,6 +27,7 @@ import {
   downloadExportFile,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
 import { DISASTER_TYPE_OPTIONS as SHARED_DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
 
 const filterPanelStyles = {
@@ -170,6 +170,7 @@ const DisasterEventsPage = () => {
     detailErrorMessage,
     formErrorMessage,
     successMessage,
+    clearSuccessMessage,
     isCreateModalOpen,
     isDetailModalOpen,
     editingEvent,
@@ -197,6 +198,7 @@ const DisasterEventsPage = () => {
     disasterTypes: "",
     affectedBarangays: "",
   });
+  const exportModalRef = useRef(null);
   const [exportScopeEvents, setExportScopeEvents] = useState([]);
   const [singleExportEvent, setSingleExportEvent] = useState(null);
   const [selectedSingleExportFormat, setSelectedSingleExportFormat] =
@@ -354,27 +356,7 @@ const DisasterEventsPage = () => {
         }
 
         if (!isCancelled) {
-          const detailedRows = await Promise.all(
-            (Array.isArray(eventRows) ? eventRows : []).map(async (event) => {
-              try {
-                const detail = await fetchDisasterEventById(event.id);
-
-                return {
-                  ...event,
-                  affected_barangays: detail?.affected_barangays || [],
-                };
-              } catch (_error) {
-                return {
-                  ...event,
-                  affected_barangays: Array.isArray(event?.affected_barangays)
-                    ? event.affected_barangays
-                    : [],
-                };
-              }
-            }),
-          );
-
-          setExportScopeEvents(detailedRows);
+          setExportScopeEvents(Array.isArray(eventRows) ? eventRows : []);
         }
       } catch (_error) {
         if (!isCancelled) {
@@ -482,6 +464,7 @@ const DisasterEventsPage = () => {
 
     if (validationErrors.disasterTypes || validationErrors.affectedBarangays) {
       setExportValidationErrors(validationErrors);
+      scheduleScrollToFirstError(exportModalRef);
       return;
     }
 
@@ -795,7 +778,7 @@ const DisasterEventsPage = () => {
                 style={{
                   position: "absolute",
                   right: "-5px",
-                  bottom: "-4px",
+                  top: "-4px",
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -959,6 +942,7 @@ const DisasterEventsPage = () => {
       />
 
       <DisasterEventExportModal
+        modalRef={exportModalRef}
         isOpen={isExportModalOpen}
         barangays={barangays}
         availableDisasterTypes={availableExportDisasterTypes}
@@ -1047,6 +1031,12 @@ const DisasterEventsPage = () => {
         type={exportFeedback.type}
         message={exportFeedback.message}
         onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
+
+      <FeedbackToast
+        type="success"
+        message={successMessage}
+        onClose={clearSuccessMessage}
       />
     </div>
   );

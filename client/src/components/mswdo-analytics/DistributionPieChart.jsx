@@ -174,6 +174,13 @@ const DistributionPieChart = ({
   highlightHighest = true,
   colorMap,
   innerRadius = 58,
+  showSliceLabels = true,
+  showLegend = true,
+  centerValue,
+  centerLabel,
+  outerRadius: requestedOuterRadius,
+  mobileOuterRadius,
+  mobileInnerRadius,
 }) => {
   const { isNarrow } = useChartViewport();
   const highestValue = data.length > 0 ? getHighestValue(data) : 0;
@@ -192,8 +199,15 @@ const DistributionPieChart = ({
         })
       : colorMap?.[entry.name] || colors[index % colors.length];
   const chartHeight = isNarrow ? 300 : 320;
-  const outerRadius = isNarrow ? 82 : 100;
-  const resolvedInnerRadius = innerRadius === 0 ? 0 : isNarrow ? 46 : innerRadius;
+  const outerRadius = isNarrow
+    ? mobileOuterRadius ?? requestedOuterRadius ?? 82
+    : requestedOuterRadius ?? 100;
+  const resolvedInnerRadius =
+    innerRadius === 0
+      ? 0
+      : isNarrow
+        ? mobileInnerRadius ?? 46
+        : innerRadius;
 
   return (
     <section style={shellStyles.card}>
@@ -220,6 +234,7 @@ const DistributionPieChart = ({
             width: "100%",
             minWidth: 0,
             height: `${chartHeight}px`,
+            position: "relative",
             overflow: "hidden",
           }}
         >
@@ -233,7 +248,7 @@ const DistributionPieChart = ({
                 cy="50%"
                 outerRadius={outerRadius}
                 innerRadius={resolvedInnerRadius}
-                label={!isNarrow}
+                label={showSliceLabels && !isNarrow}
               >
                 {data.map((entry, index) => (
                   <Cell
@@ -243,13 +258,52 @@ const DistributionPieChart = ({
                 ))}
               </Pie>
               <Tooltip wrapperStyle={{ maxWidth: isNarrow ? 220 : 320 }} />
-              <Legend
-                content={() =>
-                  renderOrderedLegend({ data, getColorForEntry, isNarrow })
-                }
-              />
+              {showLegend ? (
+                <Legend
+                  content={() =>
+                    renderOrderedLegend({ data, getColorForEntry, isNarrow })
+                  }
+                />
+              ) : null}
             </PieChart>
           </ResponsiveContainer>
+          {centerValue !== undefined && centerValue !== null ? (
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                pointerEvents: "none",
+                textAlign: "center",
+                color: "#17324d",
+                minWidth: "100px",
+              }}
+            >
+              <strong style={{ fontSize: isNarrow ? "30px" : "34px", lineHeight: 1 }}>
+                {centerValue}
+              </strong>
+              {centerLabel ? (
+                <span
+                  style={{
+                    marginTop: "6px",
+                    color: "#688199",
+                    fontSize: isNarrow ? "11px" : "12px",
+                    fontWeight: 700,
+                    lineHeight: 1.2,
+                    maxWidth: "120px",
+                  }}
+                >
+                  {centerLabel}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div style={emptyStateStyles.wrapper}>

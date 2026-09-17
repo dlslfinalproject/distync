@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
 import ActiveCrossEventInformationModal from "../../components/masterlist/ActiveCrossEventInformationModal";
 import PageHeader from "../../components/layout/PageHeader";
@@ -17,6 +17,7 @@ import FeedbackToast from "../../components/shared/FeedbackToast";
 import { TABLE_PAGE_SIZE_OPTIONS } from "../../features/pagination/pagination.mjs";
 import { useAuth } from "../../context/AuthContext";
 import { useMswdoMasterlistPage } from "../../features/mswdo-masterlist/useMswdoMasterlistPage";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
 
 const ConsolidatedEvacueeMasterlist = () => {
   const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
@@ -153,6 +154,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     sectors: "",
     barangays: "",
   });
+  const exportModalRef = useRef(null);
   useEffect(() => {
     if (!isExportModalOpen) {
       setExportValidationErrors({ sectors: "", barangays: "" });
@@ -183,6 +185,7 @@ const ConsolidatedEvacueeMasterlist = () => {
 
     if (nextErrors.sectors || nextErrors.barangays) {
       setExportValidationErrors(nextErrors);
+      scheduleScrollToFirstError(exportModalRef);
       return;
     }
 
@@ -319,6 +322,7 @@ const ConsolidatedEvacueeMasterlist = () => {
       />
 
       <MswdoExportModal
+        modalRef={exportModalRef}
         isOpen={isExportModalOpen}
         title="Evacuee Masterlist Report"
         isSubmitting={Boolean(exportingFormat)}

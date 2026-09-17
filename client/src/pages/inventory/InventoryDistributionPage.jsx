@@ -378,8 +378,8 @@ const InventoryDistributionPage = () => {
         description: "",
       },
       {
-        label: "Total Families",
-        value: formatCardValue(analytics.totalFamiliesServed),
+        label: "Families with Relief Stubs",
+        value: formatCardValue(analytics.familiesWithReliefStubs),
         description: "",
       },
       {

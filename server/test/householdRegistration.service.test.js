@@ -1044,6 +1044,7 @@ test("re-admission registration creates a new occurrence without reusing archive
   };
   const createdMembers = [];
   let savedPrivacy = null;
+  let insertedHouseholdPayload = null;
   let insertedHead = null;
   let insertedMember = null;
   const fakeClient = {
@@ -1073,6 +1074,7 @@ test("re-admission registration creates a new occurrence without reusing archive
       insertHousehold: async (payload) => {
         events.push("INSERT_HOUSEHOLD");
         assert.equal(payload.household_size, 2);
+        insertedHouseholdPayload = payload;
         return createdHousehold;
       },
       insertHouseholdPrivacyConsent: async (payload) => {
@@ -1168,6 +1170,10 @@ test("re-admission registration creates a new occurrence without reusing archive
     assert.equal(result.household.id, createdHousehold.id);
     assert.equal(result.registration_operation, "CREATE_NEW_HOUSEHOLD_OCCURRENCE");
     assert.equal(result.source_household_id, archivedSource.id);
+    assert.equal(
+      insertedHouseholdPayload.source_household_id,
+      archivedSource.id,
+    );
     assert.equal(savedPrivacy.household_id, createdHousehold.id);
     assert.equal(insertedHead.id, null);
     assert.equal(insertedMember.id, null);

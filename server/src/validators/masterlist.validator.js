@@ -241,6 +241,36 @@ const validateGetMswdoMasterlistExportMetadata = (req, res, next) => {
   }
 };
 
+const validateExportMswdoAnalytics = (req, res, next) => {
+  try {
+    const { disaster_event_id, barangay_id } = req.query;
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id is required and must be a valid UUID",
+      });
+    }
+
+    if (barangay_id !== undefined && barangay_id !== "" && !isValidUuid(barangay_id)) {
+      return res.status(400).json({
+        message: "barangay_id must be a valid UUID when provided",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_id,
+      barangay_id: barangay_id || null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate MSWDO analytics export request",
+      error: error.message,
+    });
+  }
+};
+
 const validateGetBarangayDashboard = (req, res, next) => {
   try {
     const { user_id, disaster_event_id, event_scope, override_barangay_id } =
@@ -312,6 +342,7 @@ const validateGetBarangayDashboard = (req, res, next) => {
 };
 
 module.exports = {
+  validateExportMswdoAnalytics,
   validateExportMswdoMasterlist,
   validateGetMswdoMasterlistExportMetadata,
   validateGetMasterlist,

@@ -4,6 +4,10 @@ export const MSWDO_OFFLINE_SUPPORTED_ROUTES = new Set([
   "/mswdo/analytics-dashboard",
   "/mswdo/stub-distribution",
 ]);
+export const MSWDO_OFFLINE_READINESS_ROUTES = new Set([
+  "/mswdo/consolidated-masterlist",
+  "/mswdo/stub-distribution",
+]);
 export const MSWDO_OFFLINE_DISTRIBUTION_ROUTE = "/mswdo/stub-distribution";
 
 export const isMswdoOfflineBlockedRoute = (pathname, { isPrepared = true } = {}) =>

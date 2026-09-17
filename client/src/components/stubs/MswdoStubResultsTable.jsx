@@ -18,6 +18,8 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
+    minWidth: "1040px",
+    maxWidth: "none",
   },
   headerCell: {
     padding: "14px 16px",
@@ -29,6 +31,9 @@ const tableStyles = {
     borderBottom: "1px solid #e0eaf4",
     whiteSpace: "nowrap",
   },
+  pillHeaderCell: {
+    textAlign: "center",
+  },
   bodyCell: {
     padding: "16px",
     color: "#21405f",
@@ -39,6 +44,17 @@ const tableStyles = {
     whiteSpace: "normal",
     overflowWrap: "anywhere",
     wordBreak: "break-word",
+  },
+  pillBodyCell: {
+    textAlign: "center",
+    verticalAlign: "middle",
+  },
+  qrStubColumn: {
+    width: "88px",
+    minWidth: "88px",
+  },
+  statusColumn: {
+    minWidth: "128px",
   },
   statusButton: {
     border: "1px solid #c6d8ea",
@@ -133,6 +149,7 @@ const getStatusChipStyles = (status) => {
     fontSize: "12px",
     fontWeight: 700,
     lineHeight: 1,
+    whiteSpace: "nowrap",
     ...palette,
   };
 };
@@ -229,10 +246,12 @@ const MswdoStubResultsTable = ({
   claimErrorMessage,
   onClaimStub,
   isClaimReadOnly = false,
+  isEndedEvent = false,
   selectedStubIds,
   onToggleSelect,
   onSelectAll,
   onViewStub = () => {},
+  isOffline = false,
 }) => {
   const safeRows = Array.isArray(rows) ? rows : [];
   const safeSelectedStubIds = Array.isArray(selectedStubIds) ? selectedStubIds : [];
@@ -403,7 +422,10 @@ const MswdoStubResultsTable = ({
         className="stub-results-table-scroll mswdo-stub-results-table-scroll"
         style={{ overflowX: "auto" }}
       >
-        <table style={tableStyles.table}>
+        <table
+          style={tableStyles.table}
+          className="stub-results-table mswdo-stub-results-table"
+        >
           <thead>
             <tr>
               <th
@@ -424,7 +446,8 @@ const MswdoStubResultsTable = ({
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  textAlign: "center",
+                  ...tableStyles.qrStubColumn,
+                  ...tableStyles.pillHeaderCell,
                 }}
               >
                 Household Size
@@ -434,7 +457,8 @@ const MswdoStubResultsTable = ({
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  textAlign: "center",
+                  ...tableStyles.statusColumn,
+                  ...tableStyles.pillHeaderCell,
                 }}
               >
                 Stub Number
@@ -442,7 +466,8 @@ const MswdoStubResultsTable = ({
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  textAlign: "center",
+                  ...tableStyles.qrStubColumn,
+                  ...tableStyles.pillHeaderCell,
                 }}
               >
                 QR Stub
@@ -450,7 +475,7 @@ const MswdoStubResultsTable = ({
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  textAlign: "center",
+                  ...tableStyles.pillHeaderCell,
                 }}
               >
                 Status
@@ -493,14 +518,18 @@ const MswdoStubResultsTable = ({
                   </td>
                   <td style={tableStyles.bodyCell}>
                     <div style={tableStyles.familyHeadCell}>
-                      <span>{row.family_head_name}</span>
-                      <SyncStatusIcon status={row.sync_status} />
+                      <span style={{ fontWeight: 700 }}>{row.family_head_name}</span>
+                      {!isEndedEvent &&
+                      row.sync_status &&
+                      (row.sync_status !== "SYNCED" || isOffline) ? (
+                        <SyncStatusIcon status={row.sync_status} />
+                      ) : null}
                     </div>
                   </td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,
-                      textAlign: "center",
+                      ...tableStyles.pillBodyCell,
                     }}
                   >
                     <span style={tableStyles.stubBadge}>{row.members_count || 0}</span>
@@ -514,7 +543,8 @@ const MswdoStubResultsTable = ({
                   <td
                     style={{
                       ...tableStyles.bodyCell,
-                      textAlign: "center",
+                      ...tableStyles.statusColumn,
+                      ...tableStyles.pillBodyCell,
                     }}
                   >
                     <div style={tableStyles.stubSequenceText}>
@@ -524,12 +554,13 @@ const MswdoStubResultsTable = ({
                   <td
                     style={{
                       ...tableStyles.bodyCell,
-                      textAlign: "center",
+                      ...tableStyles.qrStubColumn,
+                      ...tableStyles.pillBodyCell,
                     }}
                   >
                     <div
                       className="stub-results-qr-cell"
-                      style={{ width: "112px", margin: "0 auto" }}
+                      style={{ width: "88px", margin: "0 auto" }}
                     >
                       <QrCodePanel
                         value={row.qr_code_value || ""}
@@ -541,8 +572,8 @@ const MswdoStubResultsTable = ({
                   <td
                     style={{
                       ...tableStyles.bodyCell,
-                      textAlign: "center",
-                      verticalAlign: "middle",
+                      ...tableStyles.statusColumn,
+                      ...tableStyles.pillBodyCell,
                     }}
                   >
                     {row.is_local_only ? (

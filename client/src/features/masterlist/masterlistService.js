@@ -113,30 +113,17 @@ export const isNonAdmittedResidentHousehold = (household) => {
   );
 };
 
-const buildHouseholdIdentityKey = (household) => {
-  const disasterEventId = household?.disaster_event?.id || household?.disaster_event_id || "";
-  const barangayId = household?.barangay?.id || "";
-  const familyHeadName = String(household?.family_head_name || "")
-    .trim()
-    .toUpperCase();
-
-  return [disasterEventId, barangayId, familyHeadName].join("|");
-};
-
 const hasAdmittedSuccessor = (household, households) => {
   if (!isNonAdmittedResidentHousehold(household)) {
     return false;
   }
-
-  const sourceIdentityKey = buildHouseholdIdentityKey(household);
-  const sourceRegisteredAt = new Date(household?.registered_at || 0).getTime();
 
   return households.some((candidate) => {
     if (!candidate || candidate.household_id === household.household_id) {
       return false;
     }
 
-    if (buildHouseholdIdentityKey(candidate) !== sourceIdentityKey) {
+    if (String(candidate?.source_household_id || "") !== String(household?.household_id || "")) {
       return false;
     }
 
@@ -144,11 +131,7 @@ const hasAdmittedSuccessor = (household, households) => {
       return false;
     }
 
-    const candidateRegisteredAt = new Date(
-      candidate?.registered_at || 0,
-    ).getTime();
-
-    return candidateRegisteredAt > sourceRegisteredAt;
+    return true;
   });
 };
 
@@ -221,6 +204,7 @@ export const mapMasterlistRow = (household, households = [], options = {}) => {
       household.household_id,
     evacuation_log_id: household.attendance_log_id || household.latest_attendance?.id || null,
     family_head_name: household.family_head_name || "-",
+    source_household_id: household.source_household_id || null,
     address:
       household.current_address_details ||
       locationLabel ||

@@ -18,6 +18,29 @@ const buildLinkedReliefPackTemplateNamesQuery = (transactionAlias) => `
   WHERE linked_template_row.distribution_transaction_id = ${transactionAlias}.id
 `;
 
+const buildDistributionHistoryReliefPackNamesQuery = (transactionAlias) => `
+  SELECT
+    STRING_AGG(relief_pack_name, ';' || CHR(10) ORDER BY relief_pack_name) AS names
+  FROM (
+    SELECT NULLIF(BTRIM(linked_template_row.name_snapshot), '') AS relief_pack_name
+    FROM distribution_transaction_relief_pack_templates linked_template_row
+    WHERE linked_template_row.distribution_transaction_id = ${transactionAlias}.id
+
+    UNION
+
+    SELECT NULLIF(BTRIM(relief_pack_template.name), '') AS relief_pack_name
+    FROM relief_pack_templates relief_pack_template
+    WHERE relief_pack_template.id = ${transactionAlias}.relief_pack_template_id
+
+    UNION
+
+    SELECT NULLIF(BTRIM(dti.donated_relief_pack_name_snapshot), '') AS relief_pack_name
+    FROM distribution_transaction_items dti
+    WHERE dti.distribution_transaction_id = ${transactionAlias}.id
+  ) relief_pack_names
+  WHERE relief_pack_name IS NOT NULL
+`;
+
 const getDistributionReceiptSequence = async (dbClient) => {
   const currentYear = new Date().getFullYear();
   const receiptPrefix = `RCPT-${currentYear}-`;
@@ -1032,7 +1055,10 @@ const buildDistributionHistoryFilters = ({
         SELECT 1
         FROM distribution_transaction_items dti_search
         WHERE dti_search.distribution_transaction_id = dt.id
-          AND dti_search.item_name_snapshot ILIKE ${searchParam}
+          AND (
+            dti_search.item_name_snapshot ILIKE ${searchParam}
+            OR dti_search.donated_relief_pack_name_snapshot ILIKE ${searchParam}
+          )
       )
       OR EXISTS (
         SELECT 1
@@ -1155,8 +1181,8 @@ const selectDistributionHistoryRows = async ({
           u.middle_name,
           u.last_name
         ) AS verified_by_name,
-        linked_template_names.names AS relief_pack_template_name,
-        linked_template_names.names AS relief_pack_template_names
+        history_relief_pack_names.names AS relief_pack_template_name,
+        history_relief_pack_names.names AS relief_pack_template_names
       FROM distribution_transactions dt
       INNER JOIN households h ON h.id = dt.household_id
       INNER JOIN barangays b ON b.id = h.barangay_id
@@ -1164,8 +1190,8 @@ const selectDistributionHistoryRows = async ({
       INNER JOIN stubs s ON s.id = dt.stub_id
       LEFT JOIN users u ON u.id = dt.verified_by
       LEFT JOIN LATERAL (
-        ${buildLinkedReliefPackTemplateNamesQuery("dt")}
-      ) linked_template_names ON TRUE
+        ${buildDistributionHistoryReliefPackNamesQuery("dt")}
+      ) history_relief_pack_names ON TRUE
       ${whereClause}
     )
     SELECT
@@ -1319,7 +1345,10 @@ const buildSummarySearchClause = ({ values, search = "" }) => {
             SELECT 1
             FROM distribution_transaction_items dti_search
             WHERE dti_search.distribution_transaction_id = dt_search.id
-              AND dti_search.item_name_snapshot ILIKE ${searchParam}
+              AND (
+                dti_search.item_name_snapshot ILIKE ${searchParam}
+                OR dti_search.donated_relief_pack_name_snapshot ILIKE ${searchParam}
+              )
           )
           OR EXISTS (
             SELECT 1
@@ -1420,33 +1449,38 @@ const buildDistributionHistorySummaryQuery = ({
           AND ($4::date IS NULL OR dt.distribution_date < ($4::date + INTERVAL '1 day'))
       ) distribution_summary ON TRUE
       LEFT JOIN LATERAL (
-        SELECT STRING_AGG(DISTINCT relief_name, ', ' ORDER BY relief_name) AS relief_pack_summary
-        FROM (
-          SELECT COALESCE(
-            linked_template_names.names,
-            item_summary.released_items_summary
-          ) AS relief_name
+        WITH scoped_transactions AS (
+          SELECT dt.id, dt.relief_pack_template_id
           FROM distribution_transactions dt
           INNER JOIN households h ON h.id = dt.household_id
-          LEFT JOIN LATERAL (
-            ${buildLinkedReliefPackTemplateNamesQuery("dt")}
-          ) linked_template_names ON TRUE
-          LEFT JOIN LATERAL (
-            SELECT STRING_AGG(
-              CONCAT(dti.item_name_snapshot, ' x', dti.quantity_released),
-              ', '
-              ORDER BY dti.created_at ASC, dti.id ASC
-            ) AS released_items_summary
-            FROM distribution_transaction_items dti
-            WHERE dti.distribution_transaction_id = dt.id
-          ) item_summary ON TRUE
           WHERE dt.disaster_event_id = de.id
             AND ($1::uuid IS NULL OR h.barangay_id = $1::uuid)
             AND ($2::text IS NULL OR dt.distribution_status = $2::text)
             AND ($3::timestamptz IS NULL OR dt.distribution_date >= $3::timestamptz)
             AND ($4::date IS NULL OR dt.distribution_date < ($4::date + INTERVAL '1 day'))
-        ) relief_names
-        WHERE relief_name IS NOT NULL AND relief_name <> ''
+        ), relief_names AS (
+          SELECT NULLIF(BTRIM(dtrpt.name_snapshot), '') AS relief_name
+          FROM scoped_transactions scoped_dt
+          INNER JOIN distribution_transaction_relief_pack_templates dtrpt
+            ON dtrpt.distribution_transaction_id = scoped_dt.id
+
+          UNION
+
+          SELECT NULLIF(BTRIM(rpt.name), '') AS relief_name
+          FROM scoped_transactions scoped_dt
+          INNER JOIN relief_pack_templates rpt
+            ON rpt.id = scoped_dt.relief_pack_template_id
+
+          UNION
+
+          SELECT NULLIF(BTRIM(dti.donated_relief_pack_name_snapshot), '') AS relief_name
+          FROM scoped_transactions scoped_dt
+          INNER JOIN distribution_transaction_items dti
+            ON dti.distribution_transaction_id = scoped_dt.id
+        )
+        SELECT STRING_AGG(relief_name, ';' || CHR(10) ORDER BY relief_name) AS relief_pack_summary
+        FROM relief_names
+        WHERE relief_name IS NOT NULL
       ) relief_summary ON TRUE
       WHERE de.status = ANY($5::text[])
         AND EXISTS (

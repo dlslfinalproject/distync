@@ -1324,6 +1324,7 @@ const StubDistributionPage = () => {
         claimErrorMessage={claimErrorMessage}
         onClaimStub={handleOpenClaimConfirmation}
         isClaimReadOnly={isSelectedEventEnded}
+        isEndedEvent={isSelectedEventEnded}
         selectedStubIds={selectedStubIds}
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}

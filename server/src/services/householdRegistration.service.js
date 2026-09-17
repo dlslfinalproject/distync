@@ -2211,6 +2211,9 @@ const registerHousehold = async (
 
   const requestDataWithDerivedAgeGroups = {
     ...registrationData,
+    source_household_id: isReAdmissionClone
+      ? effectiveSourceHouseholdId
+      : null,
     registered_at: registrationData.synced_client_timestamp || null,
     family_head_photo_url: registrationData.family_head_photo_url || null,
     photo_captured_at: registrationData.family_head_photo_url

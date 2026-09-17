@@ -15,6 +15,7 @@ import {
 } from "../../utils/registrationOptions";
 import { readOperationalDisasterEventContext, readOperationalDisasterEventId, persistOperationalDisasterEventSelection } from "../disaster-events/operationalDisasterEventSelection.js";
 import { readMswdoOfflineSnapshot } from "../offline/mswdoOfflinePreparation.js";
+import { mapBarangayCoverageDistribution } from "./barangayCoverage.mjs";
 
 const emptyOperationalPayload = {
   disaster_event: null,
@@ -134,45 +135,6 @@ const mapAdmittedVsDepartedDistribution = (summary) => {
     {
       name: "Departed",
       value: Number(summary.total_departed_evacuees || 0),
-    },
-  ].filter((item) => item.value > 0);
-};
-
-const mapBarangayCoverageDistribution = ({
-  barangayCount,
-  coveredCount,
-  selectedBarangayId,
-}) => {
-  const safeCoveredCount = Number(coveredCount || 0);
-
-  if (selectedBarangayId) {
-    return safeCoveredCount > 0
-      ? [
-          {
-            name: "Covered",
-            value: safeCoveredCount,
-          },
-        ]
-      : [];
-  }
-
-  const safeBarangayCount = Number(barangayCount || 0);
-
-  if (safeBarangayCount === 0 && safeCoveredCount === 0) {
-    return [];
-  }
-
-  const totalBarangays = Math.max(safeBarangayCount, safeCoveredCount);
-  const notCoveredCount = Math.max(totalBarangays - safeCoveredCount, 0);
-
-  return [
-    {
-      name: "Covered",
-      value: safeCoveredCount,
-    },
-    {
-      name: "Not Covered",
-      value: notCoveredCount,
     },
   ].filter((item) => item.value > 0);
 };
@@ -427,13 +389,21 @@ export const useMswdoAnalytics = () => {
     );
   }, [operationalPayload.summary_metrics]);
 
+  const eventAffectedBarangayIds = useMemo(() => {
+    return getAffectedBarangayIds(selectedDisasterEvent);
+  }, [selectedDisasterEvent]);
+
+  const barangayCoverageCount =
+    eventAffectedBarangayIds.length > 0
+      ? eventAffectedBarangayIds.length
+      : summaryMetrics.totalBarangaysCovered;
+
   const barangayCoverageDistribution = useMemo(() => {
     return mapBarangayCoverageDistribution({
-      barangayCount: barangays.length,
-      coveredCount: summaryMetrics.totalBarangaysCovered,
-      selectedBarangayId,
+      barangays: selectableBarangays,
+      coveredCount: barangayCoverageCount,
     });
-  }, [barangays.length, selectedBarangayId, summaryMetrics.totalBarangaysCovered]);
+  }, [barangayCoverageCount, selectableBarangays]);
 
   const evacuationCenterDistribution = useMemo(() => {
     return mapSimpleDistribution(
@@ -459,6 +429,7 @@ export const useMswdoAnalytics = () => {
     stayTypeDistribution,
     admittedVsDepartedDistribution,
     barangayCoverageDistribution,
+    barangayCoverageCount,
     evacuationCenterDistribution,
     isLoadingFilters,
     isLoadingDashboard,

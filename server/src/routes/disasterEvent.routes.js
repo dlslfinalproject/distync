@@ -26,7 +26,10 @@ router.get("/", requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.MAYOR), async (req, re
   }
 });
 
-router.get("/active", async (req, res) => {
+router.get(
+  "/active",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  async (req, res) => {
   try {
     const activeDisasterEvents =
       await disasterEventService.getActiveDisasterEvents();
@@ -38,7 +41,8 @@ router.get("/active", async (req, res) => {
       error: error.message,
     });
   }
-});
+  },
+);
 
 router.get(
   "/ended",
@@ -86,13 +90,17 @@ router.get(
   validateDisasterEventReportSummary,
   async (req, res) => {
     try {
-      const rows = await disasterEventService.getDisasterEventReportSummary(
+      const report = await disasterEventService.getDisasterEventReportSummary(
         req.validatedQuery,
       );
+      const data = Array.isArray(report) ? report : report?.rows || [];
 
       return res.status(200).json({
         message: "Disaster event report summary fetched successfully",
-        data: rows,
+        data,
+        ...(Array.isArray(report) || !report?.pagination
+          ? {}
+          : { pagination: report.pagination }),
       });
     } catch (error) {
       return res.status(error.statusCode || 500).json({

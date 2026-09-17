@@ -83,6 +83,10 @@ export const buildHouseholdDetailsSnapshot = (household = {}) => {
     household: {
       ...household,
       id: householdId,
+      source_household_id:
+        household.source_household_id ||
+        household.re_admission_source_household_id ||
+        null,
       family_head_first_name:
         household.family_head_first_name || familyHead.first_name || "",
       family_head_middle_name:
@@ -291,6 +295,10 @@ export const buildQueuedHouseholdRow = (
 
   return {
     household_id: entry.entityLocalId || entry.id,
+    source_household_id:
+      payload.source_household_id ||
+      payload.re_admission_source_household_id ||
+      null,
     masterlist_record_id: entry.id || entry.entityLocalId || `local-${entry.clientTimestamp}`,
     family_head_name: familyHeadName || "Pending household",
     address: currentAddress,
