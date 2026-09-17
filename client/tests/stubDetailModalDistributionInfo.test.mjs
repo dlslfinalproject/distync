@@ -102,6 +102,22 @@ test("stub detail modal keeps safe hyphen fallback for empty distribution transa
   assert.match(source, /return normalizedValue \? normalizedValue : "-";/);
 });
 
+test("stub detail modal hides raw QR text without changing the encoded value", async () => {
+  const [detailSource, qrPanelSource] = await Promise.all([
+    fs.readFile(stubDetailModalSourcePath, "utf8"),
+    fs.readFile(new URL("../src/components/stubs/QrCodePanel.jsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    detailSource,
+    /<QrCodePanel[\s\S]*?value=\{stubDetails\?\.qr_code_value \|\| ""\}[\s\S]*?showValue=\{false\}[\s\S]*?\/>/,
+  );
+  assert.match(detailSource, /<p style=\{modalStyles\.label\}>Stub Number<\/p>/);
+  assert.match(detailSource, /\{getDisplayStubNumber\(stubDetails\)\}/);
+  assert.match(qrPanelSource, /const qrCodeValue = String\(value \|\| ""\)\.trim\(\);/);
+  assert.match(qrPanelSource, /const qrPayloadUrl = buildStubQrUrl\(qrCodeValue\);/);
+});
+
 test("stub detail modal renders disaster event title only without exposing the event code", async () => {
   const source = await fs.readFile(stubDetailModalSourcePath, "utf8");
 
