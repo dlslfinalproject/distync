@@ -3,8 +3,39 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const test = require("node:test");
 
+const distributionTransactionValidator = require(
+  "../src/validators/distributionTransaction.validator",
+);
+
 const readSource = (relativePath) =>
   fs.readFile(path.join(__dirname, "..", "src", ...relativePath), "utf8");
+
+const runHistoryValidation = (query) => {
+  const request = { query };
+  const response = {
+    statusCode: null,
+    body: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      return this;
+    },
+  };
+  let nextCalled = false;
+
+  distributionTransactionValidator.validateGetDistributionHistory(
+    request,
+    response,
+    () => {
+      nextCalled = true;
+    },
+  );
+
+  return { request, response, nextCalled };
+};
 
 const formatDisplayStubNumber = (row) => {
   const sequenceNo = Number(row?.stub_sequence_no || 0);
@@ -163,6 +194,36 @@ test("distribution history validator accepts page/pageSize/search/mode and caps 
   assert.match(source, /isPaginated: hasPage \|\| hasPageSize/);
 });
 
+test("distribution history validator uses strict calendar dates and rejects reversed ranges", () => {
+  const valid = runHistoryValidation({
+    date_from: " 2026-09-01 ",
+    date_to: "2026-09-10",
+  });
+
+  assert.equal(valid.nextCalled, true);
+  assert.equal(valid.request.validatedQuery.date_from, "2026-09-01");
+  assert.equal(valid.request.validatedQuery.date_to, "2026-09-10");
+
+  const impossibleDate = runHistoryValidation({ date_from: "2026-02-30" });
+  assert.equal(impossibleDate.nextCalled, false);
+  assert.equal(impossibleDate.response.statusCode, 400);
+  assert.equal(
+    impossibleDate.response.body.message,
+    "date_from must be a valid date in YYYY-MM-DD format",
+  );
+
+  const reversed = runHistoryValidation({
+    date_from: "2026-09-11",
+    date_to: "2026-09-10",
+  });
+  assert.equal(reversed.nextCalled, false);
+  assert.equal(reversed.response.statusCode, 400);
+  assert.equal(
+    reversed.response.body.message,
+    "date_from must be on or before date_to",
+  );
+});
+
 test("distribution history repository applies search before count and LIMIT/OFFSET", async () => {
   const source = await readSource([
     "repositories",
@@ -243,6 +304,41 @@ test("distribution history summary search stays raw-row based before aggregation
   assert.match(summarySearchBody, /s_search\.serial_no ILIKE/);
   assert.match(summarySearchBody, /u_search\.first_name/);
   assert.match(summarySearchBody, /CONCAT\(\s*'STUB#'[\s\S]*?s_search\.id/);
+});
+
+test("distribution history summary derives filtered values from one scoped transaction set", async () => {
+  const repositorySource = await readSource([
+    "repositories",
+    "distributionTransaction.repository.js",
+  ]);
+
+  assert.match(repositorySource, /WITH summary_filtered_transactions AS/);
+  assert.match(
+    repositorySource,
+    /dt_scope\.distribution_date >= \$\{buildManilaDateStartExpression\("\$3"\)\}/,
+  );
+  assert.match(
+    repositorySource,
+    /dt_scope\.distribution_date < \$\{buildManilaDateEndExpression\("\$4"\)\}/,
+  );
+  assert.match(
+    repositorySource,
+    /FROM summary_filtered_transactions filtered_transaction[\s\S]*?MAX\(filtered_transaction\.distribution_date\)/,
+  );
+  assert.match(
+    repositorySource,
+    /FROM summary_filtered_transactions filtered_stub_transaction[\s\S]*?filtered_stub_transaction\.stub_id = s\.id/,
+  );
+  assert.match(
+    repositorySource,
+    /useFilteredTransactions: true/,
+  );
+  assert.match(repositorySource, /FROM disaster_event_barangays deb/);
+  assert.match(
+    repositorySource,
+    /sequence_households\.barangay_id IS NOT DISTINCT FROM history_base\.barangay_id/,
+  );
+  assert.match(repositorySource, /AT TIME ZONE 'Asia\/Manila'/);
 });
 
 test("distribution history relief pack values include all pack names without item contents", async () => {

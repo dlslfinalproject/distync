@@ -976,6 +976,113 @@ const getDistributionHistoryOrderBy = (sortOrder = "newest", mode = "detail") =>
   DISTRIBUTION_HISTORY_SORTS[sortOrder]?.[mode] ||
   DISTRIBUTION_HISTORY_SORTS.newest[mode];
 
+const buildManilaDateStartExpression = (parameter) =>
+  `(${parameter}::date AT TIME ZONE 'Asia/Manila')`;
+
+const buildManilaDateEndExpression = (parameter) =>
+  `((${parameter}::date + INTERVAL '1 day') AT TIME ZONE 'Asia/Manila')`;
+
+const buildDistributionHistorySearchPredicate = ({
+  searchParam,
+  transactionAlias = "dt",
+  householdAlias = "h",
+  barangayAlias = "b",
+  stubAlias = "s",
+  userAlias = "u",
+  disasterEventAlias = "de",
+  includeEventFields = true,
+}) => {
+  const predicates = [
+    `CONCAT_WS(
+      ' ',
+      ${householdAlias}.family_head_first_name,
+      ${householdAlias}.family_head_middle_name,
+      ${householdAlias}.family_head_last_name,
+      ${householdAlias}.family_head_suffix
+    ) ILIKE ${searchParam}`,
+    `${barangayAlias}.name ILIKE ${searchParam}`,
+    `${stubAlias}.stub_no ILIKE ${searchParam}`,
+    `${stubAlias}.serial_no ILIKE ${searchParam}`,
+    `CONCAT_WS(
+      ' ',
+      ${userAlias}.first_name,
+      ${userAlias}.middle_name,
+      ${userAlias}.last_name
+    ) ILIKE ${searchParam}`,
+    `CONCAT(
+      'STUB#',
+      (
+        SELECT COUNT(*)::int
+        FROM stubs sequence_stubs
+        INNER JOIN households sequence_households
+          ON sequence_households.id = sequence_stubs.household_id
+        WHERE sequence_stubs.disaster_event_id = ${stubAlias}.disaster_event_id
+          AND sequence_households.barangay_id IS NOT DISTINCT FROM ${householdAlias}.barangay_id
+          AND sequence_households.current_stay_type = 'EVAC_CENTER'
+          AND sequence_stubs.status IN ('ISSUED', 'CLAIMED')
+          AND (
+            sequence_stubs.issued_at < ${stubAlias}.issued_at
+            OR (
+              sequence_stubs.issued_at = ${stubAlias}.issued_at
+              AND sequence_stubs.id <= ${stubAlias}.id
+            )
+          )
+      )
+    ) ILIKE ${searchParam}`,
+    `EXISTS (
+      SELECT 1
+      FROM distribution_transaction_relief_pack_templates dtrpt_search
+      WHERE dtrpt_search.distribution_transaction_id = ${transactionAlias}.id
+        AND dtrpt_search.name_snapshot ILIKE ${searchParam}
+    )`,
+    `EXISTS (
+      SELECT 1
+      FROM distribution_transaction_items dti_search
+      WHERE dti_search.distribution_transaction_id = ${transactionAlias}.id
+        AND (
+          dti_search.item_name_snapshot ILIKE ${searchParam}
+          OR dti_search.donated_relief_pack_name_snapshot ILIKE ${searchParam}
+        )
+    )`,
+    `EXISTS (
+      SELECT 1
+      FROM household_sectors hs_search
+      INNER JOIN sectors household_sector_search
+        ON household_sector_search.id = hs_search.sector_id
+      WHERE hs_search.household_id = ${householdAlias}.id
+        AND (
+          household_sector_search.name ILIKE ${searchParam}
+          OR household_sector_search.code ILIKE ${searchParam}
+        )
+    )`,
+    `EXISTS (
+      SELECT 1
+      FROM evacuees e_search
+      INNER JOIN evacuee_sectors es_search
+        ON es_search.evacuee_id = e_search.id
+      INNER JOIN sectors member_sector_search
+        ON member_sector_search.id = es_search.sector_id
+      WHERE e_search.household_id = ${householdAlias}.id
+        AND e_search.is_active = TRUE
+        AND (
+          member_sector_search.name ILIKE ${searchParam}
+          OR member_sector_search.code ILIKE ${searchParam}
+        )
+    )`,
+  ];
+
+  if (includeEventFields) {
+    predicates.push(
+      `${disasterEventAlias}.title ILIKE ${searchParam}`,
+      `${disasterEventAlias}.event_code ILIKE ${searchParam}`,
+    );
+  }
+
+  return `(
+      ${predicates.join("\n      OR ")}
+    )`;
+};
+
 const buildDistributionHistoryFilters = ({
   barangayId = null,
   disasterEventId = null,
@@ -1004,12 +1111,16 @@ const buildDistributionHistoryFilters = ({
 
   if (dateFrom) {
     values.push(dateFrom);
-    conditions.push(`dt.distribution_date >= $${values.length}`);
+    conditions.push(
+      `dt.distribution_date >= ${buildManilaDateStartExpression(`$${values.length}`)}`,
+    );
   }
 
   if (dateTo) {
     values.push(dateTo);
-    conditions.push(`dt.distribution_date < ($${values.length}::date + INTERVAL '1 day')`);
+    conditions.push(
+      `dt.distribution_date < ${buildManilaDateEndExpression(`$${values.length}`)}`,
+    );
   }
 
   const normalizedSearch = String(search || "").trim();
@@ -1276,15 +1387,30 @@ const countDistributionHistory = async ({
   return Number(result.rows[0]?.total_items || 0);
 };
 
-const buildSummarySearchClause = ({ values, search = "" }) => {
+const buildSummarySearchClause = ({
+  values,
+  search = "",
+  searchParam = null,
+  useFilteredTransactions = false,
+}) => {
   const normalizedSearch = String(search || "").trim();
 
   if (!normalizedSearch) {
     return "";
   }
 
-  values.push(`%${normalizedSearch}%`);
-  const searchParam = `$${values.length}`;
+  const resolvedSearchParam = searchParam || (() => {
+    values.push(`%${normalizedSearch}%`);
+    return `$${values.length}`;
+  })();
+
+  if (useFilteredTransactions) {
+    return `AND EXISTS (
+      SELECT 1
+      FROM summary_filtered_transactions filtered_transaction
+      WHERE filtered_transaction.disaster_event_id = de.id
+    )`;
+  }
 
   return `AND EXISTS (
       SELECT 1
@@ -1296,8 +1422,8 @@ const buildSummarySearchClause = ({ values, search = "" }) => {
       WHERE dt_search.disaster_event_id = de.id
         AND ($1::uuid IS NULL OR h_search.barangay_id = $1::uuid)
         AND ($2::text IS NULL OR dt_search.distribution_status = $2::text)
-        AND ($3::timestamptz IS NULL OR dt_search.distribution_date >= $3::timestamptz)
-        AND ($4::date IS NULL OR dt_search.distribution_date < ($4::date + INTERVAL '1 day'))
+        AND ($3::date IS NULL OR dt_search.distribution_date >= ${buildManilaDateStartExpression("$3")})
+        AND ($4::date IS NULL OR dt_search.distribution_date < ${buildManilaDateEndExpression("$4")})
         AND (
           CONCAT_WS(
             ' ',
@@ -1305,16 +1431,16 @@ const buildSummarySearchClause = ({ values, search = "" }) => {
             h_search.family_head_middle_name,
             h_search.family_head_last_name,
             h_search.family_head_suffix
-          ) ILIKE ${searchParam}
-          OR b_search.name ILIKE ${searchParam}
-          OR s_search.stub_no ILIKE ${searchParam}
-          OR s_search.serial_no ILIKE ${searchParam}
+          ) ILIKE ${resolvedSearchParam}
+          OR b_search.name ILIKE ${resolvedSearchParam}
+          OR s_search.stub_no ILIKE ${resolvedSearchParam}
+          OR s_search.serial_no ILIKE ${resolvedSearchParam}
           OR CONCAT_WS(
             ' ',
             u_search.first_name,
             u_search.middle_name,
             u_search.last_name
-          ) ILIKE ${searchParam}
+          ) ILIKE ${resolvedSearchParam}
           OR CONCAT(
             'STUB#',
             (
@@ -1334,20 +1460,20 @@ const buildSummarySearchClause = ({ values, search = "" }) => {
                   )
                 )
             )
-          ) ILIKE ${searchParam}
+          ) ILIKE ${resolvedSearchParam}
           OR EXISTS (
             SELECT 1
             FROM distribution_transaction_relief_pack_templates dtrpt_search
             WHERE dtrpt_search.distribution_transaction_id = dt_search.id
-              AND dtrpt_search.name_snapshot ILIKE ${searchParam}
+              AND dtrpt_search.name_snapshot ILIKE ${resolvedSearchParam}
           )
           OR EXISTS (
             SELECT 1
             FROM distribution_transaction_items dti_search
             WHERE dti_search.distribution_transaction_id = dt_search.id
               AND (
-                dti_search.item_name_snapshot ILIKE ${searchParam}
-                OR dti_search.donated_relief_pack_name_snapshot ILIKE ${searchParam}
+                dti_search.item_name_snapshot ILIKE ${resolvedSearchParam}
+                OR dti_search.donated_relief_pack_name_snapshot ILIKE ${resolvedSearchParam}
               )
           )
           OR EXISTS (
@@ -1357,8 +1483,8 @@ const buildSummarySearchClause = ({ values, search = "" }) => {
               ON household_sector_search.id = hs_search.sector_id
             WHERE hs_search.household_id = h_search.id
               AND (
-                household_sector_search.name ILIKE ${searchParam}
-                OR household_sector_search.code ILIKE ${searchParam}
+                household_sector_search.name ILIKE ${resolvedSearchParam}
+                OR household_sector_search.code ILIKE ${resolvedSearchParam}
               )
           )
           OR EXISTS (
@@ -1371,8 +1497,8 @@ const buildSummarySearchClause = ({ values, search = "" }) => {
             WHERE e_search.household_id = h_search.id
               AND e_search.is_active = TRUE
               AND (
-                member_sector_search.name ILIKE ${searchParam}
-                OR member_sector_search.code ILIKE ${searchParam}
+                member_sector_search.name ILIKE ${resolvedSearchParam}
+                OR member_sector_search.code ILIKE ${resolvedSearchParam}
               )
           )
         )
@@ -1390,21 +1516,58 @@ const buildDistributionHistorySummaryQuery = ({
   offset = null,
   countOnly = false,
 }) => {
+  const normalizedSearch = String(search || "").trim();
   const values = [
     barangayId || null,
     status || null,
     dateFrom || null,
     dateTo || null,
     ["ACTIVE", "CLOSED"],
+    normalizedSearch ? `%${normalizedSearch}%` : null,
   ];
-  const searchClause = buildSummarySearchClause({ values, search });
+  const searchClause = buildSummarySearchClause({
+    values,
+    search,
+    searchParam: "$6",
+    useFilteredTransactions: true,
+  });
   const limitClause = countOnly
     ? ""
     : buildDistributionHistoryLimitClause({ values, limit, offset });
   const orderBy = getDistributionHistoryOrderBy(sortOrder, "summary");
 
   const summaryCte = `
-    WITH summary_rows AS (
+    WITH summary_filtered_transactions AS (
+      SELECT
+        dt_scope.id,
+        dt_scope.disaster_event_id,
+        dt_scope.stub_id,
+        dt_scope.distribution_date,
+        dt_scope.relief_pack_template_id
+      FROM distribution_transactions dt_scope
+      INNER JOIN households h_scope
+        ON h_scope.id = dt_scope.household_id
+      INNER JOIN barangays b_scope
+        ON b_scope.id = h_scope.barangay_id
+      INNER JOIN stubs s_scope
+        ON s_scope.id = dt_scope.stub_id
+      LEFT JOIN users u_scope
+        ON u_scope.id = dt_scope.verified_by
+      WHERE ($1::uuid IS NULL OR h_scope.barangay_id = $1::uuid)
+        AND ($2::text IS NULL OR dt_scope.distribution_status = $2::text)
+        AND ($3::date IS NULL OR dt_scope.distribution_date >= ${buildManilaDateStartExpression("$3")})
+        AND ($4::date IS NULL OR dt_scope.distribution_date < ${buildManilaDateEndExpression("$4")})
+        AND ($6::text IS NULL OR ${buildDistributionHistorySearchPredicate({
+          searchParam: "$6",
+          transactionAlias: "dt_scope",
+          householdAlias: "h_scope",
+          barangayAlias: "b_scope",
+          stubAlias: "s_scope",
+          userAlias: "u_scope",
+          disasterEventAlias: "de_scope",
+          includeEventFields: false,
+        })})
+    ), summary_rows AS (
       SELECT
         de.id AS disaster_event_id,
         de.event_code,
@@ -1437,27 +1600,26 @@ const buildDistributionHistorySummaryQuery = ({
         INNER JOIN households h ON h.id = s.household_id
         WHERE s.disaster_event_id = de.id
           AND ($1::uuid IS NULL OR h.barangay_id = $1::uuid)
+          AND (
+            ($3::date IS NULL AND $4::date IS NULL AND $6::text IS NULL)
+            OR EXISTS (
+              SELECT 1
+              FROM summary_filtered_transactions filtered_stub_transaction
+              WHERE filtered_stub_transaction.stub_id = s.id
+            )
+          )
       ) stub_summary ON TRUE
       LEFT JOIN LATERAL (
-        SELECT MAX(dt.distribution_date) AS latest_distribution_date
-        FROM distribution_transactions dt
-        INNER JOIN households h ON h.id = dt.household_id
-        WHERE dt.disaster_event_id = de.id
-          AND ($1::uuid IS NULL OR h.barangay_id = $1::uuid)
-          AND ($2::text IS NULL OR dt.distribution_status = $2::text)
-          AND ($3::timestamptz IS NULL OR dt.distribution_date >= $3::timestamptz)
-          AND ($4::date IS NULL OR dt.distribution_date < ($4::date + INTERVAL '1 day'))
+        SELECT MAX(filtered_transaction.distribution_date) AS latest_distribution_date
+        FROM summary_filtered_transactions filtered_transaction
+        WHERE filtered_transaction.disaster_event_id = de.id
       ) distribution_summary ON TRUE
       LEFT JOIN LATERAL (
         WITH scoped_transactions AS (
-          SELECT dt.id, dt.relief_pack_template_id
-          FROM distribution_transactions dt
-          INNER JOIN households h ON h.id = dt.household_id
-          WHERE dt.disaster_event_id = de.id
-            AND ($1::uuid IS NULL OR h.barangay_id = $1::uuid)
-            AND ($2::text IS NULL OR dt.distribution_status = $2::text)
-            AND ($3::timestamptz IS NULL OR dt.distribution_date >= $3::timestamptz)
-            AND ($4::date IS NULL OR dt.distribution_date < ($4::date + INTERVAL '1 day'))
+          SELECT filtered_transaction.id,
+            filtered_transaction.relief_pack_template_id
+          FROM summary_filtered_transactions filtered_transaction
+          WHERE filtered_transaction.disaster_event_id = de.id
         ), relief_names AS (
           SELECT NULLIF(BTRIM(dtrpt.name_snapshot), '') AS relief_name
           FROM scoped_transactions scoped_dt
