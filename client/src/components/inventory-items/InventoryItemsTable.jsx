@@ -154,6 +154,7 @@ const formatInventoryCategoryLabel = (category) => {
 
 const InventoryItemsTable = ({
   rows,
+  paginationResetKey = "",
   isLoading,
   errorMessage,
   onEditItem,
@@ -177,7 +178,7 @@ const InventoryItemsTable = ({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [rows]);
+  }, [paginationResetKey]);
 
   useEffect(() => {
     setCurrentPage((previousPage) => {

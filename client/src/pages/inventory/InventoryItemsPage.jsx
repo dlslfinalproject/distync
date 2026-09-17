@@ -1117,6 +1117,15 @@ const InventoryItemsPage = () => {
     filters.status,
   ]);
 
+  const inventoryItemsPaginationResetKey = [
+    filters.category || "",
+    filters.search || "",
+    filters.sortOrder || "",
+    ...(Array.isArray(filters.status)
+      ? filters.status
+      : [filters.status || ""]),
+  ].join("|");
+
   const handleFilterChange = (name, value) => {
     setFilters((previousFilters) => ({
       ...previousFilters,
@@ -1835,6 +1844,7 @@ const InventoryItemsPage = () => {
 
         <InventoryItemsTable
           rows={visibleInventoryItems}
+          paginationResetKey={inventoryItemsPaginationResetKey}
           isLoading={isLoading}
           errorMessage={errorMessage}
           onEditItem={handleOpenEditModal}

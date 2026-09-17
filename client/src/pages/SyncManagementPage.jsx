@@ -2220,15 +2220,15 @@ const SyncManagementPage = () => {
           onPageSizeChange={(pageSize) =>
             updatePaginationPageSize("CONFLICTS", pageSize)
           }
-          isVisible={!isLoadingHistory && !errorMessage}
-          disabled={isLoadingHistory}
-          disablePageSize={isLoadingHistory}
+          isVisible={!isInitialHistoryLoading && !errorMessage}
+          disabled={isInitialHistoryLoading}
+          disablePageSize={isInitialHistoryLoading}
           ariaLabel="Conflict review pagination"
           previousAriaLabel="Go to previous conflict review page"
           nextAriaLabel="Go to next conflict review page"
         />
 
-        {isLoadingHistory ? (
+        {isInitialHistoryLoading ? (
           <p style={shellStyles.mutedText}>Loading conflicts...</p>
         ) : totalConflictItems === 0 ? (
           <p style={shellStyles.mutedText}>

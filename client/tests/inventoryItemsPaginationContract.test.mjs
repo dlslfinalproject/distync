@@ -40,7 +40,16 @@ test("Items Record table uses a consistent above-table responsive paginator", as
   assert.match(normalizedTableSource, /const paginatedRows = safeRows\.slice\(/);
   assert.match(
     normalizedTableSource,
-    /useEffect\(\(\) => \{\s*setCurrentPage\(1\);\s*\}, \[rows\]\)/s,
+    /paginationResetKey = ""/,
+  );
+  assert.match(
+    normalizedTableSource,
+    /useEffect\(\(\) => \{\s*setCurrentPage\(1\);\s*\}, \[paginationResetKey\]\)/s,
+  );
+  assert.doesNotMatch(normalizedTableSource, /\}, \[rows\]\)/);
+  assert.match(
+    normalizedPageSource,
+    /paginationResetKey=\{inventoryItemsPaginationResetKey\}/,
   );
   assert.match(normalizedTableSource, /const paginationBar = \(/);
   assert.match(normalizedTableSource, /<TablePagination/);
