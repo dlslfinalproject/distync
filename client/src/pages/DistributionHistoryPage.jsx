@@ -848,7 +848,7 @@ const DistributionHistoryPage = () => {
                       {row.relief_pack_summary}
                     </td>
                     <td className="distribution-history-date-cell" style={tableStyles.td}>
-                      {formatDateTime(row.latest_distribution_date)}
+                      {formatDateTime(row.latest_claimed_at || row.latest_distribution_date)}
                     </td>
                   </tr>
                 ))}
@@ -922,7 +922,7 @@ const DistributionHistoryPage = () => {
                       {row.relief_pack_template_name || "--"}
                     </td>
                     <td className="distribution-history-date-cell" style={tableStyles.td}>
-                      {formatDateTime(row.distribution_date)}
+                      {formatDateTime(row.claimed_at || row.distribution_date)}
                     </td>
                     <td className="distribution-history-text-cell" style={tableStyles.td}>{row.verified_by_name || "--"}</td>
                     <td style={{ ...tableStyles.td, textAlign: "center" }}>

@@ -17,7 +17,7 @@ test("Barangay and MSWDO readiness notifications show only verified Ready", asyn
   assert.match(source, /previousStatus/);
 });
 
-test("Offline Data Ready popup is fixed, bottom-centered, and responsive", async () => {
+test("expanded Offline Data Ready popup is fixed, bottom-centered, and responsive", async () => {
   const source = await read("components/layout/OfflineDataReadiness.jsx");
 
   assert.match(source, /position: "fixed"/);
@@ -26,11 +26,21 @@ test("Offline Data Ready popup is fixed, bottom-centered, and responsive", async
   assert.match(source, /transform: "translateX\(-50%\)"/g);
   assert.doesNotMatch(source, /top: "50%"/);
   assert.doesNotMatch(source, /translate\(-50%, -50%\)/);
-  assert.doesNotMatch(source, /right: "max\(16px, env\(safe-area-inset-right\)\)"/);
+  assert.ok(source.includes('right: "max(16px, env(safe-area-inset-right))"'));
   assert.match(source, /width: "min\(390px, calc\(100vw - 32px\)\)"/);
   assert.match(source, /maxHeight: "calc\(100dvh - 32px - env\(safe-area-inset-bottom\)\)"/);
   assert.match(source, /overflowY: "auto"/);
   assert.match(source, /Got It/);
+});
+
+test("acknowledged Offline Data Ready badge is fixed, bottom-right, and not centered", async () => {
+  const source = await read("components/layout/OfflineDataReadiness.jsx");
+
+  assert.ok(source.includes('const compactBadgeStyle = { ...buttonStyle, position: "fixed", right: "max(16px, env(safe-area-inset-right))", bottom: "max(16px, env(safe-area-inset-bottom))"'));
+  assert.doesNotMatch(source, /const compactBadgeStyle = \{[^}]*left:/s);
+  assert.doesNotMatch(source, /const compactBadgeStyle = \{[^}]*transform:/s);
+  assert.match(source, /if \(!readyNotice \|\| readyAcknowledged\)[\s\S]*style=\{compactBadgeStyle\}/);
+  assert.match(source, /Offline Data Ready/);
 });
 
 test("preparation publishes sanitized diagnostics and verifies read-back before READY", async () => {

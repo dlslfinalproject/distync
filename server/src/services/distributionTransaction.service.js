@@ -2272,7 +2272,7 @@ const exportDistributionHistory = async ({ requester, filters }) => {
         { key: "claimed_stubs_count", label: "Claimed", width: 14, pdfWidth: 42 },
         { key: "unclaimed_stubs_count", label: "Unclaimed", width: 14, pdfWidth: 42 },
         { key: "relief_pack_summary", label: "Relief Pack", width: 32, pdfWidth: 115 },
-        { key: "latest_distribution_date_label", label: "Latest Claim", width: 22, pdfWidth: 80 },
+        { key: "latest_claimed_at_label", label: "Latest Claim", width: 22, pdfWidth: 80 },
       ],
       rows: summaryRows.map((row) => ({
         event_label:
@@ -2286,8 +2286,8 @@ const exportDistributionHistory = async ({ requester, filters }) => {
         claimed_stubs_count: row.claimed_stubs_count || 0,
         unclaimed_stubs_count: row.unclaimed_stubs_count || 0,
         relief_pack_summary: row.relief_pack_summary,
-        latest_distribution_date_label: mswdoReportExport.formatDateTime(
-          row.latest_distribution_date,
+        latest_claimed_at_label: mswdoReportExport.formatDateTime(
+          row.latest_claimed_at || row.latest_distribution_date,
         ),
       })),
       format: filters.format,
@@ -2340,7 +2340,7 @@ const exportDistributionHistory = async ({ requester, filters }) => {
       { key: "relief_summary", label: "Relief Pack", width: 24, pdfWidth: 118 },
       { key: "recorded_by_name", label: "Recorded By", width: 18, pdfWidth: 70 },
       { key: "distribution_status", label: "Status", width: 14, pdfWidth: 55 },
-      { key: "distribution_date_label", label: "Date / Time", width: 18, pdfWidth: 72 },
+      { key: "claimed_at_label", label: "Claimed Date / Time", width: 18, pdfWidth: 72 },
     ],
     rows: sortedRows.map((row) => ({
       family_head_name: row.family_head_name || "--",
@@ -2351,7 +2351,9 @@ const exportDistributionHistory = async ({ requester, filters }) => {
       relief_summary: row.relief_pack_template_name || "--",
       recorded_by_name: row.verified_by_name || "--",
       distribution_status: row.distribution_status || "--",
-      distribution_date_label: mswdoReportExport.formatDateTime(row.distribution_date),
+      claimed_at_label: mswdoReportExport.formatDateTime(
+        row.claimed_at || row.distribution_date,
+      ),
     })),
     format: filters.format,
   });
