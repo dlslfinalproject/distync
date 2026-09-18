@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { useLocation, useOutlet } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_CODES } from "../../utils/roleSession";
 import Sidebar from "./Sidebar";
@@ -49,6 +49,38 @@ const getInitialMediaQueryMatch = (query) => {
   }
 
   return window.matchMedia(query).matches;
+};
+
+const DashboardRouteOutletCache = () => {
+  const outlet = useOutlet();
+  const location = useLocation();
+  const cachedRoutesRef = useRef(new Map());
+  const routeKey = `${location.pathname}${location.search}${location.hash}`;
+
+  if (outlet && !cachedRoutesRef.current.has(routeKey)) {
+    cachedRoutesRef.current.set(routeKey, outlet);
+  }
+
+  return (
+    <>
+      {Array.from(cachedRoutesRef.current.entries()).map(
+        ([cachedRouteKey, cachedOutlet]) => {
+          const isInactive = cachedRouteKey !== routeKey;
+
+          return (
+            <div
+              key={cachedRouteKey}
+              hidden={isInactive}
+              aria-hidden={isInactive}
+              style={{ width: "100%", minWidth: 0 }}
+            >
+              {cachedOutlet}
+            </div>
+          );
+        },
+      )}
+    </>
+  );
 };
 
 export const shellStyles = {
@@ -484,7 +516,7 @@ const BarangayLayout = () => {
             ) : shouldBlockMswdoOfflineRoute ? (
               <MayorOfflineAccessNotice message={MSWDO_OFFLINE_ACCESS_MESSAGE} />
             ) : (
-              <Outlet />
+              <DashboardRouteOutletCache />
             )}
           </div>
         </main>
