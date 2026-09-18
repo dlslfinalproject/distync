@@ -7,17 +7,10 @@ const layoutSourcePath = new URL(
   import.meta.url,
 );
 
-test("dashboard sidebar routes preserve visited page state between tab switches", async () => {
+test("dashboard sidebar routes render the current React Router outlet", async () => {
   const source = await fs.readFile(layoutSourcePath, "utf8");
 
-  assert.match(source, /const DashboardRouteOutletCache = \(\) => \{/);
-  assert.match(source, /const cachedRoutesRef = useRef\(new Map\(\)\);/);
-  assert.match(
-    source,
-    /cachedRoutesRef\.current\.set\(routeKey, outlet\);/,
-  );
-  assert.match(source, /hidden=\{isInactive\}/);
-  assert.match(source, /aria-hidden=\{isInactive\}/);
-  assert.match(source, /<DashboardRouteOutletCache \/>/);
-  assert.doesNotMatch(source, /isMayorPortal \? <DashboardRouteOutletCache/);
+  assert.match(source, /import \{ Outlet, useLocation \} from "react-router-dom";/);
+  assert.match(source, /<Outlet \/>/);
+  assert.doesNotMatch(source, /DashboardRouteOutletCache|cachedRoutesRef|useOutlet/);
 });
