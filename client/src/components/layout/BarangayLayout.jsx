@@ -262,17 +262,24 @@ const BarangayLayout = () => {
       DASHBOARD_REVALIDATION_INTERVAL_MS,
     );
 
-    window.addEventListener("focus", handleFocus);
+    // Barangay users should keep their current page state when returning from
+    // another browser tab. Other portals retain the existing return-to-tab
+    // revalidation behavior.
+    if (!isBarangayPortal) {
+      window.addEventListener("focus", handleFocus);
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
     window.addEventListener("online", handleOnline);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener("focus", handleFocus);
+      if (!isBarangayPortal) {
+        window.removeEventListener("focus", handleFocus);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
       window.removeEventListener("online", handleOnline);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [isDonorPortal]);
+  }, [isBarangayPortal, isDonorPortal]);
 
   useEffect(() => {
     if (!isMswdoPortal || typeof window === "undefined") return undefined;

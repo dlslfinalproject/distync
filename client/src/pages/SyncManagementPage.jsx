@@ -1186,15 +1186,19 @@ const SyncManagementPage = () => {
 
     const refreshInterval = window.setInterval(refreshSyncHistory, 30000);
 
-    window.addEventListener("focus", refreshSyncHistory);
-    document.addEventListener("visibilitychange", handleVisibilityRefresh);
+    if (!isBarangayPortal) {
+      window.addEventListener("focus", refreshSyncHistory);
+      document.addEventListener("visibilitychange", handleVisibilityRefresh);
+    }
 
     return () => {
       window.clearInterval(refreshInterval);
-      window.removeEventListener("focus", refreshSyncHistory);
-      document.removeEventListener("visibilitychange", handleVisibilityRefresh);
+      if (!isBarangayPortal) {
+        window.removeEventListener("focus", refreshSyncHistory);
+        document.removeEventListener("visibilitychange", handleVisibilityRefresh);
+      }
     };
-  }, [loadSyncHistory]);
+  }, [isBarangayPortal, loadSyncHistory]);
 
   useEffect(() => {
     void clearSyncedEntries().catch(() => {

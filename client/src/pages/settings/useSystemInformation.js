@@ -11,6 +11,7 @@ import {
   SERVICE_WORKER_STATUSES,
   SYSTEM_CONNECTION_STATUSES,
 } from "./systemInformationModel";
+import { ROLE_CODES } from "../../utils/roleSession";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -140,13 +141,16 @@ export const useSystemInformation = ({
         void refresh();
       }
     };
+    const shouldRefreshOnTabReturn = roleCode !== ROLE_CODES.BARANGAY;
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
     window.addEventListener("distync-sync-feedback", handleSyncFeedback);
     window.addEventListener("distync-sync-queue-updated", handleQueueUpdated);
-    window.addEventListener("focus", handleWindowFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    if (shouldRefreshOnTabReturn) {
+      window.addEventListener("focus", handleWindowFocus);
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
 
     return () => {
       window.removeEventListener("online", handleOnline);
@@ -156,10 +160,12 @@ export const useSystemInformation = ({
         "distync-sync-queue-updated",
         handleQueueUpdated,
       );
-      window.removeEventListener("focus", handleWindowFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (shouldRefreshOnTabReturn) {
+        window.removeEventListener("focus", handleWindowFocus);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
     };
-  }, [refresh]);
+  }, [refresh, roleCode]);
 
   useEffect(() => {
     return subscribeToDistyncServiceWorkerStatus((snapshot) => {

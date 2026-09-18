@@ -281,6 +281,7 @@ const StubDistributionPage = () => {
     searchTerm,
     displayedRows,
     pagination,
+    isLoadingFilters,
     summaryCards,
     isInitialLoadingFilters,
     isInitialLoadingData,
