@@ -17,6 +17,20 @@ test("Barangay and MSWDO readiness notifications show only verified Ready", asyn
   assert.match(source, /previousStatus/);
 });
 
+test("Offline Data Ready popup is centered in the current viewport with responsive bounds", async () => {
+  const source = await read("components/layout/OfflineDataReadiness.jsx");
+
+  assert.match(source, /position: "fixed"/);
+  assert.match(source, /top: "50%"/);
+  assert.match(source, /left: "50%"/);
+  assert.match(source, /transform: "translate\(-50%, -50%\)"/);
+  assert.match(source, /width: "min\(390px, calc\(100vw - 32px\)\)"/);
+  assert.match(source, /maxHeight: "calc\(100dvh - 32px\)"/);
+  assert.match(source, /overflowY: "auto"/);
+  assert.doesNotMatch(source, /const panelStyle = \{[^}]*\bbottom:/s);
+  assert.match(source, /Got It/);
+});
+
 test("preparation publishes sanitized diagnostics and verifies read-back before READY", async () => {
   const source = await read("offline/offlinePreparation.js");
   assert.match(source, /distync-offline-preparation-updated/);

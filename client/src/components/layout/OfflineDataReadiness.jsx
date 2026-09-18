@@ -7,7 +7,7 @@ import {
 } from "./offlineReadyDismissal.js";
 
 const buttonStyle = { minHeight: "44px", border: "1px solid #b9cde0", borderRadius: "10px", padding: "8px 14px", background: "#fff", color: "#17324d", fontWeight: 700, cursor: "pointer" };
-const panelStyle = { position: "fixed", right: "max(16px, env(safe-area-inset-right))", bottom: "max(16px, env(safe-area-inset-bottom))", zIndex: 1200, width: "min(390px, calc(100vw - 32px))", boxSizing: "border-box", padding: "18px", border: "1px solid #cbdbea", borderRadius: "16px", background: "#fff", boxShadow: "0 14px 36px rgba(31,64,96,.2)" };
+const panelStyle = { position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 1200, width: "min(390px, calc(100vw - 32px))", maxHeight: "calc(100dvh - 32px)", overflowY: "auto", boxSizing: "border-box", padding: "18px", border: "1px solid #cbdbea", borderRadius: "16px", background: "#fff", boxShadow: "0 14px 36px rgba(31,64,96,.2)" };
 
 export default function OfflineDataReadiness({ readiness, diagnostics, retry, failureMessage = "" }) {
   const previousStatus = useRef(readiness);
