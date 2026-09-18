@@ -464,6 +464,46 @@ const formatComputedValue = (value) => {
   });
 };
 
+const preventBarcodeScanSubmit = (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+  }
+};
+
+const IMMEDIATE_VALIDATION_FIELDS = new Set([
+  "unit_of_measure_value",
+  "packaging_count",
+  "quantity",
+  "reorder_level",
+]);
+
+const isImmediateValidationField = (fieldName) =>
+  IMMEDIATE_VALIDATION_FIELDS.has(fieldName);
+
+const getImmediateNumericFieldError = (fieldName, value) => {
+  if (isBlank(value)) {
+    return "";
+  }
+
+  if (fieldName === "unit_of_measure_value" && !isPositiveNumber(value)) {
+    return "Amount per piece/container must be greater than 0.";
+  }
+
+  if (fieldName === "packaging_count" && !isPositiveInteger(value)) {
+    return "Quantity on hand must be a whole number greater than 0.";
+  }
+
+  if (fieldName === "quantity" && !isPositiveInteger(value)) {
+    return "Units per packaging must be a whole number greater than 0.";
+  }
+
+  if (fieldName === "reorder_level" && !isPositiveInteger(value)) {
+    return "Reorder level must be a whole number greater than 0.";
+  }
+
+  return "";
+};
+
 const InventoryItemFormModal = ({
   isOpen,
   mode,
@@ -480,6 +520,7 @@ const InventoryItemFormModal = ({
 }) => {
   const [formValues, setFormValues] = useState(createDefaultForm());
   const [fieldErrors, setFieldErrors] = useState({});
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [selectedExistingItemId, setSelectedExistingItemId] = useState(null);
   const [selectedExistingStockFormId, setSelectedExistingStockFormId] = useState(null);
   const [isAddingNewStockForm, setIsAddingNewStockForm] = useState(false);
@@ -528,6 +569,7 @@ const InventoryItemFormModal = ({
     setIsAddingNewStockForm(isBatchConflictResolution);
     setIsAutocompleteOpen(false);
     setFieldErrors({});
+    setHasAttemptedSubmit(false);
   }, [isBatchConflictResolution, isEditMode, isOpen, itemData]);
 
   const trimmedItemName = formValues.item_name.trim();
@@ -810,6 +852,7 @@ const InventoryItemFormModal = ({
       });
       return nextErrors;
     });
+    setHasAttemptedSubmit(false);
   }, [
     isOpen,
     mode,
@@ -920,6 +963,7 @@ const InventoryItemFormModal = ({
         : "",
     }));
     setFieldErrors({});
+    setHasAttemptedSubmit(false);
   }, [
     isExactBarcodeStockFormMatch,
     isOpen,
@@ -961,6 +1005,7 @@ const InventoryItemFormModal = ({
   const handleChange = useCallback((fieldName, value) => {
     setFieldErrors((prev) => {
       const fieldsToClear = [fieldName];
+      const immediateError = getImmediateNumericFieldError(fieldName, value);
 
       if (fieldName === "category") {
         fieldsToClear.push("expiration_date");
@@ -978,6 +1023,11 @@ const InventoryItemFormModal = ({
       fieldsToClear.forEach((field) => {
         delete nextErrors[field];
       });
+
+      if (immediateError) {
+        nextErrors[fieldName] = immediateError;
+      }
+
       return nextErrors;
     });
 
@@ -1050,6 +1100,7 @@ const InventoryItemFormModal = ({
       delete nextErrors.item_name;
       return nextErrors;
     });
+    setHasAttemptedSubmit(false);
     setIsAutocompleteOpen(false);
   };
 
@@ -1178,6 +1229,12 @@ const InventoryItemFormModal = ({
   const computedTotalDisplay = `${formatComputedValue(
     hasComputedTotalInputs ? computedTotalStock : 0,
   )}${computedTotalUnit ? ` ${computedTotalUnit}` : ""}`;
+  const visibleFieldErrors = Object.fromEntries(
+    Object.entries(fieldErrors).filter(
+      ([fieldName]) =>
+        hasAttemptedSubmit || isImmediateValidationField(fieldName),
+    ),
+  );
 
   const validateFormValues = (values) => {
     const nextErrors = {};
@@ -1305,6 +1362,17 @@ const InventoryItemFormModal = ({
   const handleSubmit = (event) => {
     event.preventDefault();
 
+    if (
+      barcodeInputRef.current &&
+      event.nativeEvent?.submitter == null &&
+      typeof document !== "undefined" &&
+      barcodeInputRef.current === document.activeElement
+    ) {
+      return;
+    }
+
+    setHasAttemptedSubmit(true);
+
     const nextFieldErrors = validateFormValues(formValues);
     setFieldErrors(nextFieldErrors);
 
@@ -1354,6 +1422,7 @@ const InventoryItemFormModal = ({
       setSelectedExistingStockFormId(null);
       setIsAddingNewStockForm(false);
       setIsAutocompleteOpen(false);
+      setHasAttemptedSubmit(false);
       previousMatchedItemKeyRef.current = "";
       return;
     }
@@ -1429,12 +1498,12 @@ const InventoryItemFormModal = ({
                   }}
                   style={identityFieldStyles}
                   disabled={isRestockMode && !isEditMode}
-                  aria-invalid={Boolean(fieldErrors.item_name)}
+                  aria-invalid={Boolean(visibleFieldErrors.item_name)}
                   autoComplete="off"
                 />
-                {fieldErrors.item_name || duplicateNameMessage ? (
+                {visibleFieldErrors.item_name || duplicateNameMessage ? (
                   <p style={fieldErrorTextStyles}>
-                    {fieldErrors.item_name || duplicateNameMessage}
+                    {visibleFieldErrors.item_name || duplicateNameMessage}
                   </p>
                 ) : null}
                 {!isEditMode && !isRestockMode && isAutocompleteOpen && autocompleteSuggestions.length > 0 ? (
@@ -1505,12 +1574,13 @@ const InventoryItemFormModal = ({
                           : formValues.barcode
                       }
                       onChange={(e) => handleChange("barcode", e.target.value)}
+                      onKeyDown={preventBarcodeScanSubmit}
                       style={barcodeFieldStyles}
                       disabled={isBarcodeLocked}
-                      aria-invalid={Boolean(fieldErrors.barcode)}
+                      aria-invalid={Boolean(visibleFieldErrors.barcode)}
                     />
-                    {fieldErrors.barcode ? (
-                      <p style={fieldErrorTextStyles}>{fieldErrors.barcode}</p>
+                    {visibleFieldErrors.barcode ? (
+                      <p style={fieldErrorTextStyles}>{visibleFieldErrors.barcode}</p>
                     ) : null}
                     {conflictResolution ? (
                       <p
@@ -1536,13 +1606,13 @@ const InventoryItemFormModal = ({
                       onChange={(e) => handleChange("category", e.target.value)}
                       style={identityFieldStyles}
                       disabled={isRestockMode && !isEditMode}
-                      aria-invalid={Boolean(fieldErrors.category)}
+                      aria-invalid={Boolean(visibleFieldErrors.category)}
                     >
                       <option value="perishable">Perishable</option>
                       <option value="non-perishable">Non-Perishable</option>
                     </select>
-                    {fieldErrors.category ? (
-                      <p style={fieldErrorTextStyles}>{fieldErrors.category}</p>
+                    {visibleFieldErrors.category ? (
+                      <p style={fieldErrorTextStyles}>{visibleFieldErrors.category}</p>
                     ) : null}
                   </div>
 
@@ -1556,14 +1626,14 @@ const InventoryItemFormModal = ({
                       onChange={(e) => handleChange("tracking_method", e.target.value)}
                       style={identityFieldStyles}
                       disabled={isRestockMode || isEditMode}
-                      aria-invalid={Boolean(fieldErrors.tracking_method)}
+                      aria-invalid={Boolean(visibleFieldErrors.tracking_method)}
                     >
                       <option value="Count-Based">Count-Based</option>
                       <option value="Weight/Volume-Based">Weight/Volume-Based</option>
                     </select>
-                    {fieldErrors.tracking_method ? (
+                    {visibleFieldErrors.tracking_method ? (
                       <p style={fieldErrorTextStyles}>
-                        {fieldErrors.tracking_method}
+                        {visibleFieldErrors.tracking_method}
                       </p>
                     ) : null}
                   </div>
@@ -1603,13 +1673,13 @@ const InventoryItemFormModal = ({
                       onChange={(e) => handleChange("category", e.target.value)}
                       style={identityFieldStyles}
                       disabled={isRestockMode && !isEditMode}
-                      aria-invalid={Boolean(fieldErrors.category)}
+                      aria-invalid={Boolean(visibleFieldErrors.category)}
                     >
                       <option value="perishable">Perishable</option>
                       <option value="non-perishable">Non-Perishable</option>
                     </select>
-                    {fieldErrors.category ? (
-                      <p style={fieldErrorTextStyles}>{fieldErrors.category}</p>
+                    {visibleFieldErrors.category ? (
+                      <p style={fieldErrorTextStyles}>{visibleFieldErrors.category}</p>
                     ) : null}
                   </div>
 
@@ -1623,14 +1693,14 @@ const InventoryItemFormModal = ({
                       onChange={(e) => handleChange("tracking_method", e.target.value)}
                       style={identityFieldStyles}
                       disabled={isRestockMode || isEditMode}
-                      aria-invalid={Boolean(fieldErrors.tracking_method)}
+                      aria-invalid={Boolean(visibleFieldErrors.tracking_method)}
                     >
                       <option value="Count-Based">Count-Based</option>
                       <option value="Weight/Volume-Based">Weight/Volume-Based</option>
                     </select>
-                    {fieldErrors.tracking_method ? (
+                    {visibleFieldErrors.tracking_method ? (
                       <p style={fieldErrorTextStyles}>
-                        {fieldErrors.tracking_method}
+                        {visibleFieldErrors.tracking_method}
                       </p>
                     ) : null}
                   </div>
@@ -1661,7 +1731,7 @@ const InventoryItemFormModal = ({
                       }
                       style={isRestockMode || isEditMode ? lockedInputStyles : inputStyles}
                       disabled={!usesWeightOrVolume || isRestockMode || isEditMode}
-                      aria-invalid={Boolean(fieldErrors.unit_of_measure)}
+                      aria-invalid={Boolean(visibleFieldErrors.unit_of_measure)}
                     >
                       {usesWeightOrVolume ? (
                         <>
@@ -1676,9 +1746,9 @@ const InventoryItemFormModal = ({
                         <option value="pc">pc</option>
                       )}
                     </select>
-                    {fieldErrors.unit_of_measure ? (
+                    {visibleFieldErrors.unit_of_measure ? (
                       <p style={fieldErrorTextStyles}>
-                        {fieldErrors.unit_of_measure}
+                        {visibleFieldErrors.unit_of_measure}
                       </p>
                     ) : null}
                   </div>
@@ -1693,7 +1763,7 @@ const InventoryItemFormModal = ({
                       onChange={(e) => handleChange("packaging", e.target.value)}
                       style={packagingFieldStyles}
                       disabled={shouldLockRestockStockFormFields}
-                      aria-invalid={Boolean(fieldErrors.packaging)}
+                      aria-invalid={Boolean(visibleFieldErrors.packaging)}
                     >
                       <option value="">Select packaging</option>
                       {packagingOptions.map((option) => (
@@ -1702,8 +1772,8 @@ const InventoryItemFormModal = ({
                         </option>
                       ))}
                     </select>
-                    {fieldErrors.packaging ? (
-                      <p style={fieldErrorTextStyles}>{fieldErrors.packaging}</p>
+                    {visibleFieldErrors.packaging ? (
+                      <p style={fieldErrorTextStyles}>{visibleFieldErrors.packaging}</p>
                     ) : null}
                   </div>
                   {usesWeightOrVolume ? (
@@ -1723,11 +1793,11 @@ const InventoryItemFormModal = ({
                       }
                       style={isRestockMode || isEditMode ? lockedInputStyles : inputStyles}
                       disabled={isRestockMode || isEditMode}
-                      aria-invalid={Boolean(fieldErrors.unit_of_measure_value)}
+                      aria-invalid={Boolean(visibleFieldErrors.unit_of_measure_value)}
                     />
-                    {fieldErrors.unit_of_measure_value ? (
+                    {visibleFieldErrors.unit_of_measure_value ? (
                       <p style={fieldErrorTextStyles}>
-                        {fieldErrors.unit_of_measure_value}
+                        {visibleFieldErrors.unit_of_measure_value}
                       </p>
                     ) : null}
                   </div>
@@ -1779,11 +1849,11 @@ const InventoryItemFormModal = ({
                         handleChange("packaging_count", e.target.value)
                       }
                       style={inputStyles}
-                      aria-invalid={Boolean(fieldErrors.packaging_count)}
+                      aria-invalid={Boolean(visibleFieldErrors.packaging_count)}
                     />
-                    {fieldErrors.packaging_count ? (
+                    {visibleFieldErrors.packaging_count ? (
                       <p style={fieldErrorTextStyles}>
-                        {fieldErrors.packaging_count}
+                        {visibleFieldErrors.packaging_count}
                       </p>
                     ) : null}
                   </div>
@@ -1802,10 +1872,10 @@ const InventoryItemFormModal = ({
                         onChange={(e) => handleChange("quantity", e.target.value)}
                         style={quantityFieldStyles}
                         disabled={shouldLockRestockStockFormFields}
-                        aria-invalid={Boolean(fieldErrors.quantity)}
+                        aria-invalid={Boolean(visibleFieldErrors.quantity)}
                       />
-                      {fieldErrors.quantity ? (
-                        <p style={fieldErrorTextStyles}>{fieldErrors.quantity}</p>
+                      {visibleFieldErrors.quantity ? (
+                        <p style={fieldErrorTextStyles}>{visibleFieldErrors.quantity}</p>
                       ) : null}
                     </div>
                   ) : null}
@@ -1827,11 +1897,11 @@ const InventoryItemFormModal = ({
                   }
                   style={reorderLevelFieldStyles}
                   disabled={isReorderLevelLocked}
-                  aria-invalid={Boolean(fieldErrors.reorder_level)}
+                  aria-invalid={Boolean(visibleFieldErrors.reorder_level)}
                 />
-                {fieldErrors.reorder_level ? (
+                {visibleFieldErrors.reorder_level ? (
                   <p style={fieldErrorTextStyles}>
-                    {fieldErrors.reorder_level}
+                    {visibleFieldErrors.reorder_level}
                   </p>
                 ) : null}
               </div>
@@ -1851,11 +1921,11 @@ const InventoryItemFormModal = ({
                       handleChange("expiration_date", e.target.value)
                     }
                     style={inputStyles}
-                    aria-invalid={Boolean(fieldErrors.expiration_date)}
+                    aria-invalid={Boolean(visibleFieldErrors.expiration_date)}
                   />
-                  {fieldErrors.expiration_date ? (
+                  {visibleFieldErrors.expiration_date ? (
                     <p style={fieldErrorTextStyles}>
-                      {fieldErrors.expiration_date}
+                      {visibleFieldErrors.expiration_date}
                     </p>
                   ) : null}
                 </div>
