@@ -464,6 +464,10 @@ const StubDistributionPage = () => {
   }, []);
 
   useEffect(() => {
+    if (pendingClaimStubId || isBulkClaimConfirmOpen) {
+      return;
+    }
+
     if (isSelectedEventEnded) {
       setSelectedStubIds([]);
       setPendingClaimStubId("");
@@ -474,7 +478,12 @@ const StubDistributionPage = () => {
       setScannerHelperMessage("");
       setScanCooldownState({ value: "", until: 0 });
     }
-  }, [isSelectedEventEnded, selectedEvent?.id]);
+  }, [
+    isBulkClaimConfirmOpen,
+    isSelectedEventEnded,
+    pendingClaimStubId,
+    selectedEvent?.id,
+  ]);
 
   const stubStatusOptions = [
     { value: STATUS_FILTERS.ALL, label: "All" },
