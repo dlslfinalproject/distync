@@ -259,16 +259,11 @@ export const useBarangayMasterlistSync = ({
       REMOTE_MASTERLIST_REVALIDATION_INTERVAL_MS,
     );
     window.addEventListener("online", revalidate);
-    window.addEventListener("focus", revalidate);
-    const documentObject = typeof document !== "undefined" ? document : null;
-    documentObject?.addEventListener("visibilitychange", revalidate);
 
     return () => {
       unsubscribeFromMasterlistReconciliation();
       window.clearInterval(intervalId);
       window.removeEventListener("online", revalidate);
-      window.removeEventListener("focus", revalidate);
-      documentObject?.removeEventListener("visibilitychange", revalidate);
     };
   }, [assignedBarangay?.id, reloadMasterlist, selectedEvent?.id]);
 
