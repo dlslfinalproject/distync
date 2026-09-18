@@ -318,6 +318,11 @@ ON CONFLICT (code) DO NOTHING;
 -- =========================================================
 
 
+INSERT INTO evacuation_centers (barangay_id, name)
+SELECT b.id, 'Bilucao Evacuation Center'
+FROM barangays b WHERE b.code = 'BILUCAO'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
 INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
 SELECT b.id, 'San Isidro Barangay Hall', 160
 FROM barangays b WHERE b.code = 'SAN_ISIDRO_EAST'
