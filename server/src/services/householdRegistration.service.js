@@ -3239,6 +3239,18 @@ const restoreHousehold = async ({
       throw error;
     }
 
+    if (
+      typeof lockedHousehold.family_head_photo_url !== "string" ||
+      !lockedHousehold.family_head_photo_url.trim()
+    ) {
+      const error = new Error(
+        "Family head photo is required before this household can be re-admitted.",
+      );
+      error.statusCode = 400;
+      error.code = "FAMILY_HEAD_PHOTO_REQUIRED_FOR_RESTORE";
+      throw error;
+    }
+
     const archivedHouseholdDetails = await buildRegistrationResponse(
       householdId,
       client,
