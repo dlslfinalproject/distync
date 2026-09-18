@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { FaHandHolding } from "react-icons/fa6";
-import { FiPrinter } from "react-icons/fi";
+import { FiPrinter, FiX } from "react-icons/fi";
 import { MdQrCodeScanner } from "react-icons/md";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import {
@@ -9,6 +9,7 @@ import {
   shellStyles,
 } from "../../components/layout/BarangayLayout";
 import FeedbackToast from "../../components/shared/FeedbackToast";
+import FormModalShell from "../../components/shared/FormModalShell";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
 import StubDetailModal from "../../components/stubs/StubDetailModal";
 import MswdoStubResultsTable from "../../components/stubs/MswdoStubResultsTable";
@@ -23,6 +24,7 @@ import {
   fetchStubDetails,
   verifyStub,
 } from "../../features/stubs/stubService";
+import { getStubClaimErrorDialog } from "../../features/stubs/stubClaimErrors";
 import { useMswdoStubDistribution } from "../../features/stubs/useMswdoStubDistribution";
 import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 import db from "../../offline/db.js";
@@ -48,6 +50,56 @@ import { ALL_BARANGAYS } from "../../features/stubs/useMswdoStubDistribution";
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
+
+const claimErrorModalBodyStyles = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  textAlign: "center",
+  padding: "4px 0 0",
+};
+
+const claimErrorIconStyles = {
+  width: "48px",
+  height: "48px",
+  borderRadius: "999px",
+  backgroundColor: "#fee2e2",
+  color: "#c53030",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "28px",
+  lineHeight: 1,
+  marginBottom: "14px",
+};
+
+const claimErrorTitleStyles = {
+  margin: 0,
+  color: "#1f2937",
+  fontSize: "18px",
+  fontWeight: 700,
+};
+
+const claimErrorMessageStyles = {
+  margin: "12px 0 0",
+  color: "#6b7280",
+  fontSize: "14px",
+  lineHeight: 1.6,
+  maxWidth: "320px",
+  overflowWrap: "anywhere",
+};
+
+const claimErrorButtonStyles = {
+  width: "100%",
+  minHeight: "40px",
+  border: "none",
+  borderRadius: "8px",
+  backgroundColor: "#c53030",
+  color: "#ffffff",
+  fontSize: "15px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
 const QR_SCAN_COOLDOWN_MS = 1800;
 
 const resolveDetailsForDisplay = async (
@@ -342,6 +394,7 @@ const StubDistributionPage = () => {
   );
   const [claimingStubId, setClaimingStubId] = useState("");
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
+  const [claimErrorDialog, setClaimErrorDialog] = useState(null);
   const [pendingClaimStubId, setPendingClaimStubId] = useState("");
   const [pendingClaimStubDetails, setPendingClaimStubDetails] = useState(null);
   const [isLoadingPendingClaimStubDetails, setIsLoadingPendingClaimStubDetails] =
@@ -617,6 +670,7 @@ const StubDistributionPage = () => {
     }
 
     setClaimErrorMessage("");
+    setClaimErrorDialog(null);
     setPendingClaimStubId("");
     setPendingClaimStubDetails(null);
     setIsBulkClaimConfirmOpen(true);
@@ -639,6 +693,7 @@ const StubDistributionPage = () => {
     }
 
     setClaimErrorMessage("");
+    setClaimErrorDialog(null);
     setIsBulkClaimConfirmOpen(false);
     setPendingClaimStubId(stubId);
     setPendingClaimStubDetails(null);
@@ -696,6 +751,10 @@ const StubDistributionPage = () => {
     setIsBulkClaimConfirmOpen(false);
   };
 
+  const handleDismissClaimErrorDialog = () => {
+    setClaimErrorDialog(null);
+  };
+
   const handleConfirmClaim = async () => {
     if (isEndedView || claimingStubId) {
       return;
@@ -743,6 +802,16 @@ const StubDistributionPage = () => {
         setPendingClaimStubDetails(null);
 
         if (failedClaimCount > 0) {
+          const firstFailedClaim = claimResults.find(
+            (result) => result.status === "rejected",
+          );
+
+          setClaimErrorDialog(
+            getStubClaimErrorDialog(
+              firstFailedClaim?.reason,
+              "Some selected stubs could not be claimed.",
+            ),
+          );
           setClaimErrorMessage(
             "Some selected stubs could not be claimed. Please check the table and try again.",
           );
@@ -790,7 +859,9 @@ const StubDistributionPage = () => {
       setPendingClaimStubId("");
       setPendingClaimStubDetails(null);
     } catch (error) {
-      setClaimErrorMessage(error.message || "Unable to mark the stub as claimed.");
+      setPendingClaimStubId("");
+      setPendingClaimStubDetails(null);
+      setClaimErrorDialog(getStubClaimErrorDialog(error));
     } finally {
       setClaimingStubId("");
     }
@@ -1280,6 +1351,34 @@ const StubDistributionPage = () => {
         selectedStubs={selectedClaimRows}
         stubDetails={pendingClaimStubDetails}
       />
+
+      <FormModalShell
+        isOpen={Boolean(claimErrorDialog)}
+        maxWidth="420px"
+        zIndex={1700}
+        bodyStyle={{ marginTop: 0 }}
+        footer={
+          <button
+            type="button"
+            onClick={handleDismissClaimErrorDialog}
+            style={claimErrorButtonStyles}
+          >
+            OK
+          </button>
+        }
+      >
+        <div style={claimErrorModalBodyStyles} role="alert" aria-live="assertive">
+          <div aria-hidden="true" style={claimErrorIconStyles}>
+            <FiX />
+          </div>
+          <p style={claimErrorTitleStyles}>
+            {claimErrorDialog?.title || "Unable to Process Claim"}
+          </p>
+          <p style={claimErrorMessageStyles}>
+            {claimErrorDialog?.message || "Unable to mark the stub as claimed."}
+          </p>
+        </div>
+      </FormModalShell>
 
       <StubDetailModal
         isOpen={isStubDetailModalOpen}

@@ -412,3 +412,124 @@ test("automatic claims link and consume inventory for standard and multiple addi
     },
   );
 });
+
+test("automatic claims reject insufficient inventory before any distribution writes", async () => {
+  const template = {
+    id: "standard-template",
+    name: "Standard Pack",
+    is_active: true,
+    is_additional_pack: false,
+    based_on_family_size: false,
+  };
+  const templateItems = [
+    {
+      inventory_item_id: "rice-item",
+      item_name: "Rice",
+      quantity_required: 10,
+    },
+  ];
+  const availableBatches = [
+    {
+      id: "rice-batch",
+      inventory_item_id: "rice-item",
+      quantity_available: 2,
+      batch_no: "RICE-1",
+      item_code: "RICE",
+      item_name: "Rice",
+      category: "Food",
+      unit_of_measure: "sack",
+      reorder_level: 1,
+      expiration_date: "2099-12-31",
+      status: "AVAILABLE",
+      source_type: "LGU",
+    },
+  ];
+  const writes = [];
+  const stub = {
+    id: "stub-1",
+    disaster_event_id: "event-1",
+    household_id: "household-1",
+    current_stay_type: "EVAC_CENTER",
+    is_active: true,
+    household_size: 4,
+  };
+  const dbClient = {
+    query: async () => ({ rows: [] }),
+  };
+
+  await withStubbedAutomaticClaimService(
+    {
+      [distributionTransactionRepositoryPath]: {
+        getLatestAttendanceByHouseholdId: async () => ({
+          status: "PRESENT",
+          time_out: null,
+        }),
+        getDistributionReceiptSequence: async () => {
+          writes.push("receipt");
+          return "RCPT-2026-000002";
+        },
+        insertDistributionTransaction: async () => {
+          writes.push("distribution");
+          return { id: "distribution-1" };
+        },
+        insertDistributionTransactionReliefPackTemplates: async () => {
+          writes.push("template-link");
+          return [];
+        },
+        insertDistributionTransactionItem: async () => {
+          writes.push("distribution-item");
+          return { id: "distribution-item-1" };
+        },
+        insertInventoryTransaction: async () => {
+          writes.push("inventory-transaction");
+          return {};
+        },
+        updateInventoryBatchQuantityAndStatus: async () => {
+          writes.push("batch-update");
+          return {};
+        },
+        updateDonationStatusesByIds: async () => {
+          writes.push("donation-update");
+        },
+        updateStubAsClaimed: async () => {
+          writes.push("stub-update");
+          return { ...stub, status: "CLAIMED" };
+        },
+      },
+      [inventoryTransactionRepositoryPath]: {
+        getDistributableInventoryBatchesByItemIdsForUpdate: async () =>
+          availableBatches,
+      },
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemsByIdsForUpdate: async () => [],
+      },
+      [reliefPackTemplateRepositoryPath]: {
+        getReliefPackTemplateItemsByTemplateId: async () => templateItems,
+      },
+      [reliefPackAssignmentServicePath]: {
+        resolveAssignedReliefPackTemplatesForHousehold: async () => [template],
+        getPrimaryAssignedReliefPackTemplate: (templates) => templates[0],
+      },
+    },
+    async ({ recordAutomaticReliefPackClaim }) => {
+      await assert.rejects(
+        () =>
+          recordAutomaticReliefPackClaim({
+            client: dbClient,
+            stub,
+            claimedByName: "Family Head",
+            verifiedBy: "user-1",
+            receivedAt: "2026-08-28T08:00:00.000Z",
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.equal(error.code, "INSUFFICIENT_RELIEF_PACK_STOCK");
+          assert.match(error.message, /Insufficient stock to release Rice/);
+          return true;
+        },
+      );
+    },
+  );
+
+  assert.deepEqual(writes, []);
+});

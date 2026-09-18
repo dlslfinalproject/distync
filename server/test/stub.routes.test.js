@@ -380,3 +380,63 @@ test("DEPLOY-MSWDO-RGD-01 route passes MSWDO claim barangay_id without adding Ma
   assert.equal(capturedBody.override_barangay_id, null);
   assert.equal(capturedBody.verified_by, "mswdo-user");
 });
+
+for (const role of ["BARANGAY", "MSWDO"]) {
+  test(`relief claim validation preserves the shared 400 contract for ${role}`, async () => {
+    const claimError = new Error(
+      "Insufficient stock to release Rice.",
+    );
+    claimError.statusCode = 400;
+    claimError.code = "INSUFFICIENT_RELIEF_PACK_STOCK";
+
+    await withStubbedStubRoute(
+      {
+        auth: {
+          userId: `${role.toLowerCase()}-user`,
+          roleCode: role,
+          defaultBarangayId: role === "BARANGAY" ? selectedBarangayId : null,
+        },
+        serviceImpl: {
+          claimBarangayStub: async () => {
+            throw claimError;
+          },
+        },
+      },
+      async (router) => {
+        const server = await listen(router);
+
+        try {
+          const response = await fetch(
+            `http://127.0.0.1:${server.address().port}/api/v1/stubs/${stubId}/claim`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(
+                role === "MSWDO"
+                  ? {
+                      barangay_id: selectedBarangayId,
+                      disaster_event_id: eventId,
+                    }
+                  : {
+                      user_id: stubId,
+                      disaster_event_id: eventId,
+                    },
+              ),
+            },
+          );
+
+          assert.equal(response.status, 400);
+          assert.deepEqual(await response.json(), {
+            success: false,
+            code: "INSUFFICIENT_RELIEF_PACK_STOCK",
+            error: "INSUFFICIENT_RELIEF_PACK_STOCK",
+            message: "Insufficient stock to release Rice.",
+            details: null,
+          });
+        } finally {
+          await closeServer(server);
+        }
+      },
+    );
+  });
+}

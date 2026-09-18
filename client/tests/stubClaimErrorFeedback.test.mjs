@@ -138,3 +138,39 @@ test("DEPLOY-BRG-RGD-02 bulk claim reports failure without all-success messaging
   assert.match(bulkBlock, /Some selected stubs could not be claimed/);
   assert.doesNotMatch(bulkBlock, /setScanToast|success/i);
 });
+
+test("DEPLOY-MSWDO-RGD-03 MSWDO claim failures use the shared claim error dialog", async () => {
+  const source = await readSource(
+    "../src/pages/mswdo/StubDistributionPage.jsx",
+  );
+
+  assert.match(
+    source,
+    /import \{ getStubClaimErrorDialog \} from "\.\.\/\.\.\/features\/stubs\/stubClaimErrors"/,
+  );
+  assert.match(source, /const \[claimErrorDialog, setClaimErrorDialog\] = useState\(null\)/);
+  assert.match(source, /isOpen=\{Boolean\(claimErrorDialog\)\}/);
+  assert.match(source, /Unable to Process Claim/);
+
+  const singleClaimBlockStart = source.indexOf("if (!pendingClaimStubId)");
+  const singleClaimFailureBlock = source.slice(
+    source.indexOf("} catch (error) {", singleClaimBlockStart),
+    source.indexOf("} finally {", singleClaimBlockStart),
+  );
+
+  assert.match(singleClaimFailureBlock, /setPendingClaimStubId\(""\)/);
+  assert.match(singleClaimFailureBlock, /setPendingClaimStubDetails\(null\)/);
+  assert.match(
+    singleClaimFailureBlock,
+    /setClaimErrorDialog\(getStubClaimErrorDialog\(error\)\)/,
+  );
+  assert.doesNotMatch(singleClaimFailureBlock, /reloadDashboard\(\)|success/);
+});
+
+test("DEPLOY-MSWDO-RGD-03 confirm action is disabled during claim submission", async () => {
+  const source = await readSource(
+    "../src/components/stubs/StubClaimConfirmModal.jsx",
+  );
+
+  assert.match(source, /type="button"[\s\S]*onClick=\{onConfirm\}[\s\S]*disabled=\{isSubmitting\}/);
+});
