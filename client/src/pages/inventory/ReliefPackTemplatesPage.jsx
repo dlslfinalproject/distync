@@ -35,7 +35,10 @@ import {
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
 import { fetchSectors } from "../../features/household-registration/householdRegistrationService";
 import { DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
-import { allocateSharedReliefPackInventory } from "../../features/relief-pack-templates/reliefPackAvailability";
+import {
+  allocateSharedReliefPackInventory,
+  calculateReliefPackItemStockNeed,
+} from "../../features/relief-pack-templates/reliefPackAvailability";
 import {
   DEFAULT_TABLE_PAGE_SIZE,
   getTablePaginationState,
@@ -1834,9 +1837,21 @@ const ReliefPackTemplateDetailModal = ({
                       const quantityPerPack = getTemplateItemRequiredQuantity(item);
                       const availableQuantity =
                         availableStockByItemId.get(item.inventory_item_id) || 0;
-                      const neededQuantity = metrics.neededPacks * quantityPerPack;
-                      const shortageQuantity =
-                        shortageByItemId.get(item.inventory_item_id) || 0;
+                      const {
+                        neededQuantity,
+                        shortageQuantity: calculatedShortageQuantity,
+                      } = calculateReliefPackItemStockNeed({
+                        neededPacks: metrics.neededPacks,
+                        quantityPerPack,
+                        availableQuantity,
+                      });
+                      const shortageQuantity = shortageByItemId.has(
+                        item.inventory_item_id,
+                      )
+                        ? Number(
+                            shortageByItemId.get(item.inventory_item_id) || 0,
+                          )
+                        : calculatedShortageQuantity;
 
                       return (
                         <tr key={item.id || item.inventory_item_id}>

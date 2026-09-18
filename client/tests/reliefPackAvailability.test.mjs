@@ -3,8 +3,10 @@ import test from "node:test";
 
 import {
   allocateSharedReliefPackInventory,
+  calculateReliefPackItemStockNeed,
   sortReliefPackTemplatesForSharedInventory,
 } from "../src/features/relief-pack-templates/reliefPackAvailability.js";
+import { isReliefPackInventoryBatchEligible } from "../src/features/relief-pack-templates/reliefPackInventory.js";
 
 const buildTemplate = (overrides = {}) => ({
   id: "template-1",
@@ -77,6 +79,88 @@ test("shared relief-pack allocation prioritizes standard templates and consumes 
     },
   ]);
   assert.equal(remainingAvailabilityByItemId.get("item-1"), 2);
+});
+
+test("relief-pack item stock need aggregates normalized batches and excludes near expiry stock", () => {
+  const referenceDate = new Date(2026, 7, 28);
+  const looseDonationMetadata = {
+    source_type: "DONATED",
+    source_donation_type: "LOOSE_ITEM",
+    source_donation_status: "RECEIVED",
+    source_donation_disaster_event_id: "event-1",
+  };
+  const batches = [
+    {
+      id: "gardenia-pack-batch",
+      inventory_item_id: "gardenia",
+      quantity_available: 792,
+      status: "AVAILABLE",
+      ...looseDonationMetadata,
+      stock_form_packaging: "pack",
+      expiration_date: "2026-12-31",
+    },
+    {
+      id: "gardenia-piece-batch",
+      inventory_item_id: "gardenia",
+      quantity_available: 20,
+      status: "AVAILABLE",
+      ...looseDonationMetadata,
+      stock_form_packaging: "piece",
+      expiration_date: "2026-12-31",
+    },
+    {
+      id: "gardenia-near-expiry-piece-batch",
+      inventory_item_id: "gardenia",
+      quantity_available: 20,
+      status: "AVAILABLE",
+      ...looseDonationMetadata,
+      stock_form_packaging: "piece",
+      expiration_date: "2026-09-27",
+    },
+    {
+      id: "gardenia-near-expiry-pack-batch",
+      inventory_item_id: "gardenia",
+      quantity_available: 200,
+      status: "AVAILABLE",
+      ...looseDonationMetadata,
+      stock_form_packaging: "pack",
+      expiration_date: "2026-09-27",
+    },
+  ];
+  const eligibleStock = batches
+    .filter((batch) =>
+      isReliefPackInventoryBatchEligible(batch, referenceDate, {
+        activeDisasterEventIds: ["event-1"],
+      }),
+    )
+    .reduce(
+      (total, batch) => total + Number(batch.quantity_available || 0),
+      0,
+    );
+
+  assert.equal(eligibleStock, 812);
+  assert.deepEqual(
+    calculateReliefPackItemStockNeed({
+      neededPacks: 43,
+      quantityPerPack: 2,
+      availableQuantity: eligibleStock,
+    }),
+    {
+      neededQuantity: 86,
+      shortageQuantity: 0,
+    },
+  );
+  assert.deepEqual(
+    calculateReliefPackItemStockNeed({
+      neededPacks: 43,
+      quantityPerPack: 2,
+      availableQuantity: 20,
+    }),
+    {
+      neededQuantity: 86,
+      shortageQuantity: 66,
+    },
+  );
 });
 
 test("shared relief-pack allocation skips templates without current demand and caps stock to actual need", () => {

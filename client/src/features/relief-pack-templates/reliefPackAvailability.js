@@ -12,6 +12,26 @@ const getMapValue = (valueMap, key) => {
   return getNumericValue(valueMap?.[key]);
 };
 
+export const calculateReliefPackItemStockNeed = ({
+  neededPacks = 0,
+  quantityPerPack = 0,
+  availableQuantity = 0,
+} = {}) => {
+  const normalizedNeededPacks = Math.floor(getNumericValue(neededPacks));
+  const normalizedQuantityPerPack = getNumericValue(quantityPerPack);
+  const normalizedAvailableQuantity = getNumericValue(availableQuantity);
+  const neededQuantity =
+    normalizedNeededPacks * normalizedQuantityPerPack;
+
+  return {
+    neededQuantity,
+    shortageQuantity: Math.max(
+      neededQuantity - normalizedAvailableQuantity,
+      0,
+    ),
+  };
+};
+
 const compareTemplateNames = (leftTemplate, rightTemplate) => {
   const nameComparison = String(leftTemplate?.name || "").localeCompare(
     String(rightTemplate?.name || ""),
@@ -169,10 +189,11 @@ export const allocateSharedReliefPackInventory = ({
         itemId,
       );
       const allocatedQuantity = packsWeCanCreate * requiredQuantity;
-      const shortageQuantity = Math.max(
-        neededPacks * requiredQuantity - availableQuantity,
-        0,
-      );
+      const { shortageQuantity } = calculateReliefPackItemStockNeed({
+        neededPacks,
+        quantityPerPack: requiredQuantity,
+        availableQuantity,
+      });
 
       allocatedStockByItemId.set(itemId, allocatedQuantity);
 
