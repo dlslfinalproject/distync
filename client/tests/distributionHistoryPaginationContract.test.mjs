@@ -209,3 +209,13 @@ test("Distribution History validates date ranges before loading or exporting", a
   assert.match(source, /timeZone: "Asia\/Manila"/);
   assert.match(source, /role="alert"/);
 });
+
+test("Distribution History displays the same claim timestamp used by the date filter", async () => {
+  const source = normalizeSource(
+    await readSource(["pages", "DistributionHistoryPage.jsx"]),
+  );
+
+  assert.match(source, /row\.latest_claimed_at \|\| row\.latest_distribution_date/);
+  assert.match(source, /row\.claimed_at \|\| row\.distribution_date/);
+  assert.match(source, /<th style=\{tableStyles\.th\}>Claimed At<\/th>/);
+});

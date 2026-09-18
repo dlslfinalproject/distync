@@ -582,7 +582,7 @@ const insertDistributionTransaction = async (transactionData, dbClient) => {
       updated_at
     )
     VALUES (
-      $1, $2, $3, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW()
+      $1, $2, $3, COALESCE($15::timestamptz, NOW()), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW()
     )
     RETURNING
       id,
@@ -949,26 +949,26 @@ const getLatestDistributionReliefSourcesByStubIds = async (stubIds = []) => {
 
 const DISTRIBUTION_HISTORY_SORTS = {
   newest: {
-    detail: "distribution_date DESC, created_at DESC, id DESC",
+    detail: "claimed_at DESC, distribution_date DESC, created_at DESC, id DESC",
     summary:
-      "latest_distribution_date DESC NULLS LAST, start_date DESC NULLS LAST, disaster_event_id DESC",
+      "latest_claimed_at DESC NULLS LAST, start_date DESC NULLS LAST, disaster_event_id DESC",
   },
   oldest: {
-    detail: "distribution_date ASC, created_at ASC, id ASC",
+    detail: "claimed_at ASC, distribution_date ASC, created_at ASC, id ASC",
     summary:
-      "latest_distribution_date ASC NULLS LAST, start_date ASC NULLS LAST, disaster_event_id ASC",
+      "latest_claimed_at ASC NULLS LAST, start_date ASC NULLS LAST, disaster_event_id ASC",
   },
   az: {
     detail:
-      "family_head_name ASC NULLS LAST, distribution_date DESC, created_at DESC, id DESC",
+      "family_head_name ASC NULLS LAST, claimed_at DESC, distribution_date DESC, created_at DESC, id DESC",
     summary:
-      "disaster_event_title ASC NULLS LAST, latest_distribution_date DESC NULLS LAST, disaster_event_id ASC",
+      "disaster_event_title ASC NULLS LAST, latest_claimed_at DESC NULLS LAST, disaster_event_id ASC",
   },
   za: {
     detail:
-      "family_head_name DESC NULLS LAST, distribution_date DESC, created_at DESC, id DESC",
+      "family_head_name DESC NULLS LAST, claimed_at DESC, distribution_date DESC, created_at DESC, id DESC",
     summary:
-      "disaster_event_title DESC NULLS LAST, latest_distribution_date DESC NULLS LAST, disaster_event_id DESC",
+      "disaster_event_title DESC NULLS LAST, latest_claimed_at DESC NULLS LAST, disaster_event_id DESC",
   },
 };
 
@@ -981,6 +981,12 @@ const buildManilaDateStartExpression = (parameter) =>
 
 const buildManilaDateEndExpression = (parameter) =>
   `((${parameter}::date + INTERVAL '1 day') AT TIME ZONE 'Asia/Manila')`;
+
+const buildDistributionHistoryClaimTimestampExpression = (
+  transactionAlias = "dt",
+  stubAlias = "s",
+) =>
+  `COALESCE(${stubAlias}.claimed_at, ${transactionAlias}.received_at, ${transactionAlias}.distribution_date)`;
 
 const buildDistributionHistorySearchPredicate = ({
   searchParam,
@@ -1112,14 +1118,14 @@ const buildDistributionHistoryFilters = ({
   if (dateFrom) {
     values.push(dateFrom);
     conditions.push(
-      `dt.distribution_date >= ${buildManilaDateStartExpression(`$${values.length}`)}`,
+      `${buildDistributionHistoryClaimTimestampExpression("dt", "s")} >= ${buildManilaDateStartExpression(`$${values.length}`)}`,
     );
   }
 
   if (dateTo) {
     values.push(dateTo);
     conditions.push(
-      `dt.distribution_date < ${buildManilaDateEndExpression(`$${values.length}`)}`,
+      `${buildDistributionHistoryClaimTimestampExpression("dt", "s")} < ${buildManilaDateEndExpression(`$${values.length}`)}`,
     );
   }
 
@@ -1258,6 +1264,7 @@ const selectDistributionHistoryRows = async ({
         dt.household_id,
         dt.stub_id,
         dt.distribution_date,
+        ${buildDistributionHistoryClaimTimestampExpression("dt", "s")} AS claimed_at,
         dt.distribution_status,
         dt.claimed_by_name,
         dt.verified_by,
@@ -1422,8 +1429,8 @@ const buildSummarySearchClause = ({
       WHERE dt_search.disaster_event_id = de.id
         AND ($1::uuid IS NULL OR h_search.barangay_id = $1::uuid)
         AND ($2::text IS NULL OR dt_search.distribution_status = $2::text)
-        AND ($3::date IS NULL OR dt_search.distribution_date >= ${buildManilaDateStartExpression("$3")})
-        AND ($4::date IS NULL OR dt_search.distribution_date < ${buildManilaDateEndExpression("$4")})
+        AND ($3::date IS NULL OR ${buildDistributionHistoryClaimTimestampExpression("dt_search", "s_search")} >= ${buildManilaDateStartExpression("$3")})
+        AND ($4::date IS NULL OR ${buildDistributionHistoryClaimTimestampExpression("dt_search", "s_search")} < ${buildManilaDateEndExpression("$4")})
         AND (
           CONCAT_WS(
             ' ',
@@ -1543,6 +1550,7 @@ const buildDistributionHistorySummaryQuery = ({
         dt_scope.disaster_event_id,
         dt_scope.stub_id,
         dt_scope.distribution_date,
+        ${buildDistributionHistoryClaimTimestampExpression("dt_scope", "s_scope")} AS claimed_at,
         dt_scope.relief_pack_template_id
       FROM distribution_transactions dt_scope
       INNER JOIN households h_scope
@@ -1555,8 +1563,8 @@ const buildDistributionHistorySummaryQuery = ({
         ON u_scope.id = dt_scope.verified_by
       WHERE ($1::uuid IS NULL OR h_scope.barangay_id = $1::uuid)
         AND ($2::text IS NULL OR dt_scope.distribution_status = $2::text)
-        AND ($3::date IS NULL OR dt_scope.distribution_date >= ${buildManilaDateStartExpression("$3")})
-        AND ($4::date IS NULL OR dt_scope.distribution_date < ${buildManilaDateEndExpression("$4")})
+        AND ($3::date IS NULL OR ${buildDistributionHistoryClaimTimestampExpression("dt_scope", "s_scope")} >= ${buildManilaDateStartExpression("$3")})
+        AND ($4::date IS NULL OR ${buildDistributionHistoryClaimTimestampExpression("dt_scope", "s_scope")} < ${buildManilaDateEndExpression("$4")})
         AND ($6::text IS NULL OR ${buildDistributionHistorySearchPredicate({
           searchParam: "$6",
           transactionAlias: "dt_scope",
@@ -1580,7 +1588,8 @@ const buildDistributionHistorySummaryQuery = ({
         COALESCE(stub_summary.claimed_stubs_count, 0)::int AS claimed_stubs_count,
         COALESCE(stub_summary.unclaimed_stubs_count, 0)::int AS unclaimed_stubs_count,
         COALESCE(relief_summary.relief_pack_summary, '--') AS relief_pack_summary,
-        distribution_summary.latest_distribution_date
+        distribution_summary.latest_claimed_at,
+        distribution_summary.latest_claimed_at AS latest_distribution_date
       FROM disaster_events de
       LEFT JOIN LATERAL (
         SELECT
@@ -1610,7 +1619,7 @@ const buildDistributionHistorySummaryQuery = ({
           )
       ) stub_summary ON TRUE
       LEFT JOIN LATERAL (
-        SELECT MAX(filtered_transaction.distribution_date) AS latest_distribution_date
+        SELECT MAX(filtered_transaction.claimed_at) AS latest_claimed_at
         FROM summary_filtered_transactions filtered_transaction
         WHERE filtered_transaction.disaster_event_id = de.id
       ) distribution_summary ON TRUE

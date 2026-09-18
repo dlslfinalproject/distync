@@ -315,15 +315,15 @@ test("distribution history summary derives filtered values from one scoped trans
   assert.match(repositorySource, /WITH summary_filtered_transactions AS/);
   assert.match(
     repositorySource,
-    /dt_scope\.distribution_date >= \$\{buildManilaDateStartExpression\("\$3"\)\}/,
+    /buildDistributionHistoryClaimTimestampExpression\("dt_scope", "s_scope"\)\} >= \$\{buildManilaDateStartExpression\("\$3"\)\}/,
   );
   assert.match(
     repositorySource,
-    /dt_scope\.distribution_date < \$\{buildManilaDateEndExpression\("\$4"\)\}/,
+    /buildDistributionHistoryClaimTimestampExpression\("dt_scope", "s_scope"\)\} < \$\{buildManilaDateEndExpression\("\$4"\)\}/,
   );
   assert.match(
     repositorySource,
-    /FROM summary_filtered_transactions filtered_transaction[\s\S]*?MAX\(filtered_transaction\.distribution_date\)/,
+    /FROM summary_filtered_transactions filtered_transaction[\s\S]*?MAX\(filtered_transaction\.claimed_at\) AS latest_claimed_at/,
   );
   assert.match(
     repositorySource,
@@ -339,6 +339,26 @@ test("distribution history summary derives filtered values from one scoped trans
     /sequence_households\.barangay_id IS NOT DISTINCT FROM history_base\.barangay_id/,
   );
   assert.match(repositorySource, /AT TIME ZONE 'Asia\/Manila'/);
+});
+
+test("distribution history uses the claim timestamp for filtering and display", async () => {
+  const repositorySource = await readSource([
+    "repositories",
+    "distributionTransaction.repository.js",
+  ]);
+
+  assert.match(
+    repositorySource,
+    /const buildDistributionHistoryClaimTimestampExpression[\s\S]*?COALESCE\(\$\{stubAlias\}\.claimed_at, \$\{transactionAlias\}\.received_at, \$\{transactionAlias\}\.distribution_date\)/,
+  );
+  assert.match(
+    repositorySource,
+    /COALESCE\(\$15::timestamptz, NOW\(\)\)/,
+  );
+  assert.match(
+    repositorySource,
+    /buildDistributionHistoryClaimTimestampExpression\("dt", "s"\)\} AS claimed_at/,
+  );
 });
 
 test("distribution history relief pack values include all pack names without item contents", async () => {
@@ -543,8 +563,8 @@ test("distribution history repository uses deterministic tie-breakers for every 
     "distributionTransaction.repository.js",
   ]);
 
-  assert.match(source, /distribution_date DESC, created_at DESC, id DESC/);
-  assert.match(source, /distribution_date ASC, created_at ASC, id ASC/);
+  assert.match(source, /claimed_at DESC, distribution_date DESC, created_at DESC, id DESC/);
+  assert.match(source, /claimed_at ASC, distribution_date ASC, created_at ASC, id ASC/);
   assert.match(source, /family_head_name ASC[\s\S]*id DESC/);
   assert.match(source, /family_head_name DESC[\s\S]*id DESC/);
   assert.match(source, /disaster_event_id DESC/);
