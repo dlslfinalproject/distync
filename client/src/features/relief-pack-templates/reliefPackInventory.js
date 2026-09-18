@@ -3,6 +3,30 @@ export const RELIEF_PACK_DONATED_SOURCE_TYPE = "DONATED";
 export const RELIEF_PACK_LOOSE_DONATION_TYPE = "LOOSE_ITEM";
 export const RELIEF_PACK_NEAR_EXPIRY_DAYS = 30;
 
+const RELIEF_PACK_INVENTORY_ENTITY_TYPES = new Set([
+  "INVENTORY_BATCH",
+  "INVENTORY_ITEM",
+]);
+
+const isReliefPackInventoryMutation = (event = {}) =>
+  event?.moduleName === "mayor-inventory" &&
+  RELIEF_PACK_INVENTORY_ENTITY_TYPES.has(event?.entityType);
+
+export const isReliefPackInventorySyncEvent = (event = {}) => {
+  if (event?.type === "mutation-succeeded") {
+    return isReliefPackInventoryMutation(event);
+  }
+
+  if (
+    event?.type !== "mutations-succeeded" ||
+    !Array.isArray(event?.entries)
+  ) {
+    return false;
+  }
+
+  return event.entries.some(isReliefPackInventoryMutation);
+};
+
 const ELIGIBLE_BATCH_STATUSES = new Set(["AVAILABLE", "LOW_STOCK"]);
 
 const normalizeValue = (value) => String(value || "").trim().toUpperCase();

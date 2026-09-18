@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   isReliefPackInventoryBatchEligible,
+  isReliefPackInventorySyncEvent,
   RELIEF_PACK_INVENTORY_SOURCE_TYPE,
   sortDisasterEventsForReliefPackRollover,
 } from "../src/features/relief-pack-templates/reliefPackInventory.js";
@@ -22,6 +23,49 @@ test("relief-pack inventory accepts available LGU stock without an expiry date",
   assert.equal(
     isReliefPackInventoryBatchEligible(buildBatch(), referenceDate),
     true,
+  );
+});
+
+test("relief-pack inventory refreshes only for successful inventory syncs", () => {
+  assert.equal(
+    isReliefPackInventorySyncEvent({
+      type: "mutation-succeeded",
+      moduleName: "mayor-inventory",
+      entityType: "INVENTORY_BATCH",
+    }),
+    true,
+  );
+  assert.equal(
+    isReliefPackInventorySyncEvent({
+      type: "mutation-succeeded",
+      moduleName: "household-registration",
+      entityType: "HOUSEHOLD",
+    }),
+    false,
+  );
+  assert.equal(
+    isReliefPackInventorySyncEvent({
+      type: "mutations-succeeded",
+      entries: [
+        {
+          moduleName: "mayor-inventory",
+          entityType: "INVENTORY_BATCH",
+        },
+      ],
+    }),
+    true,
+  );
+  assert.equal(
+    isReliefPackInventorySyncEvent({
+      type: "mutations-succeeded",
+      entries: [
+        {
+          moduleName: "household-registration",
+          entityType: "HOUSEHOLD",
+        },
+      ],
+    }),
+    false,
   );
 });
 

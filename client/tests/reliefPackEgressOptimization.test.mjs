@@ -142,6 +142,9 @@ test("Relief Pack Templates uses the aggregate endpoint and retains required ref
   assert.match(pageSource, /pageRefreshInFlightRef/);
   assert.match(pageSource, /demandRefreshInFlightRef/);
   assert.match(pageSource, /pageRefreshFollowUpRef/);
+  assert.match(pageSource, /subscribeToInventoryMutationUpdates/);
+  assert.match(pageSource, /isReliefPackInventorySyncEvent/);
+  assert.match(pageSource, /force:\s*true/);
   assert.match(
     pageSource,
     /const existingRequest = pageRefreshInFlightRef\.current;[\s\S]*?if \(silent\) \{\s*return existingRequest\.promise;/,

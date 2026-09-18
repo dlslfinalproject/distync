@@ -35,6 +35,7 @@ const TRANSPORT_FAILURE_MESSAGES = NETWORK_ERROR_MESSAGES.filter(
 );
 const SYNC_ENDPOINT = `${API_BASE_URL}/api/v1/sync/process`;
 const syncListeners = new Set();
+const inventoryMutationListeners = new Set();
 let isInitialized = false;
 let isSyncInFlight = false;
 
@@ -117,8 +118,8 @@ const validateRequiredFields = (payload, requiredFields = []) => {
   }
 };
 
-const notifySyncListeners = (event = {}) => {
-  syncListeners.forEach((listener) => {
+const notifyListeners = (listeners, event = {}) => {
+  listeners.forEach((listener) => {
     try {
       listener(event);
     } catch (_error) {
@@ -126,6 +127,12 @@ const notifySyncListeners = (event = {}) => {
     }
   });
 };
+
+const notifySyncListeners = (event = {}) =>
+  notifyListeners(syncListeners, event);
+
+const notifyInventoryMutationListeners = (event = {}) =>
+  notifyListeners(inventoryMutationListeners, event);
 
 const emitSyncFeedbackEvent = (detail) => {
   if (typeof window !== "undefined") {
@@ -155,6 +162,11 @@ const persistOfflineMutation = async (entry) => {
 export const subscribeToSyncUpdates = (listener) => {
   syncListeners.add(listener);
   return () => syncListeners.delete(listener);
+};
+
+export const subscribeToInventoryMutationUpdates = (listener) => {
+  inventoryMutationListeners.add(listener);
+  return () => inventoryMutationListeners.delete(listener);
 };
 
 export const flushPendingSyncEntries = async ({ source = "automatic" } = {}) => {
@@ -505,6 +517,22 @@ const flushSelectedSyncEntries = async (
   } finally {
     isSyncInFlight = false;
     notifySyncListeners({ type: "finished", source });
+
+    const syncedEntryMetadata = syncedEntries.map((entry) => ({
+      actionKey: entry.actionKey,
+      entityLocalId: entry.entityLocalId,
+      entityServerId: entry.entityServerId,
+      entityType: entry.entityType,
+      moduleName: entry.moduleName,
+    }));
+
+    if (syncedEntryMetadata.length > 0) {
+      notifyInventoryMutationListeners({
+        type: "mutations-succeeded",
+        source,
+        entries: syncedEntryMetadata,
+      });
+    }
   }
 };
 
@@ -602,7 +630,18 @@ export const performSyncableMutation = async ({
   }
 
   try {
-    return await request();
+    const response = await request();
+
+    notifyInventoryMutationListeners({
+      type: "mutation-succeeded",
+      actionKey,
+      entityLocalId: effectiveEntityLocalId,
+      entityServerId,
+      entityType,
+      moduleName,
+    });
+
+    return response;
   } catch (error) {
     if (!allowOffline || !isNetworkFailure(error)) {
       throw error;

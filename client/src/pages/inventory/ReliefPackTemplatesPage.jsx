@@ -43,8 +43,10 @@ import {
 } from "../../features/pagination/pagination.mjs";
 import {
   isReliefPackInventoryBatchEligible,
+  isReliefPackInventorySyncEvent,
   sortDisasterEventsForReliefPackRollover,
 } from "../../features/relief-pack-templates/reliefPackInventory";
+import { subscribeToInventoryMutationUpdates } from "../../offline/syncService";
 import { useAuth } from "../../context/AuthContext";
 import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 import {
@@ -2036,17 +2038,20 @@ const ReliefPackTemplatesPage = () => {
   const loadReliefPackPage = async ({
     silent = false,
     includeStaticOptions = true,
+    force = false,
   } = {}) => {
     const existingRequest = pageRefreshInFlightRef.current;
 
     if (existingRequest) {
-      if (silent) {
+      if (force) {
+        pageRefreshFollowUpRef.current = true;
+      } else if (silent) {
         return existingRequest.promise;
+      } else {
+        pageRefreshFollowUpRef.current = true;
+        setIsLoading(true);
+        setErrorMessage("");
       }
-
-      pageRefreshFollowUpRef.current = true;
-      setIsLoading(true);
-      setErrorMessage("");
 
       return existingRequest.promise.then(() => {
         if (!pageRefreshFollowUpRef.current || !isMountedRef.current) {
@@ -2054,7 +2059,7 @@ const ReliefPackTemplatesPage = () => {
         }
 
         pageRefreshFollowUpRef.current = false;
-        return loadReliefPackPage({ silent: false });
+        return loadReliefPackPage({ silent, includeStaticOptions });
       });
     }
 
@@ -2225,6 +2230,18 @@ const ReliefPackTemplatesPage = () => {
   }, [selectableBarangayOptions, selectedBarangayId]);
 
   useEffect(() => {
+    const unsubscribe = subscribeToInventoryMutationUpdates((event = {}) => {
+      if (!isReliefPackInventorySyncEvent(event)) {
+        return;
+      }
+
+      void loadReliefPackPage({
+        silent: true,
+        includeStaticOptions: false,
+        force: true,
+      });
+    });
+
     const refreshInventoryDrivenMetrics = () => {
       void loadReliefPackPage({ silent: true, includeStaticOptions: false });
     };
@@ -2244,6 +2261,7 @@ const ReliefPackTemplatesPage = () => {
       window.clearInterval(refreshInterval);
       window.removeEventListener("focus", refreshInventoryDrivenMetrics);
       document.removeEventListener("visibilitychange", handleVisibilityRefresh);
+      unsubscribe();
     };
   }, []);
 
