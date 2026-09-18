@@ -292,6 +292,7 @@ const DistributionHistoryPage = () => {
     pageKey: `distribution-history:${currentRole || "unknown"}`,
     isLoading: isLoadingHistory,
     errorMessage,
+    hasUsableData: historyRows.length > 0,
   });
   const updateFilters = (updater) => {
     setPage(1);

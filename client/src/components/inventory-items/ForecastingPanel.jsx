@@ -1155,6 +1155,7 @@ const ForecastingPanel = ({
   forecastRunData,
   forecastHistory,
   forecastHistoryDetails,
+  isForecastEventsLoading = false,
   forecastSuccessMessage,
   forecastErrorMessage,
   isForecastContextLoading,
@@ -1440,7 +1441,9 @@ const ForecastingPanel = ({
               onChange={(event) => onForecastEventChange(event.target.value)}
               style={panelStyles.filterField}
             >
-              {forecastEvents.length === 0 ? (
+              {isForecastEventsLoading ? (
+                <option value="">Loading active disaster events...</option>
+              ) : forecastEvents.length === 0 ? (
                 <option value="">No active disaster events available</option>
               ) : (
                 forecastEvents.map((event) => (
@@ -1911,6 +1914,10 @@ const ForecastingPanel = ({
             <ChartHeader title="Inventory Usage Trend" />
             {isForecastContextLoading ? (
               <p style={panelStyles.emptyState}>Loading usage trend...</p>
+            ) : !selectedForecastEventId ? (
+              <p style={panelStyles.emptyState}>
+                Select a disaster event to view forecast data.
+              </p>
             ) : (
               <LineChart rows={usageTrendRows} />
             )}
@@ -1923,6 +1930,10 @@ const ForecastingPanel = ({
             />
             {isForecastLoading || isForecastHistoryDetailLoading ? (
               <p style={panelStyles.emptyState}>Loading forecasted demand...</p>
+            ) : !selectedForecastEventId ? (
+              <p style={panelStyles.emptyState}>
+                Select a disaster event to view forecast data.
+              </p>
             ) : (
               <BarChart
                 rows={demandRows}
@@ -1940,6 +1951,10 @@ const ForecastingPanel = ({
             />
             {isForecastLoading || isForecastHistoryDetailLoading ? (
               <p style={panelStyles.emptyState}>Loading projected stock levels...</p>
+            ) : !selectedForecastEventId ? (
+              <p style={panelStyles.emptyState}>
+                Select a disaster event to view forecast data.
+              </p>
             ) : (
               <StockLevelChart rows={stockRows} />
             )}
@@ -2127,7 +2142,11 @@ const ForecastingPanel = ({
 
       <details style={panelStyles.detailsBox}>
         <summary style={panelStyles.detailsSummary}>Forecast Run History</summary>
-        {isForecastHistoryLoading ? (
+        {!selectedForecastEventId ? (
+          <p style={{ ...panelStyles.emptyState, marginTop: "14px" }}>
+            Select a disaster event to view forecast history.
+          </p>
+        ) : isForecastHistoryLoading ? (
           <p style={{ ...panelStyles.emptyState, marginTop: "14px" }}>
             Loading forecast history...
           </p>

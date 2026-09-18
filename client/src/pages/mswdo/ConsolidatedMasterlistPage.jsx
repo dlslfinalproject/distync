@@ -141,6 +141,7 @@ const ConsolidatedEvacueeMasterlist = () => {
       baseIsInitialLoadingMasterlist ||
       baseIsInitialLoadingDashboard,
     errorMessage: errorMessage || dashboardErrorMessage,
+    hasUsableData: displayedRows.length > 0,
   });
   const isInitialLoadingFilters =
     baseIsInitialLoadingFilters && shouldShowInitialLoading;

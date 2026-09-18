@@ -545,6 +545,7 @@ const DisasterEventReportsPage = () => {
     pageKey: "mswdo:disaster-reports",
     isLoading: baseIsInitialLoadingRows || baseIsInitialLoadingFilters,
     errorMessage,
+    hasUsableData: displayedRows.length > 0,
   });
   const isInitialLoadingRows =
     baseIsInitialLoadingRows && shouldShowInitialLoading;

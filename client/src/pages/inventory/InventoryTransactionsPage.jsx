@@ -631,6 +631,7 @@ const InventoryTransactionsPage = () => {
     pageKey: "mayor:inventory-transactions",
     isLoading,
     errorMessage,
+    hasUsableData: inventoryTransactions.length > 0,
   });
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine !== false,

@@ -294,6 +294,11 @@ const DonationManagementPage = () => {
     pageKey: "mayor:donations",
     isLoading,
     errorMessage: pageErrorMessage,
+    hasUsableData:
+      activeTab === "donations"
+        ? donations.length > 0
+        : Array.isArray(portalData.transparency_summary?.received_vs_distributed) &&
+          portalData.transparency_summary.received_vs_distributed.length > 0,
   });
   const [successMessage, setSuccessMessage] = useState("");
   const [isDonationExportModalOpen, setIsDonationExportModalOpen] =

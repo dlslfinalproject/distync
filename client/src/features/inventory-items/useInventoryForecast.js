@@ -40,6 +40,8 @@ export const useInventoryForecast = () => {
   const [forecastRunData, setForecastRunData] = useState(null);
   const [forecastHistory, setForecastHistory] = useState([]);
   const [forecastHistoryDetails, setForecastHistoryDetails] = useState(null);
+  const [isForecastEventsLoading, setIsForecastEventsLoading] =
+    useState(true);
   const [isForecastContextLoading, setIsForecastContextLoading] = useState(false);
   const [isForecastLoading, setIsForecastLoading] = useState(false);
   const [isForecastHistoryLoading, setIsForecastHistoryLoading] =
@@ -51,6 +53,8 @@ export const useInventoryForecast = () => {
   const [forecastSuccessMessage, setForecastSuccessMessage] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
   const [isRefreshingForecastContext, setIsRefreshingForecastContext] = useState(false);
+  const [isRefreshingForecastEvents, setIsRefreshingForecastEvents] =
+    useState(false);
   const [isRefreshingForecast, setIsRefreshingForecast] = useState(false);
   const [isRefreshingForecastHistory, setIsRefreshingForecastHistory] = useState(false);
   const backgroundEventsReloadRef = useRef(false);
@@ -81,6 +85,10 @@ export const useInventoryForecast = () => {
       const preserveExistingEvents =
         backgroundEventsReloadRef.current && hasLoadedEventsRef.current;
       backgroundEventsReloadRef.current = false;
+      if (!preserveExistingEvents) {
+        setIsForecastEventsLoading(true);
+      }
+      setIsRefreshingForecastEvents(preserveExistingEvents);
       try {
         const eventRows = await fetchAllDisasterEvents();
 
@@ -106,6 +114,11 @@ export const useInventoryForecast = () => {
               error.message || "Failed to load disaster events for forecasting.",
             );
           }
+        }
+      } finally {
+        if (isMounted) {
+          setIsForecastEventsLoading(false);
+          setIsRefreshingForecastEvents(false);
         }
       }
     };
@@ -366,6 +379,9 @@ export const useInventoryForecast = () => {
     forecastRunData,
     forecastHistory,
     forecastHistoryDetails,
+    isForecastEventsLoading,
+    isInitialForecastEventsLoading:
+      isForecastEventsLoading && !isRefreshingForecastEvents,
     isForecastContextLoading,
     isInitialForecastContextLoading:
       isForecastContextLoading && !isRefreshingForecastContext,

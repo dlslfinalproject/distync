@@ -423,6 +423,7 @@ const InventoryItemsPage = () => {
     pageKey: "mayor:inventory-items",
     isLoading,
     errorMessage,
+    hasUsableData: inventoryItems.length > 0,
   });
   const [inventoryActionNotice, setInventoryActionNotice] = useState("");
   const [reservedBatchNumbers, setReservedBatchNumbers] = useState([]);

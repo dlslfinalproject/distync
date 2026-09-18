@@ -251,6 +251,14 @@ test("InventoryItemsTable executes pagination effects and stays safe across data
     );
     const renderer = createRenderer(InventoryItemsTable);
 
+    const loadingTree = renderer.render({
+      rows: [],
+      isLoading: true,
+      errorMessage: "",
+    });
+    assert.match(getTextContent(loadingTree), /Loading inventory items\.\.\./);
+    assert.doesNotMatch(getTextContent(loadingTree), /No inventory items found/);
+
     const oneRecordTree = renderer.render({
       rows: createInventoryRows(1),
       isLoading: false,

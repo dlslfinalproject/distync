@@ -144,6 +144,11 @@ const AnalyticsDashboardPage = () => {
     isLoading:
       baseIsInitialLoadingFilters || baseIsInitialLoadingDashboard,
     errorMessage,
+    hasUsableData:
+      (!baseIsInitialLoadingFilters ||
+        disasterEvents.length > 0 ||
+        barangays.length > 0) &&
+      (!baseIsInitialLoadingDashboard || hasData),
   });
   const isInitialLoadingFilters =
     baseIsInitialLoadingFilters && shouldShowInitialLoading;
@@ -370,7 +375,11 @@ const AnalyticsDashboardPage = () => {
         </section>
       ) : null}
 
-      {hasSelectedEvent && !isInitialLoadingDashboard && !errorMessage && !hasData ? (
+      {hasSelectedEvent &&
+      !isInitialLoadingFilters &&
+      !isInitialLoadingDashboard &&
+      !errorMessage &&
+      !hasData ? (
         <section style={shellStyles.card}>
           <h3 style={{ marginTop: 0, color: "#17324d" }}>No Analytics Data</h3>
           <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>

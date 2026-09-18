@@ -1085,6 +1085,7 @@ const SystemLogReviewPage = () => {
     pageKey: "mayor:system-logs",
     isLoading,
     errorMessage,
+    hasUsableData: auditLogs.length > 0,
   });
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedModule, setSelectedModule] = useState(ALL_MODULES_VALUE);

@@ -188,6 +188,7 @@ const DisasterEventsPage = () => {
     pageKey: "mswdo:disaster-events",
     isLoading: baseIsInitialLoading,
     errorMessage,
+    hasUsableData: events.length > 0,
   });
 
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);

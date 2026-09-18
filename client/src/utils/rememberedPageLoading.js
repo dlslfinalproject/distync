@@ -21,11 +21,9 @@ export const useRememberedInitialLoading = ({
   pageKey,
   isLoading,
   errorMessage = "",
+  hasUsableData = false,
 }) => {
   const normalizedPageKey = String(pageKey || "");
-  const wasLoadedBeforeMountRef = useRef(
-    hasRememberedPageLoad(normalizedPageKey),
-  );
   const observedLoadingRef = useRef(Boolean(isLoading));
 
   useEffect(() => {
@@ -42,7 +40,5 @@ export const useRememberedInitialLoading = ({
     }
   }, [errorMessage, isLoading, normalizedPageKey]);
 
-  return Boolean(isLoading) &&
-    !wasLoadedBeforeMountRef.current &&
-    !hasRememberedPageLoad(normalizedPageKey);
+  return Boolean(isLoading) && !errorMessage && !Boolean(hasUsableData);
 };

@@ -30,9 +30,14 @@ test("role dashboard pages suppress only repeat-visit initial loading", async ()
 
   assert.match(helperSource, /const completedPageLoadKeys = new Set\(\)/);
   assert.match(helperSource, /observedLoadingRef\.current/);
-  assert.match(helperSource, /!wasLoadedBeforeMountRef\.current/);
+  assert.match(helperSource, /hasUsableData = false/);
+  assert.match(helperSource, /!Boolean\(hasUsableData\)/);
   assert.equal(
-    pageSources.filter((source) => /useRememberedInitialLoading/.test(source)).length,
+    pageSources.filter(
+      (source) =>
+        /useRememberedInitialLoading/.test(source) &&
+        /hasUsableData/.test(source),
+    ).length,
     pagePaths.length,
   );
 });

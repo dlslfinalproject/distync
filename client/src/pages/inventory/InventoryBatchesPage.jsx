@@ -197,6 +197,7 @@ const InventoryBatchesPage = () => {
     pageKey: "mayor:inventory-batches",
     isLoading,
     errorMessage,
+    hasUsableData: inventoryBatches.length > 0,
   });
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine !== false,

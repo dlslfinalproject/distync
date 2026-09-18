@@ -704,6 +704,8 @@ const SyncManagementPage = () => {
     pageKey: `sync:${currentRole || "unknown"}`,
     isLoading: baseIsInitialHistoryLoading,
     errorMessage,
+    hasUsableData:
+      syncHistory.transactions.length > 0 || syncHistory.conflicts.length > 0,
   });
 
   const syncQueueEntries =

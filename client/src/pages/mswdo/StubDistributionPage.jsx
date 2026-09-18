@@ -309,6 +309,7 @@ const StubDistributionPage = () => {
     pageKey: `mswdo:stub-distribution:${authenticatedUser?.id || ""}`,
     isLoading: baseIsInitialLoadingFilters || baseIsInitialLoadingData,
     errorMessage,
+    hasUsableData: displayedRows.length > 0,
   });
   const isInitialLoadingFilters =
     baseIsInitialLoadingFilters && shouldShowInitialLoading;

@@ -309,6 +309,11 @@ const InventoryDistributionPage = () => {
     isLoading:
       baseIsInitialLoadingFilters || baseIsInitialLoadingMasterlist,
     errorMessage,
+    hasUsableData:
+      (!baseIsInitialLoadingFilters ||
+        disasterEvents.length > 0 ||
+        selectableBarangays.length > 0) &&
+      (!baseIsInitialLoadingMasterlist || displayedRows.length > 0),
   });
   const isInitialLoadingFilters =
     baseIsInitialLoadingFilters && shouldShowInitialLoading;

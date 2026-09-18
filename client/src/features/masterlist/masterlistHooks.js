@@ -88,7 +88,9 @@ export const useMasterlist = ({
   const [data, setData] = useState(
     initialCacheEntry?.data || emptyData,
   );
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(
+    () => Boolean(disasterEventId && !initialCacheEntry),
+  );
   const [errorMessage, setErrorMessage] = useState("");
   const [infoMessage, setInfoMessage] = useState("");
   const [isAuthoritative, setIsAuthoritative] = useState(

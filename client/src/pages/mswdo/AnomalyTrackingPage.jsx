@@ -1426,6 +1426,7 @@ const AnomalyTrackingPage = ({
     pageKey: `${scope}:anomalies`,
     isLoading: baseIsInitialLoadingFilters || baseIsInitialLoadingRows,
     errorMessage,
+    hasUsableData: rows.length > 0,
   });
   const isInitialLoadingFilters =
     baseIsInitialLoadingFilters && shouldShowInitialLoading;

@@ -1989,6 +1989,7 @@ const ReliefPackTemplatesPage = () => {
     pageKey: "mayor:relief-pack-templates",
     isLoading,
     errorMessage,
+    hasUsableData: templates.length > 0,
   });
   const [statusErrorMessage, setStatusErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");

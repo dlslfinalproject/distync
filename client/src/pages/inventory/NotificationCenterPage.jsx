@@ -43,6 +43,7 @@ const NotificationCenterPage = () => {
     pageKey: `notifications:${sessionScope}`,
     isLoading,
     errorMessage: toast.type === "error" ? toast.message : "",
+    hasUsableData: notifications.length > 0,
   });
   const roleDescription = { [ROLE_CODES.MAYOR]: "Review inventory, donation, and system alerts.", [ROLE_CODES.MSWDO]: "Review operational updates for relief coordination.", [ROLE_CODES.BARANGAY]: "Review updates for your barangay operations." };
 

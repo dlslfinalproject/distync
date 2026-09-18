@@ -24,6 +24,7 @@ const InventoryForecastsPage = () => {
     forecastRunData,
     forecastHistory,
     forecastHistoryDetails,
+    isInitialForecastEventsLoading,
     isInitialForecastContextLoading: baseIsForecastContextLoading,
     isInitialForecastLoading: baseIsForecastLoading,
     isInitialForecastHistoryLoading: baseIsForecastHistoryLoading,
@@ -44,6 +45,10 @@ const InventoryForecastsPage = () => {
       baseIsForecastLoading ||
       baseIsForecastHistoryLoading,
     errorMessage: forecastErrorMessage,
+    hasUsableData:
+      (!baseIsForecastContextLoading || Boolean(forecastContext)) &&
+      (!baseIsForecastLoading || Boolean(forecastRunData)) &&
+      (!baseIsForecastHistoryLoading || forecastHistory.length > 0),
   });
   const isForecastContextLoading =
     baseIsForecastContextLoading && shouldShowInitialLoading;
@@ -106,6 +111,7 @@ const InventoryForecastsPage = () => {
         forecastRunData={forecastRunData}
         forecastHistory={forecastHistory}
         forecastHistoryDetails={forecastHistoryDetails}
+        isForecastEventsLoading={isInitialForecastEventsLoading}
         forecastSuccessMessage={forecastSuccessMessage}
         forecastErrorMessage={forecastErrorMessage}
         isForecastContextLoading={isForecastContextLoading}
