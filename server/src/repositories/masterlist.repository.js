@@ -580,14 +580,14 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
     ),
     daily_admission_trend AS (
       SELECT
-        DATE(el.time_in) AS admission_date,
+        DATE(el.time_in AT TIME ZONE 'Asia/Manila') AS admission_date,
         COUNT(DISTINCT el.evacuee_id)::int AS value
       FROM filtered_households fh
       INNER JOIN evacuation_logs el
         ON el.household_id = fh.id
        AND el.disaster_event_id = $1
       WHERE el.time_in IS NOT NULL
-      GROUP BY DATE(el.time_in)
+      GROUP BY DATE(el.time_in AT TIME ZONE 'Asia/Manila')
       ORDER BY admission_date ASC
     )
     SELECT

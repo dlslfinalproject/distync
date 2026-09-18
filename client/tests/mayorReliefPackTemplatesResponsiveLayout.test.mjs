@@ -132,6 +132,14 @@ test("Mayor relief pack template table and detail tables keep overflow local", a
   assert.match(pageSource, /reliefPackName: \{[\s\S]*?fontWeight: 700/);
   assert.doesNotMatch(pageSource, /tableStyles\.nameStatus/);
   assert.match(pageSource, /className="mayor-relief-pack-template-item-name"/);
+  assert.match(pageSource, /data-label="Relief Pack"/);
+  assert.match(pageSource, /data-label="Pack Type"/);
+  assert.match(pageSource, /data-label="Items"/);
+  assert.match(pageSource, /data-label="Qty \/ Item"/);
+  assert.match(pageSource, /data-label="Rule"/);
+  assert.match(pageSource, /data-label="Disaster Type"/);
+  assert.match(pageSource, /data-label="Status"/);
+  assert.match(pageSource, /data-label="Actions"/);
   assert.match(pageSource, /className="mayor-relief-pack-detail-table-scroll"/);
   assert.match(pageSource, /className="mayor-relief-pack-detail-table"/);
   assert.match(pageSource, />\s*Relief Pack\s*</);
@@ -172,6 +180,18 @@ test("Mayor relief pack template table and detail tables keep overflow local", a
   assert.match(
     cssSource,
     /\.mayor-relief-pack-template-rule-chip,[\s\S]*?\.mayor-relief-pack-template-applies-chip \{[\s\S]*?max-width: 100%;[\s\S]*?white-space: normal;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 600px\)[\s\S]*?\.mayor-relief-pack-template-table \{[\s\S]*?display: block;[\s\S]*?min-width: 0 !important;[\s\S]*?width: 100% !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 600px\)[\s\S]*?\.mayor-relief-pack-template-table tbody td \{[\s\S]*?display: grid;[\s\S]*?grid-template-columns: minmax\(88px, 30%\) minmax\(0, 1fr\);/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 600px\)[\s\S]*?\.mayor-relief-pack-template-table tbody td::before \{[\s\S]*?content: attr\(data-label\);/,
   );
   assert.doesNotMatch(pageSource, /pagination=\{/);
 });

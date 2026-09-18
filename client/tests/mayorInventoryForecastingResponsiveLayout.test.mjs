@@ -67,15 +67,54 @@ test("Mayor inventory forecasting controls, KPIs, charts, and tables expose mobi
   assert.match(panelSource, /minHeight: "clamp\(220px, 46vw, 280px\)"/);
   assert.match(panelSource, /aria-label="Inventory usage trend chart"/);
   assert.match(panelSource, /role="img"/);
+  assert.match(panelSource, /className="mayor-inventory-forecast-input-summary-grid"/);
+  assert.match(panelSource, /className="mayor-inventory-forecast-usage-summary-grid"/);
   assert.match(panelSource, /overflowX: "auto"/);
   assert.doesNotMatch(panelSource, /overflowX:\s*"hidden"/);
   assert.match(panelSource, /stockActionColumnWidths/);
+  assert.match(panelSource, /className="mayor-inventory-forecast-stock-actions-table"/);
+  assert.match(panelSource, />\s*Items\s*</);
+  assert.match(panelSource, /\["Items", "Request", "Urgency"\]/);
+  assert.match(panelSource, /className="mayor-inventory-forecast-detailed-results-table"/);
+  assert.match(panelSource, /\[\s*\["Items", panelStyles\.detailedColumnWidths\.item\]/);
   assert.match(panelSource, /detailedColumnWidths/);
   assert.match(panelSource, /Forecast Need/);
   assert.match(panelSource, /After Forecast/);
   assert.match(panelSource, /Detailed Results by Item/);
   assert.match(panelSource, /Forecast Run History/);
   assert.match(panelSource, /overflowWrap: "anywhere"/);
+  assert.match(
+    cssSource,
+    /\.mayor-inventory-forecast-stock-actions-table th \{[\s\S]*?white-space: nowrap !important;/,
+  );
+  assert.match(
+    cssSource,
+    /\.mayor-inventory-forecast-stock-actions-table td \{[\s\S]*?white-space: nowrap;[\s\S]*?word-break: normal;/,
+  );
+  assert.match(
+    cssSource,
+    /\.mayor-inventory-forecast-detailed-results-table \{[\s\S]*?min-width: 1440px !important;/,
+  );
+  assert.match(
+    cssSource,
+    /\.mayor-inventory-forecast-detailed-results-table th \{[\s\S]*?white-space: nowrap !important;/,
+  );
+  assert.match(
+    cssSource,
+    /\.mayor-inventory-forecast-detailed-results-table td \{[\s\S]*?white-space: nowrap;[\s\S]*?word-break: normal;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.mayor-inventory-forecast-stock-actions-table \{[\s\S]*?min-width: 760px !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.mayor-inventory-forecast-usage-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.mayor-inventory-forecast-input-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+  );
   assert.match(panelSource, /\(Suggested Model\)/);
   assert.doesNotMatch(panelSource, /Suggested model for this event/);
   assert.doesNotMatch(panelSource, /How the three models differ/);

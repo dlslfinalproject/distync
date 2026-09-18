@@ -943,7 +943,14 @@ const LineChart = ({ rows = [] }) => {
         Based on inventory outflow and distribution records for this disaster event.
       </p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "12px" }}>
+      <div
+        className="mayor-inventory-forecast-usage-summary-grid"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+          gap: "12px",
+        }}
+      >
         {[
           ["Total Used", formatNumber(totalUsed)],
           [
@@ -1699,7 +1706,10 @@ const ForecastingPanel = ({
               </p>
             ) : (
               <div style={{ ...panelStyles.tableWrap, marginTop: "14px" }}>
-                <table style={panelStyles.compactTable}>
+                <table
+                  className="mayor-inventory-forecast-stock-actions-table"
+                  style={panelStyles.compactTable}
+                >
                   <thead>
                     <tr>
                       <th
@@ -1709,7 +1719,7 @@ const ForecastingPanel = ({
                           width: panelStyles.stockActionColumnWidths.item,
                         }}
                       >
-                        Item Name
+                        Items
                       </th>
                       <th
                         style={{
@@ -1846,12 +1856,12 @@ const ForecastingPanel = ({
                 <table style={panelStyles.compactTable}>
                   <thead>
                     <tr>
-                      {["Item Name", "Request", "Urgency"].map((header) => (
+                      {["Items", "Request", "Urgency"].map((header) => (
                         <th
                           key={header}
                           style={{
                             ...panelStyles.th,
-                            ...(header === "Item Name" ? panelStyles.leftCell : null),
+                            ...(header === "Items" ? panelStyles.leftCell : null),
                           }}
                         >
                           {header}
@@ -1944,7 +1954,10 @@ const ForecastingPanel = ({
           </h4>
         </div>
 
-        <div style={panelStyles.inputSummaryGrid}>
+        <div
+          className="mayor-inventory-forecast-input-summary-grid"
+          style={panelStyles.inputSummaryGrid}
+        >
           {sourceCards.map((card) => (
             <div key={card.label} style={panelStyles.inputSummaryPill}>
               <p style={{ ...panelStyles.label, marginBottom: 0 }}>{card.label}</p>
@@ -1959,11 +1972,14 @@ const ForecastingPanel = ({
       <details id="forecast-detailed-results" style={panelStyles.detailsBox}>
         <summary style={panelStyles.detailsSummary}>Detailed Results by Item</summary>
         <div style={{ ...panelStyles.tableWrap, marginTop: "16px" }}>
-          <table style={panelStyles.table}>
+          <table
+            className="mayor-inventory-forecast-detailed-results-table"
+            style={panelStyles.table}
+          >
             <thead>
               <tr>
                 {[
-                  ["Item Name", panelStyles.detailedColumnWidths.item],
+                  ["Items", panelStyles.detailedColumnWidths.item],
                   ["Eligible Stock", panelStyles.detailedColumnWidths.currentStock],
                   ["Assigned Pack Demand", panelStyles.detailedColumnWidths.assignedPackDemand],
                   ["Forecast Need", panelStyles.detailedColumnWidths.forecastNeed],
@@ -1977,7 +1993,7 @@ const ForecastingPanel = ({
                     style={{
                       ...panelStyles.th,
                       width,
-                      ...(header === "Item Name" ? panelStyles.leftCell : null),
+                      ...(header === "Items" ? panelStyles.leftCell : null),
                     }}
                   >
                     {header}

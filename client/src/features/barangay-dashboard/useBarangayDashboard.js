@@ -163,13 +163,6 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
   ) || [];
   const syncQueueEntries = useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
   useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-    const reloadWhenOnline = () => reloadDashboard({ background: true });
-    window.addEventListener("online", reloadWhenOnline);
-    return () => window.removeEventListener("online", reloadWhenOnline);
-  }, [reloadDashboard]);
-
-  useEffect(() => {
     const unsubscribe = subscribeToSyncUpdates((event) => {
       if (event?.type === "finished") {
         reloadDashboard({ background: true });

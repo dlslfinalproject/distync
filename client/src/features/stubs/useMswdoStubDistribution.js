@@ -37,6 +37,7 @@ import {
 import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
 
 export const ALL_BARANGAYS = "__ALL_BARANGAYS__";
+const MAX_SERVER_STUB_PAGE_SIZE = 100;
 
 const emptyMetrics = {
   total_issued_stubs: 0,
@@ -57,6 +58,19 @@ const getFriendlyErrorMessage = (error) => {
 
   return error?.message || "Unable to load the relief goods distribution page.";
 };
+
+const buildStubMetrics = (rows = []) => ({
+  total_issued_stubs: rows.length,
+  claimed_stubs: rows.filter(
+    (row) => row.presentation_status === "CLAIMED",
+  ).length,
+  unclaimed_stubs: rows.filter(
+    (row) => row.presentation_status === "FOR_CLAIM",
+  ).length,
+  beneficiary_families: new Set(
+    rows.map((row) => row.household_id || row.household?.id).filter(Boolean),
+  ).size,
+});
 
 const getMappedRows = (stubRows, disasterEventId = "") =>
   stubRows.map((stubRow) => ({
@@ -438,28 +452,39 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
           hasLoadedDataRef.current = true;
           return;
         }
-        const dashboardPayload = isAllBarangays && selectedEvent?.status === "ACTIVE"
-          ? await fetchMunicipalStubDashboard({
+        const fetchDashboardPage = ({
+          requestedPage,
+          requestedPageSize,
+          skipOfflineCache = false,
+        }) => isAllBarangays && selectedEvent?.status === "ACTIVE"
+          ? fetchMunicipalStubDashboard({
               disasterEventId: selectedDisasterEventId,
-              page,
-              pageSize,
+              page: requestedPage,
+              pageSize: requestedPageSize,
               search: searchTerm,
               status: selectedStubStatus,
               sectorIds: selectedSectorIds,
               sectorOptions: sectors,
               sortOrder: selectedSortOrder,
+              skipOfflineCache,
             })
-          : await fetchBarangayStubDashboard({
+          : fetchBarangayStubDashboard({
               disasterEventId: selectedDisasterEventId,
               barangayId: selectedBarangayId,
-              page,
-              pageSize,
+              page: requestedPage,
+              pageSize: requestedPageSize,
               search: searchTerm,
               status: selectedStubStatus,
               sectorIds: selectedSectorIds,
               sectorOptions: sectors,
               sortOrder: selectedSortOrder,
+              skipOfflineCache,
             });
+
+        const dashboardPayload = await fetchDashboardPage({
+          requestedPage: page,
+          requestedPageSize: pageSize,
+        });
 
         if (!isMounted) {
           return;
@@ -482,33 +507,82 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
           return;
         }
 
+        let serverRowsForDisplay = serverRows;
+        let localRowsForDisplay = localRows;
+        let usesLocalPagination = false;
+
+        if (localRows.length > 0) {
+          const firstFullPayload = await fetchDashboardPage({
+            requestedPage: 1,
+            requestedPageSize: MAX_SERVER_STUB_PAGE_SIZE,
+            skipOfflineCache: true,
+          });
+          const totalServerPages = Math.max(
+            Number(firstFullPayload.pagination?.totalPages) || 1,
+            1,
+          );
+          const fullServerRows = [
+            ...(Array.isArray(firstFullPayload.data) ? firstFullPayload.data : []),
+          ];
+
+          for (let nextPage = 2; nextPage <= totalServerPages; nextPage += 1) {
+            const nextPayload = await fetchDashboardPage({
+              requestedPage: nextPage,
+              requestedPageSize: MAX_SERVER_STUB_PAGE_SIZE,
+              skipOfflineCache: true,
+            });
+            fullServerRows.push(
+              ...(Array.isArray(nextPayload.data) ? nextPayload.data : []),
+            );
+          }
+
+          if (!isMounted || dataRequestSeqRef.current !== requestSeq) {
+            return;
+          }
+
+          serverRowsForDisplay = fullServerRows;
+          localRowsForDisplay = await getPendingLocalStubRows({
+            disasterEventId: selectedDisasterEventId,
+            barangayId: isAllBarangays ? "" : selectedBarangayId,
+            includeAllBarangays: isAllBarangays,
+            sectorOptions: sectors,
+            existingHouseholdIds: fullServerRows.map(
+              (row) => row.household?.id || row.household_id,
+            ),
+          });
+          usesLocalPagination = true;
+        }
+
         const syncQueueEntries = await getVisibleSyncQueueEntries();
         const scopedServerRows = isAllBarangays
-          ? serverRows
-          : serverRows.filter((row) => String(row.barangay_id || row.barangay?.id || "") === String(selectedBarangayId));
+          ? serverRowsForDisplay
+          : serverRowsForDisplay.filter((row) => String(row.barangay_id || row.barangay?.id || "") === String(selectedBarangayId));
         const presentedRows = scopedServerRows.map((row) =>
           withStubPresentationStatus(row, syncQueueEntries, {
             disasterEventId: selectedDisasterEventId,
             barangayId: isAllBarangays ? "" : selectedBarangayId,
           }),
         );
+        const presentedLocalRows = localRowsForDisplay.map((row) =>
+          withStubPresentationStatus(row, syncQueueEntries, {
+            disasterEventId: selectedDisasterEventId,
+            barangayId: isAllBarangays ? "" : selectedBarangayId,
+          }),
+        );
+        const allPresentedRows = [...presentedRows, ...presentedLocalRows];
         setDashboard({
-          metrics: dashboardPayload.metrics || {
-            ...emptyMetrics,
-            total_issued_stubs: presentedRows.length,
-            claimed_stubs: presentedRows.filter((row) => row.presentation_status === "CLAIMED").length,
-            unclaimed_stubs: presentedRows.filter((row) => row.presentation_status === "FOR_CLAIM").length,
-            beneficiary_families: new Set(presentedRows.map((row) => row.household_id || row.household?.id)).size,
-          },
+          metrics: usesLocalPagination
+            ? buildStubMetrics(allPresentedRows)
+            : dashboardPayload.metrics || buildStubMetrics(presentedRows),
           data: sortPresentedStubRows(presentedRows),
         });
-        setServerPagination(dashboardPayload.pagination || null);
-        setPendingLocalRows(page === 1 ? localRows : []);
+        setServerPagination(usesLocalPagination ? null : dashboardPayload.pagination || null);
+        setPendingLocalRows(usesLocalPagination ? localRowsForDisplay : page === 1 ? localRows : []);
         hasLoadedDataRef.current = true;
       } catch (error) {
         if (isMounted) {
           if (preserveExistingData) {
-            setErrorMessage("");
+            setErrorMessage("Unable to refresh relief goods distribution. Showing the last successful data.");
             return;
           }
 

@@ -248,19 +248,26 @@ export const useMswdoAnalytics = () => {
         setSelectedDisasterEventId(nextEventId);
       } catch (error) {
         if (isMounted) {
-          if (preserveExistingFilters) {
-            setErrorMessage("");
-            return;
+          const isOffline =
+            typeof navigator !== "undefined" && navigator.onLine === false;
+
+          if (isOffline) {
+            const restoredEvent = readOperationalDisasterEventContext({ roleCode: "MSWDO", userId });
+            const cached = restoredEvent ? await readMswdoOfflineSnapshot({ userId, eventId: restoredEvent.id }) : null;
+            if (cached) {
+              setDisasterEvents(cached.datasets.filters.events || [restoredEvent]);
+              setBarangays(cached.datasets.filters.barangays || []);
+              setSelectedDisasterEventId(restoredEvent.id);
+              setErrorMessage("");
+              return;
+            }
           }
 
-          const restoredEvent = readOperationalDisasterEventContext({ roleCode: "MSWDO", userId });
-          const cached = restoredEvent ? await readMswdoOfflineSnapshot({ userId, eventId: restoredEvent.id }) : null;
-          if (cached) {
-            setDisasterEvents(cached.datasets.filters.events || [restoredEvent]);
-            setBarangays(cached.datasets.filters.barangays || []);
-            setSelectedDisasterEventId(restoredEvent.id);
-            setErrorMessage("");
-          } else setErrorMessage(error.message || "Failed to load analytics filters");
+          if (preserveExistingFilters) {
+            setErrorMessage("Unable to refresh analytics filters. Showing the last successful data.");
+          } else {
+            setErrorMessage(error.message || "Failed to load analytics filters");
+          }
         }
       } finally {
         if (isMounted) {
@@ -298,6 +305,17 @@ export const useMswdoAnalytics = () => {
       setErrorMessage("");
 
       try {
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+          const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
+          if (!cached) {
+            throw new Error("Offline analytics snapshot is not ready");
+          }
+
+          setOperationalPayload(cached.datasets.dashboard.payload || emptyOperationalPayload);
+          hasLoadedDashboardRef.current = true;
+          return;
+        }
+
         const payload = await fetchMasterlistOperationalAnalytics({
           disasterEventId: selectedDisasterEventId,
           barangayId: selectedBarangayId || null,
@@ -310,19 +328,13 @@ export const useMswdoAnalytics = () => {
       } catch (error) {
         if (isMounted) {
           if (preserveExistingDashboard) {
-            setErrorMessage("");
+            setErrorMessage("Unable to refresh analytics. Showing the last successful data.");
             return;
           }
-          const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
-          if (cached) {
-            setOperationalPayload(cached.datasets.dashboard.payload || emptyOperationalPayload);
-            hasLoadedDashboardRef.current = true;
-            setErrorMessage("");
-          } else {
-            setOperationalPayload(emptyOperationalPayload);
-            hasLoadedDashboardRef.current = false;
-            setErrorMessage(error.message || "Failed to load analytics dashboard");
-          }
+
+          setOperationalPayload(emptyOperationalPayload);
+          hasLoadedDashboardRef.current = false;
+          setErrorMessage(error.message || "Failed to load analytics dashboard");
         }
       } finally {
         if (isMounted) {
@@ -338,12 +350,6 @@ export const useMswdoAnalytics = () => {
       isMounted = false;
     };
   }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
-
-  useEffect(() => {
-    const refresh = () => reloadDashboard({ background: true });
-    window?.addEventListener?.("online", refresh);
-    return () => window?.removeEventListener?.("online", refresh);
-  }, []);
 
   useEffect(() => {
     if (!selectedDisasterEventId || !userId) return;

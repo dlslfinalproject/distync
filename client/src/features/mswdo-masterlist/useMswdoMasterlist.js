@@ -405,18 +405,26 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
         });
       } catch (error) {
         if (isMounted) {
-          const restoredEvent = readOperationalDisasterEventContext({ roleCode: ROLE_CODES.MSWDO, userId });
-          const cached = restoredEvent ? await readMswdoOfflineSnapshot({ userId, eventId: restoredEvent.id }) : null;
-          if (cached) {
-            setDisasterEvents(cached.datasets.filters.events || [restoredEvent]);
-            setBarangays(cached.datasets.filters.barangays || []);
-            setSectors(buildMasterlistFilterSectorOptions(cached.datasets.filters.sectors || []));
-            setSelectedDisasterEventIdState(restoredEvent.id);
-            setErrorMessage("");
-          } else {
-            if (!preserveExistingFilters) {
-              setErrorMessage(error.message || "Failed to load monitoring filters");
+          const isOffline =
+            typeof navigator !== "undefined" && navigator.onLine === false;
+
+          if (isOffline) {
+            const restoredEvent = readOperationalDisasterEventContext({ roleCode: ROLE_CODES.MSWDO, userId });
+            const cached = restoredEvent ? await readMswdoOfflineSnapshot({ userId, eventId: restoredEvent.id }) : null;
+            if (cached) {
+              setDisasterEvents(cached.datasets.filters.events || [restoredEvent]);
+              setBarangays(cached.datasets.filters.barangays || []);
+              setSectors(buildMasterlistFilterSectorOptions(cached.datasets.filters.sectors || []));
+              setSelectedDisasterEventIdState(restoredEvent.id);
+              setErrorMessage("");
+              return;
             }
+          }
+
+          if (preserveExistingFilters) {
+            setErrorMessage("Unable to refresh monitoring filters. Showing the last successful data.");
+          } else {
+            setErrorMessage(error.message || "Failed to load monitoring filters");
           }
         }
       } finally {
@@ -524,38 +532,43 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
           masterlistRequestSequenceRef.current === requestSequence
         ) {
           if (preserveExistingData) {
-            setErrorMessage("");
+            setErrorMessage("Unable to refresh the masterlist. Showing the last successful data.");
             return;
           }
 
-          const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
-          if (cached) {
-            const completeHouseholds = cached.datasets.masterlist.rows || [];
-            setMasterlistPayload(buildMswdoOfflineMasterlistPayload({
-              households: completeHouseholds,
-              mapRow: (household, allHouseholds) =>
-                getMappedRows(allHouseholds, allHouseholds, selectedDisasterEventId).find(
-                  (row) => row.household_id === household.household_id,
-                ),
-              selectedBarangayId,
-              recordStatus,
-              searchTerm: debouncedSearchTerm,
-              selectedSectorIds,
-              selectedSortOrder,
-              currentPage,
-              pageSize,
-              basePayload: cached.datasets.masterlist.payload || emptyMasterlistPayload,
-              syncQueueEntries,
-              selectedEventTitle: cached.datasets.masterlist.payload?.disaster_event?.title || "",
-              sectorOptions: cached.datasets.filters.sectors || [],
-            }));
-            setErrorMessage("");
-            hasLoadedMasterlistRef.current = true;
-          } else {
-            setMasterlistPayload(emptyMasterlistPayload);
-            hasLoadedMasterlistRef.current = false;
-            setErrorMessage(error.message || "Failed to load consolidated masterlist");
+          const isOffline =
+            typeof navigator !== "undefined" && navigator.onLine === false;
+          if (isOffline) {
+            const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
+            if (cached) {
+              const completeHouseholds = cached.datasets.masterlist.rows || [];
+              setMasterlistPayload(buildMswdoOfflineMasterlistPayload({
+                households: completeHouseholds,
+                mapRow: (household, allHouseholds) =>
+                  getMappedRows(allHouseholds, allHouseholds, selectedDisasterEventId).find(
+                    (row) => row.household_id === household.household_id,
+                  ),
+                selectedBarangayId,
+                recordStatus,
+                searchTerm: debouncedSearchTerm,
+                selectedSectorIds,
+                selectedSortOrder,
+                currentPage,
+                pageSize,
+                basePayload: cached.datasets.masterlist.payload || emptyMasterlistPayload,
+                syncQueueEntries,
+                selectedEventTitle: cached.datasets.masterlist.payload?.disaster_event?.title || "",
+                sectorOptions: cached.datasets.filters.sectors || [],
+              }));
+              setErrorMessage("");
+              hasLoadedMasterlistRef.current = true;
+              return;
+            }
           }
+
+          setMasterlistPayload(emptyMasterlistPayload);
+          hasLoadedMasterlistRef.current = false;
+          setErrorMessage(error.message || "Failed to load consolidated masterlist");
         }
       } finally {
         if (
@@ -607,6 +620,22 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
       setDashboardErrorMessage("");
 
       try {
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+          const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
+          if (!cached) {
+            throw new Error("Offline analytics snapshot is not ready");
+          }
+
+          setDashboardPayload(buildOfflineMswdoDashboardPayload({
+            cached,
+            selectedEventId: selectedDisasterEventId,
+            selectedBarangayId,
+            syncQueueEntries,
+          }));
+          hasLoadedDashboardRef.current = true;
+          return;
+        }
+
         const payload = await fetchConsolidatedMasterlistDashboard({
           disasterEventId: selectedDisasterEventId,
           barangayId: selectedBarangayId || null,
@@ -619,24 +648,13 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
       } catch (error) {
         if (isMounted) {
           if (preserveExistingData) {
-            setDashboardErrorMessage("");
+            setDashboardErrorMessage("Unable to refresh descriptive analytics. Showing the last successful data.");
             return;
           }
-          const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
-          if (cached) {
-            setDashboardPayload(buildOfflineMswdoDashboardPayload({
-              cached,
-              selectedEventId: selectedDisasterEventId,
-              selectedBarangayId,
-              syncQueueEntries,
-            }));
-            hasLoadedDashboardRef.current = true;
-            setDashboardErrorMessage("");
-          } else {
-            setDashboardPayload(emptyDashboardPayload);
-            hasLoadedDashboardRef.current = false;
-            setDashboardErrorMessage("Unable to load descriptive analytics.");
-          }
+
+          setDashboardPayload(emptyDashboardPayload);
+          hasLoadedDashboardRef.current = false;
+          setDashboardErrorMessage(error.message || "Unable to load descriptive analytics.");
         }
       } finally {
         if (isMounted) {
@@ -652,12 +670,6 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
       isMounted = false;
     };
   }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
-
-  useEffect(() => {
-    const refresh = () => reloadMasterlist({ background: true });
-    window?.addEventListener?.("online", refresh);
-    return () => window?.removeEventListener?.("online", refresh);
-  }, []);
 
   useEffect(
     () => subscribeToSyncUpdates(() => reloadMasterlist({ background: true })),

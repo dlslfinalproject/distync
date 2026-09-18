@@ -125,6 +125,10 @@ test("MSWDO Disaster Event modals expose phone-safe layout hooks", async () => {
   );
   assert.match(
     cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.disaster-event-single-export-modal \{[\s\S]*?align-self: center !important;[\s\S]*?height: fit-content !important;/,
+  );
+  assert.match(
+    cssSource,
     /@media \(max-width: 480px\)[\s\S]*?\.disaster-event-form-grid,[\s\S]*?\.disaster-event-detail-barangay-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
   );
 });

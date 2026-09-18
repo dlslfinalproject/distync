@@ -3409,6 +3409,7 @@ const ReliefPackTemplatesPage = () => {
                       return (
                         <tr key={template.id}>
                         <td
+                          data-label="Relief Pack"
                           style={{
                             ...tableStyles.bodyCell,
                             ...tableStyles.leftCell,
@@ -3423,6 +3424,7 @@ const ReliefPackTemplatesPage = () => {
                           </div>
                         </td>
                         <td
+                          data-label="Pack Type"
                           style={{
                             ...tableStyles.bodyCell,
                             ...tableStyles.packTypeCell,
@@ -3434,6 +3436,7 @@ const ReliefPackTemplatesPage = () => {
                           />
                         </td>
                         <td
+                          data-label="Items"
                           style={{
                             ...tableStyles.bodyCell,
                             ...tableStyles.leftCell,
@@ -3461,6 +3464,7 @@ const ReliefPackTemplatesPage = () => {
                           )}
                         </td>
                         <td
+                          data-label="Qty / Item"
                           style={{
                             ...tableStyles.bodyCell,
                             ...tableStyles.quantityCell,
@@ -3487,6 +3491,7 @@ const ReliefPackTemplatesPage = () => {
                           )}
                         </td>
                         <td
+                          data-label="Rule"
                           className="mayor-relief-pack-template-rule-cell"
                           style={{
                             ...tableStyles.bodyCell,
@@ -3506,6 +3511,7 @@ const ReliefPackTemplatesPage = () => {
                           </div>
                         </td>
                         <td
+                          data-label="Disaster Type"
                           className="mayor-relief-pack-template-applies-cell"
                           style={{
                             ...tableStyles.bodyCell,
@@ -3527,6 +3533,7 @@ const ReliefPackTemplatesPage = () => {
                           </div>
                         </td>
                         <td
+                          data-label="Status"
                           className="mayor-relief-pack-template-status-cell"
                           style={{
                             ...tableStyles.bodyCell,
@@ -3538,6 +3545,7 @@ const ReliefPackTemplatesPage = () => {
                           </span>
                         </td>
                         <td
+                          data-label="Actions"
                           className="mayor-relief-pack-template-actions-cell"
                           style={{
                             ...tableStyles.bodyCell,

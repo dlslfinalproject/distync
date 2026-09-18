@@ -74,6 +74,19 @@ test("MSWDO distribution includes pending local rows in specific and all-Baranga
   assert.match(rowsSource, /includeAllBarangays \|\|/);
 });
 
+test("MSWDO distribution expands to a complete local page set when pending rows exist", async () => {
+  const source = await readSource(
+    "../src/features/stubs/useMswdoStubDistribution.js",
+  );
+
+  assert.match(source, /MAX_SERVER_STUB_PAGE_SIZE = 100/);
+  assert.match(source, /firstFullPayload = await fetchDashboardPage/);
+  assert.match(source, /requestedPageSize: MAX_SERVER_STUB_PAGE_SIZE/);
+  assert.match(source, /for \(let nextPage = 2; nextPage <= totalServerPages/);
+  assert.match(source, /setServerPagination\(usesLocalPagination \? null/);
+  assert.match(source, /setPendingLocalRows\(usesLocalPagination \? localRowsForDisplay/);
+});
+
 test("MSWDO distribution active/ended tab reconciliation waits for filter resolution", async () => {
   const source = await readSource("../src/pages/mswdo/StubDistributionPage.jsx");
 

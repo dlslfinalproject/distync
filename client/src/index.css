@@ -2862,6 +2862,11 @@ img {
     padding: 16px !important;
   }
 
+  .disaster-event-single-export-modal {
+    align-self: center !important;
+    height: fit-content !important;
+  }
+
   .disaster-event-modal-topbar {
     align-items: flex-start !important;
     flex-wrap: nowrap !important;
@@ -3104,7 +3109,7 @@ img {
   }
 
   .distribution-history-filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 
   .distribution-history-export-button {
@@ -3858,6 +3863,67 @@ img {
   min-width: 0 !important;
 }
 
+.mayor-inventory-forecast-stock-actions-table th {
+  overflow-wrap: normal !important;
+  white-space: nowrap !important;
+}
+
+.mayor-inventory-forecast-stock-actions-table td {
+  overflow-wrap: normal;
+  white-space: nowrap;
+  word-break: normal;
+}
+
+.mayor-inventory-forecast-stock-actions-table td:first-child,
+.mayor-inventory-forecast-stock-actions-table td:first-child > strong {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.mayor-inventory-forecast-stock-actions-table td:last-child > span {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.mayor-inventory-forecast-detailed-results-table {
+  min-width: 1440px !important;
+}
+
+.mayor-inventory-forecast-detailed-results-table th {
+  overflow-wrap: normal !important;
+  white-space: nowrap !important;
+}
+
+.mayor-inventory-forecast-detailed-results-table td {
+  overflow-wrap: normal;
+  white-space: nowrap;
+  word-break: normal;
+}
+
+.mayor-inventory-forecast-detailed-results-table td:first-child,
+.mayor-inventory-forecast-detailed-results-table td:first-child > strong {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+@media (max-width: 768px) {
+  .mayor-inventory-forecast-input-summary-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .mayor-inventory-forecast-usage-summary-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .mayor-inventory-forecast-stock-actions-table {
+    min-width: 760px !important;
+  }
+
+  .mayor-inventory-forecast-detailed-results-table {
+    min-width: 1440px !important;
+  }
+}
+
 /* Barangay dashboard toolbar layout: keep mobile controls in the requested rows. */
 @media (max-width: 768px) {
   .masterlist-toolbar-actions {
@@ -4056,6 +4122,100 @@ img {
   }
 
   .mayor-anomaly-table-scroll {
+    max-width: 100%;
+  }
+}
+
+/* Relief pack templates: stack each record into a readable mobile card. */
+@media (max-width: 600px) {
+  .mayor-relief-pack-template-table-scroll {
+    overflow-x: visible !important;
+    padding-bottom: 0;
+  }
+
+  .mayor-relief-pack-template-table {
+    border-collapse: separate !important;
+    border-spacing: 0 12px;
+    display: block;
+    min-width: 0 !important;
+    table-layout: auto !important;
+    width: 100% !important;
+  }
+
+  .mayor-relief-pack-template-table thead {
+    display: none;
+  }
+
+  .mayor-relief-pack-template-table tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .mayor-relief-pack-template-table tbody tr {
+    background: #ffffff;
+    border: 1px solid #dfeaf4;
+    border-radius: 14px;
+    display: block;
+    margin: 0 0 12px;
+    overflow: hidden;
+    padding: 0 12px;
+    width: 100%;
+  }
+
+  .mayor-relief-pack-template-table tbody td {
+    align-items: start;
+    border-bottom: 1px solid #edf3f8;
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(88px, 30%) minmax(0, 1fr);
+    min-width: 0 !important;
+    padding: 10px 0 !important;
+    text-align: left !important;
+    vertical-align: top;
+    width: 100% !important;
+  }
+
+  .mayor-relief-pack-template-table tbody td::before {
+    color: #66809c;
+    content: attr(data-label);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    line-height: 1.35;
+    text-transform: uppercase;
+  }
+
+  .mayor-relief-pack-template-table tbody td:last-child {
+    border-bottom: none;
+  }
+
+  .mayor-relief-pack-template-table tbody td > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .mayor-relief-pack-template-table tbody .mayor-relief-pack-template-rule-cell,
+  .mayor-relief-pack-template-table tbody .mayor-relief-pack-template-applies-cell,
+  .mayor-relief-pack-template-table tbody .mayor-relief-pack-template-status-cell,
+  .mayor-relief-pack-template-table tbody .mayor-relief-pack-template-actions-cell {
+    min-width: 0 !important;
+    white-space: normal;
+  }
+
+  .mayor-relief-pack-template-table tbody .mayor-relief-pack-template-actions-cell > * {
+    justify-self: start;
+  }
+
+  .mayor-relief-pack-template-table .stackedList {
+    gap: 5px;
+  }
+
+  .mayor-relief-pack-template-table .itemRow {
+    min-width: 0;
+  }
+
+  .mayor-relief-pack-template-table .mayor-relief-pack-template-rule-chip,
+  .mayor-relief-pack-template-table .mayor-relief-pack-template-applies-chip {
     max-width: 100%;
   }
 }

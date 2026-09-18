@@ -74,6 +74,8 @@ test("MSWDO evacuation-center and daily admission charts use recorded log histor
   }
 
   assert.match(centerSource, /INNER JOIN evacuation_centers ec ON ec\.id = el\.evacuation_center_id/);
+  assert.match(dailySource, /DATE\(el\.time_in AT TIME ZONE 'Asia\/Manila'\)/);
+  assert.doesNotMatch(dailySource, /DATE\(el\.time_in\)/);
   assert.doesNotMatch(centerSource, /summary_evacuees_with_latest_log/);
 });
 

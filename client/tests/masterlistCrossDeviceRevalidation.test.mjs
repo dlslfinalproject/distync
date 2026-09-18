@@ -18,7 +18,7 @@ test("Barangay Masterlist revalidates remotely while visible and online", async 
 
   assert.match(source, /REMOTE_MASTERLIST_REVALIDATION_INTERVAL_MS = 60 \* 1000/);
   assert.match(source, /window\.setInterval\(\s*revalidate/);
-  assert.match(source, /window\.addEventListener\("online", revalidate\)/);
+  assert.doesNotMatch(source, /window\.addEventListener\("online", revalidate\)/);
   assert.match(source, /window\.addEventListener\("focus", revalidate\)/);
   assert.match(source, /visibilityState !== "hidden"/);
   assert.match(source, /window\.clearInterval\(intervalId\)/);

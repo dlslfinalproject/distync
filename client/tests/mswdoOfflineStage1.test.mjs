@@ -50,16 +50,18 @@ test("MSWDO offline access is limited to masterlist, relief distribution, and sy
   );
 });
 
-test("MSWDO pages preserve valid cache on failed online reads and refresh on reconnect", async () => {
+test("MSWDO pages use snapshots only while offline and centralize reconnect refresh", async () => {
   const masterlist = await read("features/mswdo-masterlist/useMswdoMasterlist.js");
   const analytics = await read("features/mswdo-analytics/useMswdoAnalytics.js");
   assert.match(masterlist, /readMswdoOfflineSnapshot/);
   assert.match(masterlist, /buildMswdoOfflineMasterlistPayload/);
   assert.match(masterlist, /setMasterlistPayload\(offlinePayload\)/);
-  assert.match(masterlist, /addEventListener\?\.\("online"/);
+  assert.match(masterlist, /navigator\.onLine === false/);
+  assert.doesNotMatch(masterlist, /addEventListener\?\.\("online"/);
   assert.match(analytics, /readMswdoOfflineSnapshot/);
   assert.match(analytics, /setOperationalPayload\(cached\.datasets\.dashboard/);
-  assert.match(analytics, /addEventListener\?\.\("online"/);
+  assert.match(analytics, /navigator\.onLine === false/);
+  assert.doesNotMatch(analytics, /addEventListener\?\.\("online"/);
 });
 
 test("MSWDO event selection is durably restorable and carries event context", async () => {
