@@ -89,3 +89,40 @@ test("Stage 5 municipal failure clears municipal rows and does not fall back to 
   );
   assert.doesNotMatch(municipalRequestSection, /fetchBarangayStubDashboard/);
 });
+
+test("Inventory Distribution keeps existing data visible when a background refresh fails", async () => {
+  const source = await readSource(
+    "../src/features/inventory-distribution/useInventoryDistribution.js",
+  );
+  const pageSource = await readSource(
+    "../src/pages/inventory/InventoryDistributionPage.jsx",
+  );
+
+  assert.match(source, /backgroundRefreshErrorMessage/);
+  assert.match(
+    source,
+    /if \(preserveExistingData\) \{[\s\S]*?setBackgroundRefreshErrorMessage\(/,
+  );
+  assert.match(
+    source,
+    /if \(preserveExistingData\) \{[\s\S]*?return;[\s\S]*?setErrorMessage\(/,
+  );
+  assert.match(pageSource, /backgroundRefreshErrorMessage \?/);
+  assert.match(pageSource, /role="status"/);
+});
+
+test("Inventory Distribution ignores unchanged Barangay-array identity during background stub refresh", async () => {
+  const source = await readSource(
+    "../src/features/inventory-distribution/useInventoryDistribution.js",
+  );
+
+  assert.match(source, /const selectableBarangayIdsKey = useMemo\(/);
+  assert.match(
+    source,
+    /activeTab,\s*reloadToken,\s*selectableBarangayIdsKey,\s*selectedBarangayId,/s,
+  );
+  assert.doesNotMatch(
+    source,
+    /activeTab,\s*reloadToken,\s*selectableBarangays,\s*selectedBarangayId,/s,
+  );
+});

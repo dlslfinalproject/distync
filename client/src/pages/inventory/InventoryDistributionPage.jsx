@@ -292,6 +292,7 @@ const InventoryDistributionPage = () => {
     isInitialLoadingFilters,
     isInitialLoadingMasterlist,
     errorMessage,
+    backgroundRefreshErrorMessage,
     hasActiveEvents,
     handleEventScopeChange,
     setSearchTerm,
@@ -1006,6 +1007,19 @@ const InventoryDistributionPage = () => {
             </button>
           </div>
         </section>
+
+        {backgroundRefreshErrorMessage ? (
+          <p
+            role="status"
+            style={{
+              ...shellStyles.mutedText,
+              margin: "-8px 0 16px",
+              color: "#8a5a24",
+            }}
+          >
+            {backgroundRefreshErrorMessage}
+          </p>
+        ) : null}
 
         <InventoryDistributionTable
           key={[

@@ -194,6 +194,9 @@ const getAffectedBarangayIds = (event) => {
     .filter(Boolean);
 };
 
+const getSectorOptionsKey = (rows = []) =>
+  JSON.stringify(Array.isArray(rows) ? rows : []);
+
 export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
@@ -216,6 +219,8 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isRefreshingData, setIsRefreshingData] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [backgroundRefreshErrorMessage, setBackgroundRefreshErrorMessage] =
+    useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const [isEventSelectionResolved, setIsEventSelectionResolved] = useState(false);
   const dataRequestSeqRef = useRef(0);
@@ -228,6 +233,7 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     const isBackground = Boolean(options?.background);
     backgroundReloadRef.current = isBackground;
     backgroundFiltersReloadRef.current = isBackground;
+    setBackgroundRefreshErrorMessage("");
     if (isBackground) {
       setFiltersReloadKey((currentValue) => currentValue + 1);
     }
@@ -261,6 +267,17 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     [disasterEvents, userId],
   );
 
+  const selectedEventStatus = useMemo(
+    () =>
+      disasterEvents.find((event) => event.id === selectedDisasterEventId)
+        ?.status || "",
+    [disasterEvents, selectedDisasterEventId],
+  );
+  const sectorOptionsKey = useMemo(
+    () => getSectorOptionsKey(sectors),
+    [sectors],
+  );
+
   useEffect(() => {
     let isMounted = true;
 
@@ -280,6 +297,38 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
       setIsRefreshingFilters(preserveExistingFilters);
       setErrorMessage("");
 
+      const rearmBackgroundDataRefreshIfContextChanged = ({
+        allEvents,
+        nextSelectedEventId,
+        barangayRows,
+        sectorRows,
+      }) => {
+        if (!preserveExistingFilters) {
+          return;
+        }
+
+        const nextSelectedEventStatus =
+          allEvents.find((event) => event.id === nextSelectedEventId)?.status ||
+          "";
+        const selectedBarangayWasRemoved =
+          selectedBarangayId &&
+          selectedBarangayId !== ALL_BARANGAYS &&
+          !barangayRows.some((barangay) => barangay.id === selectedBarangayId);
+
+        if (
+          nextSelectedEventId !== selectedDisasterEventId ||
+          nextSelectedEventStatus !== selectedEventStatus ||
+          getSectorOptionsKey(sectorRows) !== sectorOptionsKey ||
+          selectedBarangayWasRemoved
+        ) {
+          // Filter state is also a dependency of the data request. If the
+          // filter response changes that state after the data effect has
+          // consumed the background marker, keep the dependent request
+          // background-only as well.
+          backgroundReloadRef.current = true;
+        }
+      };
+
       try {
         if (typeof navigator !== "undefined" && navigator.onLine === false) {
           const storedEventId = readOperationalDisasterEventId({ roleCode: ROLE_CODES.MSWDO, userId });
@@ -297,6 +346,12 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
             allEvents.some((event) => event.id === selectedDisasterEventId)
             ? selectedDisasterEventId
             : resolveOperationalDisasterEventId({ availableEvents: allEvents, preferredEventId: storedEventId, fallbackEventId: activeEvents[0]?.id || allEvents[0]?.id || "" });
+          rearmBackgroundDataRefreshIfContextChanged({
+            allEvents,
+            nextSelectedEventId,
+            barangayRows,
+            sectorRows,
+          });
           const setOfflineEventId = setSelectedDisasterEventIdState;
           setOfflineEventId(nextSelectedEventId);
           setIsEventSelectionResolved(true);
@@ -342,6 +397,13 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
               fallbackEventId,
             });
 
+        rearmBackgroundDataRefreshIfContextChanged({
+          allEvents,
+          nextSelectedEventId,
+          barangayRows,
+          sectorRows,
+        });
+
         setSelectedDisasterEventIdState(nextSelectedEventId);
         if (
           preserveExistingFilters &&
@@ -365,7 +427,11 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
       } catch (error) {
         if (isMounted) {
           setIsEventSelectionResolved(true);
-          if (!preserveExistingFilters) {
+          if (preserveExistingFilters) {
+            setBackgroundRefreshErrorMessage(
+              "Unable to refresh relief distribution filters. Showing the last successful filters.",
+            );
+          } else {
             setErrorMessage(
               error.message || "Failed to load relief distribution filters.",
             );
@@ -398,9 +464,6 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
       backgroundReloadRef.current = false;
       const preserveExistingData =
         isBackgroundReload && hasLoadedDataRef.current;
-      const selectedEvent = disasterEvents.find(
-        (event) => event.id === selectedDisasterEventId,
-      );
 
       if (
         !isEventSelectionResolved ||
@@ -458,7 +521,7 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
           requestedPage,
           requestedPageSize,
           skipOfflineCache = false,
-        }) => isAllBarangays && selectedEvent?.status === "ACTIVE"
+        }) => isAllBarangays && selectedEventStatus === "ACTIVE"
           ? fetchMunicipalStubDashboard({
               disasterEventId: selectedDisasterEventId,
               page: requestedPage,
@@ -584,7 +647,9 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
       } catch (error) {
         if (isMounted) {
           if (preserveExistingData) {
-            setErrorMessage("Unable to refresh relief goods distribution. Showing the last successful data.");
+            setBackgroundRefreshErrorMessage(
+              "Unable to refresh relief goods distribution. Showing the last successful data.",
+            );
             return;
           }
 
@@ -624,8 +689,6 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     isEventSelectionResolved,
     isLoadingFilters,
     reloadKey,
-    disasterEvents,
-    sectors,
     page,
     pageSize,
     searchTerm,
@@ -634,6 +697,8 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     selectedSectorIds,
     selectedSortOrder,
     selectedStubStatus,
+    selectedEventStatus,
+    sectorOptionsKey,
   ]);
 
   const rows = useMemo(() => {
@@ -776,6 +841,8 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
     isRefreshingData,
     isEventSelectionResolved,
     errorMessage,
+    backgroundRefreshErrorMessage,
+    hasLoadedData: hasLoadedDataRef.current,
     hasSelectedEvent: Boolean(selectedDisasterEventId),
     hasSelectedBarangay: Boolean(selectedBarangayId),
     setSelectedDisasterEventId,

@@ -287,6 +287,8 @@ const StubDistributionPage = () => {
     isInitialLoadingData,
     isEventSelectionResolved,
     errorMessage,
+    backgroundRefreshErrorMessage,
+    hasLoadedData,
     hasSelectedEvent,
     hasSelectedBarangay,
     setSelectedDisasterEventId,
@@ -1177,6 +1179,19 @@ const StubDistributionPage = () => {
           }
         />
       </section>
+
+      {backgroundRefreshErrorMessage && hasLoadedData ? (
+        <p
+          role="status"
+          style={{
+            ...shellStyles.mutedText,
+            margin: "-8px 0 16px",
+            color: "#8a5a24",
+          }}
+        >
+          {backgroundRefreshErrorMessage}
+        </p>
+      ) : null}
 
       {!isEndedView && selectedStubIds.length > 0 ? (
         <section style={shellStyles.card}>

@@ -436,6 +436,8 @@ export const useInventoryDistribution = () => {
   const [isLoadingTemplateList, setIsLoadingTemplateList] = useState(false);
   const [isRefreshingTemplateList, setIsRefreshingTemplateList] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [backgroundRefreshErrorMessage, setBackgroundRefreshErrorMessage] =
+    useState("");
   const [templateNotice, setTemplateNotice] = useState("");
   const stubRequestGenerationRef = useRef(0);
   const [reloadToken, setReloadToken] = useState(0);
@@ -457,6 +459,7 @@ export const useInventoryDistribution = () => {
     backgroundMasterlistReloadRef.current = true;
     backgroundStubReloadRef.current = true;
     backgroundTemplateReloadRef.current = true;
+    setBackgroundRefreshErrorMessage("");
     setReloadToken((value) => value + 1);
   });
 
@@ -504,6 +507,9 @@ export const useInventoryDistribution = () => {
         setTemplateNotice("");
       }
       setIsRefreshingFilters(preserveExistingFilters);
+      if (!preserveExistingFilters) {
+        setBackgroundRefreshErrorMessage("");
+      }
 
       try {
         const [eventsPayload, barangaysPayload, sectorsPayload] =
@@ -526,10 +532,16 @@ export const useInventoryDistribution = () => {
         setSectors(sectorRows);
         hasLoadedFiltersRef.current = true;
       } catch (error) {
-        if (isMounted && !preserveExistingFilters) {
-          setErrorMessage(
-            error.message || "Failed to load inventory distribution filters.",
-          );
+        if (isMounted) {
+          if (preserveExistingFilters) {
+            setBackgroundRefreshErrorMessage(
+              "Unable to refresh inventory distribution filters. Showing the last successful filters.",
+            );
+          } else {
+            setErrorMessage(
+              error.message || "Failed to load inventory distribution filters.",
+            );
+          }
         }
       } finally {
         if (isMounted) {
@@ -566,6 +578,7 @@ export const useInventoryDistribution = () => {
 
       if (!preserveExistingTemplates) {
         setIsLoadingTemplateList(true);
+        setBackgroundRefreshErrorMessage("");
       }
       setIsRefreshingTemplateList(preserveExistingTemplates);
       if (!preserveExistingTemplates) {
@@ -595,7 +608,11 @@ export const useInventoryDistribution = () => {
         }
       } catch (error) {
         if (isMounted) {
-          if (!preserveExistingTemplates) {
+          if (preserveExistingTemplates) {
+            setBackgroundRefreshErrorMessage(
+              "Unable to refresh relief pack templates. Showing the last successful templates.",
+            );
+          } else {
             setTemplateDetails([]);
             setTemplateNotice(
               error.message ||
@@ -637,6 +654,7 @@ export const useInventoryDistribution = () => {
 
       if (!preserveExistingData) {
         setIsLoadingMasterlist(true);
+        setBackgroundRefreshErrorMessage("");
       }
       setIsRefreshingMasterlist(preserveExistingData);
       setErrorMessage("");
@@ -656,7 +674,9 @@ export const useInventoryDistribution = () => {
       } catch (error) {
         if (isMounted) {
           if (preserveExistingData) {
-            setErrorMessage("");
+            setBackgroundRefreshErrorMessage(
+              "Unable to refresh inventory distribution records. Showing the last successful data.",
+            );
             return;
           }
 
@@ -738,6 +758,15 @@ export const useInventoryDistribution = () => {
     return barangays.find((barangay) => barangay.id === selectedBarangayId) || null;
   }, [barangays, selectedBarangayId]);
 
+  const selectableBarangayIdsKey = useMemo(
+    () =>
+      selectableBarangays.reduce((key, barangay) => {
+        const barangayId = barangay?.id;
+        return barangayId ? `${key}${key ? "|" : ""}${barangayId}` : key;
+      }, ""),
+    [selectableBarangays],
+  );
+
   useEffect(() => {
     let isMounted = true;
     const requestGeneration = ++stubRequestGenerationRef.current;
@@ -761,6 +790,9 @@ export const useInventoryDistribution = () => {
           disasterEventStatus: selectedDisasterEvent?.status,
         });
       setErrorMessage("");
+      if (!preserveExistingData) {
+        setBackgroundRefreshErrorMessage("");
+      }
 
       if (
         !selectedDisasterEventId ||
@@ -795,8 +827,18 @@ export const useInventoryDistribution = () => {
             setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
             hasLoadedStubRef.current = true;
           }
-        } catch (_error) {
+        } catch (error) {
           if (isCurrentRequest()) {
+            if (preserveExistingData) {
+              setBackgroundRefreshErrorMessage(
+                "Unable to refresh stub information. Showing the last successful data.",
+              );
+              return;
+            }
+
+            setErrorMessage(
+              error.message || "Failed to fetch Barangay stub dashboard.",
+            );
             setStubDashboardPayload(emptyStubDashboardPayload);
           }
         }
@@ -820,7 +862,9 @@ export const useInventoryDistribution = () => {
       } catch (error) {
         if (isCurrentRequest()) {
           if (preserveExistingData) {
-            setErrorMessage("");
+            setBackgroundRefreshErrorMessage(
+              "Unable to refresh stub information. Showing the last successful data.",
+            );
             return;
           }
 
@@ -858,7 +902,7 @@ export const useInventoryDistribution = () => {
   }, [
     activeTab,
     reloadToken,
-    selectableBarangays,
+    selectableBarangayIdsKey,
     selectedBarangayId,
     selectedDisasterEvent?.status,
     selectedDisasterEventId,
@@ -1075,6 +1119,7 @@ export const useInventoryDistribution = () => {
     isInitialLoadingTemplate: isLoadingTemplate && !isRefreshingTemplateList,
     isRefreshingTemplateList,
     errorMessage,
+    backgroundRefreshErrorMessage,
     hasActiveEvents: disasterEvents.length > 0,
     handleEventScopeChange,
     resetAllDistributionFilters,

@@ -96,3 +96,55 @@ test("MSWDO distribution active/ended tab reconciliation waits for filter resolu
     /if \(isLoadingFilters \|\| !isEventSelectionResolved\) \{\s*return;\s*\}/,
   );
 });
+
+test("MSWDO distribution keeps a background refresh silent when filter responses rerun data dependencies", async () => {
+  const [source, pageSource] = await Promise.all([
+    readSource("../src/features/stubs/useMswdoStubDistribution.js"),
+    readSource("../src/pages/mswdo/StubDistributionPage.jsx"),
+  ]);
+
+  assert.match(source, /const selectedEventStatus = useMemo\(/);
+  assert.match(source, /const sectorOptionsKey = useMemo\(/);
+  assert.doesNotMatch(
+    source,
+    /isLoadingFilters,\s*reloadKey,\s*disasterEvents,\s*sectors,\s*page,/s,
+  );
+  assert.match(
+    source,
+    /rearmBackgroundDataRefreshIfContextChanged[\s\S]*backgroundReloadRef\.current = true;/,
+  );
+  assert.match(
+    source,
+    /if \(!preserveExistingData\) \{\s*setIsLoadingData\(true\);\s*\}/,
+  );
+  assert.match(source, /isInitialLoadingData: isLoadingData && !isRefreshingData/);
+  assert.match(
+    source,
+    /if \(preserveExistingData\) \{[\s\S]*setBackgroundRefreshErrorMessage\([\s\S]*Unable to refresh relief goods distribution\. Showing the last successful data\.[\s\S]*return;/,
+  );
+  assert.match(source, /hasLoadedData: hasLoadedDataRef\.current/);
+  assert.match(pageSource, /errorMessage=\{errorMessage\}/);
+  assert.match(pageSource, /backgroundRefreshErrorMessage && hasLoadedData/);
+});
+
+test("MSWDO distribution keeps repeated background refresh cycles on the silent path", async () => {
+  const source = await readSource(
+    "../src/features/stubs/useMswdoStubDistribution.js",
+  );
+
+  assert.match(source, /const reloadDashboard = \(options = \{\}\) =>/);
+  assert.match(source, /backgroundReloadRef\.current = isBackground/);
+  assert.match(source, /backgroundReloadRef\.current = false/);
+  assert.match(
+    source,
+    /setFiltersReloadKey\(\(currentValue\) => currentValue \+ 1\)/,
+  );
+  assert.match(
+    source,
+    /setReloadKey\(\(currentValue\) => currentValue \+ 1\)/,
+  );
+  assert.match(
+    source,
+    /isInitialLoadingData: isLoadingData && !isRefreshingData/,
+  );
+});
