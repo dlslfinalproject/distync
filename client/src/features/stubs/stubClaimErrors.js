@@ -3,7 +3,7 @@ export const NO_ASSIGNED_RELIEF_PACK_CODE = "NO_ASSIGNED_RELIEF_PACK";
 export const CLAIM_ERROR_DIALOG_TITLE = "Unable to Process Claim";
 
 export const NO_ASSIGNED_RELIEF_PACK_MESSAGE =
-  "No active standard relief pack is assigned to this household. Please coordinate with the Office of the Mayor before processing the claim.";
+  "No relief pack is available for this household.";
 
 const normalizeErrorCode = (error) =>
   String(error?.code || error?.error || "").trim().toUpperCase();

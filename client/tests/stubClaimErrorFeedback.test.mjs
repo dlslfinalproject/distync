@@ -19,6 +19,7 @@ test("DEPLOY-BRG-RGD-02 maps no assigned relief pack to actionable household cop
 
   assert.equal(dialog.title, CLAIM_ERROR_DIALOG_TITLE);
   assert.equal(dialog.message, NO_ASSIGNED_RELIEF_PACK_MESSAGE);
+  assert.equal(dialog.message, "No relief pack is available for this household.");
   assert.doesNotMatch(dialog.message, /family|NO_ASSIGNED_RELIEF_PACK|UUID|\/api\//);
 });
 
