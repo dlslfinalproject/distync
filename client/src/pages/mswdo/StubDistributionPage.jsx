@@ -29,7 +29,6 @@ import { useMswdoStubDistribution } from "../../features/stubs/useMswdoStubDistr
 import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 import db from "../../offline/db.js";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
-import { subscribeToSyncUpdates } from "../../offline/syncService";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import { buildMasterlistFilterSectorOptions } from "../../utils/registrationOptions";
 import { STATUS_FILTERS } from "../../features/stubs/stubStatusFilters";
@@ -560,16 +559,6 @@ const StubDistributionPage = () => {
       currentValues.filter((stubId) => visibleStubIds.has(stubId)),
     );
   }, [displayedRowsWithSyncStatus]);
-
-  useEffect(() => {
-    const unsubscribe = subscribeToSyncUpdates(() => {
-      if (typeof navigator !== "undefined" && navigator.onLine) {
-        reloadDashboard();
-      }
-    });
-
-    return () => unsubscribe();
-  }, [reloadDashboard]);
 
   const toggleSectorFilter = (sectorId) => {
     setFiltersByTab((currentFilters) => ({

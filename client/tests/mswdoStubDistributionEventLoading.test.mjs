@@ -148,3 +148,20 @@ test("MSWDO distribution keeps repeated background refresh cycles on the silent 
     /isInitialLoadingData: isLoadingData && !isRefreshingData/,
   );
 });
+
+test("MSWDO distribution does not add a foreground refresh to the sync maintenance cycle", async () => {
+  const [pageSource, hookSource, layoutSource, syncSource] = await Promise.all([
+    readSource("../src/pages/mswdo/StubDistributionPage.jsx"),
+    readSource("../src/features/stubs/useMswdoStubDistribution.js"),
+    readSource("../src/components/layout/BarangayLayout.jsx"),
+    readSource("../src/offline/syncService.js"),
+  ]);
+
+  assert.doesNotMatch(pageSource, /subscribeToSyncUpdates/);
+  assert.match(
+    hookSource,
+    /handleSyncQueueUpdated[\s\S]*reloadDashboard\(\{ background: true \}\)/,
+  );
+  assert.match(layoutSource, /DASHBOARD_REVALIDATION_INTERVAL_MS = 30 \* 1000/);
+  assert.match(syncSource, /notifySyncListeners\(\{ type: "finished", source \}\)/);
+});
