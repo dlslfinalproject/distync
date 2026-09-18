@@ -462,6 +462,10 @@ const StubDistributionPage = () => {
   ]);
 
   useEffect(() => {
+    if (pendingClaimStubId || isBulkClaimConfirmOpen) {
+      return;
+    }
+
     setSelectedStubIds([]);
     setPendingClaimStubId("");
     setPendingClaimStubDetails(null);
@@ -471,7 +475,13 @@ const StubDistributionPage = () => {
     setQrScanErrorState(null);
     setScannerHelperMessage("");
     setScanCooldownState({ value: "", until: 0 });
-  }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
+  }, [
+    activeTab,
+    isBulkClaimConfirmOpen,
+    pendingClaimStubId,
+    selectedBarangayId,
+    selectedDisasterEventId,
+  ]);
 
   useEffect(() => {
     const visibleStubIds = new Set(

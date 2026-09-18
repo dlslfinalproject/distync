@@ -17,17 +17,19 @@ test("Barangay and MSWDO readiness notifications show only verified Ready", asyn
   assert.match(source, /previousStatus/);
 });
 
-test("Offline Data Ready popup is centered in the current viewport with responsive bounds", async () => {
+test("Offline Data Ready popup is fixed, bottom-centered, and responsive", async () => {
   const source = await read("components/layout/OfflineDataReadiness.jsx");
 
   assert.match(source, /position: "fixed"/);
-  assert.match(source, /top: "50%"/);
   assert.match(source, /left: "50%"/);
-  assert.match(source, /transform: "translate\(-50%, -50%\)"/);
+  assert.match(source, /bottom: "max\(16px, env\(safe-area-inset-bottom\)\)"/g);
+  assert.match(source, /transform: "translateX\(-50%\)"/g);
+  assert.doesNotMatch(source, /top: "50%"/);
+  assert.doesNotMatch(source, /translate\(-50%, -50%\)/);
+  assert.doesNotMatch(source, /right: "max\(16px, env\(safe-area-inset-right\)\)"/);
   assert.match(source, /width: "min\(390px, calc\(100vw - 32px\)\)"/);
-  assert.match(source, /maxHeight: "calc\(100dvh - 32px\)"/);
+  assert.match(source, /maxHeight: "calc\(100dvh - 32px - env\(safe-area-inset-bottom\)\)"/);
   assert.match(source, /overflowY: "auto"/);
-  assert.doesNotMatch(source, /const panelStyle = \{[^}]*\bbottom:/s);
   assert.match(source, /Got It/);
 });
 
