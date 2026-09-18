@@ -1065,7 +1065,9 @@ const SyncManagementPage = () => {
     syncHistoryRequestId.current = requestId;
     const preserveExistingData =
       Boolean(background) && hasLoadedHistoryRef.current;
-    setIsLoadingHistory(true);
+    if (!preserveExistingData) {
+      setIsLoadingHistory(true);
+    }
     setIsBackgroundRefreshingHistory(preserveExistingData);
     setErrorMessage("");
 

@@ -2003,6 +2003,7 @@ const ReliefPackTemplatesPage = () => {
   const pageRefreshRequestIdRef = useRef(0);
   const demandRefreshInFlightRef = useRef(null);
   const demandRefreshRequestIdRef = useRef(0);
+  const demandLoadedScopeKeyRef = useRef("");
   const selectedAvailabilityFilters = Array.isArray(filters.availability)
     ? filters.availability
     : [];
@@ -2263,6 +2264,7 @@ const ReliefPackTemplatesPage = () => {
       if (disasterEventIds.length === 0) {
         demandRefreshRequestIdRef.current += 1;
         demandRefreshInFlightRef.current = null;
+        demandLoadedScopeKeyRef.current = "";
         setAggregatedDemand(emptyDashboardState);
         setIsLoadingDemand(false);
         return;
@@ -2275,7 +2277,11 @@ const ReliefPackTemplatesPage = () => {
 
       const requestId = demandRefreshRequestIdRef.current + 1;
       demandRefreshRequestIdRef.current = requestId;
-      setIsLoadingDemand(true);
+      const preserveExistingDemand =
+        demandLoadedScopeKeyRef.current === demandScopeKey;
+      if (!preserveExistingDemand) {
+        setIsLoadingDemand(true);
+      }
       const requestEntry = {
         promise: null,
         requestId,
@@ -2296,13 +2302,16 @@ const ReliefPackTemplatesPage = () => {
             requestId === demandRefreshRequestIdRef.current
           ) {
             setAggregatedDemand({ rows });
+            demandLoadedScopeKeyRef.current = demandScopeKey;
           }
         } catch (_error) {
           if (
             isMountedRef.current &&
             requestId === demandRefreshRequestIdRef.current
           ) {
-            setAggregatedDemand(emptyDashboardState);
+            if (!preserveExistingDemand) {
+              setAggregatedDemand(emptyDashboardState);
+            }
           }
         } finally {
           if (

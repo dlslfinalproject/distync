@@ -564,7 +564,9 @@ export const useInventoryDistribution = () => {
         return;
       }
 
-      setIsLoadingTemplateList(true);
+      if (!preserveExistingTemplates) {
+        setIsLoadingTemplateList(true);
+      }
       setIsRefreshingTemplateList(preserveExistingTemplates);
       if (!preserveExistingTemplates) {
         setTemplateDetails([]);
@@ -633,7 +635,9 @@ export const useInventoryDistribution = () => {
         return;
       }
 
-      setIsLoadingMasterlist(true);
+      if (!preserveExistingData) {
+        setIsLoadingMasterlist(true);
+      }
       setIsRefreshingMasterlist(preserveExistingData);
       setErrorMessage("");
 

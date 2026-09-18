@@ -154,7 +154,9 @@ export const useStubDashboard = ({
       const preserveExistingData =
         isBackgroundReload && hasLoadedDataRef.current;
 
-      setIsLoading(true);
+      if (!preserveExistingData) {
+        setIsLoading(true);
+      }
       setIsRefreshing(preserveExistingData);
       setErrorMessage("");
 

@@ -466,7 +466,9 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
         return;
       }
 
-      setIsLoadingMasterlist(true);
+      if (!preserveExistingData) {
+        setIsLoadingMasterlist(true);
+      }
       setIsRefreshingMasterlist(preserveExistingData);
       setErrorMessage("");
 
@@ -615,7 +617,9 @@ export const useMswdoMasterlist = ({ userId = "" } = {}) => {
       const preserveExistingData =
         isBackgroundReload && hasLoadedDashboardRef.current;
 
-      setIsLoadingDashboard(true);
+      if (!preserveExistingData) {
+        setIsLoadingDashboard(true);
+      }
       setIsRefreshingDashboard(preserveExistingData);
       setDashboardErrorMessage("");
 

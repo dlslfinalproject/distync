@@ -66,7 +66,9 @@ export const useDisasterEvents = () => {
     const isBackgroundReload = Boolean(options?.background);
     const preserveExistingEvents =
       isBackgroundReload && hasLoadedEventsRef.current;
-    setIsLoading(true);
+    if (!preserveExistingEvents) {
+      setIsLoading(true);
+    }
     setIsRefreshing(preserveExistingEvents);
     setErrorMessage("");
 

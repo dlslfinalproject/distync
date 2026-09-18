@@ -69,10 +69,17 @@ const DashboardRouteOutletCache = () => {
 
           return (
             <div
+              className="distync-shell__route-cache"
               key={cachedRouteKey}
               hidden={isInactive}
               aria-hidden={isInactive}
-              style={{ width: "100%", minWidth: 0 }}
+              style={{
+                width: "100%",
+                minWidth: 0,
+                display: "flex",
+                flexDirection: "column",
+                gap: "24px",
+              }}
             >
               {cachedOutlet}
             </div>

@@ -417,7 +417,9 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
         return;
       }
 
-      setIsLoadingData(true);
+      if (!preserveExistingData) {
+        setIsLoadingData(true);
+      }
       setIsRefreshingData(preserveExistingData);
       setErrorMessage("");
 

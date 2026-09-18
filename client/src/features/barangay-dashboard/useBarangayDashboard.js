@@ -310,7 +310,9 @@ export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
       const preserveExistingPayload =
         isBackgroundReload && hasResolvedPayloadRef.current;
 
-      setIsLoading(true);
+      if (!preserveExistingPayload) {
+        setIsLoading(true);
+      }
       setIsRefreshing(preserveExistingPayload);
       if (!preserveExistingPayload) {
         setIsContextResolved(false);

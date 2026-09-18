@@ -84,3 +84,12 @@ test("Barangay and MSWDO share the shell, active-item, responsive, and profile c
   assert.match(layout, /<Sidebar[\s\S]*isMobileNavigation=\{isMobileNavigation\}/);
   assert.match(layout, /distync-sidebar__scrim/);
 });
+
+test("cached dashboard routes preserve shared vertical page spacing", async () => {
+  const layout = await fs.readFile(layoutPath, "utf8");
+
+  assert.match(
+    layout,
+    /className="distync-shell__route-cache"[\s\S]*display: "flex"[\s\S]*flexDirection: "column"[\s\S]*gap: "24px"/,
+  );
+});

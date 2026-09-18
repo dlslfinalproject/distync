@@ -314,7 +314,9 @@ const DistributionHistoryPage = () => {
       const preserveExistingFilters =
         backgroundFiltersReloadRef.current && hasLoadedFiltersRef.current;
       backgroundFiltersReloadRef.current = false;
-      setIsLoadingFilters(true);
+      if (!preserveExistingFilters) {
+        setIsLoadingFilters(true);
+      }
       setIsRefreshingFilters(preserveExistingFilters);
 
       try {

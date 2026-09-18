@@ -1275,7 +1275,9 @@ const AnomalyTrackingPage = ({
       const preserveExistingFilters =
         backgroundFiltersReloadRef.current && hasLoadedFiltersRef.current;
       backgroundFiltersReloadRef.current = false;
-      setIsLoadingFilters(true);
+      if (!preserveExistingFilters) {
+        setIsLoadingFilters(true);
+      }
       setIsRefreshingFilters(preserveExistingFilters);
 
       try {
@@ -1340,7 +1342,9 @@ const AnomalyTrackingPage = ({
         return;
       }
 
-      setIsLoadingRows(true);
+      if (!preserveExistingRows) {
+        setIsLoadingRows(true);
+      }
       setIsRefreshingRows(preserveExistingRows);
       setErrorMessage("");
 

@@ -131,7 +131,9 @@ export const useInventoryForecast = () => {
       const preserveExistingContext =
         backgroundContextReloadRef.current && hasLoadedContextRef.current;
       backgroundContextReloadRef.current = false;
-      setIsForecastContextLoading(true);
+      if (!preserveExistingContext) {
+        setIsForecastContextLoading(true);
+      }
       setIsRefreshingForecastContext(preserveExistingContext);
 
       try {
@@ -203,7 +205,9 @@ export const useInventoryForecast = () => {
       const preserveExistingForecast =
         backgroundForecastReloadRef.current && hasLoadedForecastRef.current;
       backgroundForecastReloadRef.current = false;
-      setIsForecastLoading(true);
+      if (!preserveExistingForecast) {
+        setIsForecastLoading(true);
+      }
       setIsRefreshingForecast(preserveExistingForecast);
       setForecastErrorMessage("");
 
@@ -253,7 +257,9 @@ export const useInventoryForecast = () => {
       const preserveExistingHistory =
         backgroundHistoryReloadRef.current && hasLoadedHistoryRef.current;
       backgroundHistoryReloadRef.current = false;
-      setIsForecastHistoryLoading(true);
+      if (!preserveExistingHistory) {
+        setIsForecastHistoryLoading(true);
+      }
       setIsRefreshingForecastHistory(preserveExistingHistory);
 
       try {

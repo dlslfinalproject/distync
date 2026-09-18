@@ -382,7 +382,9 @@ const DisasterEventReportsPage = () => {
       const preserveExistingFilters =
         backgroundFiltersReloadRef.current && hasLoadedFiltersRef.current;
       backgroundFiltersReloadRef.current = false;
-      setIsLoadingFilters(true);
+      if (!preserveExistingFilters) {
+        setIsLoadingFilters(true);
+      }
       setIsRefreshingFilters(preserveExistingFilters);
 
       try {
@@ -428,7 +430,9 @@ const DisasterEventReportsPage = () => {
       const preserveExistingRows =
         backgroundRowsReloadRef.current && hasLoadedRowsRef.current;
       backgroundRowsReloadRef.current = false;
-      setIsLoadingRows(true);
+      if (!preserveExistingRows) {
+        setIsLoadingRows(true);
+      }
       setIsRefreshingRows(preserveExistingRows);
       setErrorMessage("");
 

@@ -214,7 +214,9 @@ export const useMswdoAnalytics = () => {
       const preserveExistingFilters =
         isBackgroundReload && hasLoadedFiltersRef.current;
 
-      setIsLoadingFilters(true);
+      if (!preserveExistingFilters) {
+        setIsLoadingFilters(true);
+      }
       setIsRefreshingFilters(preserveExistingFilters);
       setErrorMessage("");
 
@@ -300,7 +302,9 @@ export const useMswdoAnalytics = () => {
       const preserveExistingDashboard =
         isBackgroundReload && hasLoadedDashboardRef.current;
 
-      setIsLoadingDashboard(true);
+      if (!preserveExistingDashboard) {
+        setIsLoadingDashboard(true);
+      }
       setIsRefreshingDashboard(preserveExistingDashboard);
       setErrorMessage("");
 
