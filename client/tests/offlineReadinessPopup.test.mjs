@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const read = (file) => readFile(new URL(`../src/${file}`, import.meta.url), "utf8");
+const readCss = () => readFile(new URL("../src/index.css", import.meta.url), "utf8");
 
 test("Barangay and MSWDO readiness notifications show only verified Ready", async () => {
   const source = await read("components/layout/OfflineDataReadiness.jsx");
@@ -17,16 +18,18 @@ test("Barangay and MSWDO readiness notifications show only verified Ready", asyn
   assert.match(source, /previousStatus/);
 });
 
-test("expanded Offline Data Ready popup is fixed, bottom-centered, and responsive", async () => {
+test("expanded Offline Data Ready popup is mobile-centered and desktop-right", async () => {
   const source = await read("components/layout/OfflineDataReadiness.jsx");
+  const css = await readCss();
 
   assert.match(source, /position: "fixed"/);
-  assert.match(source, /left: "50%"/);
+  assert.match(source, /left: "var\(--offline-ready-left, 50%\)"/);
   assert.match(source, /bottom: "max\(16px, env\(safe-area-inset-bottom\)\)"/g);
-  assert.match(source, /transform: "translateX\(-50%\)"/g);
+  assert.match(source, /transform: "var\(--offline-ready-transform, translateX\(-50%\)\)"/);
   assert.doesNotMatch(source, /top: "50%"/);
   assert.doesNotMatch(source, /translate\(-50%, -50%\)/);
-  assert.ok(source.includes('right: "max(16px, env(safe-area-inset-right))"'));
+  assert.match(source, /right: "var\(--offline-ready-right, auto\)"/);
+  assert.match(css, /@media \(min-width: 1025px\)[\s\S]*?\.offline-data-readiness-panel[\s\S]*?--offline-ready-left: auto;[\s\S]*?--offline-ready-right: max\(16px, env\(safe-area-inset-right\)\);[\s\S]*?--offline-ready-transform: none;/);
   assert.match(source, /width: "min\(390px, calc\(100vw - 32px\)\)"/);
   assert.match(source, /maxHeight: "calc\(100dvh - 32px - env\(safe-area-inset-bottom\)\)"/);
   assert.match(source, /overflowY: "auto"/);

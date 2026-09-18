@@ -9,6 +9,14 @@ body {
   color: #1b2b40;
 }
 
+@media (min-width: 1025px) {
+  .offline-data-readiness-panel {
+    --offline-ready-left: auto;
+    --offline-ready-right: max(16px, env(safe-area-inset-right));
+    --offline-ready-transform: none;
+  }
+}
+
 .inventory-items-page,
 .inventory-items-page *,
 .inventory-item-form-modal,

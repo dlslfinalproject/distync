@@ -2764,6 +2764,7 @@ test("restoreHousehold creates an independent occurrence and protects archived s
     "readmitted-member-2-1",
     "readmitted-member-2-2",
   ];
+  const nullPhotoHouseholdId = "household-archived-no-photo";
   const sourceStubId = "stub-1";
   const targetStubId = "stub-readmitted-1";
   const secondStubId = "stub-readmitted-2";
@@ -2803,7 +2804,7 @@ test("restoreHousehold creates an independent occurrence and protects archived s
       household_size: 2,
       is_active: false,
       registered_by: "user-1",
-      family_head_photo_url: null,
+      family_head_photo_url: "data:image/png;base64,AA==",
       photo_captured_at: null,
       photo_captured_by: null,
       photo_verification_notes: null,
@@ -3118,6 +3119,12 @@ test("restoreHousehold creates an independent occurrence and protects archived s
       distribution: distributionByStubId[sourceStubId],
       privacy: privacyByHouseholdId[sourceHouseholdId],
     });
+    householdRecords[nullPhotoHouseholdId] = {
+      ...structuredClone(householdRecords[sourceHouseholdId]),
+      id: nullPhotoHouseholdId,
+      family_head_photo_url: null,
+      is_active: false,
+    };
 
     const result = await harness.service.restoreHousehold({
       householdId: sourceHouseholdId,
@@ -3136,6 +3143,10 @@ test("restoreHousehold creates an independent occurrence and protects archived s
     assert.equal(result.status, "ACTIVE");
     assert.equal(result.household.id, targetHouseholdId);
     assert.equal(result.household.is_active, true);
+    assert.equal(
+      result.household.family_head_photo_url,
+      "data:image/png;base64,AA==",
+    );
     assert.notEqual(result.household.family_head_evacuee_id, sourceHeadId);
     assert.notEqual(stubsByHouseholdId[targetHouseholdId].id, sourceStubId);
     assert.equal(events.includes("RESTORE:true"), false);
@@ -3155,6 +3166,30 @@ test("restoreHousehold creates an independent occurrence and protects archived s
       membersByHouseholdId[targetHouseholdId].map((member) => member.id),
       [targetHeadId, targetMemberId],
     );
+
+    await assert.rejects(
+      harness.service.restoreHousehold({
+        householdId: nullPhotoHouseholdId,
+        requester: {
+          userId: "user-1",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-1",
+        },
+        restoreData: {
+          restore_mode: "RETURN_TO_EVAC_CENTER",
+        },
+      }),
+      (error) => {
+        assert.equal(error.statusCode, 400);
+        assert.equal(error.code, "FAMILY_HEAD_PHOTO_REQUIRED_FOR_RESTORE");
+        assert.equal(
+          error.message,
+          "Family head photo is required before this household can be re-admitted.",
+        );
+        return true;
+      },
+    );
+    assert.equal(householdRecords[nullPhotoHouseholdId].is_active, false);
 
     await assert.rejects(
       harness.service.restoreHousehold({
