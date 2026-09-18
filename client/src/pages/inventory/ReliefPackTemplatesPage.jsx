@@ -46,6 +46,7 @@ import {
   sortDisasterEventsForReliefPackRollover,
 } from "../../features/relief-pack-templates/reliefPackInventory";
 import { useAuth } from "../../context/AuthContext";
+import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 import {
   FiChevronDown,
   FiEdit2,
@@ -1984,6 +1985,11 @@ const ReliefPackTemplatesPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingDemand, setIsLoadingDemand] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const isInitialPageLoading = useRememberedInitialLoading({
+    pageKey: "mayor:relief-pack-templates",
+    isLoading,
+    errorMessage,
+  });
   const [statusErrorMessage, setStatusErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -2553,7 +2559,7 @@ const ReliefPackTemplatesPage = () => {
       pageSizeLabel="Cards per page"
       onPageChange={setReliefPackCurrentPage}
       onPageSizeChange={handleReliefPackPageSizeChange}
-      isVisible={!isLoading && !errorMessage && reliefPackPagination.totalPages > 1}
+      isVisible={!isInitialPageLoading && !errorMessage && reliefPackPagination.totalPages > 1}
       ariaLabel="Relief packs pagination"
       previousAriaLabel="Go to previous relief packs page"
       nextAriaLabel="Go to next relief packs page"
@@ -2569,7 +2575,7 @@ const ReliefPackTemplatesPage = () => {
       onPageChange={setCustomizationCurrentPage}
       onPageSizeChange={handleCustomizationPageSizeChange}
       isVisible={
-        !isLoading && !errorMessage && customizationPagination.totalItems > 0
+        !isInitialPageLoading && !errorMessage && customizationPagination.totalItems > 0
       }
       ariaLabel="Relief pack templates pagination"
       previousAriaLabel="Go to previous relief pack templates page"
@@ -3143,7 +3149,7 @@ const ReliefPackTemplatesPage = () => {
           className="mayor-relief-pack-tabpanel mayor-relief-pack-results-card"
           style={reliefPackPageStyles.reliefPackSection}
         >
-          {isLoading ? (
+          {isInitialPageLoading ? (
             <p style={helperTextStyle}>Loading relief packs...</p>
           ) : filteredTemplateCards.length === 0 ? (
             <p style={helperTextStyle}>No relief packs match the current filters.</p>
@@ -3322,7 +3328,7 @@ const ReliefPackTemplatesPage = () => {
               </h3>
             </div>
 
-            {isLoading ? (
+            {isInitialPageLoading ? (
               <p style={helperTextStyle}>Loading pack customization...</p>
             ) : filteredTemplateCards.length === 0 ? (
             <p style={helperTextStyle}>No relief packs match the current filters.</p>

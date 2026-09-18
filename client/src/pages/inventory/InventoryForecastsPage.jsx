@@ -6,6 +6,7 @@ import InventoryForecastExportModal from "../../components/inventory-items/Inven
 import { useInventoryForecast } from "../../features/inventory-items/useInventoryForecast";
 import { exportInventoryForecast } from "../../features/inventory-items/inventoryItemService";
 import { downloadExportFile } from "../../utils/exportHelpers";
+import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 import {
   forecastModelOptions,
   getForecastModelLabel,
@@ -23,9 +24,9 @@ const InventoryForecastsPage = () => {
     forecastRunData,
     forecastHistory,
     forecastHistoryDetails,
-    isInitialForecastContextLoading: isForecastContextLoading,
-    isInitialForecastLoading: isForecastLoading,
-    isInitialForecastHistoryLoading: isForecastHistoryLoading,
+    isInitialForecastContextLoading: baseIsForecastContextLoading,
+    isInitialForecastLoading: baseIsForecastLoading,
+    isInitialForecastHistoryLoading: baseIsForecastHistoryLoading,
     isForecastHistoryDetailLoading,
     isRunningForecast,
     forecastErrorMessage,
@@ -35,6 +36,20 @@ const InventoryForecastsPage = () => {
     handleRunForecast,
     handleSelectForecastHistoryRun,
   } = useInventoryForecast();
+
+  const shouldShowInitialLoading = useRememberedInitialLoading({
+    pageKey: "mayor:inventory-forecasts",
+    isLoading:
+      baseIsForecastContextLoading ||
+      baseIsForecastLoading ||
+      baseIsForecastHistoryLoading,
+    errorMessage: forecastErrorMessage,
+  });
+  const isForecastContextLoading =
+    baseIsForecastContextLoading && shouldShowInitialLoading;
+  const isForecastLoading = baseIsForecastLoading && shouldShowInitialLoading;
+  const isForecastHistoryLoading =
+    baseIsForecastHistoryLoading && shouldShowInitialLoading;
 
   const handleOpenExportModal = () => {
     setExportErrorMessage("");

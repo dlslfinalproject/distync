@@ -44,6 +44,7 @@ import {
   NO_EXPORT_DATA_MESSAGE,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
+import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 
 const inputStyles = {
   width: "100%",
@@ -626,6 +627,11 @@ const InventoryTransactionsPage = () => {
   const [inventoryBatches, setInventoryBatches] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const isInitialPageLoading = useRememberedInitialLoading({
+    pageKey: "mayor:inventory-transactions",
+    isLoading,
+    errorMessage,
+  });
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine !== false,
   );
@@ -1845,7 +1851,7 @@ const InventoryTransactionsPage = () => {
 
         <InventoryTransactionsTable
           rows={displayedRows}
-          isLoading={isLoading}
+          isLoading={isInitialPageLoading}
           errorMessage={errorMessage}
           onViewDetails={handleOpenTransactionDetail}
         />

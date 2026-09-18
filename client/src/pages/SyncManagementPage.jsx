@@ -58,6 +58,7 @@ import {
   getTablePaginationState,
   paginateRows,
 } from "../features/pagination/pagination.mjs";
+import { useRememberedInitialLoading } from "../utils/rememberedPageLoading";
 
 const RECORD_TYPE_OPTIONS = [
   { value: "ALL", label: "All Records" },
@@ -697,8 +698,13 @@ const SyncManagementPage = () => {
     title: "",
     message: "",
   });
-  const isInitialHistoryLoading =
+  const baseIsInitialHistoryLoading =
     isLoadingHistory && (!isBackgroundRefreshingHistory || !hasLoadedHistory);
+  const isInitialHistoryLoading = useRememberedInitialLoading({
+    pageKey: `sync:${currentRole || "unknown"}`,
+    isLoading: baseIsInitialHistoryLoading,
+    errorMessage,
+  });
 
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntriesByUpdatedAt(), [], []) ||

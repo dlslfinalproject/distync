@@ -18,6 +18,7 @@ import { TABLE_PAGE_SIZE_OPTIONS } from "../../features/pagination/pagination.mj
 import { useAuth } from "../../context/AuthContext";
 import { useMswdoMasterlistPage } from "../../features/mswdo-masterlist/useMswdoMasterlistPage";
 import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
+import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 
 const ConsolidatedEvacueeMasterlist = () => {
   const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
@@ -36,9 +37,9 @@ const ConsolidatedEvacueeMasterlist = () => {
     currentPage,
     pageSize,
     summaryMetrics,
-    isInitialLoadingFilters,
-    isInitialLoadingMasterlist,
-    isInitialLoadingDashboard,
+    isInitialLoadingFilters: baseIsInitialLoadingFilters,
+    isInitialLoadingMasterlist: baseIsInitialLoadingMasterlist,
+    isInitialLoadingDashboard: baseIsInitialLoadingDashboard,
     errorMessage,
     dashboardErrorMessage,
     activeTab,
@@ -132,6 +133,21 @@ const ConsolidatedEvacueeMasterlist = () => {
     isRecordingDeparture,
     exportSortOptions,
   } = useMswdoMasterlistPage({ authenticatedUser });
+
+  const shouldShowInitialLoading = useRememberedInitialLoading({
+    pageKey: "mswdo:consolidated-masterlist",
+    isLoading:
+      baseIsInitialLoadingFilters ||
+      baseIsInitialLoadingMasterlist ||
+      baseIsInitialLoadingDashboard,
+    errorMessage: errorMessage || dashboardErrorMessage,
+  });
+  const isInitialLoadingFilters =
+    baseIsInitialLoadingFilters && shouldShowInitialLoading;
+  const isInitialLoadingMasterlist =
+    baseIsInitialLoadingMasterlist && shouldShowInitialLoading;
+  const isInitialLoadingDashboard =
+    baseIsInitialLoadingDashboard && shouldShowInitialLoading;
   const pendingRestoreFamilyHeadName = pendingRestoreHouseholdDetails?.household
     ? [
         pendingRestoreHouseholdDetails.household.family_head_first_name,

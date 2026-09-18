@@ -10,6 +10,7 @@ import DisasterEventFormModal from "../../components/disaster-events/DisasterEve
 import DisasterEventSingleExportModal from "../../components/disaster-events/DisasterEventSingleExportModal";
 import DisasterEventsTable from "../../components/disaster-events/DisasterEventsTable";
 import { useDisasterEvents } from "../../features/disaster-events/useDisasterEvents";
+import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import ResponsiveFilterPopover from "../../components/shared/ResponsiveFilterPopover";
 import SearchBar from "../../components/shared/SearchBar";
@@ -163,7 +164,7 @@ const DisasterEventsPage = () => {
     events,
     barangays,
     selectedEvent,
-    isInitialLoading: isLoading,
+    isInitialLoading: baseIsInitialLoading,
     isDetailLoading,
     isSubmitting,
     errorMessage,
@@ -182,6 +183,12 @@ const DisasterEventsPage = () => {
     submitCreateEvent,
     submitEditEvent,
   } = useDisasterEvents();
+
+  const isLoading = useRememberedInitialLoading({
+    pageKey: "mswdo:disaster-events",
+    isLoading: baseIsInitialLoading,
+    errorMessage,
+  });
 
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");

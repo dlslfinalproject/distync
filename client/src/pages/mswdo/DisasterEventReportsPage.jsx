@@ -36,6 +36,7 @@ import {
   TABLE_PAGE_SIZE_OPTIONS,
 } from "../../features/pagination/pagination.mjs";
 import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
+import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 
 const inputStyles = {
   width: "100%",
@@ -538,8 +539,17 @@ const DisasterEventReportsPage = () => {
   const activeColumnWidthStyles = isSpecificDisasterEventSelected
     ? specificEventColumnWidthStyles
     : columnWidthStyles;
-  const isInitialLoadingRows = isLoadingRows && !isRefreshingRows;
-  const isInitialLoadingFilters = isLoadingFilters && !isRefreshingFilters;
+  const baseIsInitialLoadingRows = isLoadingRows && !isRefreshingRows;
+  const baseIsInitialLoadingFilters = isLoadingFilters && !isRefreshingFilters;
+  const shouldShowInitialLoading = useRememberedInitialLoading({
+    pageKey: "mswdo:disaster-reports",
+    isLoading: baseIsInitialLoadingRows || baseIsInitialLoadingFilters,
+    errorMessage,
+  });
+  const isInitialLoadingRows =
+    baseIsInitialLoadingRows && shouldShowInitialLoading;
+  const isInitialLoadingFilters =
+    baseIsInitialLoadingFilters && shouldShowInitialLoading;
   const isExportDisabled = isInitialLoadingRows || pagination.totalItems === 0;
   const exportDisasterEventOptions = useMemo(
     () => buildDisasterEventReportExportOptions(disasterEvents),

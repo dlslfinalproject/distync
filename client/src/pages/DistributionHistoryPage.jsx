@@ -36,6 +36,7 @@ import {
   resolveExportErrorMessage,
 } from "../utils/exportHelpers";
 import { useDashboardRevalidation } from "../utils/dashboardRevalidation";
+import { useRememberedInitialLoading } from "../utils/rememberedPageLoading";
 
 const inputStyles = {
   width: "100%",
@@ -287,6 +288,11 @@ const DistributionHistoryPage = () => {
     [exportFilters.date_from, exportFilters.date_to],
   );
   const isInitialLoadingFilters = isLoadingFilters && !isRefreshingFilters;
+  const isInitialLoadingHistory = useRememberedInitialLoading({
+    pageKey: `distribution-history:${currentRole || "unknown"}`,
+    isLoading: isLoadingHistory,
+    errorMessage,
+  });
   const updateFilters = (updater) => {
     setPage(1);
     setFilters(updater);
@@ -777,9 +783,9 @@ const DistributionHistoryPage = () => {
           pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
           onPageChange={setPage}
           onPageSizeChange={handlePageSizeChange}
-          isVisible={!isLoadingHistory && !errorMessage}
-          disabled={isLoadingHistory}
-          disablePageSize={isLoadingHistory}
+          isVisible={!isInitialLoadingHistory && !errorMessage}
+          disabled={isInitialLoadingHistory}
+          disablePageSize={isInitialLoadingHistory}
           ariaLabel="Distribution history pagination"
           previousAriaLabel="Go to previous distribution history page"
           nextAriaLabel="Go to next distribution history page"
@@ -787,7 +793,7 @@ const DistributionHistoryPage = () => {
 
         {errorMessage ? <ErrorState message={errorMessage} style={{ marginBottom: "16px" }} /> : null}
 
-        {isLoadingHistory ? (
+        {isInitialLoadingHistory ? (
           <LoadingState message="Loading distribution history..." />
         ) : displayedRows.length === 0 ? (
           <EmptyState message="No matching records found. Try adjusting your search or filters." />

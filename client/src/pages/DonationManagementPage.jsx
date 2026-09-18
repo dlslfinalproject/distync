@@ -50,6 +50,7 @@ import {
   resolveExportErrorMessage,
 } from "../utils/exportHelpers";
 import { formatDonorType } from "../features/donations/donationFormatters";
+import { useRememberedInitialLoading } from "../utils/rememberedPageLoading";
 
 const formatSummaryNumber = (value) =>
   new Intl.NumberFormat().format(Number(value || 0));
@@ -289,6 +290,11 @@ const DonationManagementPage = () => {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [pageErrorMessage, setPageErrorMessage] = useState("");
+  const isInitialPageLoading = useRememberedInitialLoading({
+    pageKey: "mayor:donations",
+    isLoading,
+    errorMessage: pageErrorMessage,
+  });
   const [successMessage, setSuccessMessage] = useState("");
   const [isDonationExportModalOpen, setIsDonationExportModalOpen] =
     useState(false);
@@ -1151,7 +1157,7 @@ const DonationManagementPage = () => {
 
         {activeTab === "donations" ? (
           <DonationsTab
-            isLoading={isLoading}
+            isLoading={isInitialPageLoading}
             errorMessage={pageErrorMessage}
             filteredDonations={filteredDonations}
             showDisasterEventColumn={!selectedEventId}
@@ -1167,7 +1173,7 @@ const DonationManagementPage = () => {
         {activeTab === "transparency" ? (
           <DonorTransparencyTab
             portalData={portalData}
-            isLoading={isLoading}
+            isLoading={isInitialPageLoading}
             errorMessage={pageErrorMessage}
             transparencyRows={filteredTransparencyRows}
             showDisasterEventColumn={!selectedEventId}

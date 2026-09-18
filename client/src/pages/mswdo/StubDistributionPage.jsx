@@ -24,6 +24,7 @@ import {
   verifyStub,
 } from "../../features/stubs/stubService";
 import { useMswdoStubDistribution } from "../../features/stubs/useMswdoStubDistribution";
+import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 import db from "../../offline/db.js";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
@@ -283,8 +284,8 @@ const StubDistributionPage = () => {
     pagination,
     isLoadingFilters,
     summaryCards,
-    isInitialLoadingFilters,
-    isInitialLoadingData,
+    isInitialLoadingFilters: baseIsInitialLoadingFilters,
+    isInitialLoadingData: baseIsInitialLoadingData,
     isEventSelectionResolved,
     errorMessage,
     backgroundRefreshErrorMessage,
@@ -303,6 +304,16 @@ const StubDistributionPage = () => {
   } = useMswdoStubDistribution({
     userId: authenticatedUser?.id || "",
   });
+
+  const shouldShowInitialLoading = useRememberedInitialLoading({
+    pageKey: `mswdo:stub-distribution:${authenticatedUser?.id || ""}`,
+    isLoading: baseIsInitialLoadingFilters || baseIsInitialLoadingData,
+    errorMessage,
+  });
+  const isInitialLoadingFilters =
+    baseIsInitialLoadingFilters && shouldShowInitialLoading;
+  const isInitialLoadingData =
+    baseIsInitialLoadingData && shouldShowInitialLoading;
 
   useEffect(() => {
     if (typeof window === "undefined") {

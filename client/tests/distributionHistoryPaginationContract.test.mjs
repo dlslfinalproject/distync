@@ -121,7 +121,7 @@ test("Distribution History uses one canonical paginator above the active table",
   const normalizedSource = normalizeSource(source);
 
   assert.match(normalizedSource, /<TablePagination/);
-  assert.match(normalizedSource, /isVisible=\{!isLoadingHistory && !errorMessage\}/);
+  assert.match(normalizedSource, /isVisible=\{!isInitialLoadingHistory && !errorMessage\}/);
   assert.doesNotMatch(normalizedSource, /HistoryPaginationMetadata|HistoryPaginationNavigation/);
   assert.doesNotMatch(normalizedSource, /Showing \{firstVisibleItem\}-\{lastVisibleItem\} of \{totalItems\}/);
   assertOrdered(normalizedSource, [

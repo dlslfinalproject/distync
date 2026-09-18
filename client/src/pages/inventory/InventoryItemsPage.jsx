@@ -82,6 +82,7 @@ import {
   downloadExportFile,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
+import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 import { isDonatedReliefPackBatch } from "../../features/donations/donationType";
 
 const RELIEF_PACK_STATUS_LOG_DISABLED_MESSAGE =
@@ -418,6 +419,11 @@ const InventoryItemsPage = () => {
   const [inventoryTransactions, setInventoryTransactions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const isInitialPageLoading = useRememberedInitialLoading({
+    pageKey: "mayor:inventory-items",
+    isLoading,
+    errorMessage,
+  });
   const [inventoryActionNotice, setInventoryActionNotice] = useState("");
   const [reservedBatchNumbers, setReservedBatchNumbers] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1845,7 +1851,7 @@ const InventoryItemsPage = () => {
         <InventoryItemsTable
           rows={visibleInventoryItems}
           paginationResetKey={inventoryItemsPaginationResetKey}
-          isLoading={isLoading}
+          isLoading={isInitialPageLoading}
           errorMessage={errorMessage}
           onEditItem={handleOpenEditModal}
           onViewDetails={handleOpenItemDetail}

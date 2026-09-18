@@ -17,6 +17,53 @@ const emptyData = {
   pagination: null,
 };
 
+const MASTERLIST_MEMORY_CACHE_LIMIT = 24;
+const masterlistDataCache = new Map();
+
+const buildMasterlistRequestKey = ({
+  disasterEventId,
+  barangayId,
+  recordStatus,
+  page,
+  pageSize,
+  search,
+  sectorIds,
+  sortOrder,
+}) =>
+  JSON.stringify({
+    role: "barangay",
+    disasterEventId: String(disasterEventId || ""),
+    barangayId: String(barangayId || ""),
+    recordStatus: recordStatus || "",
+    page,
+    pageSize,
+    search: search || "",
+    sectorIds: Array.isArray(sectorIds) ? sectorIds : [],
+    sortOrder: sortOrder || "",
+  });
+
+const getMasterlistCacheEntry = (requestKey) => {
+  const entry = masterlistDataCache.get(requestKey);
+
+  if (!entry) {
+    return null;
+  }
+
+  masterlistDataCache.delete(requestKey);
+  masterlistDataCache.set(requestKey, entry);
+  return entry;
+};
+
+const setMasterlistCacheEntry = (requestKey, entry) => {
+  masterlistDataCache.delete(requestKey);
+  masterlistDataCache.set(requestKey, entry);
+
+  while (masterlistDataCache.size > MASTERLIST_MEMORY_CACHE_LIMIT) {
+    const oldestRequestKey = masterlistDataCache.keys().next().value;
+    masterlistDataCache.delete(oldestRequestKey);
+  }
+};
+
 export const useMasterlist = ({
   disasterEventId,
   barangayId,
@@ -27,35 +74,62 @@ export const useMasterlist = ({
   sectorIds,
   sortOrder,
 }) => {
-  const [data, setData] = useState(emptyData);
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [infoMessage, setInfoMessage] = useState("");
-  const [isAuthoritative, setIsAuthoritative] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const backgroundReloadRef = useRef(false);
-  const lastSuccessfulDataRef = useRef(null);
-  const lastSuccessfulRequestKeyRef = useRef("");
-  const requestKey = JSON.stringify({
+  const requestKey = buildMasterlistRequestKey({
     disasterEventId,
     barangayId,
     recordStatus,
     page,
     pageSize,
     search,
-    sectorIds: Array.isArray(sectorIds) ? sectorIds : [],
+    sectorIds,
     sortOrder,
   });
+  const initialCacheEntry = getMasterlistCacheEntry(requestKey);
+  const [data, setData] = useState(
+    initialCacheEntry?.data || emptyData,
+  );
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [infoMessage, setInfoMessage] = useState("");
+  const [isAuthoritative, setIsAuthoritative] = useState(
+    Boolean(initialCacheEntry?.isAuthoritative),
+  );
+  const [reloadKey, setReloadKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const backgroundReloadRef = useRef(false);
+  const lastSuccessfulDataRef = useRef(initialCacheEntry?.data || null);
+  const lastSuccessfulRequestKeyRef = useRef(
+    initialCacheEntry ? requestKey : "",
+  );
+  const dataContextKeyRef = useRef(requestKey);
+  const hasRunRequestRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadMasterlist = async () => {
-      const preserveExistingData =
-        backgroundReloadRef.current &&
-        lastSuccessfulRequestKeyRef.current === requestKey;
+      const cacheEntry = getMasterlistCacheEntry(requestKey);
+      const isNewRequestContext =
+        !hasRunRequestRef.current || dataContextKeyRef.current !== requestKey;
+      hasRunRequestRef.current = true;
+      dataContextKeyRef.current = requestKey;
+
+      if (isNewRequestContext) {
+        setData(cacheEntry?.data || emptyData);
+        setIsAuthoritative(Boolean(cacheEntry?.isAuthoritative));
+        lastSuccessfulDataRef.current = cacheEntry?.data || null;
+        lastSuccessfulRequestKeyRef.current = cacheEntry ? requestKey : "";
+        setErrorMessage("");
+        setInfoMessage("");
+      }
+
+      const isBackgroundReload = backgroundReloadRef.current;
       backgroundReloadRef.current = false;
+      const preserveExistingData =
+        (isNewRequestContext && Boolean(cacheEntry)) ||
+        (isBackgroundReload &&
+          Boolean(lastSuccessfulDataRef.current) &&
+          lastSuccessfulRequestKeyRef.current === requestKey);
 
       if (!disasterEventId) {
         setData(emptyData);
@@ -67,7 +141,11 @@ export const useMasterlist = ({
         return;
       }
 
-      setIsLoading(true);
+      if (!preserveExistingData) {
+        setIsLoading(true);
+      } else {
+        setIsLoading(false);
+      }
       setIsRefreshing(preserveExistingData);
       setIsAuthoritative(false);
       setErrorMessage("");
@@ -83,6 +161,11 @@ export const useMasterlist = ({
           search,
           sectorIds,
           sortOrder,
+        });
+
+        setMasterlistCacheEntry(requestKey, {
+          data: result,
+          isAuthoritative: true,
         });
 
         if (isMounted) {
@@ -120,6 +203,10 @@ export const useMasterlist = ({
             cachedData || lastSuccessfulDataRef.current || null;
 
           if (fallbackData) {
+            setMasterlistCacheEntry(requestKey, {
+              data: fallbackData,
+              isAuthoritative: false,
+            });
             setData(fallbackData);
             setIsAuthoritative(false);
             lastSuccessfulDataRef.current = fallbackData;
@@ -160,18 +247,32 @@ export const useMasterlist = ({
     reloadKey,
     requestKey,
     search,
-    sectorIds,
     sortOrder,
   ]);
 
+  const cacheEntryForRender = getMasterlistCacheEntry(requestKey);
+  const isCurrentDataContext = dataContextKeyRef.current === requestKey;
+  const visibleData = isCurrentDataContext
+    ? data
+    : cacheEntryForRender?.data || emptyData;
+  const visibleIsAuthoritative = isCurrentDataContext
+    ? isAuthoritative
+    : Boolean(cacheEntryForRender?.isAuthoritative);
+  const visibleIsLoading = isCurrentDataContext
+    ? isLoading
+    : !cacheEntryForRender;
+  const visibleIsRefreshing = isCurrentDataContext
+    ? isRefreshing
+    : Boolean(cacheEntryForRender);
+
   return {
-    data,
-    isLoading,
-    errorMessage,
-    infoMessage,
-    isAuthoritative,
-    isInitialLoading: isLoading && !isRefreshing,
-    isRefreshing,
+    data: visibleData,
+    isLoading: visibleIsLoading,
+    errorMessage: isCurrentDataContext ? errorMessage : "",
+    infoMessage: isCurrentDataContext ? infoMessage : "",
+    isAuthoritative: visibleIsAuthoritative,
+    isInitialLoading: visibleIsLoading && !visibleIsRefreshing,
+    isRefreshing: visibleIsRefreshing,
     reloadMasterlist: (options = {}) => {
       backgroundReloadRef.current = Boolean(options?.background);
       setReloadKey((currentValue) => currentValue + 1);

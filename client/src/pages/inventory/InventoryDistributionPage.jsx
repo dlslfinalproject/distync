@@ -14,6 +14,7 @@ import FeedbackToast from "../../components/shared/FeedbackToast";
 import ResponsiveFilterPopover from "../../components/shared/ResponsiveFilterPopover";
 import { useInventoryDistribution } from "../../features/inventory-distribution/useInventoryDistribution";
 import { useInventoryDistributionReadiness } from "../../features/inventory-distribution/useInventoryDistributionReadiness.js";
+import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 import { MASTERLIST_SORT_OPTIONS } from "../../features/masterlist/masterlistService";
 import {
   exportInventoryDistribution,
@@ -289,8 +290,8 @@ const InventoryDistributionPage = () => {
     templateDetails,
     displayedRows,
     analytics,
-    isInitialLoadingFilters,
-    isInitialLoadingMasterlist,
+    isInitialLoadingFilters: baseIsInitialLoadingFilters,
+    isInitialLoadingMasterlist: baseIsInitialLoadingMasterlist,
     errorMessage,
     backgroundRefreshErrorMessage,
     hasActiveEvents,
@@ -302,6 +303,17 @@ const InventoryDistributionPage = () => {
     setSelectedSectorIds,
     setSelectedSortOrder,
   } = useInventoryDistribution();
+
+  const shouldShowInitialLoading = useRememberedInitialLoading({
+    pageKey: "mayor:inventory-distribution",
+    isLoading:
+      baseIsInitialLoadingFilters || baseIsInitialLoadingMasterlist,
+    errorMessage,
+  });
+  const isInitialLoadingFilters =
+    baseIsInitialLoadingFilters && shouldShowInitialLoading;
+  const isInitialLoadingMasterlist =
+    baseIsInitialLoadingMasterlist && shouldShowInitialLoading;
 
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedDistributionRow, setSelectedDistributionRow] = useState(null);

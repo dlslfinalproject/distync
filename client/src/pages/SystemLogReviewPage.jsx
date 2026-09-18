@@ -15,6 +15,7 @@ import {
 } from "../features/pagination/pagination.mjs";
 import { fetchSystemLogReview } from "../features/system-logs/systemLogService";
 import { useDashboardRevalidation } from "../utils/dashboardRevalidation";
+import { useRememberedInitialLoading } from "../utils/rememberedPageLoading";
 
 const ALL_MODULES_VALUE = "all";
 const MODULE_FILTER_OPTIONS = [
@@ -1080,6 +1081,11 @@ const SystemLogReviewPage = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const isInitialPageLoading = useRememberedInitialLoading({
+    pageKey: "mayor:system-logs",
+    isLoading,
+    errorMessage,
+  });
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedModule, setSelectedModule] = useState(ALL_MODULES_VALUE);
   const [selectedAuditAction, setSelectedAuditAction] = useState(
@@ -1379,14 +1385,14 @@ const SystemLogReviewPage = () => {
           pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
           onPageChange={setCurrentPage}
           onPageSizeChange={handlePageSizeChange}
-          isVisible={!isLoading && !errorMessage && pagination.total_records > 0}
+          isVisible={!isInitialPageLoading && !errorMessage && pagination.total_records > 0}
           disabled={isLoading}
           ariaLabel="Audit trail pagination"
           previousAriaLabel="Go to previous audit trail page"
           nextAriaLabel="Go to next audit trail page"
         />
 
-        {isLoading ? (
+        {isInitialPageLoading ? (
           <EmptyState message="Loading audit trail records..." />
         ) : filteredAuditLogs.length === 0 ? (
           <EmptyState message="No matching audit records found. Try adjusting the search or filters." />

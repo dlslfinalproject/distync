@@ -36,6 +36,7 @@ import {
 } from "../../features/pagination/pagination.mjs";
 import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
 import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
+import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 
 const inputStyles = {
   width: "100%",
@@ -1419,8 +1420,17 @@ const AnomalyTrackingPage = ({
     viewState,
   ]);
 
-  const isInitialLoadingFilters = isLoadingFilters && !isRefreshingFilters;
-  const isInitialLoadingRows = isLoadingRows && !isRefreshingRows;
+  const baseIsInitialLoadingFilters = isLoadingFilters && !isRefreshingFilters;
+  const baseIsInitialLoadingRows = isLoadingRows && !isRefreshingRows;
+  const shouldShowInitialLoading = useRememberedInitialLoading({
+    pageKey: `${scope}:anomalies`,
+    isLoading: baseIsInitialLoadingFilters || baseIsInitialLoadingRows,
+    errorMessage,
+  });
+  const isInitialLoadingFilters =
+    baseIsInitialLoadingFilters && shouldShowInitialLoading;
+  const isInitialLoadingRows =
+    baseIsInitialLoadingRows && shouldShowInitialLoading;
 
   useEffect(() => {
     const numericTotalItems = Number(pagination.totalItems || 0);

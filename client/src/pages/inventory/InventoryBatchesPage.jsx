@@ -47,6 +47,7 @@ import {
   NO_EXPORT_DATA_MESSAGE,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
+import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 
 const selectStyles = {
   minHeight: "52px",
@@ -192,6 +193,11 @@ const InventoryBatchesPage = () => {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const isInitialPageLoading = useRememberedInitialLoading({
+    pageKey: "mayor:inventory-batches",
+    isLoading,
+    errorMessage,
+  });
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine !== false,
   );
@@ -969,7 +975,7 @@ const InventoryBatchesPage = () => {
 
       <InventoryBatchesTable
         rows={inventoryBatchesWithSyncStatus}
-        isLoading={isLoading}
+        isLoading={isInitialPageLoading}
         errorMessage={errorMessage}
         onViewDetails={handleOpenBatchDetail}
         pagination={isPaginatedLiveTable ? pagination : null}

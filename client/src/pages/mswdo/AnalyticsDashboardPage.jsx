@@ -12,6 +12,7 @@ import {
   getBarangayChartColorMap,
 } from "../../components/mswdo-analytics/barangayChartColors.mjs";
 import { useMswdoAnalytics } from "../../features/mswdo-analytics/useMswdoAnalytics";
+import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 import { exportMasterlistOperationalAnalytics } from "../../features/mswdo-analytics/mswdoAnalyticsService";
 import { downloadExportFile } from "../../utils/exportHelpers";
 
@@ -130,14 +131,24 @@ const AnalyticsDashboardPage = () => {
     barangayCoverageDistribution,
     barangayCoverageCount,
     evacuationCenterDistribution,
-    isInitialLoadingFilters,
-    isInitialLoadingDashboard,
+    isInitialLoadingFilters: baseIsInitialLoadingFilters,
+    isInitialLoadingDashboard: baseIsInitialLoadingDashboard,
     errorMessage,
     hasSelectedEvent,
     hasData,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
   } = useMswdoAnalytics();
+  const shouldShowInitialLoading = useRememberedInitialLoading({
+    pageKey: "mswdo:analytics",
+    isLoading:
+      baseIsInitialLoadingFilters || baseIsInitialLoadingDashboard,
+    errorMessage,
+  });
+  const isInitialLoadingFilters =
+    baseIsInitialLoadingFilters && shouldShowInitialLoading;
+  const isInitialLoadingDashboard =
+    baseIsInitialLoadingDashboard && shouldShowInitialLoading;
   const evacuationCenterChartHeight = Math.max(
     isNarrow ? 340 : 380,
     evacuationCenterDistribution.length * (isNarrow ? 46 : 54) + 110,
