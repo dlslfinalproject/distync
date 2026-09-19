@@ -83,6 +83,8 @@ export const buildHouseholdDetailsSnapshot = (household = {}) => {
     household: {
       ...household,
       id: householdId,
+      barangay_name:
+        household.barangay_name || household.barangay?.name || "",
       source_household_id:
         household.source_household_id ||
         household.re_admission_source_household_id ||
@@ -114,6 +116,16 @@ export const buildQueuedHouseholdDetails = (
 
   const payload = entry?.payload || {};
   const familyHead = payload.family_head || {};
+  const legacyRegisteredBy = String(payload.registered_by || "").trim();
+  const registeredByName =
+    payload.registered_by_name ||
+    (legacyRegisteredBy &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      legacyRegisteredBy,
+    )
+      ? legacyRegisteredBy
+      : "") ||
+    "Not recorded";
   const familyHeadMember = {
     ...familyHead,
     id: familyHead.id || `${entry?.entityLocalId || entry?.id}-family-head`,
@@ -146,8 +158,10 @@ export const buildQueuedHouseholdDetails = (
       current_address_details: payload.current_address_details || "",
       contact_number: payload.contact_number || "",
       registered_at: entry?.clientTimestamp || null,
-      registered_by_name: payload.registered_by_name || payload.registered_by || "Not recorded",
+      registered_by_name: registeredByName,
       registered_by: payload.registered_by || "",
+      evacuation_center_id: payload.evacuation_center_id || "",
+      evacuation_center_name: payload.evacuation_center_name || "",
       is_active: true,
       household_size: (hasPersonName(familyHead) ? 1 : 0) + members.length,
       family_head_first_name: familyHead.first_name || "",
@@ -254,10 +268,8 @@ export const buildQueuedHouseholdRow = (
       : departureStatus;
   const familyHeadName = buildFamilyHeadName(payload.family_head);
   const submittedMembers = getSubmittedMembers(payload);
-  const currentAddress =
-    entry.payload?.current_address_details ||
-    assignedBarangayName ||
-    "Pending local address";
+  const barangayName = payload.barangay_name || assignedBarangayName || "";
+  const pendingBarangayLabel = "Pending local address";
   const departureTimestamp =
     entry.actionKey === "HOUSEHOLD_DEPART" ? entry.clientTimestamp : null;
   const sectorRefs = [
@@ -301,9 +313,12 @@ export const buildQueuedHouseholdRow = (
       null,
     masterlist_record_id: entry.id || entry.entityLocalId || `local-${entry.clientTimestamp}`,
     family_head_name: familyHeadName || "Pending household",
-    address: currentAddress,
+    address: barangayName || pendingBarangayLabel,
     barangay_id: entry.barangayId || payload.barangay_id || null,
-    barangay_name: payload.barangay_name || assignedBarangayName || "",
+    barangay_name: barangayName,
+    evacuation_center_id: payload.evacuation_center_id || null,
+    evacuation_center_name: payload.evacuation_center_name || null,
+    registered_by_name: payload.registered_by_name || null,
     members_count: (hasPersonName(payload.family_head) ? 1 : 0) + submittedMembers.length,
     sectors_text: buildQueuedSectorsText(payload, sectorOptions),
     sector_ids: sectorIds,

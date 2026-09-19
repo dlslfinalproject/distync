@@ -129,6 +129,9 @@ const MasterlistTable = ({
   onPageSizeChange,
   totalItems,
 }) => {
+  // The masterlist always exposes the actual barangay name. Keep the legacy
+  // prop for callers, but do not allow it to hide this required column.
+  const showBarangayColumn = true;
   const safeSelectedHouseholds = Array.isArray(selectedHouseholds)
     ? selectedHouseholds
     : [];
@@ -324,9 +327,11 @@ const MasterlistTable = ({
                 </th>
               ) : null}
               <th style={tableStyles.headerCell}>Family Head</th>
-              {showAddressColumn ? (
-                <th style={tableStyles.headerCell}>Address</th>
+              {showBarangayColumn ? (
+                <th style={tableStyles.headerCell}>Barangay</th>
               ) : null}
+              <th style={tableStyles.headerCell}>Evacuation Center</th>
+              <th style={tableStyles.headerCell}>Registered By</th>
               <th
                 style={{
                   ...tableStyles.headerCell,
@@ -432,16 +437,32 @@ const MasterlistTable = ({
                       ) : null}
                     </div>
                   </td>
-                  {showAddressColumn ? (
+                  {showBarangayColumn ? (
                     <td
                       style={{
                         ...tableStyles.bodyCell,
                         ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       }}
                     >
-                      {row.address}
+                      {row.barangay_name || row.address || "-"}
                     </td>
                   ) : null}
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                    }}
+                  >
+                    {row.evacuation_center_name || "-"}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                    }}
+                  >
+                    {row.registered_by_name || "-"}
+                  </td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,

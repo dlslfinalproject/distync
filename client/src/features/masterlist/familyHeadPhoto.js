@@ -1,6 +1,8 @@
 import { getCachedMasterlistRows } from "../../offline/masterlistCache.js";
 
-const isDataImage = (value) => String(value || "").startsWith("data:image/");
+const normalizePhotoValue = (value) => String(value || "").trim();
+const isDataImage = (value) =>
+  /^data:image\/[a-z0-9.+-]+;base64,/i.test(normalizePhotoValue(value));
 
 export const resolveFamilyHeadPhoto = (record = {}, { isOffline = false } = {}) => {
   const household = record?.household || record || {};
@@ -9,7 +11,7 @@ export const resolveFamilyHeadPhoto = (record = {}, { isOffline = false } = {}) 
     household.familyHeadPhotoDataUrl,
     household.cached_family_head_photo,
     household.family_head_photo_url,
-  ].find(isDataImage);
+  ].map(normalizePhotoValue).find(isDataImage);
 
   if (localPhoto) {
     return localPhoto;
@@ -20,9 +22,9 @@ export const resolveFamilyHeadPhoto = (record = {}, { isOffline = false } = {}) 
   }
 
   return (
-    household.family_head_photo_url ||
-    household.familyHeadPhoto ||
-    household.family_head_photo ||
+    normalizePhotoValue(household.family_head_photo_url) ||
+    normalizePhotoValue(household.familyHeadPhoto) ||
+    normalizePhotoValue(household.family_head_photo) ||
     ""
   );
 };
