@@ -181,12 +181,15 @@ const getMasterlist = async (filters) => {
           time_in: household.attendance_time_in,
           time_out: household.attendance_time_out,
           evacuation_center_id: household.attendance_evacuation_center_id,
+          evacuation_center_name: household.attendance_evacuation_center_name || null,
         }
       : null;
 
     return {
       household_id: household.household_id,
       source_household_id: household.source_household_id || null,
+      registered_by: household.registered_by || null,
+      registered_by_name: household.registered_by_name || null,
       masterlist_record_id:
         household.masterlist_record_id || household.attendance_log_id || household.household_id,
       family_head_name: buildFullName(
@@ -207,6 +210,14 @@ const getMasterlist = async (filters) => {
       household_size: household.household_size,
       current_stay_type: household.current_stay_type,
       current_address_details: household.current_address_details,
+      evacuation_center_id:
+        household.evacuation_center_id ||
+        household.attendance_evacuation_center_id ||
+        null,
+      evacuation_center_name:
+        household.evacuation_center_name ||
+        household.attendance_evacuation_center_name ||
+        null,
       contact_number: household.contact_number,
       is_active: household.is_active,
       has_admitted_successor: Boolean(household.has_admitted_successor),
@@ -236,6 +247,7 @@ const getMasterlist = async (filters) => {
             time_in: attendance.time_in,
             time_out: attendance.time_out,
             evacuation_center_id: attendance.evacuation_center_id,
+            evacuation_center_name: attendance.evacuation_center_name || null,
           }
         : null,
       members: householdMembers,

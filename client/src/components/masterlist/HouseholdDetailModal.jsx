@@ -297,6 +297,10 @@ const HouseholdDetailModal = ({
     latestAttendance,
   );
   const stayTypeLabel = formatStayTypeLabel(household?.current_stay_type);
+  const evacuationCenterName =
+    household?.evacuation_center_name ||
+    latestAttendance?.evacuation_center_name ||
+    "--";
   const privacyConsent = householdDetails?.privacy_consent || null;
   const dataPrivacyAcknowledgementItems = [
     {
@@ -324,6 +328,10 @@ const HouseholdDetailModal = ({
     {
       label: "Stay Type",
       value: stayTypeLabel || "--",
+    },
+    {
+      label: "Evacuation Center",
+      value: evacuationCenterName,
     },
     {
       label: "Family Head",
@@ -355,10 +363,7 @@ const HouseholdDetailModal = ({
     },
     {
       label: "Registered By",
-      value:
-        household?.registered_by_name ||
-        household?.registered_by ||
-        "Not recorded",
+      value: household?.registered_by_name || "Not recorded",
     },
   ];
 

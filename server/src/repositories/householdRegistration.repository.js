@@ -1598,7 +1598,16 @@ const getHouseholdSummaryById = async (id, dbClient = pool) => {
       h.registered_at,
       h.updated_at,
       h.family_head_evacuee_id,
-      CONCAT_WS(' ', registered_by_user.first_name, registered_by_user.last_name) AS registered_by_name,
+      NULLIF(
+        CONCAT_WS(
+          ' ',
+          NULLIF(BTRIM(registered_by_user.first_name), ''),
+          NULLIF(BTRIM(registered_by_user.middle_name), ''),
+          NULLIF(BTRIM(registered_by_user.last_name), '')
+        ),
+        ''
+      ) AS registered_by_name,
+      evacuation_center.name AS evacuation_center_name,
       b.code AS barangay_code,
       b.name AS barangay_name,
       de.event_code,
@@ -1607,6 +1616,8 @@ const getHouseholdSummaryById = async (id, dbClient = pool) => {
     FROM households h
     LEFT JOIN barangays b ON b.id = h.barangay_id
     LEFT JOIN users registered_by_user ON registered_by_user.id = h.registered_by
+    LEFT JOIN evacuation_centers evacuation_center
+      ON evacuation_center.id = h.evacuation_center_id
     INNER JOIN disaster_events de ON de.id = h.disaster_event_id
     WHERE h.id = $1
   `;
@@ -1643,7 +1654,16 @@ const getHouseholdSummaryByIdForUpdate = async (id, dbClient) => {
       h.registered_at,
       h.updated_at,
       h.family_head_evacuee_id,
-      CONCAT_WS(' ', registered_by_user.first_name, registered_by_user.last_name) AS registered_by_name,
+      NULLIF(
+        CONCAT_WS(
+          ' ',
+          NULLIF(BTRIM(registered_by_user.first_name), ''),
+          NULLIF(BTRIM(registered_by_user.middle_name), ''),
+          NULLIF(BTRIM(registered_by_user.last_name), '')
+        ),
+        ''
+      ) AS registered_by_name,
+      evacuation_center.name AS evacuation_center_name,
       b.code AS barangay_code,
       b.name AS barangay_name,
       de.event_code,
@@ -1652,6 +1672,8 @@ const getHouseholdSummaryByIdForUpdate = async (id, dbClient) => {
     FROM households h
     LEFT JOIN barangays b ON b.id = h.barangay_id
     LEFT JOIN users registered_by_user ON registered_by_user.id = h.registered_by
+    LEFT JOIN evacuation_centers evacuation_center
+      ON evacuation_center.id = h.evacuation_center_id
     INNER JOIN disaster_events de ON de.id = h.disaster_event_id
     WHERE h.id = $1
     FOR UPDATE OF h
@@ -1765,7 +1787,15 @@ const getLatestHouseholdPrivacyConsentByHouseholdId = async (
       hpc.sync_status,
       hpc.created_at,
       hpc.updated_at,
-      CONCAT_WS(' ', u.first_name, u.last_name) AS recorded_by_name
+      NULLIF(
+        CONCAT_WS(
+          ' ',
+          NULLIF(BTRIM(u.first_name), ''),
+          NULLIF(BTRIM(u.middle_name), ''),
+          NULLIF(BTRIM(u.last_name), '')
+        ),
+        ''
+      ) AS recorded_by_name
     FROM household_privacy_consents hpc
     LEFT JOIN users u ON u.id = hpc.recorded_by
     WHERE household_id = $1
@@ -1808,25 +1838,28 @@ const getStubByHouseholdId = async (householdId, dbClient = pool) => {
 const getLatestAttendanceByHouseholdId = async (householdId, dbClient = pool) => {
   const query = `
     SELECT
-      id,
-      disaster_event_id,
-      household_id,
-      evacuee_id,
-      evacuation_center_id,
-      time_in,
-      time_out,
-      status,
-      recorded_by,
-      remarks,
-      created_at,
-      updated_at
-    FROM evacuation_logs
-    WHERE household_id = $1
+      el.id,
+      el.disaster_event_id,
+      el.household_id,
+      el.evacuee_id,
+      el.evacuation_center_id,
+      evacuation_center.name AS evacuation_center_name,
+      el.time_in,
+      el.time_out,
+      el.status,
+      el.recorded_by,
+      el.remarks,
+      el.created_at,
+      el.updated_at
+    FROM evacuation_logs el
+    LEFT JOIN evacuation_centers evacuation_center
+      ON evacuation_center.id = el.evacuation_center_id
+    WHERE el.household_id = $1
     ORDER BY
-      COALESCE(time_out, time_in) DESC NULLS LAST,
-      updated_at DESC NULLS LAST,
-      created_at DESC NULLS LAST,
-      id DESC
+      COALESCE(el.time_out, el.time_in) DESC NULLS LAST,
+      el.updated_at DESC NULLS LAST,
+      el.created_at DESC NULLS LAST,
+      el.id DESC
     LIMIT 1
   `;
 
@@ -1875,21 +1908,24 @@ const getEvacuationLogByIdForHousehold = async (
 ) => {
   const query = `
     SELECT
-      id,
-      disaster_event_id,
-      household_id,
-      evacuee_id,
-      evacuation_center_id,
-      time_in,
-      time_out,
-      status,
-      recorded_by,
-      remarks,
-      created_at,
-      updated_at
-    FROM evacuation_logs
-    WHERE household_id = $1
-      AND id = $2
+      el.id,
+      el.disaster_event_id,
+      el.household_id,
+      el.evacuee_id,
+      el.evacuation_center_id,
+      evacuation_center.name AS evacuation_center_name,
+      el.time_in,
+      el.time_out,
+      el.status,
+      el.recorded_by,
+      el.remarks,
+      el.created_at,
+      el.updated_at
+    FROM evacuation_logs el
+    LEFT JOIN evacuation_centers evacuation_center
+      ON evacuation_center.id = el.evacuation_center_id
+    WHERE el.household_id = $1
+      AND el.id = $2
     LIMIT 1
   `;
 
@@ -1904,21 +1940,24 @@ const getEvacuationLogByIdForHouseholdForUpdate = async (
 ) => {
   const query = `
     SELECT
-      id,
-      disaster_event_id,
-      household_id,
-      evacuee_id,
-      evacuation_center_id,
-      time_in,
-      time_out,
-      status,
-      recorded_by,
-      remarks,
-      created_at,
-      updated_at
-    FROM evacuation_logs
-    WHERE household_id = $1
-      AND id = $2
+      el.id,
+      el.disaster_event_id,
+      el.household_id,
+      el.evacuee_id,
+      el.evacuation_center_id,
+      evacuation_center.name AS evacuation_center_name,
+      el.time_in,
+      el.time_out,
+      el.status,
+      el.recorded_by,
+      el.remarks,
+      el.created_at,
+      el.updated_at
+    FROM evacuation_logs el
+    LEFT JOIN evacuation_centers evacuation_center
+      ON evacuation_center.id = el.evacuation_center_id
+    WHERE el.household_id = $1
+      AND el.id = $2
     LIMIT 1
     FOR UPDATE
   `;

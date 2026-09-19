@@ -169,10 +169,7 @@ const buildLocalDuplicateProfile = ({ household, disasterEventId }) => {
 
 export const mapMasterlistRow = (household, households = [], options = {}) => {
   const departureTimeValue = household.latest_attendance?.time_out || null;
-  const locationLabel =
-    household.residency_status === "NON_RESIDENT"
-      ? "Non-Resident (Outside Malvar)"
-      : household.barangay?.name;
+  const barangayName = household.barangay?.name || household.barangay_name || "";
   const isOperationallyActive = isOperationallyActiveHousehold(household);
   const isNonAdmittedResident = isNonAdmittedResidentHousehold(household);
   const admitAlreadyUsed =
@@ -205,10 +202,19 @@ export const mapMasterlistRow = (household, households = [], options = {}) => {
     evacuation_log_id: household.attendance_log_id || household.latest_attendance?.id || null,
     family_head_name: household.family_head_name || "-",
     source_household_id: household.source_household_id || null,
-    address:
-      household.current_address_details ||
-      locationLabel ||
-      "-",
+    address: barangayName || "-",
+    barangay_name: barangayName,
+    evacuation_center_id:
+      household.evacuation_center_id ||
+      household.latest_attendance?.evacuation_center_id ||
+      null,
+    evacuation_center_name:
+      household.evacuation_center_name ||
+      household.latest_attendance?.evacuation_center_name ||
+      null,
+    registered_by: household.registered_by || null,
+    registered_by_name: household.registered_by_name || null,
+    family_head_photo_url: household.family_head_photo_url || null,
     members_count: household.members?.length || 0,
     sectors_text: buildSectorsText(household),
     arrival_time_text: isNonAdmittedResident

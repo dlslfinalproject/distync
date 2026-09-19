@@ -932,6 +932,11 @@ export const useHouseholdRegistrationForm = ({
       initialHouseholdDetails?.latest_attendance?.evacuation_center_id ||
       "",
   );
+  const savedEditEvacuationCenterName = String(
+    initialHouseholdDetails?.household?.evacuation_center_name ||
+      initialHouseholdDetails?.latest_attendance?.evacuation_center_name ||
+      "",
+  ).trim();
 
   useEffect(() => {
     if (!isOpen) {
@@ -1022,15 +1027,17 @@ export const useHouseholdRegistrationForm = ({
             return normalizedCenters;
           }
 
-          return [
-            {
-              id: nextEvacuationCenterId,
-              name: "Saved evacuation center",
-              barangay_id: selectedBarangayId || null,
-              is_active: false,
-            },
-            ...normalizedCenters,
-          ];
+          return savedEditEvacuationCenterName
+            ? [
+                {
+                  id: nextEvacuationCenterId,
+                  name: savedEditEvacuationCenterName,
+                  barangay_id: selectedBarangayId || null,
+                  is_active: false,
+                },
+                ...normalizedCenters,
+              ]
+            : normalizedCenters;
         });
       }
     };
@@ -1046,6 +1053,7 @@ export const useHouseholdRegistrationForm = ({
     isPrefilledHouseholdMode,
     residencyStatus,
     savedEditEvacuationCenterId,
+    savedEditEvacuationCenterName,
     scopeNonResidentEvacuationCentersToBarangay,
     selectedBarangayId,
   ]);
@@ -1379,15 +1387,17 @@ export const useHouseholdRegistrationForm = ({
     isPrefilledHouseholdMode &&
     effectiveEvacuationCenterId &&
     !hasSelectedEvacuationCenterInOptions
-      ? [
-          {
-            id: effectiveEvacuationCenterId,
-            name: "Saved evacuation center",
-            barangay_id: selectedBarangayId || null,
-            is_active: false,
-          },
-          ...evacuationCenters,
-        ]
+      ? savedEditEvacuationCenterName
+        ? [
+            {
+              id: effectiveEvacuationCenterId,
+              name: savedEditEvacuationCenterName,
+              barangay_id: selectedBarangayId || null,
+              is_active: false,
+            },
+            ...evacuationCenters,
+          ]
+        : evacuationCenters
       : evacuationCenters;
 
   const clearFormMessages = () => {

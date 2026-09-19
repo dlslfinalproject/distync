@@ -1088,6 +1088,8 @@ const getHouseholdsByFilters = async (
         h.source_household_id,
         h.disaster_event_id,
         h.barangay_id,
+        h.evacuation_center_id,
+        h.registered_by,
         h.residency_status,
         h.family_head_first_name,
         h.family_head_middle_name,
@@ -1104,9 +1106,22 @@ const getHouseholdsByFilters = async (
         b.code AS barangay_code,
         b.name AS barangay_name,
         b.municipality_name,
-        b.province_name
+        b.province_name,
+        NULLIF(
+          CONCAT_WS(
+            ' ',
+            NULLIF(BTRIM(registered_by_user.first_name), ''),
+            NULLIF(BTRIM(registered_by_user.middle_name), ''),
+            NULLIF(BTRIM(registered_by_user.last_name), '')
+          ),
+          ''
+        ) AS registered_by_name,
+        household_evacuation_center.name AS evacuation_center_name
       FROM households h
       LEFT JOIN barangays b ON b.id = h.barangay_id
+      LEFT JOIN users registered_by_user ON registered_by_user.id = h.registered_by
+      LEFT JOIN evacuation_centers household_evacuation_center
+        ON household_evacuation_center.id = h.evacuation_center_id
       WHERE h.disaster_event_id = $1
       ${barangayFilterClause}
     ),
@@ -1181,6 +1196,11 @@ const getHouseholdsByFilters = async (
         ao.attendance_evacuation_center_id,
         ao.attendance_created_at,
         ao.attendance_updated_at,
+        hs.evacuation_center_id,
+        hs.registered_by,
+        hs.registered_by_name,
+        hs.evacuation_center_name,
+        attendance_evacuation_center.name AS attendance_evacuation_center_name,
         COALESCE(ao.attendance_log_id::text, hs.household_id::text) AS masterlist_record_id,
         ${rawFamilyHeadNameSql} AS family_head_name,
         ${clientLocationLabelSql} AS location_label,
@@ -1210,6 +1230,8 @@ const getHouseholdsByFilters = async (
         ON ao.household_id = hs.household_id
       LEFT JOIN sector_aggregates sa
         ON sa.household_id = hs.household_id
+      LEFT JOIN evacuation_centers attendance_evacuation_center
+        ON attendance_evacuation_center.id = ao.attendance_evacuation_center_id
     ),
     filtered_records AS (
       SELECT *
@@ -1253,6 +1275,11 @@ const getHouseholdsByFilters = async (
       paged_records.barangay_name,
       paged_records.municipality_name,
       paged_records.province_name,
+      paged_records.evacuation_center_id,
+      paged_records.registered_by,
+      paged_records.registered_by_name,
+      paged_records.evacuation_center_name,
+      paged_records.attendance_evacuation_center_name,
       paged_records.attendance_log_id,
       paged_records.attendance_status,
       paged_records.attendance_time_in,
@@ -1537,8 +1564,10 @@ const getLatestAttendanceByHouseholdIds = async (householdIds) => {
       el.status,
       el.time_in,
       el.time_out,
-      el.evacuation_center_id
+      el.evacuation_center_id,
+      ec.name AS evacuation_center_name
     FROM evacuation_logs el
+    LEFT JOIN evacuation_centers ec ON ec.id = el.evacuation_center_id
     WHERE el.household_id = ANY($1::uuid[])
     ORDER BY
       el.household_id,
