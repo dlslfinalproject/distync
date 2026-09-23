@@ -125,7 +125,6 @@ const buildStubContextFromLocation = (locationState, searchParams) => {
     family_head_name: searchParams.get("family_head_name") || "--",
     barangay_name: searchParams.get("barangay_name") || "--",
     household_size: Number(searchParams.get("household_size") || 0),
-    family_head_photo_url: searchParams.get("family_head_photo_url") || "",
     photo_captured_at: searchParams.get("photo_captured_at") || "",
     photo_verification_notes:
       searchParams.get("photo_verification_notes") || "",

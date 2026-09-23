@@ -42,7 +42,8 @@ const buildValidPayload = () => ({
   registered_by: VALID_UUIDS.registeredBy,
   contact_number: "+639171234567",
   current_address_details: "Poblacion, Malvar, Batangas",
-  family_head_photo_url: "data:image/jpeg;base64,ZmFrZQ==",
+  family_head_photo_url:
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=",
   photo_verification_notes: "Verified during registration.",
   members: [
     {
@@ -170,14 +171,18 @@ test("shared create validator normalizes the same payload without Express middle
   const payload = buildValidPayload();
   payload.contact_number = "  +639171234567  ";
   payload.current_address_details = "  Poblacion, Malvar, Batangas  ";
-  payload.family_head_photo_url = "  data:image/jpeg;base64,ZmFrZQ==  ";
+  payload.family_head_photo_url =
+    "  data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=  ";
   payload.privacy_acknowledgment.acknowledged_by_name = "  Ana Dela Cruz  ";
 
   const normalized = validateAndNormalizeHouseholdRegistrationPayload(payload);
 
   assert.equal(normalized.contact_number, "+639171234567");
   assert.equal(normalized.current_address_details, "Poblacion, Malvar, Batangas");
-  assert.equal(normalized.family_head_photo_url, "data:image/jpeg;base64,ZmFrZQ==");
+  assert.equal(
+    normalized.family_head_photo_url,
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=",
+  );
   assert.equal(
     normalized.privacy_acknowledgment.acknowledged_by_name,
     "Ana Dela Cruz",
@@ -191,6 +196,37 @@ test("shared create validator rejects missing family-head photo", () => {
   assert.throws(
     () => validateAndNormalizeHouseholdRegistrationPayload(payload),
     /Family head photo is required/i,
+  );
+});
+
+test("create validation rejects unsupported or unreadable family-head photo data", () => {
+  for (const photo of [
+    "https://images.example.test/family-head.jpg",
+    "data:image/jpeg;base64,ZmFrZQ==",
+    "data:image/jpeg;base64,/9j/2Q==",
+    "data:image/svg+xml;base64,PHN2Zz4=",
+  ]) {
+    assert.throws(
+      () =>
+        validateAndNormalizeHouseholdRegistrationPayload({
+          ...buildValidPayload(),
+          family_head_photo_url: photo,
+        }),
+      /supported, readable image/i,
+    );
+  }
+});
+
+test("re-admission accepts a legacy photo reference for server-side source verification", () => {
+  const payload = buildValidPayload();
+  payload.registration_operation = "CREATE_NEW_HOUSEHOLD_OCCURRENCE";
+  payload.re_admission_source_household_id = VALID_UUIDS.sourceHouseholdId;
+  payload.family_head_photo_url = "https://legacy.example.test/photo.jpg";
+
+  const normalized = validateAndNormalizeHouseholdRegistrationPayload(payload);
+  assert.equal(
+    normalized.family_head_photo_url,
+    "https://legacy.example.test/photo.jpg",
   );
 });
 

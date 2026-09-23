@@ -35,10 +35,11 @@ test("BAR-PHOTO-03 distribution continues to use the shared photo resolver", asy
   assert.match(source, /resolveFamilyHeadPhoto/);
 });
 
-test("MSWDO-PHOTO-01 preparation includes complete masterlist rows in photo hydration", async () => {
+test("MSWDO-PHOTO-01 offline preparation hydrates only distribution stub photos", async () => {
   const source = await read("src", "features", "offline", "mswdoOfflinePreparation.js");
-  assert.match(source, /hydratePhotos\(\[\.\.\.masterlistRows, \.\.\.stubRows\]\)/);
-  assert.match(source, /const requiredPhotoRows = \[\.\.\.masterlistRows, \.\.\.stubRows\]/);
+  assert.match(source, /hydratePhotos\(stubRows\)/);
+  assert.match(source, /const requiredPhotoRows = stubRows\.filter/);
+  assert.doesNotMatch(source, /hydratePhotos\(\[\.\.\.masterlistRows/);
 });
 
 test("MSWDO-PHOTO-02 departure preview uses the durable MSWDO snapshot by household", async () => {

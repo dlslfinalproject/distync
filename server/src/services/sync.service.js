@@ -50,6 +50,34 @@ const SYNC_STATUS = {
   FAILED: "FAILED",
 };
 
+const FAMILY_HEAD_PHOTO_VALUE_FIELDS = new Set([
+  "family_head_photo_url",
+  "family_head_photo_data_url",
+  "family_head_photo",
+  "familyHeadPhoto",
+  "familyHeadPhotoDataUrl",
+  "cached_family_head_photo",
+]);
+
+const redactFamilyHeadPhotoValues = (value) => {
+  if (Array.isArray(value)) {
+    return value.map(redactFamilyHeadPhotoValues);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nestedValue]) => [
+      key,
+      FAMILY_HEAD_PHOTO_VALUE_FIELDS.has(key)
+        ? null
+        : redactFamilyHeadPhotoValues(nestedValue),
+    ]),
+  );
+};
+
 const STAGE3_DATABASE_CONSTRAINTS =
   householdRegistrationService.STAGE3_DATABASE_CONSTRAINTS ||
   Object.freeze({
@@ -2665,7 +2693,7 @@ const processSyncEntries = async ({ entries, auth }) => {
     results[index] = await processSingleSyncEntry(entry, auth);
   }
 
-  return results;
+  return results.map(redactFamilyHeadPhotoValues);
 };
 
 const getSyncHistory = async ({
@@ -2824,8 +2852,8 @@ const getSyncHistory = async ({
   ).slice(0, useServerHistoryPagination ? effectivePageSize : effectiveLimit);
 
   const response = {
-    transactions,
-    conflicts: sortedConflicts.map((conflict) => ({
+    transactions: transactions.map(redactFamilyHeadPhotoValues),
+    conflicts: sortedConflicts.map((conflict) => redactFamilyHeadPhotoValues({
       ...conflict,
       availableResolutionActions:
         getResolutionCapability(conflict, auth).availableResolutionActions,
@@ -2961,7 +2989,7 @@ const getSyncConflictDetail = async ({ auth, conflictId }) => {
       : conflict;
 
   return {
-    ...safeConflict,
+    ...redactFamilyHeadPhotoValues(safeConflict),
     availableResolutionActions:
       getResolutionCapability(conflict, auth).availableResolutionActions,
     local_payload_summary: pickDefined(safeConflict.local_payload_json?.payload || safeConflict.local_payload_json, [
@@ -3699,7 +3727,7 @@ const resolveSyncConflict = async ({
     syncResult: result,
   });
 
-  return resolvedConflict;
+  return redactFamilyHeadPhotoValues(resolvedConflict);
 };
 
 const auditSyncRetryRequest = async ({ auth, entries }) => {

@@ -171,6 +171,59 @@ test("MSWDO Sync Center history uses municipality-scoped repository reads and op
   assert.equal(conflictRead, true);
 });
 
+test("Sync Center history redacts family-head photo values from transaction and conflict payloads", async () => {
+  const privatePhoto =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=";
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByMunicipality: async () => [
+          {
+            id: "transaction-photo",
+            payload_json: {
+              action_key: "HOUSEHOLD_REGISTER",
+              payload: { family_head_photo_url: privatePhoto },
+            },
+          },
+        ],
+        getSyncConflictsByMunicipality: async () => [
+          {
+            id: "conflict-photo",
+            entity_type: "HOUSEHOLD",
+            local_payload_json: {
+              payload: { family_head_photo_url: privatePhoto },
+            },
+            server_payload_json: {
+              household: { family_head_photo_data_url: privatePhoto },
+            },
+          },
+        ],
+      },
+    },
+    async ({ getSyncHistory }) => {
+      const result = await getSyncHistory({
+        auth: { userId: "mswdo-user-1", roleCode: "MSWDO" },
+        limit: 20,
+      });
+
+      assert.equal(
+        result.transactions[0].payload_json.payload.family_head_photo_url,
+        null,
+      );
+      assert.equal(
+        result.conflicts[0].local_payload_json.payload.family_head_photo_url,
+        null,
+      );
+      assert.equal(
+        result.conflicts[0].server_payload_json.household.family_head_photo_data_url,
+        null,
+      );
+      assert.equal(JSON.stringify(result).includes(privatePhoto), false);
+    },
+  );
+});
+
 test("MSWDO Sync Center health summary uses municipality-wide conflict and sync reads", async () => {
   let municipalityReads = 0;
 
@@ -230,8 +283,16 @@ test("MSWDO can view municipality operational conflict details without gaining r
             status: "OPEN",
             resolution_strategy: "LATEST_TIMESTAMP",
             conflict_type: "HOUSEHOLD_UPDATE_CONFLICT",
-            local_payload_json: { payload: {} },
-            server_payload_json: {},
+            local_payload_json: {
+              payload: {
+                family_head_photo_url:
+                  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=",
+              },
+            },
+            server_payload_json: {
+              family_head_photo_url:
+                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=",
+            },
           };
         },
         getSyncConflictById: async () => {
@@ -254,6 +315,11 @@ test("MSWDO can view municipality operational conflict details without gaining r
 
       assert.equal(detail.id, conflictId);
       assert.deepEqual(detail.availableResolutionActions, []);
+      assert.equal(
+        detail.local_payload_json.payload.family_head_photo_url,
+        null,
+      );
+      assert.equal(detail.server_payload_json.family_head_photo_url, null);
     },
   );
 
@@ -572,7 +638,8 @@ const buildValidHouseholdRegisterSyncPayload = (overrides = {}) => ({
   household_size: 2,
   contact_number: " 09171234567 ",
   current_address_details: " Poblacion, Malvar ",
-  family_head_photo_url: " data:image/jpeg;base64,ZmFrZQ== ",
+  family_head_photo_url:
+    " data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII= ",
   photo_verification_notes: " Verified offline ",
   privacy_acknowledgment: {
     consent_status: "ACKNOWLEDGED",

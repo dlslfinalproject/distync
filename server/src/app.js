@@ -41,7 +41,10 @@ app.use(
   }),
 );
 app.use(helmet());
-app.use(morgan("dev"));
+morgan.token("url-path", (request) =>
+  String(request.originalUrl || request.url || "").split("?")[0],
+);
+app.use(morgan(":method :url-path :status :response-time ms"));
 app.use(express.json({ limit: "5mb" }));
 
 app.use("/api/v1", routes);

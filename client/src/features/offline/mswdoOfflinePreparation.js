@@ -268,7 +268,7 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
     if (invalidStub) {
       throw new MswdoOfflinePreparationError(MSWDO_PREPARATION_FAILURE_STAGES.DISTRIBUTION_VALIDATE, getMswdoPreparationFailureMessage(MSWDO_PREPARATION_FAILURE_STAGES.DISTRIBUTION_VALIDATE), "DISTRIBUTION_ID_OR_QR");
     }
-    const photoByHousehold = await hydratePhotos([...masterlistRows, ...stubRows]);
+    const photoByHousehold = await hydratePhotos(stubRows);
     const preparedMasterlistRows = masterlistRows.map((row) => applyPhotoData(row, photoByHousehold));
     const preparedStubRows = stubRows.map((row) => applyPhotoData(row, photoByHousehold));
     if (!isCurrentPreparationGeneration(id, currentGeneration)) return preparing;
@@ -280,7 +280,7 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
       row.roleCode === ROLE_CODES.MSWDO &&
       String(row.disaster_event_id) === String(eventId),
     );
-    const requiredPhotoRows = [...masterlistRows, ...stubRows].filter((row) =>
+    const requiredPhotoRows = stubRows.filter((row) =>
       row?.household?.family_head_photo_url || row?.household?.family_head_photo_data_url || row?.family_head_photo_url,
     );
     const requiredPhotoHouseholdIds = new Set(
@@ -293,14 +293,7 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
         Boolean(photoByHousehold.get(householdId)?.dataUrl),
       ),
     );
-    const persistedPhotoHouseholdIds = new Set(
-      preparedMasterlistRows
-        .filter((row) =>
-          requiredPhotoHouseholdIds.has(String(row?.household_id || row?.id || "")) &&
-          isImageDataUrl(row?.family_head_photo_data_url),
-        )
-        .map((row) => String(row.household_id || row.id)),
-    );
+    const persistedPhotoHouseholdIds = new Set();
     scopedStubRows
       .filter((row) =>
         requiredPhotoHouseholdIds.has(String(row?.household_id || "")) &&

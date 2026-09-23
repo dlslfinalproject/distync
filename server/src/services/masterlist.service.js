@@ -198,7 +198,6 @@ const getMasterlist = async (filters) => {
         household.family_head_last_name,
         household.family_head_suffix,
       ),
-      family_head_photo_url: household.family_head_photo_url || null,
       barangay: household.barangay_id
         ? {
             id: household.barangay_id,

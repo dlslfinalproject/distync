@@ -24,6 +24,9 @@ const {
   sanitizeHouseholdUpdateRequestData,
 } = require("./householdEditProtection.service");
 const donatedReliefPackAssignmentService = require("./donatedReliefPackAssignment.service");
+const {
+  isValidFamilyHeadPhotoDataUrl,
+} = require("../validators/householdRegistration.validator");
 
 const NON_RESIDENT_BARANGAY_CODE = "NON_RESIDENT_OUTSIDE_MALVAR";
 const RESIDENCY_STATUSES = {
@@ -1139,7 +1142,6 @@ const summarizeHousehold = (household) =>
     "current_stay_type",
     "current_address_details",
     "household_size",
-    "family_head_photo_url",
     "photo_verification_notes",
     "is_active",
   ]);
@@ -2355,11 +2357,27 @@ const registerHousehold = async (
     }
 
     if (isReAdmissionClone) {
-      await assertReAdmissionSourceHousehold({
+      const sourceHousehold = await assertReAdmissionSourceHousehold({
         sourceHouseholdId: effectiveSourceHouseholdId,
         registrationData: requestDataWithDerivedAgeGroups,
         dbClient: client,
       });
+      const submittedPhoto = String(
+        requestDataWithDerivedAgeGroups.family_head_photo_url || "",
+      ).trim();
+      const archivedPhoto = String(sourceHousehold.family_head_photo_url || "").trim();
+
+      if (
+        submittedPhoto !== archivedPhoto &&
+        !isValidFamilyHeadPhotoDataUrl(submittedPhoto)
+      ) {
+        const error = new Error(
+          "A replacement family head photo must be a supported, readable image.",
+        );
+        error.statusCode = 400;
+        error.code = "HOUSEHOLD_REGISTRATION_VALIDATION_FAILED";
+        throw error;
+      }
     }
 
     const authoritativeDuplicateMatch = isReAdmissionClone

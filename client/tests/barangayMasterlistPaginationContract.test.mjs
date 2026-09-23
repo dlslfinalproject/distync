@@ -39,6 +39,15 @@ test("Barangay Masterlist sends authoritative server pagination filters", async 
   assert.match(pageSource, /sortOrder: selectedSortOrder/);
 });
 
+test("generic Masterlist rows do not retain family-head photo payloads", async () => {
+  const serviceSource = await readSource("src/features/masterlist/masterlistService.js");
+
+  assert.doesNotMatch(
+    serviceSource,
+    /family_head_photo_url:\s*row\.family_head_photo_url/,
+  );
+});
+
 test("Barangay Masterlist follows final conditional paginator UI", async () => {
   const tableSource = await readSource("src/components/masterlist/MasterlistTable.jsx");
   const paginationSource = await readSource("src/components/shared/TablePagination.jsx");

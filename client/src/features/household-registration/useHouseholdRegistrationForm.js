@@ -33,6 +33,11 @@ import {
 } from "../../utils/registrationOptions";
 import { sanitizeHouseholdUpdatePayload } from "./householdEditProtection";
 import {
+  IMAGE_PROCESSING_LIMITS,
+  normalizeImageDrawableToDataUrl,
+  normalizeImageFileToDataUrl,
+} from "../../utils/imageProcessing.js";
+import {
   POSSIBLE_MATCH_LOOKUP_DEBOUNCE_MS,
   buildPossibleMatchLookupState,
   getPossibleMatchRequestKey,
@@ -100,8 +105,6 @@ const createValidationErrors = () => ({
   },
   members: [],
 });
-
-const MAX_FAMILY_HEAD_PHOTO_FILE_SIZE = 3 * 1024 * 1024;
 
 const trimValue = (value) => String(value ?? "").trim();
 const normalizeEvacuationCenterId = (value) => trimValue(value);
@@ -271,12 +274,35 @@ export const useHouseholdRegistrationForm = ({
   const [validationErrors, setValidationErrors] = useState(createValidationErrors());
   const [isUsingCachedReferenceData, setIsUsingCachedReferenceData] =
     useState(false);
+  const familyHeadPhotoOperationRef = useRef({
+    generation: 0,
+    controller: null,
+  });
+  const registrationSubmitInFlightRef = useRef(false);
   const duplicateSuggestionRequestSeqRef = useRef(0);
   const duplicateSuggestionAbortRef = useRef(new Map());
   const duplicateSuggestionCacheRef = useRef(new Map());
   const duplicateSuggestionGenerationRef = useRef(0);
   const duplicateSuggestionStatesRef = useRef(duplicateSuggestionStates);
   duplicateSuggestionStatesRef.current = duplicateSuggestionStates;
+
+  const invalidateFamilyHeadPhotoProcessing = () => {
+    const currentOperation = familyHeadPhotoOperationRef.current;
+    currentOperation.generation += 1;
+    currentOperation.controller?.abort();
+    currentOperation.controller = null;
+    setIsProcessingPhoto(false);
+  };
+
+  useEffect(
+    () => () => {
+      const currentOperation = familyHeadPhotoOperationRef.current;
+      currentOperation.generation += 1;
+      currentOperation.controller?.abort();
+      currentOperation.controller = null;
+    },
+    [],
+  );
 
   const cancelDuplicateSuggestionRequests = () => {
     duplicateSuggestionAbortRef.current.forEach((abortController) => {
@@ -660,6 +686,7 @@ export const useHouseholdRegistrationForm = ({
     setHouseholdSectorIds(
       (initialHouseholdDetails.household_sectors || []).map((sector) => sector.id),
     );
+    invalidateFamilyHeadPhotoProcessing();
     setFamilyHeadPhotoUrl(detailHousehold?.family_head_photo_url || "");
     setFamilyHeadPhotoFileName(
       detailHousehold?.family_head_photo_url ? "Registered photo" : "",
@@ -1303,59 +1330,119 @@ export const useHouseholdRegistrationForm = ({
 
   const setFamilyHeadPhotoFromFile = async (file) => {
     if (isFamilyHeadProtected) {
-      return;
+      return false;
     }
 
     if (!file) {
-      setFamilyHeadPhotoUrl("");
-      setFamilyHeadPhotoFileName("");
-      return;
+      return false;
     }
 
-    if (!String(file.type || "").startsWith("image/")) {
+    invalidateFamilyHeadPhotoProcessing();
+    if (
+      !String(file.type || "").toLowerCase().startsWith("image/") ||
+      String(file.type || "").toLowerCase() === "image/svg+xml"
+    ) {
       setErrorMessage("Please select a valid image file for the family head photo.");
-      return;
+      return false;
     }
 
-    if (file.size > MAX_FAMILY_HEAD_PHOTO_FILE_SIZE) {
-      setErrorMessage("Family head photo must be 3 MB or smaller.");
-      return;
+    if (file.size > IMAGE_PROCESSING_LIMITS.maxSourceBytes) {
+      setErrorMessage("Family head photo must be 8 MB or smaller.");
+      return false;
     }
 
+    const operation = familyHeadPhotoOperationRef.current;
+    const generation = operation.generation;
+    const controller = new AbortController();
+    operation.controller = controller;
     setIsProcessingPhoto(true);
-    setErrorMessage("");
 
     try {
-      const encodedPhoto = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-
-        reader.onload = () => {
-          if (typeof reader.result === "string") {
-            resolve(reader.result);
-            return;
-          }
-
-          reject(new Error("Failed to read selected photo."));
-        };
-
-        reader.onerror = () => {
-          reject(new Error("Failed to read selected photo."));
-        };
-
-        reader.readAsDataURL(file);
+      const encodedPhoto = await normalizeImageFileToDataUrl(file, {
+        signal: controller.signal,
       });
+      if (familyHeadPhotoOperationRef.current.generation !== generation) {
+        return false;
+      }
 
       setFamilyHeadPhotoUrl(encodedPhoto);
       setFamilyHeadPhotoFileName(file.name || "Captured photo");
+      setErrorMessage("");
       setSuccessMessage("");
       setValidationErrors((currentValue) => ({
         ...currentValue,
         family_head_photo_url: "",
       }));
+      return true;
     } catch (error) {
-      setErrorMessage(error.message || "Failed to process family head photo.");
+      if (
+        familyHeadPhotoOperationRef.current.generation === generation &&
+        error?.name !== "AbortError"
+      ) {
+        setErrorMessage(
+          error.message || "The selected photo could not be processed.",
+        );
+      }
+      return false;
     } finally {
-      setIsProcessingPhoto(false);
+      if (familyHeadPhotoOperationRef.current.generation === generation) {
+        familyHeadPhotoOperationRef.current.controller = null;
+        setIsProcessingPhoto(false);
+      }
+    }
+  };
+
+  const setFamilyHeadPhotoFromCameraFrame = async (
+    videoElement,
+    width,
+    height,
+  ) => {
+    if (isFamilyHeadProtected || !videoElement) {
+      return false;
+    }
+
+    invalidateFamilyHeadPhotoProcessing();
+    const operation = familyHeadPhotoOperationRef.current;
+    const generation = operation.generation;
+    const controller = new AbortController();
+    operation.controller = controller;
+    setIsProcessingPhoto(true);
+
+    try {
+      const encodedPhoto = await normalizeImageDrawableToDataUrl(
+        videoElement,
+        width,
+        height,
+        { signal: controller.signal },
+      );
+      if (familyHeadPhotoOperationRef.current.generation !== generation) {
+        return false;
+      }
+
+      setFamilyHeadPhotoUrl(encodedPhoto);
+      setFamilyHeadPhotoFileName("Captured photo");
+      setErrorMessage("");
+      setSuccessMessage("");
+      setValidationErrors((currentValue) => ({
+        ...currentValue,
+        family_head_photo_url: "",
+      }));
+      return true;
+    } catch (error) {
+      if (
+        familyHeadPhotoOperationRef.current.generation === generation &&
+        error?.name !== "AbortError"
+      ) {
+        setErrorMessage(
+          error.message || "The captured photo could not be processed.",
+        );
+      }
+      return false;
+    } finally {
+      if (familyHeadPhotoOperationRef.current.generation === generation) {
+        familyHeadPhotoOperationRef.current.controller = null;
+        setIsProcessingPhoto(false);
+      }
     }
   };
 
@@ -1364,6 +1451,7 @@ export const useHouseholdRegistrationForm = ({
       return;
     }
 
+    invalidateFamilyHeadPhotoProcessing();
     setFamilyHeadPhotoUrl("");
     setFamilyHeadPhotoFileName("");
   };
@@ -1409,6 +1497,7 @@ export const useHouseholdRegistrationForm = ({
   const resetForm = () => {
     invalidateDuplicateSuggestionRequests();
     duplicateSuggestionCacheRef.current.clear();
+    invalidateFamilyHeadPhotoProcessing();
     setHousehold(initialHousehold);
     setResidencyStatus(RESIDENCY_STATUS.resident);
     setFamilyHead(initialFamilyHead);
@@ -1417,6 +1506,7 @@ export const useHouseholdRegistrationForm = ({
     setFamilyHeadPhotoUrl("");
     setFamilyHeadPhotoFileName("");
     setPhotoVerificationNotes("");
+    setIsProcessingPhoto(false);
     setEvacuationCenters([]);
     setSelectedDisasterEventId(defaultDisasterEventId || "");
     setSelectedBarangayId(defaultBarangayId || "");
@@ -1740,6 +1830,10 @@ export const useHouseholdRegistrationForm = ({
   };
 
   const submitRegistration = async (privacyAcknowledgment = null) => {
+    if (registrationSubmitInFlightRef.current) {
+      return false;
+    }
+
     if (!validateSubmissionReadiness()) {
       return false;
     }
@@ -1751,6 +1845,7 @@ export const useHouseholdRegistrationForm = ({
       return false;
     }
 
+    registrationSubmitInFlightRef.current = true;
     setIsSubmitting(true);
     setErrorMessage("");
     setErrorCode("");
@@ -1789,6 +1884,7 @@ export const useHouseholdRegistrationForm = ({
       );
       return false;
     } finally {
+      registrationSubmitInFlightRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -1855,6 +1951,7 @@ export const useHouseholdRegistrationForm = ({
     addMember,
     removeMember,
     setFamilyHeadPhotoFromFile,
+    setFamilyHeadPhotoFromCameraFrame,
     clearFamilyHeadPhoto,
     setPhotoVerificationNotes: updatePhotoVerificationNotes,
     clearFormMessages,

@@ -45,6 +45,8 @@ const isValidDateString = (value) => {
 };
 
 const MAX_FAMILY_HEAD_PHOTO_URL_LENGTH = 4_500_000;
+const FAMILY_HEAD_PHOTO_DATA_URL_PATTERN =
+  /^data:image\/(jpe?g|png|webp|gif);base64,([A-Za-z0-9+/]+={0,2})$/i;
 const MAX_PHOTO_VERIFICATION_NOTES_LENGTH = 1_000;
 const MAX_CONTACT_NUMBER_LENGTH = 50;
 const MAX_CURRENT_ADDRESS_LENGTH = 500;
@@ -61,6 +63,287 @@ const createValidationError = (message) => {
   error.code = "HOUSEHOLD_REGISTRATION_VALIDATION_FAILED";
   return error;
 };
+
+const isReadableJpegBuffer = (bytes) => {
+  if (
+    bytes.length < 16 ||
+    bytes[0] !== 0xff ||
+    bytes[1] !== 0xd8 ||
+    bytes[bytes.length - 2] !== 0xff ||
+    bytes[bytes.length - 1] !== 0xd9
+  ) {
+    return false;
+  }
+
+  const startOfFrameMarkers = new Set([
+    0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce,
+    0xcf,
+  ]);
+  let offset = 2;
+  let componentCount = 0;
+  let hasFrame = false;
+  let hasScan = false;
+
+  while (offset < bytes.length) {
+    if (bytes[offset] !== 0xff) {
+      return false;
+    }
+
+    while (offset < bytes.length && bytes[offset] === 0xff) {
+      offset += 1;
+    }
+
+    if (offset >= bytes.length) {
+      return false;
+    }
+
+    const marker = bytes[offset];
+    offset += 1;
+
+    if (marker === 0xd9) {
+      return hasFrame && hasScan && offset === bytes.length;
+    }
+
+    if (marker === 0xd8 || marker === 0x00 || (marker >= 0xd0 && marker <= 0xd7)) {
+      return false;
+    }
+
+    if (marker === 0x01) {
+      continue;
+    }
+
+    if (offset + 2 > bytes.length) {
+      return false;
+    }
+
+    const segmentLength = bytes.readUInt16BE(offset);
+    if (segmentLength < 2 || offset + segmentLength > bytes.length) {
+      return false;
+    }
+
+    const segmentDataOffset = offset + 2;
+    const segmentEnd = offset + segmentLength;
+
+    if (startOfFrameMarkers.has(marker)) {
+      if (segmentLength < 11) {
+        return false;
+      }
+
+      const height = bytes.readUInt16BE(segmentDataOffset + 1);
+      const width = bytes.readUInt16BE(segmentDataOffset + 3);
+      componentCount = bytes[segmentDataOffset + 5];
+      if (
+        !width ||
+        !height ||
+        width * height > 40_000_000 ||
+        componentCount < 1 ||
+        componentCount > 4 ||
+        segmentLength !== 8 + componentCount * 3
+      ) {
+        return false;
+      }
+
+      hasFrame = true;
+      offset = segmentEnd;
+      continue;
+    }
+
+    if (marker === 0xda) {
+      const scanComponentCount = bytes[segmentDataOffset];
+      if (
+        !hasFrame ||
+        scanComponentCount < 1 ||
+        scanComponentCount > componentCount ||
+        segmentLength !== 6 + scanComponentCount * 2
+      ) {
+        return false;
+      }
+
+      hasScan = true;
+      offset = segmentEnd;
+      let hasScanData = false;
+
+      while (offset < bytes.length) {
+        if (bytes[offset] !== 0xff) {
+          hasScanData = true;
+          offset += 1;
+          continue;
+        }
+
+        const nextMarkerOffset = offset;
+        offset += 1;
+        while (offset < bytes.length && bytes[offset] === 0xff) {
+          offset += 1;
+        }
+        if (offset >= bytes.length) {
+          return false;
+        }
+
+        const scanMarker = bytes[offset];
+        if (scanMarker === 0x00 || (scanMarker >= 0xd0 && scanMarker <= 0xd7)) {
+          hasScanData = true;
+          offset += 1;
+          continue;
+        }
+
+        if (!hasScanData) {
+          return false;
+        }
+        offset = nextMarkerOffset;
+        break;
+      }
+
+      if (offset >= bytes.length) {
+        return false;
+      }
+      continue;
+    }
+
+    offset = segmentEnd;
+  }
+
+  return false;
+};
+
+const isReadablePngBuffer = (bytes) => {
+  if (
+    bytes.length < 45 ||
+    !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+  ) {
+    return false;
+  }
+
+  let offset = 8;
+  let hasImageHeader = false;
+  let hasImageData = false;
+  while (offset + 12 <= bytes.length) {
+    const chunkLength = bytes.readUInt32BE(offset);
+    const chunkType = bytes.subarray(offset + 4, offset + 8).toString("ascii");
+    const chunkEnd = offset + 12 + chunkLength;
+    if (chunkEnd > bytes.length) {
+      return false;
+    }
+
+    if (!hasImageHeader) {
+      if (chunkType !== "IHDR" || chunkLength !== 13) {
+        return false;
+      }
+      const width = bytes.readUInt32BE(offset + 8);
+      const height = bytes.readUInt32BE(offset + 12);
+      if (!width || !height || width * height > 40_000_000) {
+        return false;
+      }
+      hasImageHeader = true;
+    } else if (chunkType === "IDAT" && chunkLength > 0) {
+      hasImageData = true;
+    } else if (chunkType === "IEND") {
+      return chunkLength === 0 && hasImageData && chunkEnd === bytes.length;
+    }
+
+    offset = chunkEnd;
+  }
+
+  return false;
+};
+
+const isReadableWebpBuffer = (bytes) => {
+  if (
+    bytes.length < 20 ||
+    bytes.subarray(0, 4).toString("ascii") !== "RIFF" ||
+    bytes.readUInt32LE(4) !== bytes.length - 8 ||
+    bytes.subarray(8, 12).toString("ascii") !== "WEBP"
+  ) {
+    return false;
+  }
+
+  let offset = 12;
+  let hasImageData = false;
+  while (offset + 8 <= bytes.length) {
+    const chunkType = bytes.subarray(offset, offset + 4).toString("ascii");
+    const chunkLength = bytes.readUInt32LE(offset + 4);
+    const chunkEnd = offset + 8 + chunkLength + (chunkLength % 2);
+    if (chunkEnd > bytes.length) {
+      return false;
+    }
+    if (["VP8 ", "VP8L", "ANMF"].includes(chunkType) && chunkLength > 0) {
+      hasImageData = true;
+    }
+    offset = chunkEnd;
+  }
+
+  return hasImageData && offset === bytes.length;
+};
+
+const isReadableGifBuffer = (bytes) => {
+  if (
+    bytes.length < 14 ||
+    !["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"))
+  ) {
+    return false;
+  }
+
+  const width = bytes.readUInt16LE(6);
+  const height = bytes.readUInt16LE(8);
+  return Boolean(
+    width &&
+      height &&
+      width * height <= 40_000_000 &&
+      bytes[bytes.length - 1] === 0x3b,
+  );
+};
+
+const isValidFamilyHeadPhotoDataUrl = (value) => {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const match = FAMILY_HEAD_PHOTO_DATA_URL_PATTERN.exec(value.trim());
+  if (!match) {
+    return false;
+  }
+
+  const mimeType = match[1].toLowerCase();
+  const encodedBytes = match[2];
+  if (encodedBytes.length % 4 !== 0) {
+    return false;
+  }
+
+  const bytes = Buffer.from(encodedBytes, "base64");
+  if (!bytes.length || bytes.toString("base64") !== encodedBytes) {
+    return false;
+  }
+
+  if (mimeType === "jpeg" || mimeType === "jpg") {
+    return isReadableJpegBuffer(bytes);
+  }
+
+  if (mimeType === "png") {
+    return isReadablePngBuffer(bytes);
+  }
+
+  if (mimeType === "webp") {
+    return isReadableWebpBuffer(bytes);
+  }
+
+  return isReadableGifBuffer(bytes);
+};
+
+const isHttpsLegacyFamilyHeadPhotoReference = (value) => {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      Boolean(url.hostname) &&
+      !url.username &&
+      !url.password
+    );
+  } catch {
+    return false;
+  }
+};
+
+const isLegacyFamilyHeadPhotoDataUrl = (value) =>
+  /^data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]+={0,2}$/i.test(value);
 
 const validateAndNormalizeHouseholdRegistrationPayload = (
   payload = {},
@@ -342,6 +625,22 @@ const validateAndNormalizeHouseholdRegistrationPayload = (
       family_head_photo_url.length > MAX_FAMILY_HEAD_PHOTO_URL_LENGTH
     ) {
       throw createValidationError("family_head_photo_url is too large");
+    }
+
+    if (
+      typeof family_head_photo_url === "string" &&
+      family_head_photo_url.trim() &&
+      !isValidFamilyHeadPhotoDataUrl(family_head_photo_url.trim()) &&
+      !(
+        normalizedRegistrationOperation ===
+          NEW_HOUSEHOLD_OCCURRENCE_OPERATION &&
+        (isHttpsLegacyFamilyHeadPhotoReference(family_head_photo_url.trim()) ||
+          isLegacyFamilyHeadPhotoDataUrl(family_head_photo_url.trim()))
+      )
+    ) {
+      throw createValidationError(
+        "Family head photo must be a supported, readable image.",
+      );
     }
 
     if (
@@ -1172,6 +1471,7 @@ const validateUpdateHouseholdDetails = (req, res, next) => {
 };
 
 module.exports = {
+  isValidFamilyHeadPhotoDataUrl,
   validateAndNormalizeHouseholdRegistrationPayload,
   validateCreateHouseholdRegistration,
   validateDuplicateRegistrationSuggestions,

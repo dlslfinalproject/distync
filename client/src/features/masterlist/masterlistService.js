@@ -214,7 +214,6 @@ export const mapMasterlistRow = (household, households = [], options = {}) => {
       null,
     registered_by: household.registered_by || null,
     registered_by_name: household.registered_by_name || null,
-    family_head_photo_url: household.family_head_photo_url || null,
     members_count: household.members?.length || 0,
     sectors_text: buildSectorsText(household),
     arrival_time_text: isNonAdmittedResident

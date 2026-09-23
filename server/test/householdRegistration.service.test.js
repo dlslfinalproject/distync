@@ -29,7 +29,11 @@ const dependencyPaths = {
   ),
 };
 
-const loadServiceWithMocks = (repositoryOverrides = {}, dbOverrides = {}) => {
+const loadServiceWithMocks = (
+  repositoryOverrides = {},
+  dbOverrides = {},
+  systemLogOverrides = {},
+) => {
   const originalEntries = new Map();
   const mockRepository = {
     getDisasterEventById: async () => ({ id: "event-1" }),
@@ -107,6 +111,7 @@ const loadServiceWithMocks = (repositoryOverrides = {}, dbOverrides = {}) => {
 
             return result;
           }, {}),
+        ...systemLogOverrides,
       },
     ],
     [
@@ -1185,6 +1190,9 @@ test("re-admission registration creates a new occurrence without reusing archive
 });
 
 test("registerHousehold returns non-blocking active cross-event information after successful create", async () => {
+  const privatePhoto =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=";
+  const auditEntries = [];
   const fakeClient = {
     query: async () => ({ rows: [] }),
     release: () => {},
@@ -1248,11 +1256,16 @@ test("registerHousehold returns non-blocking active cross-event information afte
     {
       connect: async () => fakeClient,
     },
+    {
+      logAuditSafely: async (entry) => auditEntries.push(entry),
+    },
   );
 
   try {
     const result = await harness.service.registerHousehold(
-      buildValidRegistrationRequest(),
+      buildValidRegistrationRequest({
+        family_head_photo_url: privatePhoto,
+      }),
     );
 
     assert.equal(result.household.id, "household-new");
@@ -1264,6 +1277,7 @@ test("registerHousehold returns non-blocking active cross-event information afte
         },
       ],
     });
+    assert.equal(JSON.stringify(auditEntries).includes(privatePhoto), false);
   } finally {
     harness.restore();
   }

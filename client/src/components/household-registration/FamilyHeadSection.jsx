@@ -158,12 +158,19 @@ const stopMediaStream = (stream) => {
   }
 
   stream.getTracks().forEach((track) => {
-    track.stop();
+    try {
+      track.stop();
+    } catch {
+      // Stop the remaining tracks even if a browser track is already closed.
+    }
   });
 };
 
 const FamilyHeadSection = ({ form }) => {
   const videoRef = useRef(null);
+  const cameraStreamRef = useRef(null);
+  const cameraRequestRef = useRef(0);
+  const isMountedRef = useRef(false);
   const [cameraStream, setCameraStream] = useState(null);
   const [isStartingCamera, setIsStartingCamera] = useState(false);
   const [cameraErrorMessage, setCameraErrorMessage] = useState("");
@@ -192,22 +199,36 @@ const FamilyHeadSection = ({ form }) => {
       return;
     }
 
+    cameraStreamRef.current = cameraStream;
     videoRef.current.srcObject = cameraStream;
   }, [cameraStream]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
-      stopMediaStream(cameraStream);
+      isMountedRef.current = false;
+      cameraRequestRef.current += 1;
+      stopMediaStream(cameraStreamRef.current);
+      cameraStreamRef.current = null;
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
     };
-  }, [cameraStream]);
+  }, []);
 
   useEffect(() => {
     if (isFamilyHeadProtected) {
-      stopMediaStream(cameraStream);
+      cameraRequestRef.current += 1;
+      stopMediaStream(cameraStreamRef.current);
+      cameraStreamRef.current = null;
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
       setCameraStream(null);
+      setIsStartingCamera(false);
       setCameraErrorMessage("");
     }
-  }, [cameraStream, isFamilyHeadProtected]);
+  }, [isFamilyHeadProtected]);
 
   const handleStartCamera = async () => {
     if (isFamilyHeadProtected) {
@@ -217,37 +238,68 @@ const FamilyHeadSection = ({ form }) => {
     if (!canUseCamera || isStartingCamera) {
       if (!canUseCamera) {
         setCameraErrorMessage(
-          "Camera capture is available only on HTTPS or localhost with camera permission.",
+          typeof navigator === "undefined" ||
+            !navigator.mediaDevices?.getUserMedia
+            ? "This browser does not support camera capture. You can upload a photo instead."
+            : "Camera capture requires HTTPS or localhost. You can upload a photo instead.",
         );
       }
       return;
     }
 
+    const requestId = cameraRequestRef.current + 1;
+    cameraRequestRef.current = requestId;
     setIsStartingCamera(true);
     setCameraErrorMessage("");
     form.clearFormMessages();
 
     try {
-      stopMediaStream(cameraStream);
+      stopMediaStream(cameraStreamRef.current);
+      cameraStreamRef.current = null;
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
       });
 
+      if (!isMountedRef.current || cameraRequestRef.current !== requestId) {
+        stopMediaStream(stream);
+        return;
+      }
+
+      cameraStreamRef.current = stream;
       setCameraStream(stream);
     } catch (error) {
-      setCameraErrorMessage(
-        "Camera access was unavailable. You can upload a photo instead.",
-      );
-      setCameraStream(null);
+      if (isMountedRef.current && cameraRequestRef.current === requestId) {
+        const cameraErrorName = String(error?.name || "");
+        setCameraErrorMessage(
+          cameraErrorName === "NotAllowedError" ||
+            cameraErrorName === "PermissionDeniedError"
+            ? "Camera permission was denied. Allow camera access or upload a photo."
+            : cameraErrorName === "NotFoundError" ||
+                cameraErrorName === "DevicesNotFoundError"
+              ? "No camera was found. You can upload a photo instead."
+              : cameraErrorName === "NotReadableError"
+                ? "The camera is busy or unavailable. Close other camera apps or upload a photo."
+                : "Camera access failed. You can upload a photo instead.",
+        );
+        setCameraStream(null);
+      }
     } finally {
-      setIsStartingCamera(false);
+      if (isMountedRef.current && cameraRequestRef.current === requestId) {
+        setIsStartingCamera(false);
+      }
     }
   };
 
   const handleStopCamera = () => {
-    stopMediaStream(cameraStream);
+    cameraRequestRef.current += 1;
+    stopMediaStream(cameraStreamRef.current);
+    cameraStreamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setCameraStream(null);
+    setIsStartingCamera(false);
   };
 
   const handleCapturePhoto = async () => {
@@ -261,38 +313,25 @@ const FamilyHeadSection = ({ form }) => {
     }
 
     const videoElement = videoRef.current;
-    const canvas = document.createElement("canvas");
-    canvas.width = videoElement.videoWidth || 960;
-    canvas.height = videoElement.videoHeight || 720;
-
-    const drawingContext = canvas.getContext("2d");
-
-    if (!drawingContext) {
-      setCameraErrorMessage("Unable to capture the current camera frame.");
+    const sourceWidth = videoElement.videoWidth;
+    const sourceHeight = videoElement.videoHeight;
+    if (!sourceWidth || !sourceHeight) {
+      setCameraErrorMessage("Camera preview is not ready yet.");
       return;
     }
 
-    drawingContext.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-
-    const capturedBlob = await new Promise((resolve) => {
-      canvas.toBlob(resolve, "image/jpeg", 0.92);
-    });
-
-    if (!capturedBlob) {
-      setCameraErrorMessage("Unable to convert the captured frame into an image.");
-      return;
+    try {
+      const wasSelected = await form.setFamilyHeadPhotoFromCameraFrame(
+        videoElement,
+        sourceWidth,
+        sourceHeight,
+      );
+      if (wasSelected) {
+        handleStopCamera();
+      }
+    } catch {
+      setCameraErrorMessage("The camera frame could not be processed. Try again.");
     }
-
-    const capturedFile = new File(
-      [capturedBlob],
-      `family-head-${Date.now()}.jpg`,
-      {
-        type: "image/jpeg",
-      },
-    );
-
-    await form.setFamilyHeadPhotoFromFile(capturedFile);
-    handleStopCamera();
   };
 
   const handleUploadFallback = async (event) => {
