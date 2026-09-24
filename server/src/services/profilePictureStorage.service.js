@@ -313,6 +313,7 @@ module.exports = {
   createSignedProfilePictureUrl,
   getMaxBase64EncodedLength,
   getStorageConfig,
+  getSupabaseStorageClient,
   normalizeStoragePath,
   parseProfilePictureUpload,
   removeProfilePicture,

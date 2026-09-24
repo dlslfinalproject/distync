@@ -5,6 +5,7 @@ const inventoryItemStockFormRepository = require("../repositories/inventoryItemS
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const householdRegistrationService = require("./householdRegistration.service");
+const familyHeadPhotoStorage = require("./familyHeadPhotoStorage.service");
 const distributionTransactionService = require("./distributionTransaction.service");
 const inventoryItemService = require("./inventoryItem.service");
 const inventoryBatchService = require("./inventoryBatch.service");
@@ -57,6 +58,11 @@ const FAMILY_HEAD_PHOTO_VALUE_FIELDS = new Set([
   "familyHeadPhoto",
   "familyHeadPhotoDataUrl",
   "cached_family_head_photo",
+  "family_head_photo_path",
+  "family_head_photo_sha256",
+  "family_head_photo_mime_type",
+  "family_head_photo_size_bytes",
+  "family_head_photo_metadata",
 ]);
 
 const redactFamilyHeadPhotoValues = (value) => {
@@ -76,6 +82,65 @@ const redactFamilyHeadPhotoValues = (value) => {
         : redactFamilyHeadPhotoValues(nestedValue),
     ]),
   );
+};
+
+const buildPersistableSyncEntry = (entry) => {
+  if (
+    !["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION"].includes(
+      entry?.action_key,
+    ) ||
+    !entry?.payload ||
+    typeof entry.payload !== "object" ||
+    Array.isArray(entry.payload)
+  ) {
+    return entry;
+  }
+
+  const photoValue = entry.payload.family_head_photo_url;
+  if (typeof photoValue !== "string" || !photoValue.trim()) {
+    return entry;
+  }
+
+  const photoMetadata = familyHeadPhotoStorage.getFamilyHeadPhotoMetadata(
+    photoValue,
+  );
+  return {
+    ...entry,
+    payload: {
+      ...entry.payload,
+      family_head_photo_url: null,
+      family_head_photo_metadata: photoMetadata,
+    },
+  };
+};
+
+const getPendingFamilyHeadPhotoPath = (entry) => {
+  if (
+    !["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION"].includes(
+      entry?.action_key,
+    )
+  ) {
+    return null;
+  }
+
+  const photoValue = entry?.payload?.family_head_photo_url;
+  if (typeof photoValue !== "string" || !photoValue.trim().startsWith("data:")) {
+    return null;
+  }
+
+  try {
+    const parsed = familyHeadPhotoStorage.parseFamilyHeadPhotoDataUrl(photoValue);
+    return familyHeadPhotoStorage.buildFamilyHeadPhotoPath({
+      disasterEventId: entry.payload.disaster_event_id,
+      barangayId: entry.payload.barangay_id,
+      operationId: entry.client_sync_id,
+      sha256: parsed.sha256,
+      fileExtension: parsed.fileExtension,
+    });
+  } catch {
+    // The normal action validator reports the image error without retaining its bytes.
+    return null;
+  }
 };
 
 const STAGE3_DATABASE_CONSTRAINTS =
@@ -422,24 +487,27 @@ const ACTION_HANDLERS = {
     entityType: "HOUSEHOLD",
     operationType: "CREATE",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth, clientTimestamp, dbClient }) => {
+    execute: async ({ payload, auth, clientTimestamp, dbClient, entry }) => {
       const validatedPayload =
         validateAndNormalizeHouseholdRegistrationPayload(payload);
 
-      return householdRegistrationService.registerHousehold({
-        ...validatedPayload,
-        registered_by: auth.userId,
-        synced_client_timestamp: clientTimestamp,
-        enforce_sync_duplicate_guard: true,
-        dbClient,
-      });
+      return householdRegistrationService.registerHousehold(
+        {
+          ...validatedPayload,
+          registered_by: auth.userId,
+          synced_client_timestamp: clientTimestamp,
+          enforce_sync_duplicate_guard: true,
+          dbClient,
+        },
+        { operationId: entry.client_sync_id, dbClient },
+      );
     },
   },
   HOUSEHOLD_RE_ADMISSION: {
     entityType: "HOUSEHOLD",
     operationType: "CREATE",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth, clientTimestamp, dbClient }) => {
+    execute: async ({ payload, auth, clientTimestamp, dbClient, entry }) => {
       const validatedPayload =
         validateAndNormalizeHouseholdRegistrationPayload(payload);
 
@@ -467,6 +535,7 @@ const ACTION_HANDLERS = {
           operation: "RE_ADMISSION",
           sourceHouseholdId:
             validatedPayload.re_admission_source_household_id,
+          operationId: entry.client_sync_id,
           dbClient,
         },
       );
@@ -2040,6 +2109,9 @@ const tryAutoResolveCrossBarangayDuplicate = async ({
 };
 
 const processSingleSyncEntry = async (entry, auth) => {
+  const rawEntry = entry;
+  const pendingPhotoPath = getPendingFamilyHeadPhotoPath(rawEntry);
+  entry = buildPersistableSyncEntry(entry);
   const actionConfig = ACTION_HANDLERS[entry.action_key];
 
   if (!isSupportedSyncAction(entry.action_key)) {
@@ -2058,7 +2130,9 @@ const processSingleSyncEntry = async (entry, auth) => {
   const notificationOutboxEventIds = [];
   const domainSideEffects = [];
 
-  const syncResult = await runSyncProcessingTransaction(async (dbClient) => {
+  let syncResult;
+  try {
+    syncResult = await runSyncProcessingTransaction(async (dbClient) => {
     const clientDeviceUuid = entry.device_id || null;
     const canonicalDeviceId =
       await deviceService.resolveCanonicalDeviceId({
@@ -2069,7 +2143,7 @@ const processSingleSyncEntry = async (entry, auth) => {
       ? { ...auth, deviceId: canonicalDeviceId }
       : auth;
     const payloadForAction = normalizeSyncPayloadDeviceReferences(
-      entry.payload,
+      rawEntry.payload,
       canonicalDeviceId,
     );
     const claimPayload = {
@@ -2566,6 +2640,7 @@ const processSingleSyncEntry = async (entry, auth) => {
         data: null,
         conflict: null,
         error_code: error.code,
+        status_code: Number(error.statusCode) || null,
       };
     }
 
@@ -2643,9 +2718,18 @@ const processSingleSyncEntry = async (entry, auth) => {
       data: null,
       conflict: null,
       error_code: error.code || null,
+      status_code: Number(error.statusCode) || null,
     };
     }
-  });
+    });
+  } catch (error) {
+    if (pendingPhotoPath) {
+      await familyHeadPhotoStorage.removeUnreferencedFamilyHeadPhoto({
+        path: pendingPhotoPath,
+      });
+    }
+    throw error;
+  }
 
   const syncResultWithProcessedNotificationIntents =
     await processCommittedNotificationIntentsSafely({

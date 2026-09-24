@@ -279,6 +279,24 @@ export const updateSyncEntryStatus = async (entryId, updates) => {
   emitSyncQueueUpdated();
 };
 
+export const removeSyncEntry = async (entryId) => {
+  if (!entryId) {
+    return false;
+  }
+
+  try {
+    await db.syncQueue.delete(entryId);
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+
+  emitSyncQueueUpdated();
+  return true;
+};
+
 export const persistResolvedInventoryItemProjectionId = async ({
   parentLocalId,
   parentServerId,

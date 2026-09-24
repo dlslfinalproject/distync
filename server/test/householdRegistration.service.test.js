@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const crypto = require("node:crypto");
 
 const servicePath = path.resolve(
   __dirname,
@@ -27,6 +28,43 @@ const dependencyPaths = {
     __dirname,
     "../src/services/donatedReliefPackAssignment.service.js",
   ),
+  familyHeadPhotoStorage: path.resolve(
+    __dirname,
+    "../src/services/familyHeadPhotoStorage.service.js",
+  ),
+};
+
+const mockFamilyHeadPhotoStorage = {
+  getFamilyHeadPhotoMetadata: (dataUrl) => {
+    const match = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i.exec(
+      String(dataUrl || "").trim(),
+    );
+    if (!match) return null;
+    const buffer = Buffer.from(match[2], "base64");
+    return {
+      photo_present: true,
+      photo_sha256: crypto.createHash("sha256").update(buffer).digest("hex"),
+      photo_mime_type: match[1].toLowerCase(),
+      photo_size_bytes: buffer.length,
+    };
+  },
+  uploadFamilyHeadPhoto: async ({
+    dataUrl,
+    disasterEventId,
+    barangayId,
+    operationId,
+  }) => {
+    const metadata = mockFamilyHeadPhotoStorage.getFamilyHeadPhotoMetadata(dataUrl);
+    return {
+      path: `${disasterEventId}/${barangayId}/test/${operationId || "operation"}/${metadata.photo_sha256}.png`,
+      sha256: metadata.photo_sha256,
+      mimeType: metadata.photo_mime_type,
+      sizeBytes: metadata.photo_size_bytes,
+      created: true,
+    };
+  },
+  resolveFamilyHeadPhoto: async () => ({ url: null, expiresAt: null }),
+  removeUnreferencedFamilyHeadPhoto: async () => true,
 };
 
 const loadServiceWithMocks = (
@@ -132,6 +170,7 @@ const loadServiceWithMocks = (
         releaseDonatedReliefPackAssignmentsForHousehold: async () => [],
       },
     ],
+    [dependencyPaths.familyHeadPhotoStorage, mockFamilyHeadPhotoStorage],
   ]);
 
   delete require.cache[servicePath];
@@ -2818,7 +2857,12 @@ test("restoreHousehold creates an independent occurrence and protects archived s
       household_size: 2,
       is_active: false,
       registered_by: "user-1",
-      family_head_photo_url: "data:image/png;base64,AA==",
+      family_head_photo_url: null,
+      family_head_photo_path:
+        "event-1/barangay-1/operations/source-photo/photo.png",
+      family_head_photo_sha256: "a".repeat(64),
+      family_head_photo_mime_type: "image/png",
+      family_head_photo_size_bytes: 68,
       photo_captured_at: null,
       photo_captured_by: null,
       photo_verification_notes: null,
@@ -2926,6 +2970,7 @@ test("restoreHousehold creates an independent occurrence and protects archived s
   };
   let readmissionSequence = 0;
   let currentCreatedHouseholdId = null;
+  let createdPhotoPath = null;
   let nextNonHeadMemberIndex = 0;
   const fakeClient = {
     query: async (query) => {
@@ -2985,6 +3030,7 @@ test("restoreHousehold creates an independent occurrence and protects archived s
       getAgeGroupSectors: async () => [{ id: "adult-sector", code: "ADULT" }],
       insertHousehold: async (payload) => {
         events.push("INSERT_HOUSEHOLD");
+        createdPhotoPath = payload.family_head_photo_path || null;
         const householdId = readmissionHouseholdIds[readmissionSequence];
         const occurrence = occurrenceIds[householdId];
         currentCreatedHouseholdId = householdId;
@@ -3010,6 +3056,10 @@ test("restoreHousehold creates an independent occurrence and protects archived s
           is_active: true,
           registered_by: payload.registered_by,
           family_head_photo_url: payload.family_head_photo_url || null,
+          family_head_photo_path: payload.family_head_photo_path || null,
+          family_head_photo_sha256: payload.family_head_photo_sha256 || null,
+          family_head_photo_mime_type: payload.family_head_photo_mime_type || null,
+          family_head_photo_size_bytes: payload.family_head_photo_size_bytes ?? null,
           photo_captured_at: null,
           photo_captured_by: null,
           photo_verification_notes: payload.photo_verification_notes || null,
@@ -3137,6 +3187,10 @@ test("restoreHousehold creates an independent occurrence and protects archived s
       ...structuredClone(householdRecords[sourceHouseholdId]),
       id: nullPhotoHouseholdId,
       family_head_photo_url: null,
+      family_head_photo_path: null,
+      family_head_photo_sha256: null,
+      family_head_photo_mime_type: null,
+      family_head_photo_size_bytes: null,
       is_active: false,
     };
 
@@ -3157,9 +3211,11 @@ test("restoreHousehold creates an independent occurrence and protects archived s
     assert.equal(result.status, "ACTIVE");
     assert.equal(result.household.id, targetHouseholdId);
     assert.equal(result.household.is_active, true);
+    assert.equal(result.household.family_head_photo_url, null);
+    assert.equal(result.household.has_family_head_photo, true);
     assert.equal(
-      result.household.family_head_photo_url,
-      "data:image/png;base64,AA==",
+      createdPhotoPath,
+      "event-1/barangay-1/operations/source-photo/photo.png",
     );
     assert.notEqual(result.household.family_head_evacuee_id, sourceHeadId);
     assert.notEqual(stubsByHouseholdId[targetHouseholdId].id, sourceStubId);

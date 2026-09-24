@@ -11,6 +11,7 @@ const {
   recordAutomaticReliefPackClaim,
 } = require("./automaticReliefPackClaim.service");
 const donatedReliefPackAssignmentService = require("./donatedReliefPackAssignment.service");
+const familyHeadPhotoStorage = require("./familyHeadPhotoStorage.service");
 const {
   getAssignedReliefPackTemplatesForSectorIds,
   getPrimaryAssignedReliefPackTemplate,
@@ -34,6 +35,8 @@ const {
   getDistributionItemSourceReliefTypeSnapshot,
 } = require("../utils/distributionTransactionItemSnapshot");
 const { resolveRequesterBarangayId } = require("../utils/requesterScope");
+const MSWDO_ROLE_CODE = "MSWDO";
+const MAYOR_ROLE_CODE = "MAYOR";
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
@@ -334,7 +337,36 @@ const getInventoryDistributionDetail = async ({ stubId, requester = null }) => {
       : requester;
   assertBarangayRecordViewScope(detail.base, scopedRequester);
 
-  return mapInventoryDistributionDetail(detail);
+  const response = mapInventoryDistributionDetail(detail);
+  if (
+    [BARANGAY_ROLE_CODE, MSWDO_ROLE_CODE, MAYOR_ROLE_CODE].includes(
+      requester?.roleCode,
+    )
+  ) {
+    try {
+      const photo = await familyHeadPhotoStorage.resolveFamilyHeadPhoto({
+        familyHeadPhotoPath: detail.base.family_head_photo_path,
+        legacyPhotoUrl: detail.base.family_head_photo_url,
+      });
+      response.household.family_head_photo_url = photo?.url || null;
+      response.household.family_head_photo_url_expires_at =
+        photo?.expiresAt || null;
+      response.household.has_family_head_photo = Boolean(photo?.url);
+    } catch (error) {
+      console.warn("Inventory detail family-head photo unavailable", {
+        household_id: detail.base.household_id || null,
+        role_code: requester.roleCode,
+        error_code: error?.code || error?.statusCode || error?.name || "unknown",
+      });
+      response.household.family_head_photo_url = null;
+      response.household.family_head_photo_url_expires_at = null;
+      response.household.has_family_head_photo = false;
+    }
+  } else {
+    response.household.family_head_photo_url = null;
+    response.household.has_family_head_photo = false;
+  }
+  return response;
 };
 
 const getStandardTemplates = (templates) => {

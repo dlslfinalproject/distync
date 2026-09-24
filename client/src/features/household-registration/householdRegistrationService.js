@@ -386,11 +386,14 @@ export const registerHousehold = async (payload, options = {}) => {
           ? ["evacuation_center_id"]
           : []),
       ],
-      request: async () => {
+      request: async ({ clientSyncId, entityLocalId, clientTimestamp } = {}) => {
         const response = await fetch(`${API_BASE_URL}/api/v1/households/register`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "X-Client-Sync-ID": clientSyncId || "",
+            "X-Entity-Local-ID": entityLocalId || "",
+            "X-Client-Timestamp": clientTimestamp || "",
           },
           body: JSON.stringify(payload),
         });
@@ -417,6 +420,9 @@ export const registerHousehold = async (payload, options = {}) => {
           entityLocalId,
           clientTimestamp,
         }),
+      // A close/restart after the POST but before the response must preserve
+      // this same operation ID and photo payload for the sync ledger retry.
+      persistBeforeRequest: true,
     });
   } finally {
     if (guardKey) {

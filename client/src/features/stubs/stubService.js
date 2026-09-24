@@ -383,6 +383,21 @@ export const fetchStubDetails = async (stubId, { currentBarangayId = "" } = {}) 
   }
 };
 
+export const fetchStubFamilyHeadPhoto = async (stubId) => {
+  if (!stubId) {
+    return null;
+  }
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/stubs/${stubId}/family-head-photo`,
+    { cache: "no-store" },
+  );
+  const responseData = await handleJsonResponse(
+    response,
+    "Failed to fetch family-head photo",
+  );
+  return responseData?.data || null;
+};
+
 export const claimStub = async ({
   stubId,
   userId,

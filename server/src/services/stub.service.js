@@ -12,6 +12,7 @@ const {
   getAssignedReliefPackTemplatesForSectorIds,
 } = require("./reliefPackAssignment.service");
 const donatedReliefPackAssignmentService = require("./donatedReliefPackAssignment.service");
+const familyHeadPhotoStorage = require("./familyHeadPhotoStorage.service");
 const {
   isLiveUnclaimedReliefPackAssignment,
   normalizeReliefPackAssignmentSnapshots,
@@ -30,6 +31,22 @@ const MSWDO_ROLE_CODE = "MSWDO";
 const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
 const ARCHIVED_HOUSEHOLD_CODE = "HOUSEHOLD_ARCHIVED";
 const HOUSEHOLD_NOT_PRESENT_CODE = "HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER";
+
+const resolveStubFamilyHeadPhoto = async (stub, requester) => {
+  try {
+    return await familyHeadPhotoStorage.resolveFamilyHeadPhoto({
+      familyHeadPhotoPath: stub?.family_head_photo_path,
+      legacyPhotoUrl: stub?.family_head_photo_url,
+    });
+  } catch (error) {
+    console.warn("Stub family-head photo unavailable", {
+      household_id: stub?.household_id || null,
+      role_code: requester?.roleCode || null,
+      error_code: error?.code || error?.statusCode || error?.name || "unknown",
+    });
+    return null;
+  }
+};
 
 const assertBarangayRecordViewScope = (record, requester) => {
   if (requester?.roleCode !== BARANGAY_ROLE_CODE) {
@@ -690,7 +707,7 @@ const getBarangayStubDashboard = async (filters) => {
           household_size: row.household_size || row.members_count,
           members_count: row.members_count,
           is_active: row.is_active !== false,
-          family_head_photo_url: row.family_head_photo_url || null,
+          has_family_head_photo: Boolean(row.has_family_head_photo),
           photo_captured_at: row.photo_captured_at || null,
           photo_verification_notes: row.photo_verification_notes || null,
         },
@@ -989,7 +1006,7 @@ const getMunicipalStubDashboard = async ({
           household_size: row.household_size || row.members_count,
           members_count: row.members_count,
           is_active: row.is_active !== false,
-          family_head_photo_url: row.family_head_photo_url || null,
+          has_family_head_photo: Boolean(row.has_family_head_photo),
           photo_captured_at: row.photo_captured_at || null,
           photo_verification_notes: row.photo_verification_notes || null,
         },
@@ -1261,6 +1278,10 @@ const getStubDetails = async (id, requester = null) => {
     await stubRepository.getLatestDistributionTransactionByStubId(
       ensuredStub.id,
     );
+  const familyHeadPhoto = await resolveStubFamilyHeadPhoto(
+    ensuredStub,
+    requester,
+  );
   const householdMembers = members
     .filter((member) => !member.is_family_head)
     .map((member) => ({
@@ -1386,7 +1407,9 @@ const getStubDetails = async (id, requester = null) => {
       registered_at: ensuredStub.registered_at,
       members_count: membersCount,
       members: householdMembers,
-      family_head_photo_url: ensuredStub.family_head_photo_url || null,
+      family_head_photo_url: familyHeadPhoto?.url || null,
+      family_head_photo_url_expires_at: familyHeadPhoto?.expiresAt || null,
+      has_family_head_photo: Boolean(familyHeadPhoto?.url),
       photo_captured_at: ensuredStub.photo_captured_at || null,
       photo_captured_by: ensuredStub.photo_captured_by || null,
       photo_verification_notes: ensuredStub.photo_verification_notes || null,
@@ -1599,6 +1622,10 @@ const verifyStub = async (identifier, requester = null) => {
     latestDistributionTransaction,
     latestAttendance,
   });
+  const familyHeadPhoto = await resolveStubFamilyHeadPhoto(
+    ensuredStub,
+    normalizedRequester,
+  );
 
   return {
     message: claimability.message,
@@ -1634,11 +1661,49 @@ const verifyStub = async (identifier, requester = null) => {
         contact_number: ensuredStub.contact_number,
         barangay_name:
           ensuredStub.barangay_name || "Non-Resident (Outside Malvar)",
-        family_head_photo_url: ensuredStub.family_head_photo_url || null,
+        family_head_photo_url: familyHeadPhoto?.url || null,
+        family_head_photo_url_expires_at: familyHeadPhoto?.expiresAt || null,
+        has_family_head_photo: Boolean(familyHeadPhoto?.url),
         photo_captured_at: ensuredStub.photo_captured_at || null,
         photo_verification_notes: ensuredStub.photo_verification_notes || null,
       },
     },
+  };
+};
+
+const getStubFamilyHeadPhoto = async (id, requester = null) => {
+  if (
+    ![BARANGAY_ROLE_CODE, MSWDO_ROLE_CODE, MAYOR_ROLE_CODE].includes(
+      requester?.roleCode,
+    )
+  ) {
+    const error = new Error("You do not have access to family-head photos");
+    error.statusCode = 403;
+    error.code = "FAMILY_HEAD_PHOTO_FORBIDDEN";
+    throw error;
+  }
+
+  const requesterBarangayId = await getRequesterBarangayScope(
+    requester,
+    "stub family-head photo",
+  );
+  const stub = await stubRepository.getStubById(id, requesterBarangayId);
+  if (!stub) {
+    const error = new Error("Stub not found");
+    error.statusCode = 404;
+    error.code = "STUB_NOT_FOUND";
+    throw error;
+  }
+  const scopedRequester =
+    requester?.roleCode === BARANGAY_ROLE_CODE && requesterBarangayId
+      ? { ...requester, defaultBarangayId: requesterBarangayId }
+      : requester;
+  assertBarangayRecordViewScope(stub, scopedRequester);
+  const photo = await resolveStubFamilyHeadPhoto(stub, requester);
+  return {
+    url: photo?.url || null,
+    expiresAt: photo?.expiresAt || null,
+    available: Boolean(photo?.url),
   };
 };
 
@@ -1720,6 +1785,7 @@ module.exports = {
   getMunicipalStubDashboard,
   getSearchResults,
   getStubDetails,
+  getStubFamilyHeadPhoto,
   verifyStub,
   claimBarangayStub,
   getStubClaimHistory,

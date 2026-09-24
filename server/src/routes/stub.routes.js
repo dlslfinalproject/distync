@@ -252,6 +252,28 @@ router.get(
 );
 
 router.get(
+  "/:id/family-head-photo",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  validateStubId,
+  async (req, res) => {
+    try {
+      const photo = await stubService.getStubFamilyHeadPhoto(
+        req.params.id,
+        req.auth,
+      );
+      res.setHeader("Cache-Control", "private, no-store, max-age=0");
+      res.setHeader("Pragma", "no-cache");
+      return res.status(200).json({ data: photo });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        code: error.code || null,
+        message: error.message || "Failed to retrieve family-head photo",
+      });
+    }
+  },
+);
+
+router.get(
   "/:id",
   requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
   validateStubId,
@@ -265,6 +287,8 @@ router.get(
       });
     }
 
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    res.setHeader("Pragma", "no-cache");
     return res.status(200).json(stub);
   } catch (error) {
     const statusCode = error.statusCode || 500;
@@ -300,6 +324,8 @@ router.post(
       });
     }
 
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    res.setHeader("Pragma", "no-cache");
     return res.status(200).json(result);
   } catch (error) {
     await logStubAnomalySource({

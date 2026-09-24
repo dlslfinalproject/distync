@@ -53,7 +53,7 @@ const fetchOfflinePhotoDataUrl = async (photoUrl, householdId) => {
   if (isImageDataUrl(photoUrl)) return photoUrl;
   if (!photoUrl) return "";
   const response = await withTimeout(
-    fetch(photoUrl),
+    fetch(photoUrl, { cache: "no-store" }),
     `Offline household photo ${householdId}`,
   );
   if (!response.ok) {
@@ -252,6 +252,10 @@ const fetchHouseholdDetailsWithBoundedConcurrency = async (rows, { scope, cached
         onWarning?.({ householdId, kind: "HOUSEHOLD_DETAILS_REUSED" });
       }
       let photoDataUrl = "";
+      const hasFamilyHeadPhoto = Boolean(
+        details?.household?.has_family_head_photo ||
+          details?.household?.family_head_photo_url,
+      );
       const photoUrl = details?.household?.family_head_photo_url;
       if (photoUrl) {
         try {
@@ -272,6 +276,9 @@ const fetchHouseholdDetailsWithBoundedConcurrency = async (rows, { scope, cached
         throw error;
       }
       details.household.family_head_photo_data_url = photoDataUrl;
+      details.household.family_head_photo_url = photoDataUrl;
+      details.household.has_family_head_photo = hasFamilyHeadPhoto;
+      details.household.family_head_photo_available = Boolean(photoDataUrl);
       detailsByHouseholdId.set(String(householdId), details);
       onProgress?.(detailsByHouseholdId.size);
     }
@@ -413,8 +420,13 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
       const requiredPhotoFailures = masterlist.rows.filter((row) => {
         const household = row?.household || row || {};
         const details = householdDetailsById.get(String(row?.household_id || household.id || ""));
-        const authoritativePhoto = household.family_head_photo_url || details?.household?.family_head_photo_url;
-        return Boolean(authoritativePhoto) && !details?.household?.family_head_photo_data_url;
+        const photoExpected = Boolean(
+          household.has_family_head_photo ||
+            details?.household?.has_family_head_photo ||
+            household.family_head_photo_url ||
+            details?.household?.family_head_photo_url,
+        );
+        return photoExpected && !details?.household?.family_head_photo_data_url;
       });
       if (requiredPhotoFailures.length > 0) {
         const error = new Error("Required family-head photos could not be verified for offline use");

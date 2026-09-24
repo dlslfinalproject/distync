@@ -162,6 +162,76 @@ test("Stage 5 municipal route allows Mayor and MSWDO and passes requester contex
   assert.equal(capturedRequester.roleCode, "MAYOR");
 });
 
+test("Mayor can retrieve an authorized family-head photo on demand with no-store headers", async () => {
+  let serviceCall = null;
+  await withStubbedStubRoute(
+    {
+      auth: { userId: "mayor-user", roleCode: "MAYOR", defaultBarangayId: null },
+      serviceImpl: {
+        getStubFamilyHeadPhoto: async (id, requester) => {
+          serviceCall = { id, requester };
+          return {
+            url: "https://storage.example/signed-photo",
+            expiresAt: "2026-09-24T10:05:00.000Z",
+            available: true,
+          };
+        },
+      },
+    },
+    async (router) => {
+      const server = await listen(router);
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:${server.address().port}/api/v1/stubs/${stubId}/family-head-photo`,
+        );
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get("cache-control"), "private, no-store, max-age=0");
+        assert.deepEqual(await response.json(), {
+          data: {
+            url: "https://storage.example/signed-photo",
+            expiresAt: "2026-09-24T10:05:00.000Z",
+            available: true,
+          },
+        });
+      } finally {
+        await closeServer(server);
+      }
+    },
+  );
+
+  assert.equal(serviceCall.id, stubId);
+  assert.equal(serviceCall.requester.roleCode, "MAYOR");
+});
+
+for (const deniedRole of ["DONOR", "NGO", "PUBLIC"]) {
+  test(`family-head photo route denies ${deniedRole}`, async () => {
+    let serviceCalled = false;
+    await withStubbedStubRoute(
+      {
+        auth: { userId: "external-user", roleCode: deniedRole },
+        serviceImpl: {
+          getStubFamilyHeadPhoto: async () => {
+            serviceCalled = true;
+            throw new Error("service must not run for denied roles");
+          },
+        },
+      },
+      async (router) => {
+        const server = await listen(router);
+        try {
+          const response = await fetch(
+            `http://127.0.0.1:${server.address().port}/api/v1/stubs/${stubId}/family-head-photo`,
+          );
+          assert.equal(response.status, 403);
+        } finally {
+          await closeServer(server);
+        }
+      },
+    );
+    assert.equal(serviceCalled, false);
+  });
+}
+
 for (const deniedRole of ["BARANGAY", "DONOR"]) {
   test(`Stage 5 municipal route denies ${deniedRole}`, async () => {
     await withStubbedStubRoute(

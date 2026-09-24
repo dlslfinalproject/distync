@@ -11,6 +11,7 @@ import {
   claimSyncEntries,
   persistResolvedInventoryItemProjectionId,
   queueSyncEntry,
+  removeSyncEntry,
   updateSyncEntryStatus,
 } from "./syncQueue.js";
 import { reconcileOfflineStubCacheForSyncResult } from "../features/stubs/stubCache.js";
@@ -589,6 +590,7 @@ export const performSyncableMutation = async ({
   buildQueuedResponse,
   queueDisplayContext = null,
   canQueueOffline = null,
+  persistBeforeRequest = false,
 }) => {
   validateRequiredFields(payload, requiredFields);
   // Delete/deactivate operations require online connection to avoid unsafe
@@ -629,24 +631,8 @@ export const performSyncableMutation = async ({
     });
   }
 
-  try {
-    const response = await request();
-
-    notifyInventoryMutationListeners({
-      type: "mutation-succeeded",
-      actionKey,
-      entityLocalId: effectiveEntityLocalId,
-      entityServerId,
-      entityType,
-      moduleName,
-    });
-
-    return response;
-  } catch (error) {
-    if (!allowOffline || !isNetworkFailure(error)) {
-      throw error;
-    }
-
+  let prePersisted = false;
+  if (persistBeforeRequest && allowOffline) {
     await assertOfflineQueueAllowed(canQueueOffline);
     await persistOfflineMutation({
       id: clientSyncId,
@@ -662,6 +648,106 @@ export const performSyncableMutation = async ({
       payload,
       queueDisplayContext,
     });
+    prePersisted = true;
+  }
+
+  try {
+    const response = await request({
+      clientSyncId,
+      entityLocalId: effectiveEntityLocalId,
+      entityServerId,
+      clientTimestamp,
+    });
+
+    notifyInventoryMutationListeners({
+      type: "mutation-succeeded",
+      actionKey,
+      entityLocalId: effectiveEntityLocalId,
+      entityServerId,
+      entityType,
+      moduleName,
+    });
+
+    if (prePersisted) {
+      try {
+        await removeSyncEntry(clientSyncId);
+      } catch (error) {
+        // The server has confirmed the registration. Keep the durable queue row
+        // for idempotent reconciliation if local cleanup is temporarily unavailable.
+        emitSyncFeedbackEvent({
+          type: "pending",
+          message:
+            "Registration succeeded. Local sync cleanup will finish when storage is available.",
+          code: error?.code || "LOCAL_STORAGE_FAILURE",
+        });
+      }
+    }
+
+    return response;
+  } catch (error) {
+    const isFamilyHeadPhotoStorageFailure =
+      /^FAMILY_HEAD_PHOTO_(?:STORAGE_UNAVAILABLE|UPLOAD_FAILED|RETRIEVAL_FAILED)$/i.test(
+        String(error?.code || ""),
+      );
+
+    if (prePersisted && isFamilyHeadPhotoStorageFailure) {
+      // Storage failures must remain visible as Storage failures while the
+      // registration bytes stay durable and retryable in IndexedDB.
+      try {
+        await updateSyncEntryStatus(clientSyncId, {
+          status: LOCAL_SYNC_STATUS.FAILED,
+          lastError: error.message,
+          serverMessage: error.message,
+          lastErrorCode: error.code,
+          processingOwner: null,
+          processingUntil: null,
+        });
+      } catch (queueError) {
+        emitSyncFeedbackEvent({
+          type: "failed",
+          message: getSafeSyncErrorMessage(
+            queueError,
+            SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE,
+          ),
+        });
+      }
+      throw error;
+    }
+
+    if (!allowOffline || !isNetworkFailure(error)) {
+      if (prePersisted) {
+        try {
+          await removeSyncEntry(clientSyncId);
+        } catch (queueError) {
+          emitSyncFeedbackEvent({
+            type: "failed",
+            message: getSafeSyncErrorMessage(
+              queueError,
+              SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE,
+            ),
+          });
+        }
+      }
+      throw error;
+    }
+
+    await assertOfflineQueueAllowed(canQueueOffline);
+    if (!prePersisted) {
+      await persistOfflineMutation({
+        id: clientSyncId,
+        queueGroupKey,
+        moduleName,
+        actionKey,
+        entityType,
+        entityLocalId: effectiveEntityLocalId,
+        entityServerId,
+        barangayId,
+        clientTimestamp,
+        clientUpdatedAt,
+        payload,
+        queueDisplayContext,
+      });
+    }
 
     emitSyncFeedbackEvent({
       type: "pending",

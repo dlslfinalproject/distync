@@ -24,6 +24,7 @@ const {
   sanitizeHouseholdUpdateRequestData,
 } = require("./householdEditProtection.service");
 const donatedReliefPackAssignmentService = require("./donatedReliefPackAssignment.service");
+const familyHeadPhotoStorage = require("./familyHeadPhotoStorage.service");
 const {
   isValidFamilyHeadPhotoDataUrl,
 } = require("../validators/householdRegistration.validator");
@@ -1117,8 +1118,23 @@ const buildRegistrationResponse = async (householdId, dbClient = undefined) => {
     };
   });
 
+  const safeHousehold = household
+    ? {
+        ...household,
+        has_family_head_photo: Boolean(
+          household.family_head_photo_path || household.family_head_photo_url,
+        ),
+      }
+    : household;
+  if (safeHousehold) {
+    delete safeHousehold.family_head_photo_path;
+    delete safeHousehold.family_head_photo_sha256;
+    delete safeHousehold.family_head_photo_mime_type;
+    delete safeHousehold.family_head_photo_size_bytes;
+  }
+
   return {
-    household,
+    household: safeHousehold,
     members: membersWithSectors,
     household_sectors: householdSectors,
     privacy_consent: latestPrivacyConsent,
@@ -1526,6 +1542,17 @@ const getHouseholdDetails = async ({
   }
 
   const householdDetails = await buildRegistrationResponse(householdId);
+  const photoView = await resolveFamilyHeadPhotoView({
+    household,
+    requester,
+  });
+  householdDetails.household.family_head_photo_url = photoView.url;
+  householdDetails.household.family_head_photo_url_expires_at =
+    photoView.expiresAt;
+  householdDetails.household.has_family_head_photo = Boolean(
+    household.family_head_photo_path || household.family_head_photo_url,
+  );
+  householdDetails.household.family_head_photo_available = photoView.available;
 
   if (!evacuationLogId) {
     return householdDetails;
@@ -1547,6 +1574,66 @@ const getHouseholdDetails = async ({
     ...householdDetails,
     latest_attendance: selectedAttendance,
   };
+};
+
+const resolveFamilyHeadPhotoView = async ({ household, requester = null }) => {
+  try {
+    const resolved = await familyHeadPhotoStorage.resolveFamilyHeadPhoto({
+      familyHeadPhotoPath: household?.family_head_photo_path,
+      legacyPhotoUrl: household?.family_head_photo_url,
+    });
+    return {
+      url: resolved?.url || null,
+      expiresAt: resolved?.expiresAt || null,
+      available: Boolean(resolved?.url),
+    };
+  } catch (error) {
+    console.warn("Family-head photo retrieval could not be prepared", {
+      household_id: household?.id || null,
+      role_code: requester?.roleCode || null,
+      error_code: error?.code || error?.statusCode || error?.name || "unknown",
+    });
+    return {
+      url: null,
+      expiresAt: null,
+      available: false,
+      errorCode: error?.code || "FAMILY_HEAD_PHOTO_RETRIEVAL_FAILED",
+    };
+  }
+};
+
+const getFamilyHeadPhotoForRequester = async ({ householdId, requester }) => {
+  const household =
+    await householdRegistrationRepository.getHouseholdSummaryById(householdId);
+  if (!household) {
+    const error = new Error("Household not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (requester?.roleCode === BARANGAY_ROLE_CODE) {
+    if (!requester.defaultBarangayId) {
+      const error = new Error(
+        "Family-head photo access requires an assigned barangay.",
+      );
+      error.statusCode = 403;
+      error.code = "BARANGAY_SCOPE_FORBIDDEN";
+      throw error;
+    }
+    if (String(household.barangay_id || "") !== String(requester.defaultBarangayId)) {
+      const error = new Error("You do not have access to this household photo");
+      error.statusCode = 403;
+      error.code = "BARANGAY_SCOPE_FORBIDDEN";
+      throw error;
+    }
+  } else if (requester?.roleCode !== "MSWDO") {
+    const error = new Error("You do not have access to family-head photos");
+    error.statusCode = 403;
+    error.code = "FAMILY_HEAD_PHOTO_FORBIDDEN";
+    throw error;
+  }
+
+  return resolveFamilyHeadPhotoView({ household, requester });
 };
 
 const getAuthorizedHouseholdSummaryForUpdate = async ({
@@ -2147,7 +2234,12 @@ const reconcileCrossBarangayDuplicateWithEarlierRegistration = async ({
 
 const registerHousehold = async (
   requestData,
-  { dbClient = null, operation = null, sourceHouseholdId = null } = {},
+  {
+    dbClient = null,
+    operation = null,
+    sourceHouseholdId = null,
+    operationId = null,
+  } = {},
 ) => {
   const effectiveDbClient = dbClient || requestData.dbClient || null;
   const requestedRegistrationOperation = String(
@@ -2334,6 +2426,8 @@ const registerHousehold = async (
 
   const externalClient = effectiveDbClient;
   const client = externalClient || await pool.connect();
+  let reAdmissionSourceHousehold = null;
+  let uploadedFamilyHeadPhoto = null;
 
   try {
     if (!externalClient) {
@@ -2366,8 +2460,13 @@ const registerHousehold = async (
         requestDataWithDerivedAgeGroups.family_head_photo_url || "",
       ).trim();
       const archivedPhoto = String(sourceHousehold.family_head_photo_url || "").trim();
+      const reusesStoragePhoto = Boolean(
+        sourceHousehold.family_head_photo_path &&
+          !submittedPhoto.startsWith("data:"),
+      );
 
       if (
+        !reusesStoragePhoto &&
         submittedPhoto !== archivedPhoto &&
         !isValidFamilyHeadPhotoDataUrl(submittedPhoto)
       ) {
@@ -2377,6 +2476,33 @@ const registerHousehold = async (
         error.statusCode = 400;
         error.code = "HOUSEHOLD_REGISTRATION_VALIDATION_FAILED";
         throw error;
+      }
+
+      reAdmissionSourceHousehold = sourceHousehold;
+      if (reusesStoragePhoto) {
+        requestDataWithDerivedAgeGroups.family_head_photo_url = null;
+        requestDataWithDerivedAgeGroups.family_head_photo_path =
+          sourceHousehold.family_head_photo_path;
+        requestDataWithDerivedAgeGroups.family_head_photo_sha256 =
+          sourceHousehold.family_head_photo_sha256 || null;
+        requestDataWithDerivedAgeGroups.family_head_photo_mime_type =
+          sourceHousehold.family_head_photo_mime_type || null;
+        requestDataWithDerivedAgeGroups.family_head_photo_size_bytes =
+          sourceHousehold.family_head_photo_size_bytes ?? null;
+        requestDataWithDerivedAgeGroups.photo_captured_at =
+          sourceHousehold.photo_captured_at || null;
+        requestDataWithDerivedAgeGroups.photo_captured_by =
+          sourceHousehold.photo_captured_by || null;
+      } else if (
+        submittedPhoto &&
+        submittedPhoto === archivedPhoto &&
+        !submittedPhoto.startsWith("data:")
+      ) {
+        requestDataWithDerivedAgeGroups.family_head_photo_url = archivedPhoto;
+        requestDataWithDerivedAgeGroups.photo_captured_at =
+          sourceHousehold.photo_captured_at || null;
+        requestDataWithDerivedAgeGroups.photo_captured_by =
+          sourceHousehold.photo_captured_by || null;
       }
     }
 
@@ -2405,6 +2531,41 @@ const registerHousehold = async (
         existingHouseholdId,
         externalClient ? client : undefined,
       );
+    }
+
+    const submittedPhotoDataUrl = String(
+      requestDataWithDerivedAgeGroups.family_head_photo_url || "",
+    ).trim();
+    if (submittedPhotoDataUrl.startsWith("data:")) {
+      const safePhotoMetadata = familyHeadPhotoStorage.getFamilyHeadPhotoMetadata(
+        submittedPhotoDataUrl,
+      );
+      const stableOperationId =
+        operationId ||
+        [
+          requestDataWithDerivedAgeGroups.disaster_event_id,
+          requestDataWithDerivedAgeGroups.barangay_id || "outside-malvar",
+          effectiveSourceHouseholdId || "new-occurrence",
+          safePhotoMetadata?.photo_sha256 || "invalid-photo",
+          JSON.stringify(requestDataWithDerivedAgeGroups.family_head),
+          JSON.stringify(requestDataWithDerivedAgeGroups.members),
+        ].join(":" );
+      uploadedFamilyHeadPhoto =
+        await familyHeadPhotoStorage.uploadFamilyHeadPhoto({
+          dataUrl: submittedPhotoDataUrl,
+          disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
+          barangayId: requestDataWithDerivedAgeGroups.barangay_id,
+          operationId: stableOperationId,
+        });
+      requestDataWithDerivedAgeGroups.family_head_photo_url = null;
+      requestDataWithDerivedAgeGroups.family_head_photo_path =
+        uploadedFamilyHeadPhoto.path;
+      requestDataWithDerivedAgeGroups.family_head_photo_sha256 =
+        uploadedFamilyHeadPhoto.sha256;
+      requestDataWithDerivedAgeGroups.family_head_photo_mime_type =
+        uploadedFamilyHeadPhoto.mimeType;
+      requestDataWithDerivedAgeGroups.family_head_photo_size_bytes =
+        uploadedFamilyHeadPhoto.sizeBytes;
     }
 
     const createdHousehold =
@@ -2628,7 +2789,10 @@ const registerHousehold = async (
           barangayId: requestDataWithDerivedAgeGroups.barangay_id,
           familyHeadName,
           action: "registered",
-          requiresVerification: !registrationResponse.household?.family_head_photo_url,
+          requiresVerification: !Boolean(
+            createdHousehold.family_head_photo_path ||
+              createdHousehold.family_head_photo_url,
+          ),
         }),
       );
 
@@ -2670,6 +2834,11 @@ const registerHousehold = async (
   } catch (error) {
     if (!externalClient) {
       await client.query("ROLLBACK");
+    }
+    if (uploadedFamilyHeadPhoto?.created) {
+      await familyHeadPhotoStorage.removeUnreferencedFamilyHeadPhoto({
+        path: uploadedFamilyHeadPhoto.path,
+      });
     }
     throw mapStage3DatabaseError(error);
   } finally {
@@ -3258,8 +3427,9 @@ const restoreHousehold = async ({
     }
 
     if (
-      typeof lockedHousehold.family_head_photo_url !== "string" ||
-      !lockedHousehold.family_head_photo_url.trim()
+      !lockedHousehold.family_head_photo_path &&
+      (typeof lockedHousehold.family_head_photo_url !== "string" ||
+        !lockedHousehold.family_head_photo_url.trim())
     ) {
       const error = new Error(
         "Family head photo is required before this household can be re-admitted.",
@@ -3511,6 +3681,7 @@ module.exports = {
   getStage3DatabaseConstraintName,
   mapStage3DatabaseError,
   getHouseholdDetails,
+  getFamilyHeadPhotoForRequester,
   getAuthorizedHouseholdSummaryForUpdate,
   assertHouseholdUpdateDisasterEventActive,
   getDuplicateRegistrationSuggestions,

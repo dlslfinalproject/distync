@@ -12,6 +12,7 @@ const distributionServicePath = require.resolve("../src/services/distributionTra
 const householdRegistrationServicePath = require.resolve(
   "../src/services/householdRegistration.service",
 );
+const syncServicePath = require.resolve("../src/services/sync.service");
 const stubServicePath = require.resolve("../src/services/stub.service");
 const distributionValidatorPath = require.resolve("../src/validators/distributionTransaction.validator");
 const householdRegistrationValidatorPath = require.resolve(
@@ -171,22 +172,28 @@ test("MSWDO-ANOM-I04 direct duplicate household registration writes one durable 
       [authMiddlewarePath]: authStub,
       [householdRegistrationServicePath]: {
         getDuplicateRegistrationSuggestions: async () => ({}),
-        registerHousehold: async () => {
-          const error = new Error(
-            "Possible duplicate evacuee registration detected. Review the matched household before registering again.",
-          );
-          error.code = "DUPLICATE_HOUSEHOLD_REGISTRATION";
-          error.statusCode = 409;
-          error.entityServerId = householdId;
-          error.serverPayload = {
-            household_id: householdId,
-            matched_as: "FAMILY_HEAD",
-            matched_relationship_to_head: null,
-            match_confidence: "HIGH",
-            family_head_name: "Server Existing",
-          };
-          throw error;
-        },
+      },
+      [syncServicePath]: {
+        processSyncEntries: async () => [
+          {
+            sync_status: "CONFLICT",
+            error_code: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+            status_code: 409,
+            message:
+              "Possible duplicate evacuee registration detected. Review the matched household before registering again.",
+            conflict: {
+              entity_server_id: householdId,
+              conflict_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+              server_payload_json: {
+                household_id: householdId,
+                matched_as: "FAMILY_HEAD",
+                matched_relationship_to_head: null,
+                match_confidence: "HIGH",
+                family_head_name: "Server Existing",
+              },
+            },
+          },
+        ],
       },
       [householdRegistrationValidatorPath]: {
         validateCreateHouseholdRegistration: (req, _res, next) => {
@@ -214,7 +221,12 @@ test("MSWDO-ANOM-I04 direct duplicate household registration writes one durable 
           `http://127.0.0.1:${port}/api/v1/households/register`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "X-Client-Sync-ID": "duplicate-household-sync-1",
+              "X-Entity-Local-ID": "local-household-1",
+              "X-Client-Timestamp": "2026-08-26T11:00:00.000Z",
+            },
             body: JSON.stringify({
               disaster_event_id: "33333333-3333-4333-8333-333333333333",
               barangay_id: baseAuth.defaultBarangayId,

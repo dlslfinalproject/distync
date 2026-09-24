@@ -129,6 +129,8 @@ router.get(
         });
       }
 
+      res.setHeader("Cache-Control", "private, no-store, max-age=0");
+      res.setHeader("Pragma", "no-cache");
       return res.status(200).json({
         message: "Inventory distribution detail fetched successfully",
         data: detail,

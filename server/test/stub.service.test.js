@@ -21,6 +21,9 @@ const automaticReliefPackClaimServicePath = require.resolve(
 const reliefPackAssignmentServicePath = require.resolve(
   "../src/services/reliefPackAssignment.service",
 );
+const familyHeadPhotoStoragePath = require.resolve(
+  "../src/services/familyHeadPhotoStorage.service",
+);
 const donatedReliefPackAssignmentServicePath = require.resolve(
   "../src/services/donatedReliefPackAssignment.service",
 );
@@ -105,6 +108,7 @@ const createBaseStubs = ({
   reliefPackTemplateOverrides = {},
   automaticReliefPackClaimOverrides = {},
   donatedReliefPackAssignmentOverrides = {},
+  familyHeadPhotoStorageOverrides = {},
   stubRepositoryOverrides = {},
   distributionAuditOverrides = {},
 }) => ({
@@ -167,6 +171,16 @@ const createBaseStubs = ({
     getMemberSectorsByHouseholdIds: async () => [],
     ...stubRepositoryOverrides,
   },
+  [familyHeadPhotoStoragePath]: {
+    resolveFamilyHeadPhoto: async ({ familyHeadPhotoPath }) =>
+      familyHeadPhotoPath
+        ? {
+            url: "https://storage.example/signed-family-head-photo",
+            expiresAt: "2026-09-24T10:05:00.000Z",
+          }
+        : null,
+    ...familyHeadPhotoStorageOverrides,
+  },
   [mswdoReportExportPath]: {},
   [automaticReliefPackClaimServicePath]: {
     getAvailableDonatedLooseItemsForClaimPreview: async () => [],
@@ -189,6 +203,53 @@ const createBaseStubs = ({
     recordDistributionAudit: async () => {},
     ...distributionAuditOverrides,
   },
+});
+
+test("Mayor can resolve an authorized exact-stub family-head photo while external roles are denied", async () => {
+  const photoPath = "event-1/barangay-1/households/household-1/photo.jpg";
+  const storageCalls = [];
+
+  await withStubbedStubService(
+    createBaseStubs({
+      scopedStub: {
+        ...baseStub,
+        family_head_photo_path: photoPath,
+        family_head_photo_url: null,
+      },
+      familyHeadPhotoStorageOverrides: {
+        resolveFamilyHeadPhoto: async (args) => {
+          storageCalls.push(args);
+          return {
+            url: "https://storage.example/signed-family-head-photo",
+            expiresAt: "2026-09-24T10:05:00.000Z",
+          };
+        },
+      },
+    }),
+    async ({ getStubFamilyHeadPhoto }) => {
+      const photo = await getStubFamilyHeadPhoto(baseStub.id, {
+        roleCode: "MAYOR",
+      });
+
+      assert.equal(
+        photo.url,
+        "https://storage.example/signed-family-head-photo",
+      );
+      assert.equal(photo.available, true);
+
+      for (const roleCode of ["DONOR", "NGO", "PUBLIC"]) {
+        await assert.rejects(
+          getStubFamilyHeadPhoto(baseStub.id, { roleCode }),
+          { statusCode: 403, code: "FAMILY_HEAD_PHOTO_FORBIDDEN" },
+        );
+      }
+    },
+  );
+
+  assert.deepEqual(storageCalls, [{
+    familyHeadPhotoPath: photoPath,
+    legacyPhotoUrl: null,
+  }]);
 });
 
 test("Barangay stub search stays locked to the requester's assigned barangay", async () => {

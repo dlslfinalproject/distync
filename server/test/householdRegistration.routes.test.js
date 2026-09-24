@@ -7,17 +7,19 @@ const authMiddlewarePath = require.resolve("../src/modules/auth/auth.middleware"
 const householdRegistrationServicePath = require.resolve(
   "../src/services/householdRegistration.service",
 );
+const syncServicePath = require.resolve("../src/services/sync.service");
 const validatorPath = require.resolve(
   "../src/validators/householdRegistration.validator",
 );
 
 const withStubbedHouseholdRoute = async (
-  { authMiddlewareStub, serviceStub, validatorStub },
+  { authMiddlewareStub, serviceStub, validatorStub, syncServiceStub = { processSyncEntries: async () => [] } },
   runTest,
 ) => {
   const dependencyPaths = [
     authMiddlewarePath,
     householdRegistrationServicePath,
+    syncServicePath,
     validatorPath,
   ];
   const originalEntries = new Map(
@@ -38,6 +40,12 @@ const withStubbedHouseholdRoute = async (
       filename: householdRegistrationServicePath,
       loaded: true,
       exports: serviceStub,
+    };
+    require.cache[syncServicePath] = {
+      id: syncServicePath,
+      filename: syncServicePath,
+      loaded: true,
+      exports: syncServiceStub,
     };
     require.cache[validatorPath] = {
       id: validatorPath,
@@ -78,8 +86,8 @@ const buildValidatorStub = () => ({
   validateCorrectEvacuationLog: (_req, _res, next) => next(),
 });
 
-test("EE-FIX-01 HTTP register returns safe non-ACTIVE event validation failure from shared service", async () => {
-  let serviceCall = null;
+test("HTTP register returns safe non-ACTIVE event validation failure from the shared sync ledger", async () => {
+  let syncCall = null;
 
   await withStubbedHouseholdRoute(
     {
@@ -98,15 +106,17 @@ test("EE-FIX-01 HTTP register returns safe non-ACTIVE event validation failure f
           next();
         },
       },
-      serviceStub: {
-        registerHousehold: async (requestData) => {
-          serviceCall = requestData;
-          const error = new Error(
-            "Household registration cannot be completed because the disaster event is not active.",
-          );
-          error.statusCode = 400;
-          error.code = "DISASTER_EVENT_NOT_ACTIVE";
-          throw error;
+      serviceStub: {},
+      syncServiceStub: {
+        processSyncEntries: async (args) => {
+          syncCall = args;
+          return [{
+            sync_status: "FAILED",
+            error_code: "DISASTER_EVENT_NOT_ACTIVE",
+            status_code: 400,
+            message:
+              "Household registration cannot be completed because the disaster event is not active.",
+          }];
         },
       },
       validatorStub: {
@@ -131,7 +141,12 @@ test("EE-FIX-01 HTTP register returns safe non-ACTIVE event validation failure f
           `http://127.0.0.1:${server.address().port}/api/v1/households/register`,
           {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: {
+              "content-type": "application/json",
+              "X-Client-Sync-ID": "stable-sync-id-1",
+              "X-Entity-Local-ID": "local-household-1",
+              "X-Client-Timestamp": "2026-09-24T10:00:00.000Z",
+            },
             body: JSON.stringify({
               disaster_event_id: "event-closed",
               barangay_id: "barangay-a",
@@ -146,8 +161,10 @@ test("EE-FIX-01 HTTP register returns safe non-ACTIVE event validation failure f
           message:
             "Household registration cannot be completed because the disaster event is not active.",
         });
-        assert.equal(serviceCall.registered_by, "barangay-user-a");
-        assert.equal(serviceCall.disaster_event_id, "event-closed");
+        assert.equal(syncCall.auth.userId, "barangay-user-a");
+        assert.equal(syncCall.entries[0].client_sync_id, "stable-sync-id-1");
+        assert.equal(syncCall.entries[0].action_key, "HOUSEHOLD_REGISTER");
+        assert.equal(syncCall.entries[0].payload.disaster_event_id, "event-closed");
       } finally {
         await new Promise((resolve, reject) => {
           server.close((error) => (error ? reject(error) : resolve()));
@@ -157,8 +174,9 @@ test("EE-FIX-01 HTTP register returns safe non-ACTIVE event validation failure f
   );
 });
 
-test("HTTP re-admission forwards the selected archived occurrence to the shared create service", async () => {
-  let serviceCall = null;
+test("HTTP re-admission forwards the archived occurrence through the shared sync ledger and resolves the accepted photo", async () => {
+  let syncCall = null;
+  let detailsCall = null;
   const archivedHouseholdId = "archived-household-1";
 
   await withStubbedHouseholdRoute(
@@ -179,12 +197,28 @@ test("HTTP re-admission forwards the selected archived occurrence to the shared 
         },
       },
       serviceStub: {
-        registerHousehold: async (requestData, options) => {
-          serviceCall = { requestData, options };
+        getHouseholdDetails: async (options) => {
+          detailsCall = options;
           return {
-            household: { id: "new-household-2", is_active: true },
-            source_household_id: archivedHouseholdId,
+            household: {
+              id: "new-household-2",
+              is_active: true,
+              family_head_photo_url: "https://storage.example/signed-photo",
+            },
           };
+        },
+      },
+      syncServiceStub: {
+        processSyncEntries: async (args) => {
+          syncCall = args;
+          return [{
+            sync_status: "SYNCED",
+            data: {
+              household: { id: "new-household-2", is_active: true },
+              source_household_id: archivedHouseholdId,
+              registration_operation: "CREATE_NEW_HOUSEHOLD_OCCURRENCE",
+            },
+          }];
         },
       },
       validatorStub: {
@@ -209,7 +243,12 @@ test("HTTP re-admission forwards the selected archived occurrence to the shared 
           `http://127.0.0.1:${server.address().port}/api/v1/households/register`,
           {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: {
+              "content-type": "application/json",
+              "X-Client-Sync-ID": "stable-sync-id-2",
+              "X-Entity-Local-ID": "local-household-2",
+              "X-Client-Timestamp": "2026-09-24T10:01:00.000Z",
+            },
             body: JSON.stringify({
               registration_operation: "CREATE_NEW_HOUSEHOLD_OCCURRENCE",
               re_admission_source_household_id: archivedHouseholdId,
@@ -219,15 +258,15 @@ test("HTTP re-admission forwards the selected archived occurrence to the shared 
         const payload = await response.json();
 
         assert.equal(response.status, 201);
+        assert.equal(syncCall.entries[0].client_sync_id, "stable-sync-id-2");
+        assert.equal(syncCall.entries[0].action_key, "HOUSEHOLD_RE_ADMISSION");
         assert.equal(
-          serviceCall.requestData.re_admission_source_household_id,
+          syncCall.entries[0].payload.re_admission_source_household_id,
           archivedHouseholdId,
         );
-        assert.equal(serviceCall.options.operation, "RE_ADMISSION");
-        assert.equal(
-          serviceCall.options.sourceHouseholdId,
-          archivedHouseholdId,
-        );
+        assert.equal(detailsCall.householdId, "new-household-2");
+        assert.equal(detailsCall.requester.roleCode, "BARANGAY");
+        assert.match(payload.data.household.family_head_photo_url, /signed-photo/);
         assert.equal(payload.data.source_household_id, archivedHouseholdId);
       } finally {
         await new Promise((resolve, reject) => {

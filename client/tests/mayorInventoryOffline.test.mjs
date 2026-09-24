@@ -497,7 +497,7 @@ test("MAYOR-OFFLINE-06 fallback identifiers remain valid UUIDs and client timest
   assert.match(serverSyncSource, /received_at: clientTimestamp/);
   assert.match(
     serverSyncSource,
-    /execute: async \(\{ payload, auth, clientTimestamp, dbClient \}\)/,
+    /execute: async \(\{ payload, auth, clientTimestamp, dbClient, entry \}\)/,
   );
   assert.match(itemServiceSource, /received_at: options\.clientTimestamp/);
   assert.match(itemServiceSource, /performed_at: options\.clientTimestamp/);

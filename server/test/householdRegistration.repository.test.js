@@ -141,7 +141,9 @@ test("new household insertion persists explicit re-admission lineage", () => {
 
   assert.ok(insertSource, "insertHousehold source is present");
   assert.match(insertSource, /source_household_id/);
-  assert.match(insertSource, /NOW\(\), \$22/);
+  assert.match(insertSource, /COALESCE\(\$25::timestamptz, NOW\(\)\), NOW\(\), \$26/);
+  assert.match(insertSource, /family_head_photo_path/);
+  assert.match(insertSource, /family_head_photo_sha256/);
   assert.match(insertSource, /householdData\.source_household_id \?\? null/);
 });
 

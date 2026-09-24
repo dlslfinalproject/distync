@@ -2,6 +2,7 @@ const express = require("express");
 
 const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const householdRegistrationService = require("../services/householdRegistration.service");
+const syncService = require("../services/sync.service");
 const { logErrorSafely } = require("../utils/systemLog");
 const {
   validateCreateHouseholdRegistration,
@@ -81,23 +82,117 @@ router.post(
   validateCreateHouseholdRegistration,
   async (req, res) => {
     try {
-      const registrationResult =
-        await householdRegistrationService.registerHousehold({
-          ...req.validatedBody,
-          registered_by: req.auth.userId,
-        }, {
-          operation:
-            req.validatedBody.registration_operation ===
-            "CREATE_NEW_HOUSEHOLD_OCCURRENCE"
-              ? "RE_ADMISSION"
-              : null,
-          sourceHouseholdId:
-            req.validatedBody.re_admission_source_household_id || null,
+      const clientSyncId = String(req.get("X-Client-Sync-ID") || "").trim();
+      const entityLocalId = String(req.get("X-Entity-Local-ID") || "").trim();
+      const clientTimestamp = String(req.get("X-Client-Timestamp") || "").trim();
+      if (
+        !clientSyncId ||
+        clientSyncId.length > 80 ||
+        !/^[A-Za-z0-9:_-]+$/.test(clientSyncId) ||
+        !entityLocalId ||
+        !clientTimestamp ||
+        Number.isNaN(new Date(clientTimestamp).getTime())
+      ) {
+        return res.status(400).json({
+          code: "REGISTRATION_IDEMPOTENCY_REQUIRED",
+          message:
+            "A stable registration operation ID and client timestamp are required.",
         });
+      }
 
+      const actionKey =
+        req.validatedBody.registration_operation ===
+        "CREATE_NEW_HOUSEHOLD_OCCURRENCE"
+          ? "HOUSEHOLD_RE_ADMISSION"
+          : "HOUSEHOLD_REGISTER";
+      const [syncResult] = await syncService.processSyncEntries({
+        auth: req.auth,
+        entries: [
+          {
+            client_sync_id: clientSyncId,
+            action_key: actionKey,
+            entity_type: "HOUSEHOLD",
+            entity_local_id: entityLocalId,
+            entity_server_id: null,
+            device_id: req.auth.deviceId || null,
+            client_timestamp: clientTimestamp,
+            client_updated_at: clientTimestamp,
+            payload: req.validatedBody,
+          },
+        ],
+      });
+
+      if (syncResult?.sync_status !== "SYNCED") {
+        const errorCode = syncResult?.error_code || null;
+        const isPhotoStorageFailure =
+          errorCode === "FAMILY_HEAD_PHOTO_STORAGE_UNAVAILABLE" ||
+          errorCode === "FAMILY_HEAD_PHOTO_UPLOAD_FAILED" ||
+          errorCode === "FAMILY_HEAD_PHOTO_RETRIEVAL_FAILED";
+        const isValidationFailure = String(errorCode || "").includes(
+          "VALIDATION",
+        );
+        const statusCode =
+          Number(syncResult?.status_code) ||
+          (syncResult?.sync_status === "CONFLICT"
+            ? 409
+            : isPhotoStorageFailure
+              ? 503
+              : isValidationFailure
+                ? 400
+                : syncResult?.sync_status === "PENDING"
+                ? 503
+                : 409);
+        const error = new Error(
+          syncResult?.message || "Household registration did not complete.",
+        );
+        error.code = errorCode || "HOUSEHOLD_REGISTRATION_NOT_SYNCED";
+        error.statusCode = statusCode;
+        error.entityServerId =
+          syncResult?.conflict?.entity_server_id ||
+          syncResult?.data?.entity_server_id ||
+          syncResult?.data?.id ||
+          null;
+        error.serverPayload =
+          syncResult?.conflict?.server_payload_json ||
+          syncResult?.conflict?.server_payload ||
+          null;
+        throw error;
+      }
+
+      const acceptedResult = syncResult.data || {};
+      const acceptedHouseholdId =
+        acceptedResult.id || acceptedResult.household?.id || null;
+      let registrationResult = acceptedResult;
+      if (acceptedHouseholdId) {
+        const refreshedDetails =
+          await householdRegistrationService.getHouseholdDetails({
+            householdId: acceptedHouseholdId,
+            requester: req.auth,
+          });
+        registrationResult = {
+          ...refreshedDetails,
+          ...(acceptedResult.active_cross_event_information
+            ? {
+                active_cross_event_information:
+                  acceptedResult.active_cross_event_information,
+              }
+            : {}),
+          ...(acceptedResult.registration_operation
+            ? { registration_operation: acceptedResult.registration_operation }
+            : {}),
+          ...(acceptedResult.source_household_id
+            ? { source_household_id: acceptedResult.source_household_id }
+            : {}),
+        };
+      }
+
+      res.setHeader("Cache-Control", "private, no-store, max-age=0");
+      res.setHeader("Pragma", "no-cache");
       return res.status(201).json({
         message: "Household registered successfully",
         data: registrationResult,
+        client_sync_id: clientSyncId,
+        sync_status: syncResult.sync_status,
       });
     } catch (error) {
       await logHouseholdRegistrationAnomalySource({ req, error });
@@ -106,6 +201,35 @@ router.post(
       return res.status(statusCode).json({
         code: error.code || null,
         message: error.message || "Failed to register household",
+      });
+    }
+  },
+);
+
+router.get(
+  "/:householdId/family-head-photo",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  validateGetHouseholdDetails,
+  async (req, res) => {
+    try {
+      const photo = await householdRegistrationService.getFamilyHeadPhotoForRequester({
+        householdId: req.validatedParams.householdId,
+        requester: req.auth,
+      });
+      res.setHeader("Cache-Control", "private, no-store, max-age=0");
+      res.setHeader("Pragma", "no-cache");
+      return res.status(200).json({
+        data: {
+          photo_url: photo.url,
+          expires_at: photo.expiresAt,
+          available: photo.available,
+          error_code: photo.errorCode || null,
+        },
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        code: error.code || null,
+        message: error.message || "Failed to retrieve family-head photo",
       });
     }
   },
@@ -124,6 +248,8 @@ router.get(
           requester: req.auth,
         });
 
+      res.setHeader("Cache-Control", "private, no-store, max-age=0");
+      res.setHeader("Pragma", "no-cache");
       return res.status(200).json({
         message: "Household details retrieved successfully",
         data: householdDetails,

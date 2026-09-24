@@ -9,7 +9,10 @@ import {
   fetchBarangays,
 } from "../mswdo-masterlist/mswdoMasterlistService.js";
 import { fetchMswdoSectors } from "../mswdo-masterlist/mswdoMasterlistService.js";
-import { fetchMunicipalStubDashboard } from "../stubs/stubService.js";
+import {
+  fetchMunicipalStubDashboard,
+  fetchStubFamilyHeadPhoto,
+} from "../stubs/stubService.js";
 import { upsertOfflineStubSnapshots } from "../stubs/stubCache.js";
 import {
   cacheRegistrationActiveDisasterEvents,
@@ -128,7 +131,7 @@ export const fetchPhotoDataUrl = async (photoUrl, householdId) => {
   if (!photoUrl) return "";
   let response;
   try {
-    response = await fetch(photoUrl);
+    response = await fetch(photoUrl, { cache: "no-store" });
   } catch (_error) {
     throw new MswdoOfflinePreparationError(
       MSWDO_PREPARATION_FAILURE_STAGES.PHOTO_FETCH,
@@ -188,7 +191,11 @@ const hydratePhotos = async (rows = []) => {
       const row = pending.shift();
       const household = row.household || row;
       const householdId = String(row.household_id || household.id || "");
-      const photoUrl = household.family_head_photo_data_url || household.family_head_photo_url || "";
+      let photoUrl = household.family_head_photo_data_url || household.family_head_photo_url || "";
+      if (!photoUrl && (household.has_family_head_photo || row.has_family_head_photo)) {
+        const photo = await fetchStubFamilyHeadPhoto(row.id);
+        photoUrl = photo?.url || "";
+      }
       if (!photoUrl) {
         photoByHousehold.set(householdId, { dataUrl: "", missing: true });
         continue;
@@ -281,7 +288,8 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
       String(row.disaster_event_id) === String(eventId),
     );
     const requiredPhotoRows = stubRows.filter((row) =>
-      row?.household?.family_head_photo_url || row?.household?.family_head_photo_data_url || row?.family_head_photo_url,
+      row?.has_family_head_photo || row?.household?.has_family_head_photo ||
+        row?.household?.family_head_photo_url || row?.household?.family_head_photo_data_url || row?.family_head_photo_url,
     );
     const requiredPhotoHouseholdIds = new Set(
       requiredPhotoRows

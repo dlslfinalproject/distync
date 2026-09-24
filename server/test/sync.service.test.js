@@ -1,9 +1,13 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
 const servicePath = require.resolve("../src/services/sync.service");
+const familyHeadPhotoStoragePath = require.resolve(
+  "../src/services/familyHeadPhotoStorage.service",
+);
 const syncRepositoryPath = require.resolve("../src/repositories/sync.repository");
 const deviceServicePath = require.resolve("../src/services/device.service");
 const householdRegistrationRepositoryPath = require.resolve(
@@ -3580,6 +3584,91 @@ test("processSyncEntries rejects same client_sync_id reused for a changed reques
       );
     },
   );
+});
+
+test("household photo sync persists only server-computed hash metadata and fingerprints a changed image", async () => {
+  const persistedPhotoPayloads = [];
+  const cleanupPaths = [];
+  const makeImageMetadata = (dataUrl) => {
+    const imageBytes = Buffer.from(dataUrl.split(",")[1], "base64");
+    return {
+      photo_present: true,
+      photo_sha256: crypto.createHash("sha256").update(imageBytes).digest("hex"),
+      photo_mime_type: "image/png",
+      photo_size_bytes: imageBytes.length,
+    };
+  };
+  const familyHeadPhotoStorageStub = {
+    getFamilyHeadPhotoMetadata: makeImageMetadata,
+    parseFamilyHeadPhotoDataUrl: (dataUrl) => ({
+      ...makeImageMetadata(dataUrl),
+      sha256: makeImageMetadata(dataUrl).photo_sha256,
+      fileExtension: "png",
+    }),
+    buildFamilyHeadPhotoPath: ({ sha256 }) => `event/barangay/operations/sync/${sha256}.png`,
+    removeUnreferencedFamilyHeadPhoto: async ({ path }) => cleanupPaths.push(path),
+  };
+  const imageA =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=";
+  const imageBytesB = Buffer.from(imageA.split(",")[1], "base64");
+  imageBytesB[42] ^= 1;
+  const imageB = `data:image/png;base64,${imageBytesB.toString("base64")}`;
+
+  await withStubbedSyncService(
+    {
+      [familyHeadPhotoStoragePath]: familyHeadPhotoStorageStub,
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => {
+          persistedPhotoPayloads.push(payload.payload_json.payload);
+          return {
+            decision: "REUSE_MISMATCH",
+            transaction: { id: "sync-transaction-photo-mismatch" },
+          };
+        },
+      }),
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      for (const familyHeadPhotoUrl of [imageA, imageB]) {
+        await assert.rejects(
+          processSyncEntries({
+            auth: baseAuth,
+            entries: [
+              {
+                client_sync_id: "stable-photo-operation-id",
+                action_key: "HOUSEHOLD_REGISTER",
+                entity_type: "HOUSEHOLD",
+                entity_local_id: "local-photo-household",
+                client_timestamp: "2026-09-24T10:00:00.000Z",
+                payload: {
+                  disaster_event_id: "event-1",
+                  barangay_id: baseAuth.defaultBarangayId,
+                  family_head_photo_url: familyHeadPhotoUrl,
+                },
+              },
+            ],
+          }),
+          { code: "IDEMPOTENCY_KEY_REUSE_MISMATCH", statusCode: 409 },
+        );
+      }
+    },
+  );
+
+  assert.equal(persistedPhotoPayloads.length, 2);
+  for (const payload of persistedPhotoPayloads) {
+    assert.equal(payload.family_head_photo_url, null);
+    assert.match(payload.family_head_photo_metadata.photo_sha256, /^[a-f0-9]{64}$/);
+    assert.equal(JSON.stringify(payload).includes("data:image/"), false);
+  }
+  assert.notEqual(
+    persistedPhotoPayloads[0].family_head_photo_metadata.photo_sha256,
+    persistedPhotoPayloads[1].family_head_photo_metadata.photo_sha256,
+  );
+  assert.equal(cleanupPaths.length, 2);
 });
 
 test("processSyncEntries retries a FAILED row using the existing sync transaction", async () => {
