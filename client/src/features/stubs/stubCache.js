@@ -1,7 +1,8 @@
 import db, { LOCAL_SYNC_STATUS } from "../../offline/db.js";
 import {
   getSyncQueueActorContext,
-  getVisibleSyncQueueEntries,
+  getVisibleStubClaimSyncEntriesForStub,
+  getVisibleSyncQueueEntriesForBarangay,
 } from "../../offline/syncQueue.js";
 import { ROLE_CODES } from "../../utils/roleSession.js";
 import { extractStubQrValue } from "../../utils/stubQr.js";
@@ -16,7 +17,13 @@ const claimTerminalStatuses = new Set([
 ]);
 const claimBlockingStatuses = new Set([
   LOCAL_SYNC_STATUS.PENDING,
+  LOCAL_SYNC_STATUS.FAILED,
   LOCAL_SYNC_STATUS.CONFLICT,
+  LOCAL_SYNC_STATUS.SYNCED,
+]);
+const claimPendingStatuses = new Set([
+  LOCAL_SYNC_STATUS.PENDING,
+  LOCAL_SYNC_STATUS.FAILED,
 ]);
 
 const trimValue = (value) => String(value || "").trim();
@@ -211,6 +218,7 @@ export const toStubRowFromOfflineSnapshot = (snapshot, syncEntry = null) => {
   }
 
   const syncStatus = syncEntry?.status || null;
+  const isLocallyPendingClaim = claimPendingStatuses.has(syncStatus);
 
   return {
     id: snapshot.stubId,
@@ -244,12 +252,15 @@ export const toStubRowFromOfflineSnapshot = (snapshot, syncEntry = null) => {
     sector_codes: Array.isArray(snapshot.sector_codes)
       ? snapshot.sector_codes
       : [],
-    status: snapshot.status || "ISSUED",
+    status:
+      syncStatus === LOCAL_SYNC_STATUS.SYNCED
+        ? "CLAIMED"
+        : snapshot.status || "ISSUED",
     latest_attendance_status: snapshot.latest_attendance_status || "",
     latest_attendance_time_out: snapshot.latest_attendance_time_out || null,
     sync_status: syncStatus,
     is_cached_offline: true,
-    is_claim_pending: syncStatus === LOCAL_SYNC_STATUS.PENDING,
+    is_claim_pending: isLocallyPendingClaim,
     cached_at: snapshot.cached_at,
     disaster_event: {
       id: snapshot.disaster_event_id,
@@ -285,22 +296,88 @@ export const toStubDetailsFromOfflineSnapshot = (snapshot, syncEntry = null) => 
   };
 };
 
-export const getClaimSyncEntryForStub = (syncEntries = [], stubId) =>
-  syncEntries.find(
-    (entry) =>
-      entry.actionKey === STUB_CLAIM_ACTION_KEY &&
-      entry.entityType === "STUB" &&
-      entry.entityServerId === stubId &&
-      claimBlockingStatuses.has(entry.status),
-  ) || null;
+const claimStatusPriority = {
+  [LOCAL_SYNC_STATUS.SYNCED]: 4,
+  [LOCAL_SYNC_STATUS.CONFLICT]: 3,
+  [LOCAL_SYNC_STATUS.FAILED]: 2,
+  [LOCAL_SYNC_STATUS.PENDING]: 1,
+};
 
-export const getCachedStubClaimSyncEntry = async (stubId) => {
+const matchesClaimScope = (entry, { disasterEventId = "", barangayId = "" } = {}) => {
+  const payload = entry?.payload || {};
+  const entryEventId = trimValue(payload.disaster_event_id);
+  const entryBarangayId = trimValue(
+    entry?.barangayId || payload.barangay_id || payload.override_barangay_id,
+  );
+
+  return (
+    (!disasterEventId || !entryEventId || entryEventId === trimValue(disasterEventId)) &&
+    (!barangayId || !entryBarangayId || entryBarangayId === trimValue(barangayId))
+  );
+};
+
+export const getClaimSyncEntryForStub = (
+  syncEntries = [],
+  stubId,
+  scope = {},
+) => {
   if (!stubId) {
     return null;
   }
 
-  const syncEntries = await getVisibleSyncQueueEntries();
-  return getClaimSyncEntryForStub(syncEntries, stubId);
+  return syncEntries
+    .filter(
+      (entry) =>
+        entry.actionKey === STUB_CLAIM_ACTION_KEY &&
+        entry.entityType === "STUB" &&
+        String(entry.entityServerId || "") === String(stubId || "") &&
+        claimBlockingStatuses.has(entry.status) &&
+        matchesClaimScope(entry, scope),
+    )
+    .sort(
+      (left, right) =>
+        (claimStatusPriority[right.status] || 0) -
+        (claimStatusPriority[left.status] || 0),
+    )[0] || null;
+};
+
+export const applyLocalStubClaimSyncState = (row, syncEntry = null) => {
+  if (!row || !syncEntry || !claimBlockingStatuses.has(syncEntry.status)) {
+    return row;
+  }
+
+  const isLocallyPendingClaim = claimPendingStatuses.has(syncEntry.status);
+  return {
+    ...row,
+    status:
+      syncEntry.status === LOCAL_SYNC_STATUS.SYNCED ? "CLAIMED" : row.status,
+    sync_status: syncEntry.status,
+    is_claim_pending: isLocallyPendingClaim,
+  };
+};
+
+export const applyLocalStubClaimSyncStates = (rows = [], syncEntries = []) =>
+  (Array.isArray(rows) ? rows : []).map((row) => {
+    const syncEntry = getClaimSyncEntryForStub(syncEntries, row?.id || row?.stub_id, {
+      disasterEventId: row?.disaster_event?.id || row?.disaster_event_id || "",
+      barangayId: row?.barangay?.id || row?.barangay_id || "",
+    });
+    return applyLocalStubClaimSyncState(row, syncEntry);
+  });
+
+export const isLocalStubClaimBlocked = (row) =>
+  Boolean(
+    row?.is_claim_pending ||
+      claimBlockingStatuses.has(String(row?.sync_status || "").toUpperCase()),
+  );
+
+export const getCachedStubClaimSyncEntry = async (stubId, scope = {}) => {
+  if (!stubId) {
+    return null;
+  }
+
+  const syncEntries = await getVisibleStubClaimSyncEntriesForStub(stubId);
+  return getClaimSyncEntryForStub(syncEntries, stubId, scope);
 };
 
 export const canUseOfflineStubCacheFallback = (error) => {
@@ -388,14 +465,17 @@ export const getCachedStubRowsForScope = async ({
 }) => {
   const [snapshots, syncEntries] = await Promise.all([
     getCachedStubSnapshotsForScope({ disasterEventId, currentBarangayId }),
-    getVisibleSyncQueueEntries(),
+    getVisibleSyncQueueEntriesForBarangay(currentBarangayId),
   ]);
 
   return snapshots
     .map((snapshot) =>
       toStubRowFromOfflineSnapshot(
         snapshot,
-        getClaimSyncEntryForStub(syncEntries, snapshot.stubId),
+        getClaimSyncEntryForStub(syncEntries, snapshot.stubId, {
+          disasterEventId: snapshot.disaster_event_id,
+          barangayId: snapshot.barangay_id,
+        }),
       ),
     )
     .filter(Boolean);
@@ -420,7 +500,10 @@ export const getCachedStubSnapshotById = async (stubId, { currentBarangayId }) =
 
 export const getCachedStubDetailsById = async (stubId, { currentBarangayId }) => {
   const snapshot = await getCachedStubSnapshotById(stubId, { currentBarangayId });
-  const syncEntry = await getCachedStubClaimSyncEntry(stubId);
+  const syncEntry = await getCachedStubClaimSyncEntry(stubId, {
+    disasterEventId: snapshot?.disaster_event_id,
+    barangayId: snapshot?.barangay_id || currentBarangayId,
+  });
   return toStubDetailsFromOfflineSnapshot(snapshot, syncEntry);
 };
 
@@ -451,7 +534,10 @@ export const getCachedStubDetailsByQrValue = async (
     return null;
   }
 
-  const syncEntry = await getCachedStubClaimSyncEntry(cachedRow.stubId);
+  const syncEntry = await getCachedStubClaimSyncEntry(cachedRow.stubId, {
+    disasterEventId: cachedRow.disaster_event_id,
+    barangayId: cachedRow.barangay_id || currentBarangayId,
+  });
   const details = toStubDetailsFromOfflineSnapshot(cachedRow, syncEntry);
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-offline-lookup-diagnostic", { detail: { kind: "stub", found: Boolean(details), reason: details ? "OFFLINE_QR_READ_BACK_FOUND" : "OFFLINE_QR_SNAPSHOT_INVALID" } }));
   return details;

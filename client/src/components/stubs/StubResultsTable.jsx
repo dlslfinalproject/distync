@@ -278,7 +278,16 @@ const getPresentationStatus = (row) =>
       ? "NOT_PRESENT"
       : "FOR_CLAIM");
 const isRowBlockedByClaimSync = (row) =>
-  row?.is_claim_pending || row?.sync_status === "PENDING" || row?.sync_status === "CONFLICT";
+  row?.is_claim_pending ||
+  row?.sync_status === "PENDING" ||
+  row?.sync_status === "FAILED" ||
+  row?.sync_status === "CONFLICT";
+
+const getClaimSyncStatusLabel = (status) => {
+  if (status === "FAILED") return "Sync Failed";
+  if (status === "CONFLICT") return "Conflict";
+  return "Pending Sync";
+};
 
 const StubResultsTable = ({
   rows,
@@ -594,8 +603,16 @@ const StubResultsTable = ({
                         Pending Sync
                       </span>
                     ) : isRowBlockedByClaimSync(row) ? (
-                      <span style={getStatusChipStyles("PENDING_SYNC")}>
-                        Pending Sync
+                      <span
+                        style={getStatusChipStyles(
+                          row.sync_status === "FAILED"
+                            ? "FAILED_SYNC"
+                            : row.sync_status === "CONFLICT"
+                              ? "CONFLICT"
+                              : "PENDING_SYNC",
+                        )}
+                      >
+                        {getClaimSyncStatusLabel(row.sync_status)}
                       </span>
                     ) : presentationStatus === "NOT_PRESENT" ? (
                       <span

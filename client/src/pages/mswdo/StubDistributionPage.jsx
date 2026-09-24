@@ -222,6 +222,10 @@ const stubStatusOptions = [
 const isSelectableClaimStubRow = (row) =>
   row?.status === "ISSUED" &&
   !row?.is_local_only &&
+  !row?.is_claim_pending &&
+  !["PENDING", "FAILED", "CONFLICT", "SYNCED"].includes(
+    String(row?.sync_status || "").toUpperCase(),
+  ) &&
   row?.presentation_status === STUB_PRESENTATION_STATUSES.FOR_CLAIM &&
   isCurrentlyPresentStubRow(row);
 

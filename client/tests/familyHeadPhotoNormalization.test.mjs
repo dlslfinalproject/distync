@@ -174,6 +174,6 @@ test("offline registration keeps the photo in its durable queue entry until sync
   );
 
   assert.match(registrationSource, /return await performSyncableMutation\(\{[\s\S]*?payload,/);
-  assert.match(queueSource, /await db\.syncQueue\.put\(\{\s*\.\.\.storedEntry/);
+  assert.match(queueSource, /await db\.syncQueue\.put\(completeStoredEntry\)/);
   assert.match(cleanupSource, /entry\.status === LOCAL_SYNC_STATUS\.SYNCED/);
 });

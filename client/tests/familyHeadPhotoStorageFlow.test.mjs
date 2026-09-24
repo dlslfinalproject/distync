@@ -22,7 +22,7 @@ test("online registration persists the same sync identity and payload before sub
   assert.match(registration, /X-Client-Sync-ID/);
   assert.match(registration, /persistBeforeRequest:\s*true/);
   assert.match(sync, /if \(persistBeforeRequest && allowOffline\)[\s\S]*?persistOfflineMutation\(/);
-  assert.match(sync, /if \(prePersisted\) \{[\s\S]*?await removeSyncEntry\(clientSyncId\)/);
+  assert.match(sync, /if \(prePersisted && !retainPersistedEntry\) \{[\s\S]*?await removeSyncEntry\(clientSyncId\)/);
   assert.match(queue, /await db\.syncQueue\.delete\(entryId\)/);
 });
 

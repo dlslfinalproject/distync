@@ -96,7 +96,7 @@ test("cached QR details include visible local claim state", async () => {
 
   assert.match(source, /export const getCachedStubClaimSyncEntry = async/);
   assert.match(source, /toStubDetailsFromOfflineSnapshot\(cachedRow, syncEntry\)/);
-  assert.match(source, /is_claim_pending: syncStatus === LOCAL_SYNC_STATUS\.PENDING/);
+  assert.match(source, /is_claim_pending: isLocallyPendingClaim/);
 });
 
 test("offline claim queue preserves event context and blocks local duplicates", async () => {
