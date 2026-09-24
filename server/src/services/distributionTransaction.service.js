@@ -12,6 +12,7 @@ const {
 } = require("./automaticReliefPackClaim.service");
 const donatedReliefPackAssignmentService = require("./donatedReliefPackAssignment.service");
 const familyHeadPhotoStorage = require("./familyHeadPhotoStorage.service");
+const claimProofPhotoStorage = require("./claimProofPhotoStorage.service");
 const {
   getAssignedReliefPackTemplatesForSectorIds,
   getPrimaryAssignedReliefPackTemplate,
@@ -367,6 +368,78 @@ const getInventoryDistributionDetail = async ({ stubId, requester = null }) => {
     response.household.has_family_head_photo = false;
   }
   return response;
+};
+
+const getClaimProofPhoto = async ({ transactionId, requester = null }) => {
+  const allowedRoles = [BARANGAY_ROLE_CODE, MSWDO_ROLE_CODE, MAYOR_ROLE_CODE];
+  if (!allowedRoles.includes(requester?.roleCode)) {
+    const error = new Error("You do not have access to claim proof photos.");
+    error.statusCode = 403;
+    error.code = "CLAIM_PROOF_PHOTO_FORBIDDEN";
+    throw error;
+  }
+
+  const isBarangay = requester.roleCode === BARANGAY_ROLE_CODE;
+  const requesterBarangayId = isBarangay
+    ? await resolveRequesterBarangayId(requester)
+    : null;
+  if (isBarangay && !requesterBarangayId) {
+    const error = new Error(
+      "Claim proof access requires an account with an assigned barangay.",
+    );
+    error.statusCode = 403;
+    error.code = "BARANGAY_SCOPE_FORBIDDEN";
+    throw error;
+  }
+
+  const transaction =
+    await distributionTransactionRepository.getDistributionTransactionClaimProofById(
+      transactionId,
+      requesterBarangayId,
+    );
+  if (!transaction) {
+    return null;
+  }
+
+  if (
+    transaction.proof_type !== "PHOTO" ||
+    !transaction.proof_photo_path ||
+    !transaction.proof_photo_sha256
+  ) {
+    const error = new Error("Proof photo unavailable.");
+    error.statusCode = 404;
+    error.code = "CLAIM_PROOF_PHOTO_UNAVAILABLE";
+    throw error;
+  }
+
+  const signedPhoto = await claimProofPhotoStorage.createSignedClaimProofPhotoUrl(
+    transaction.proof_photo_path,
+  );
+  await recordDistributionAudit({
+    actor: requester,
+    action: "DISTRIBUTION_PROOF_PHOTO_ACCESSED",
+    distributionTransaction: {
+      id: transaction.id,
+      disaster_event_id: transaction.disaster_event_id,
+      household_id: transaction.household_id,
+      stub_id: transaction.stub_id,
+      proof_type: transaction.proof_type,
+      proof_photo_present: true,
+      proof_photo_sha256: transaction.proof_photo_sha256,
+      received_at: transaction.received_at,
+    },
+  });
+
+  return {
+    transaction_id: transaction.id,
+    proof_type: transaction.proof_type,
+    family_head_name: transaction.family_head_name || "--",
+    stub_no: transaction.stub_no || "--",
+    captured_at: transaction.proof_photo_captured_at,
+    received_at: transaction.received_at || transaction.distribution_date,
+    url: signedPhoto.url,
+    expires_at: signedPhoto.expiresAt,
+  };
 };
 
 const getStandardTemplates = (templates) => {
@@ -1444,7 +1517,16 @@ const buildAssignedTemplateReleasePlan = async ({
   };
 };
 
-const createDistributionTransaction = async (requestData) => {
+const createDistributionTransaction = async () => {
+  const error = new Error(
+    "Use the stub claim flow to record a distribution with verified receipt proof.",
+  );
+  error.statusCode = 400;
+  error.code = "DISTRIBUTION_PROOF_REQUIRED";
+  throw error;
+};
+
+const createLegacyDistributionTransaction = async (requestData) => {
   const externalClient = requestData.dbClient || null;
   const client = externalClient || await pool.connect();
 
@@ -1519,7 +1601,7 @@ const createDistributionTransaction = async (requestData) => {
     }
 
     if (
-      requestData.qr_reference_value &&
+      !requestData.qr_reference_value ||
       stub.qr_code_value !== requestData.qr_reference_value
     ) {
       const error = new Error("qr_reference_value does not match the stub record");
@@ -1529,11 +1611,7 @@ const createDistributionTransaction = async (requestData) => {
       throw error;
     }
 
-    if (
-      requestData.qr_reference_value &&
-      stub.qr_status &&
-      stub.qr_status !== ACTIVE_QR_STATUS
-    ) {
+    if (stub.qr_status !== ACTIVE_QR_STATUS) {
       const error = new Error("The scanned QR reference is not active");
       error.statusCode = 400;
       error.code = "QR_INACTIVE";
@@ -1979,6 +2057,7 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       stub,
       claimedByName: requestData.claimed_by_name,
       verifiedBy: requestData.verified_by,
+      proofType: "QR",
       qrReferenceValue: requestData.qr_reference_value || null,
       qrScannedAt,
       qrScannedBy: requestData.qr_reference_value
@@ -2395,6 +2474,7 @@ module.exports = {
   createDistributionTransaction,
   claimDistributionTransactionFromQr,
   getInventoryDistributionDetail,
+  getClaimProofPhoto,
   getInventoryDistributionExportOptions,
   getDistributionHistory,
   exportInventoryDistribution,

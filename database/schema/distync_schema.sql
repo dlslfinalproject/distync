@@ -417,8 +417,33 @@ CREATE TABLE public.distribution_transactions (
   qr_scanned_at timestamp with time zone,
   qr_scanned_by uuid,
   relief_pack_template_id uuid,
+  proof_type text CHECK (proof_type IS NULL OR proof_type = ANY (ARRAY['QR'::text, 'PHOTO'::text])),
+  proof_photo_path text,
+  proof_photo_sha256 character varying(64),
+  proof_photo_mime_type text,
+  proof_photo_size_bytes bigint,
+  proof_photo_captured_at timestamp with time zone,
   CONSTRAINT distribution_transactions_pkey PRIMARY KEY (id),
   CONSTRAINT uq_distribution_stub UNIQUE (stub_id),
+  CONSTRAINT distribution_transactions_claim_proof_metadata_check CHECK (
+    (proof_type = 'PHOTO' AND proof_photo_path IS NOT NULL
+      AND proof_photo_sha256 IS NOT NULL
+      AND proof_photo_sha256 ~ '^[a-f0-9]{64}$'
+      AND proof_photo_mime_type IS NOT NULL
+      AND proof_photo_mime_type = 'image/jpeg'
+      AND proof_photo_size_bytes IS NOT NULL
+      AND proof_photo_size_bytes BETWEEN 1 AND 2097152
+      AND proof_photo_captured_at IS NOT NULL)
+    OR (proof_type IS DISTINCT FROM 'PHOTO'
+      AND proof_photo_path IS NULL
+      AND proof_photo_sha256 IS NULL
+      AND proof_photo_mime_type IS NULL
+      AND proof_photo_size_bytes IS NULL
+      AND proof_photo_captured_at IS NULL)
+  ),
+  CONSTRAINT distribution_transactions_qr_proof_reference_check CHECK (
+    proof_type IS DISTINCT FROM 'QR' OR qr_reference_value IS NOT NULL
+  ),
   CONSTRAINT distribution_transactions_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
   CONSTRAINT distribution_transactions_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id),
   CONSTRAINT distribution_transactions_stub_id_fkey FOREIGN KEY (stub_id) REFERENCES public.stubs(id),
@@ -430,6 +455,14 @@ CREATE TABLE public.distribution_transactions (
 
 CREATE INDEX idx_distribution_transactions_household_event
 ON public.distribution_transactions (disaster_event_id, household_id);
+
+CREATE UNIQUE INDEX distribution_transactions_claim_proof_photo_path_unique
+  ON public.distribution_transactions (proof_photo_path)
+  WHERE proof_photo_path IS NOT NULL;
+
+CREATE INDEX distribution_transactions_proof_type_idx
+  ON public.distribution_transactions (proof_type)
+  WHERE proof_type IS NOT NULL;
 
 CREATE TABLE public.distribution_transaction_items (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

@@ -298,6 +298,10 @@ const recordAutomaticReliefPackClaim = async ({
   stub,
   claimedByName,
   verifiedBy,
+  proofType,
+  proofPhotoCapturedAt = null,
+  prepareProofPhoto = null,
+  deviceId = null,
   qrReferenceValue = null,
   qrScannedAt = null,
   qrScannedBy = null,
@@ -308,6 +312,26 @@ const recordAutomaticReliefPackClaim = async ({
   syncStatus = "SYNCED",
   isOfflineEncoded = false,
 }) => {
+  const normalizedProofType = String(proofType || '').toUpperCase();
+  if (!['QR', 'PHOTO'].includes(normalizedProofType)) {
+    const error = new Error('Choose QR or Photo Proof before confirming the distribution.');
+    error.statusCode = 400;
+    error.code = 'DISTRIBUTION_PROOF_REQUIRED';
+    throw error;
+  }
+  if (normalizedProofType === 'QR' && !qrReferenceValue) {
+    const error = new Error('Scan and verify the stub QR before confirming QR proof.');
+    error.statusCode = 400;
+    error.code = 'DISTRIBUTION_QR_PROOF_REQUIRED';
+    throw error;
+  }
+  if (normalizedProofType === 'PHOTO' && typeof prepareProofPhoto !== 'function') {
+    const error = new Error('Capture a new claim-time photo before confirming Photo Proof.');
+    error.statusCode = 400;
+    error.code = 'DISTRIBUTION_PHOTO_PROOF_REQUIRED';
+    throw error;
+  }
+
   const latestAttendance =
     await distributionTransactionRepository.getLatestAttendanceByHouseholdId(
       stub.household_id,
@@ -412,6 +436,23 @@ const recordAutomaticReliefPackClaim = async ({
     .filter(Boolean)
     .join(" | ");
 
+  // Upload only after the stub, attendance, assignments, and inventory plan
+  // have all been validated. The outer claim transaction compensates if the
+  // later PostgreSQL write cannot be committed.
+  const proofPhoto = normalizedProofType === 'PHOTO'
+    ? await prepareProofPhoto({ stub })
+    : null;
+  const serverReceivedAt = normalizedProofType === 'PHOTO'
+    ? new Date().toISOString()
+    : receivedAt;
+  const parsedPhotoCapturedAt = normalizedProofType === 'PHOTO'
+    ? new Date(proofPhotoCapturedAt || serverReceivedAt)
+    : null;
+  const safePhotoCapturedAt = parsedPhotoCapturedAt &&
+    !Number.isNaN(parsedPhotoCapturedAt.getTime())
+    ? parsedPhotoCapturedAt.toISOString()
+    : serverReceivedAt;
+
   const distributionTransaction =
     await distributionTransactionRepository.insertDistributionTransaction(
       {
@@ -421,17 +462,23 @@ const recordAutomaticReliefPackClaim = async ({
         distribution_status: "CLAIMED",
         claimed_by_name: claimedByName,
         verified_by: verifiedBy || null,
-        device_id: null,
+        device_id: deviceId || null,
         is_offline_encoded: isOfflineEncoded,
         sync_status: syncStatus,
-        qr_reference_value: qrReferenceValue || stub.qr_code_value || null,
+        qr_reference_value: qrReferenceValue || null,
         qr_scanned_at: qrScannedAt,
         qr_scanned_by: qrScannedBy,
         receipt_no: receiptNo,
         receipt_status: receiptStatus,
-        received_at: receivedAt,
+        received_at: serverReceivedAt,
         relief_pack_template_id: primaryAssignedReliefPackTemplate.id,
         remarks: reliefPackRemarks,
+        proof_type: normalizedProofType,
+        proof_photo_path: proofPhoto?.path || null,
+        proof_photo_sha256: proofPhoto?.sha256 || null,
+        proof_photo_mime_type: proofPhoto?.mimeType || null,
+        proof_photo_size_bytes: proofPhoto?.sizeBytes || null,
+        proof_photo_captured_at: proofPhoto ? safePhotoCapturedAt : null,
       },
       client,
     );

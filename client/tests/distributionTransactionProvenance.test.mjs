@@ -101,7 +101,7 @@ test("BRG-SC-08-H01 TEST H network failure alone cannot promote route targets", 
 test("BRG-SC-08-H01 TEST I direct confirmation boundary checks trusted provenance", async () => {
   const source = await readSource("../src/pages/barangay/DistributionTransactionPage.jsx");
 
-  assert.match(source, /const handleConfirmDistribution = async \(\) => \{/);
+  assert.match(source, /const handleConfirmDistribution = async \(proof = \{\}\) => \{/);
   assert.match(source, /if \(!isServerVerifiedDistributionTarget\(stubContext\)\) \{/);
   assert.match(source, /return;\s*\}\s*if \(!verifiedStubDetails/);
 });

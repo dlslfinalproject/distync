@@ -2,6 +2,7 @@ const express = require("express");
 
 const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const distributionTransactionService = require("../services/distributionTransaction.service");
+const syncService = require("../services/sync.service");
 const { logErrorSafely } = require("../utils/systemLog");
 const {
   validateCreateDistributionTransaction,
@@ -11,6 +12,7 @@ const {
   validateExportInventoryDistribution,
   validateInventoryDistributionExportOptions,
   validateInventoryDistributionDetail,
+  validateClaimProofPhotoRequest,
 } = require("../validators/distributionTransaction.validator");
 
 const router = express.Router();
@@ -145,6 +147,37 @@ router.get(
 );
 
 router.get(
+  "/claim-proof/:transactionId/photo",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  validateClaimProofPhotoRequest,
+  async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    res.setHeader("Pragma", "no-cache");
+    try {
+      const proof = await distributionTransactionService.getClaimProofPhoto({
+        transactionId: req.validatedParams.transactionId,
+        requester: req.auth,
+      });
+      if (!proof) {
+        return res.status(404).json({
+          code: "CLAIM_PROOF_PHOTO_UNAVAILABLE",
+          message: "Proof photo unavailable.",
+        });
+      }
+      return res.status(200).json({
+        message: "Claim proof photo fetched successfully",
+        data: proof,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        code: error.code || null,
+        message: error.message || "Failed to fetch claim proof photo",
+      });
+    }
+  },
+);
+
+router.get(
   "/history",
   requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
   validateGetDistributionHistory,
@@ -213,18 +246,49 @@ router.post(
   validateClaimDistributionFromQr,
   async (req, res) => {
   try {
-    const distributionTransaction =
-      await distributionTransactionService.claimDistributionTransactionFromQr(
+    const {
+      client_sync_id: clientSyncId,
+      device_id: deviceId,
+      ...payload
+    } = req.validatedBody;
+    const results = await syncService.processSyncEntries({
+      auth: req.auth,
+      entries: [
         {
-          ...req.validatedBody,
-          verified_by: req.auth.userId,
-          requester: req.auth,
+          client_sync_id: clientSyncId,
+          action_key: "STUB_CLAIM",
+          entity_type: "STUB",
+          entity_local_id: payload.stub_id,
+          entity_server_id: payload.stub_id,
+          device_id: deviceId,
+          client_timestamp: new Date().toISOString(),
+          client_updated_at: new Date().toISOString(),
+          payload: { ...payload, proof_type: "QR" },
         },
-      );
+      ],
+    });
+    const syncResult = Array.isArray(results) ? results[0] : null;
+    if (!syncResult || syncResult.sync_status !== "SYNCED") {
+      await logDistributionAnomalySource({
+        req,
+        error: {
+          code:
+            syncResult?.error_code ||
+            syncResult?.conflict?.conflict_type ||
+            null,
+          message: syncResult?.message || "Failed to claim stub from QR verification",
+        },
+      });
+      return res.status(syncResult?.status_code || 409).json({
+        code: syncResult?.error_code || syncResult?.conflict?.conflict_type || null,
+        message: syncResult?.message || "Failed to claim stub from QR verification",
+        data: syncResult || null,
+      });
+    }
 
     return res.status(201).json({
       message: "Stub marked as claimed successfully",
-      data: distributionTransaction,
+      data: syncResult.data,
     });
   } catch (error) {
     await logDistributionAnomalySource({ req, error });

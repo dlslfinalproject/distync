@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { FiX } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
 import { pageHeaderStyles } from "../layout/PageHeader";
@@ -11,6 +11,7 @@ import {
 import { formatStayTypeLabel } from "../../utils/stayType";
 import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
 import QrCodePanel from "./QrCodePanel";
+import ClaimProofPhotoModal from "../distribution/ClaimProofPhotoModal.jsx";
 
 const getDisplayStubNumber = (stubDetails) => {
   if (stubDetails?.display_stub_no) {
@@ -328,6 +329,7 @@ const StubDetailModal = ({
   stubDetails = null,
   onClose,
 }) => {
+  const [isProofPhotoOpen, setIsProofPhotoOpen] = useState(false);
   if (!isOpen) {
     return null;
   }
@@ -559,6 +561,26 @@ const StubDetailModal = ({
                     </p>
                   </div>
 
+                  <div>
+                    <p style={modalStyles.label}>Proof of Receipt</p>
+                    {distributionTransaction?.proof_type === "PHOTO" &&
+                    distributionTransaction?.has_proof_photo ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsProofPhotoOpen(true)}
+                        style={{ ...modalStyles.value, border: 0, padding: 0, background: "none", color: "#245b86", cursor: "pointer", fontWeight: 700 }}
+                      >
+                        View Claim Photo
+                      </button>
+                    ) : (
+                      <p style={modalStyles.value}>
+                        {distributionTransaction?.proof_type === "QR"
+                          ? "Verified Stub QR"
+                          : "Not recorded"}
+                      </p>
+                    )}
+                  </div>
+
                   <div style={modalStyles.stubInfoFullWidth}>
                     <p style={modalStyles.label}>Authorized By</p>
                     <p style={modalStyles.value}>
@@ -600,6 +622,15 @@ const StubDetailModal = ({
           </div>
         )}
       </div>
+      <ClaimProofPhotoModal
+        isOpen={isProofPhotoOpen}
+        transactionId={distributionTransaction?.id}
+        context={{
+          familyHeadName: household.family_head_name,
+          stubNo: getDisplayStubNumber(stubDetails),
+        }}
+        onClose={() => setIsProofPhotoOpen(false)}
+      />
     </div>
   );
 };

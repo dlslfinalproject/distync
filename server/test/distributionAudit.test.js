@@ -115,3 +115,42 @@ test("distribution audit ignores an incomplete transaction payload", async () =>
 
   assert.equal(callCount, 0);
 });
+
+test("distribution audit retains safe claim-proof metadata and excludes private paths or URLs", async () => {
+  const auditCalls = [];
+
+  await withStubbedAuditUtility(
+    {
+      pickDefined: (value, keys) =>
+        Object.fromEntries(
+          keys
+            .map((key) => [key, value?.[key]])
+            .filter(([, item]) => item !== undefined),
+        ),
+      logAuditSafely: async (payload) => auditCalls.push(payload),
+    },
+    async ({ recordDistributionAudit }) => {
+      await recordDistributionAudit({
+        actor: { userId: "barangay-user", roleCode: "BARANGAY" },
+        action: "DISTRIBUTION_RECORD",
+        distributionTransaction: {
+          id: "distribution-photo-1",
+          proof_type: "PHOTO",
+          proof_photo_present: true,
+          proof_photo_sha256: "d".repeat(64),
+          proof_photo_mime_type: "image/jpeg",
+          proof_photo_size_bytes: 1200,
+          proof_photo_captured_at: "2026-09-24T03:00:00.000Z",
+          proof_photo_path: "private/path/photo.jpg",
+          proof_photo_signed_url: "https://storage.example/signed?token=secret",
+          proof_photo_data_url: "data:image/jpeg;base64,secret",
+        },
+      });
+    },
+  );
+
+  const serializedAudit = JSON.stringify(auditCalls);
+  assert.match(serializedAudit, /proof_photo_sha256/);
+  assert.match(serializedAudit, /image\/jpeg/);
+  assert.doesNotMatch(serializedAudit, /private\/path|signed\?token|data:image/);
+});

@@ -111,6 +111,7 @@ test("ANOMSRC-06 direct duplicate QR claim writes one structured error-log sourc
         },
       },
       [distributionValidatorPath]: {
+        validateClaimProofPhotoRequest: (_req, _res, next) => next(),
         validateClaimDistributionFromQr: (req, _res, next) => {
           req.validatedBody = req.body;
           next();
@@ -121,6 +122,17 @@ test("ANOMSRC-06 direct duplicate QR claim writes one structured error-log sourc
         validateInventoryDistributionDetail: (_req, _res, next) => next(),
         validateGetDistributionHistory: (_req, _res, next) => next(),
         validateExportDistributionHistory: (_req, _res, next) => next(),
+      },
+      [syncServicePath]: {
+        processSyncEntries: async ({ entries }) => [
+          {
+            client_sync_id: entries[0].client_sync_id,
+            sync_status: "CONFLICT",
+            error_code: "STUB_ALREADY_CLAIMED",
+            status_code: 409,
+            message: "This stub has already been used for distribution",
+          },
+        ],
       },
       [systemLogPath]: {
         logErrorSafely: async (entry) => loggedErrors.push(entry),
@@ -141,6 +153,7 @@ test("ANOMSRC-06 direct duplicate QR claim writes one structured error-log sourc
               disaster_event_id: "33333333-3333-4333-8333-333333333333",
               household_id: "44444444-4444-4444-8444-444444444444",
               qr_reference_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+              client_sync_id: "33333333-3333-4333-8333-333333333333",
             }),
           },
         );
@@ -348,24 +361,28 @@ test("ANOMSRC-07 direct stub verification failure writes one structured source",
   );
 });
 
-test("ANOMSRC-09 direct barangay stub claim duplicate writes one structured source", async () => {
-  const loggedErrors = [];
+test("ANOMSRC-09 direct barangay stub claim routes duplicate results through the sync ledger", async () => {
   const stubId = "22222222-2222-4222-8222-222222222222";
+  const operationId = "44444444-4444-4444-8444-444444444444";
+  let capturedEntry = null;
 
   await withStubbedModules(
     stubRoutesPath,
     {
       [authMiddlewarePath]: authStub,
-      [stubServicePath]: {
-        claimBarangayStub: async () => {
-          const error = new Error("Only unclaimed stubs can be marked as claimed.");
-          error.code = "STUB_ALREADY_CLAIMED";
-          error.statusCode = 409;
-          error.entityServerId = stubId;
-          error.serverPayload = {
-            stub: { id: stubId, status: "CLAIMED" },
-          };
-          throw error;
+      [stubServicePath]: {},
+      [syncServicePath]: {
+        processSyncEntries: async ({ entries }) => {
+          capturedEntry = entries[0];
+          return [
+            {
+              client_sync_id: operationId,
+              sync_status: "CONFLICT",
+              error_code: "STUB_ALREADY_CLAIMED",
+              status_code: 409,
+              message: "Only unclaimed stubs can be marked as claimed.",
+            },
+          ];
         },
       },
       [stubValidatorPath]: {
@@ -376,14 +393,18 @@ test("ANOMSRC-09 direct barangay stub claim duplicate writes one structured sour
         validateStubVerify: (_req, _res, next) => next(),
         validateClaimBarangayStub: (req, _res, next) => {
           req.validatedParams = { id: req.params.id };
-          req.validatedBody = req.body;
+          req.validatedBody = {
+            client_sync_id: operationId,
+            proof_type: "QR",
+            qr_code_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+          };
           next();
         },
         validateStubHistory: (_req, _res, next) => next(),
         validateStubHistoryExport: (_req, _res, next) => next(),
       },
       [systemLogPath]: {
-        logErrorSafely: async (entry) => loggedErrors.push(entry),
+        logErrorSafely: async () => {},
       },
     },
     async (router) => {
@@ -396,7 +417,7 @@ test("ANOMSRC-09 direct barangay stub claim duplicate writes one structured sour
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
+          body: JSON.stringify({ client_sync_id: operationId, proof_type: "QR" }),
           },
         );
         const payload = await response.json();
@@ -409,12 +430,10 @@ test("ANOMSRC-09 direct barangay stub claim duplicate writes one structured sour
     },
   );
 
-  assert.equal(loggedErrors.length, 1);
-  assert.equal(loggedErrors[0].moduleName, "stubs");
-  assert.equal(loggedErrors[0].errorCode, "STUB_ALREADY_CLAIMED");
-  assert.equal(loggedErrors[0].referenceType, "STUB");
-  assert.equal(loggedErrors[0].referenceId, stubId);
-  assert.equal(loggedErrors[0].context.action, "DIRECT_DUPLICATE_CLAIM_ATTEMPT");
+  assert.equal(capturedEntry.client_sync_id, operationId);
+  assert.equal(capturedEntry.action_key, "STUB_CLAIM");
+  assert.equal(capturedEntry.entity_server_id, stubId);
+  assert.equal(capturedEntry.payload.proof_type, "QR");
 });
 
 test("ANOMSRC-10 stub verification of an already claimed stub is not logged as a duplicate claim", async () => {

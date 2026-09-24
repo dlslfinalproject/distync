@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { FaHandHolding } from "react-icons/fa6";
 import { FiPrinter, FiX } from "react-icons/fi";
 import { MdQrCodeScanner } from "react-icons/md";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
@@ -395,6 +394,7 @@ const StubDistributionPage = () => {
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
   const [claimErrorDialog, setClaimErrorDialog] = useState(null);
   const [pendingClaimStubId, setPendingClaimStubId] = useState("");
+  const [pendingClaimQrReference, setPendingClaimQrReference] = useState("");
   const [pendingClaimStubDetails, setPendingClaimStubDetails] = useState(null);
   const [isLoadingPendingClaimStubDetails, setIsLoadingPendingClaimStubDetails] =
     useState(false);
@@ -665,27 +665,14 @@ const StubDistributionPage = () => {
     setIsBulkClaimConfirmOpen(true);
   };
 
-  const handleOpenClaimConfirmation = (stubId) => {
+  const handleOpenClaimConfirmation = () => {
     if (isEndedView || claimingStubId) {
       return;
     }
 
-    const selectedRow = displayedRowsWithSyncStatus.find(
-      (row) => row.id === stubId,
+    setClaimErrorMessage(
+      "MSWDO distribution confirmation must start with a verified QR scan.",
     );
-
-    if (!isSelectableClaimStubRow(selectedRow)) {
-      setClaimErrorMessage(
-        "This household is not currently present in the evacuation center.",
-      );
-      return;
-    }
-
-    setClaimErrorMessage("");
-    setClaimErrorDialog(null);
-    setIsBulkClaimConfirmOpen(false);
-    setPendingClaimStubId(stubId);
-    setPendingClaimStubDetails(null);
   };
 
   useEffect(() => {
@@ -736,6 +723,7 @@ const StubDistributionPage = () => {
     }
 
     setPendingClaimStubId("");
+    setPendingClaimQrReference("");
     setPendingClaimStubDetails(null);
     setIsBulkClaimConfirmOpen(false);
   };
@@ -744,7 +732,7 @@ const StubDistributionPage = () => {
     setClaimErrorDialog(null);
   };
 
-  const handleConfirmClaim = async () => {
+  const handleConfirmClaim = async (proof = {}) => {
     if (isEndedView || claimingStubId) {
       return;
     }
@@ -843,12 +831,30 @@ const StubDistributionPage = () => {
           displayedRowsWithSyncStatus.find((row) => row.id === pendingClaimStubId)
             ?.disaster_event?.name ||
           "",
+        householdId:
+          pendingClaimStubDetails?.household?.id ||
+          displayedRowsWithSyncStatus.find((row) => row.id === pendingClaimStubId)
+            ?.household?.id ||
+          displayedRowsWithSyncStatus.find((row) => row.id === pendingClaimStubId)
+            ?.household_id ||
+          "",
+        reliefPackContext: [
+          ...(pendingClaimStubDetails?.assigned_relief_packs || []),
+          ...(pendingClaimStubDetails?.available_donated_relief_packs || [])
+            .map((pack) => ({ ...pack, is_additional_pack: true })),
+        ],
+        proofType: proof.proofType,
+        qrReferenceValue: proof.qrReferenceValue,
+        proofPhotoDataUrl: proof.proofPhotoDataUrl,
+        proofPhotoCapturedAt: proof.proofPhotoCapturedAt,
       });
       reloadDashboard();
       setPendingClaimStubId("");
+      setPendingClaimQrReference("");
       setPendingClaimStubDetails(null);
     } catch (error) {
       setPendingClaimStubId("");
+      setPendingClaimQrReference("");
       setPendingClaimStubDetails(null);
       setClaimErrorDialog(getStubClaimErrorDialog(error));
     } finally {
@@ -1016,6 +1022,7 @@ const StubDistributionPage = () => {
       }
 
       setPendingClaimStubId(resolvedStubId);
+      setPendingClaimQrReference(qrCodeValue);
       setPendingClaimStubDetails(hydratedStubDetails);
       setIsBulkClaimConfirmOpen(false);
       setSelectedStubIds([]);
@@ -1280,27 +1287,9 @@ const StubDistributionPage = () => {
               {selectedStubIds.length} selected
             </p>
 
-            <button
-              type="button"
-              onClick={handleOpenBulkClaimConfirmation}
-              disabled={Boolean(claimingStubId)}
-              style={{
-                border: "1px solid #c6d8ea",
-                borderRadius: "12px",
-                width: "40px",
-                height: "40px",
-                backgroundColor: "#f7fbfe",
-                color: "#24496e",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: claimingStubId ? "not-allowed" : "pointer",
-                opacity: claimingStubId ? 0.7 : 1,
-              }}
-              title="Mark Selected as Claimed"
-            >
-              <FaHandHolding size={18} />
-            </button>
+            <p style={{ margin: 0, color: "#60738a", fontSize: "13px" }}>
+              Open each stub separately to record its receipt proof.
+            </p>
           </div>
         </section>
       ) : null}
@@ -1339,6 +1328,9 @@ const StubDistributionPage = () => {
         selectedCount={isBulkClaimConfirmOpen ? selectedStubIds.length : 1}
         selectedStubs={selectedClaimRows}
         stubDetails={pendingClaimStubDetails}
+        initialProofType={pendingClaimQrReference ? "QR" : ""}
+        qrReferenceValue={pendingClaimQrReference}
+        allowPhotoProof={false}
       />
 
       <FormModalShell

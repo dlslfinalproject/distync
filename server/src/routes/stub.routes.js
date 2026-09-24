@@ -2,6 +2,7 @@ const express = require("express");
 
 const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const stubService = require("../services/stub.service");
+const syncService = require("../services/sync.service");
 const { logErrorSafely } = require("../utils/systemLog");
 const {
   validateGetBarangayStubDashboard,
@@ -156,26 +157,54 @@ router.post(
   validateClaimBarangayStub,
   async (req, res) => {
   try {
-    const claimBody =
-      req.auth.roleCode === ROLE_CODES.BARANGAY
-        ? {
-            ...req.validatedBody,
-            user_id: req.auth.userId,
-            barangay_id: null,
-            override_barangay_id: null,
-            verified_by: req.auth.userId,
-            requester: req.auth,
-          }
-        : {
-            ...req.validatedBody,
-            user_id: null,
-            verified_by: req.auth.userId,
-            requester: req.auth,
-          };
+    const {
+      client_sync_id: clientSyncId,
+      device_id: deviceId,
+      ...payload
+    } = req.validatedBody;
+    const result = await syncService.processSyncEntries({
+      auth: req.auth,
+      entries: [
+        {
+          client_sync_id: clientSyncId,
+          action_key: "STUB_CLAIM",
+          entity_type: "STUB",
+          entity_local_id: req.validatedParams?.id || req.params?.id,
+          entity_server_id: req.validatedParams?.id || req.params?.id,
+          device_id: deviceId,
+          client_timestamp: new Date().toISOString(),
+          client_updated_at: new Date().toISOString(),
+          payload,
+        },
+      ],
+    });
+    const syncResult = Array.isArray(result) ? result[0] : null;
 
-    const result = await stubService.claimBarangayStub(claimBody);
+    if (!syncResult || syncResult.sync_status !== "SYNCED") {
+      const errorCode =
+        syncResult?.error_code || syncResult?.conflict?.conflict_type || null;
+      await logStubAnomalySource({
+        req,
+        code: errorCode,
+        message: syncResult?.message || "Failed to claim stub",
+        severity: errorCode === "STUB_ALREADY_CLAIMED" ? "WARNING" : "ERROR",
+        referenceId: req.validatedParams?.id || req.params?.id || null,
+        action:
+          errorCode === "STUB_ALREADY_CLAIMED"
+            ? "DIRECT_DUPLICATE_CLAIM_ATTEMPT"
+            : "DIRECT_STUB_OR_QR_VERIFICATION_FAILURE",
+      });
+      return res.status(syncResult?.status_code || 409).json({
+        success: false,
+        code: errorCode,
+        error: errorCode,
+        message: syncResult?.message || "Failed to claim stub",
+        details: syncResult?.details || null,
+        data: syncResult || null,
+      });
+    }
 
-    return res.status(200).json(result);
+    return res.status(200).json({ success: true, data: syncResult.data });
   } catch (error) {
     await logStubAnomalySource({
       req,

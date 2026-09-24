@@ -685,14 +685,14 @@ export const performSyncableMutation = async ({
 
     return response;
   } catch (error) {
-    const isFamilyHeadPhotoStorageFailure =
-      /^FAMILY_HEAD_PHOTO_(?:STORAGE_UNAVAILABLE|UPLOAD_FAILED|RETRIEVAL_FAILED)$/i.test(
+    const isRetryablePrivatePhotoStorageFailure =
+      /^(?:FAMILY_HEAD|CLAIM_PROOF)_PHOTO_(?:STORAGE_UNAVAILABLE|UPLOAD_FAILED|RETRIEVAL_FAILED)$/i.test(
         String(error?.code || ""),
       );
 
-    if (prePersisted && isFamilyHeadPhotoStorageFailure) {
-      // Storage failures must remain visible as Storage failures while the
-      // registration bytes stay durable and retryable in IndexedDB.
+    if (prePersisted && isRetryablePrivatePhotoStorageFailure) {
+      // Storage failures must remain visible while the submitted bytes stay
+      // durable and retryable in IndexedDB.
       try {
         await updateSyncEntryStatus(clientSyncId, {
           status: LOCAL_SYNC_STATUS.FAILED,

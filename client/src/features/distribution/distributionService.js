@@ -44,6 +44,15 @@ export const fetchInventoryDistributionDetail = async (stubId) => {
   );
 };
 
+export const fetchClaimProofPhoto = async (transactionId) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/distribution-transactions/claim-proof/${transactionId}/photo`,
+    { cache: "no-store" },
+  );
+
+  return handleJsonResponse(response, "Proof photo unavailable.");
+};
+
 export const exportDistributionHistory = async (filters = {}) => {
   const searchParams = new URLSearchParams();
 

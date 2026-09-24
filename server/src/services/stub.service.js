@@ -13,6 +13,7 @@ const {
 } = require("./reliefPackAssignment.service");
 const donatedReliefPackAssignmentService = require("./donatedReliefPackAssignment.service");
 const familyHeadPhotoStorage = require("./familyHeadPhotoStorage.service");
+const claimProofPhotoStorage = require("./claimProofPhotoStorage.service");
 const {
   isLiveUnclaimedReliefPackAssignment,
   normalizeReliefPackAssignmentSnapshots,
@@ -1051,6 +1052,26 @@ const getMunicipalStubDashboard = async ({
 };
 
 const claimBarangayStub = async (params) => {
+  const proofType = String(params.proof_type || "").trim().toUpperCase();
+  if (!["QR", "PHOTO"].includes(proofType)) {
+    const error = new Error("Choose QR or Photo Proof before confirming the distribution.");
+    error.statusCode = 400;
+    error.code = "DISTRIBUTION_PROOF_REQUIRED";
+    throw error;
+  }
+  if (!String(params.client_sync_id || "").trim()) {
+    const error = new Error("A stable claim operation ID is required.");
+    error.statusCode = 400;
+    error.code = "DISTRIBUTION_OPERATION_ID_REQUIRED";
+    throw error;
+  }
+  if (proofType === "PHOTO" && params.requester?.roleCode !== BARANGAY_ROLE_CODE) {
+    const error = new Error("Photo Proof capture is available to Barangay officials.");
+    error.statusCode = 403;
+    error.code = "CLAIM_PROOF_PHOTO_FORBIDDEN";
+    throw error;
+  }
+
   const isMswdoClaim = params.requester?.roleCode === MSWDO_ROLE_CODE;
   const effectiveBarangay = isMswdoClaim
     ? null
@@ -1063,6 +1084,16 @@ const claimBarangayStub = async (params) => {
     const error = new Error("Stub not found for this barangay");
     error.statusCode = 404;
     error.code = "STUB_NOT_FOUND";
+    throw error;
+  }
+
+  if (
+    params.household_id &&
+    String(params.household_id) !== String(scopedStub.household_id)
+  ) {
+    const error = new Error("household_id does not match the selected stub.");
+    error.statusCode = 400;
+    error.code = "STUB_HOUSEHOLD_MISMATCH";
     throw error;
   }
 
@@ -1093,6 +1124,7 @@ const claimBarangayStub = async (params) => {
 
   const externalClient = params.dbClient || null;
   const client = externalClient || await pool.connect();
+  let uploadedProofPhotoPath = null;
 
   try {
     if (!externalClient) {
@@ -1143,7 +1175,54 @@ const claimBarangayStub = async (params) => {
 
     assertDisasterEventActiveForNewClaim(lockedStub);
 
-    const receivedAt = params.claimed_at || new Date().toISOString();
+    const qrReferenceValue = String(params.qr_reference_value || "").trim();
+    if (proofType === "QR") {
+      if (
+        !qrReferenceValue ||
+        lockedStub.qr_code_value !== qrReferenceValue ||
+        lockedStub.qr_status !== ACTIVE_QR_STATUS
+      ) {
+        const error = new Error(
+          "Scan and verify this stub's active QR before confirming QR proof.",
+        );
+        error.statusCode = 400;
+        error.code = "QR_REFERENCE_MISMATCH";
+        error.entityServerId = lockedStub.id;
+        throw error;
+      }
+    } else if (qrReferenceValue) {
+      const error = new Error("Clear the QR proof before submitting Photo Proof.");
+      error.statusCode = 400;
+      error.code = "DISTRIBUTION_PROOF_METHOD_MISMATCH";
+      throw error;
+    }
+
+    if (
+      params.household_id &&
+      String(params.household_id) !== String(lockedStub.household_id)
+    ) {
+      const error = new Error("household_id does not match the selected stub.");
+      error.statusCode = 400;
+      error.code = "STUB_HOUSEHOLD_MISMATCH";
+      throw error;
+    }
+
+    const prepareProofPhoto = proofType === "PHOTO"
+      ? async ({ stub }) => {
+          const proofPhoto = typeof params.prepareClaimProofPhoto === "function"
+            ? await params.prepareClaimProofPhoto({ stub })
+            : await claimProofPhotoStorage.uploadClaimProofPhoto({
+                dataUrl: params.proof_photo_data_url,
+                disasterEventId: stub.disaster_event_id,
+                barangayId: stub.barangay_id || "outside-malvar",
+                operationId: params.client_sync_id,
+              });
+          uploadedProofPhotoPath = proofPhoto?.path || uploadedProofPhotoPath;
+          return proofPhoto;
+        }
+      : null;
+
+    const receivedAt = new Date().toISOString();
     const automaticClaimResult = await recordAutomaticReliefPackClaim({
       client,
       stub: lockedStub,
@@ -1154,12 +1233,17 @@ const claimBarangayStub = async (params) => {
         lockedStub.family_head_suffix,
       ),
       verifiedBy: params.verified_by || null,
-      qrReferenceValue: lockedStub.qr_code_value || null,
-      qrScannedAt: null,
-      qrScannedBy: null,
+      proofType,
+      proofPhotoCapturedAt: params.proof_photo_captured_at || null,
+      prepareProofPhoto,
+      qrReferenceValue: proofType === "QR" ? qrReferenceValue : null,
+      qrScannedAt: proofType === "QR" ? receivedAt : null,
+      qrScannedBy: proofType === "QR" ? params.verified_by || null : null,
       receivedAt,
       claimedAt: params.claimed_at || null,
       remarks: "Claimed through Relief Goods Distribution confirmation",
+      deviceId: params.device_id || null,
+      isOfflineEncoded: Boolean(params.device_id),
     });
     const {
       distributionTransaction,
@@ -1211,6 +1295,12 @@ const claimBarangayStub = async (params) => {
   } catch (error) {
     if (!externalClient) {
       await client.query("ROLLBACK");
+    }
+
+    if (!externalClient && uploadedProofPhotoPath) {
+      await claimProofPhotoStorage.removeUnreferencedClaimProofPhoto({
+        path: uploadedProofPhotoPath,
+      });
     }
 
     if (

@@ -67,7 +67,7 @@ const withStubbedAutomaticClaimService = async (stubs, runTest) => {
   }
 };
 
-test("automatic claims link and consume inventory for standard and multiple additional templates", async () => {
+test("automatic Photo claims attach transaction proof and consume standard and additional inventory once", async () => {
   const standardTemplate = {
     id: "standard-template",
     name: "Standard Pack",
@@ -178,6 +178,8 @@ test("automatic claims link and consume inventory for standard and multiple addi
   const inventoryOutflows = [];
   const updatedBatches = [];
   const updatedItemSnapshots = [];
+  const preparedProofPhotos = [];
+  let distributionInsertPayload = null;
   const stub = {
     id: "stub-1",
     disaster_event_id: "event-1",
@@ -226,11 +228,15 @@ test("automatic claims link and consume inventory for standard and multiple addi
         getReliefPackTemplateItemsByTemplateId: async (templateId) =>
           templateItems.get(templateId) || [],
         getDistributionReceiptSequence: async () => "RCPT-2026-000001",
-        insertDistributionTransaction: async () => ({
-          id: "distribution-1",
-          distribution_status: "CLAIMED",
-          relief_pack_template_id: standardTemplate.id,
-        }),
+        insertDistributionTransaction: async (transactionData) => {
+          distributionInsertPayload = transactionData;
+          return {
+            id: "distribution-1",
+            distribution_status: "CLAIMED",
+            relief_pack_template_id: standardTemplate.id,
+            ...transactionData,
+          };
+        },
         insertDistributionTransactionReliefPackTemplates: async (
           _distributionTransactionId,
           templateSnapshots,
@@ -309,6 +315,18 @@ test("automatic claims link and consume inventory for standard and multiple addi
         stub,
         claimedByName: "Family Head",
         verifiedBy: "user-1",
+        proofType: "PHOTO",
+        proofPhotoCapturedAt: "2026-08-28T08:00:00.000Z",
+        prepareProofPhoto: async ({ stub: claimStub }) => {
+          assert.equal(claimStub.id, stub.id);
+          preparedProofPhotos.push(claimStub.id);
+          return {
+            path: "event-1/barangay-1/claims/operations/0123456789abcdef0123456789abcdef/photo.jpg",
+            sha256: "a".repeat(64),
+            mimeType: "image/jpeg",
+            sizeBytes: 128,
+          };
+        },
         receivedAt: "2026-08-28T08:00:00.000Z",
       });
 
@@ -409,6 +427,152 @@ test("automatic claims link and consume inventory for standard and multiple addi
       );
       assert.equal(updatedBatches.find((batch) => batch.id === "blanket-batch").quantity_available, 4);
       assert.equal(updatedItemSnapshots.length, 0);
+      assert.deepEqual(preparedProofPhotos, [stub.id]);
+      assert.equal(distributionInsertPayload.proof_type, "PHOTO");
+      assert.match(distributionInsertPayload.proof_photo_path, /claims\/operations/);
+      assert.equal(distributionInsertPayload.proof_photo_sha256, "a".repeat(64));
+      assert.equal(distributionInsertPayload.proof_photo_mime_type, "image/jpeg");
+      assert.equal(distributionInsertPayload.proof_photo_size_bytes, 128);
+      assert.equal(
+        distributionInsertPayload.proof_photo_captured_at,
+        "2026-08-28T08:00:00.000Z",
+      );
+      assert.equal(inventoryOutflows.length, 4);
+    },
+  );
+});
+
+test("automatic QR claims keep QR proof and deduct assigned inventory once without a photo", async () => {
+  const template = {
+    id: "standard-template",
+    name: "Standard Relief Pack",
+    is_active: true,
+    is_additional_pack: false,
+    based_on_family_size: false,
+  };
+  const templateItems = [
+    {
+      inventory_item_id: "rice-item",
+      item_name: "Rice",
+      quantity_required: 2,
+    },
+  ];
+  const batch = {
+    id: "rice-batch",
+    inventory_item_id: "rice-item",
+    quantity_available: 5,
+    batch_no: "RICE-1",
+    item_code: "RICE",
+    item_name: "Rice",
+    category: "Food",
+    unit_of_measure: "kg",
+    reorder_level: 1,
+    expiration_date: "2099-12-31",
+    status: "AVAILABLE",
+    source_type: "LGU",
+  };
+  const stub = {
+    id: "stub-qr",
+    disaster_event_id: "event-qr",
+    household_id: "household-qr",
+    current_stay_type: "EVAC_CENTER",
+    is_active: true,
+    household_size: 2,
+    qr_code_value: "DISTYNC-STUB|event|household|stub|STUB-QR",
+  };
+  const transactionWrites = [];
+  const inventoryOutflows = [];
+  const batchUpdates = [];
+  let transactionPayload = null;
+  let stubClaimCount = 0;
+  const dbClient = {
+    query: async (query) =>
+      String(query).includes("FROM inventory_batches")
+        ? { rows: [{ inventory_item_id: "rice-item", total_quantity: 5 }] }
+        : { rows: [] },
+  };
+
+  await withStubbedAutomaticClaimService(
+    {
+      [distributionTransactionRepositoryPath]: {
+        getLatestAttendanceByHouseholdId: async () => ({
+          status: "PRESENT",
+          time_out: null,
+        }),
+        getReliefPackTemplateItemsByTemplateId: async () => templateItems,
+        getDistributionReceiptSequence: async () => "RCPT-2026-000003",
+        insertDistributionTransaction: async (payload) => {
+          transactionPayload = payload;
+          return { id: "distribution-qr", ...payload };
+        },
+        insertDistributionTransactionReliefPackTemplates: async () => [],
+        insertDistributionTransactionItem: async (payload) => {
+          const item = { id: "distribution-item-qr", ...payload };
+          transactionWrites.push(item);
+          return item;
+        },
+        updateInventoryBatchQuantityAndStatus: async (
+          batchId,
+          quantityAvailable,
+          status,
+        ) => {
+          const update = { batchId, quantityAvailable, status };
+          batchUpdates.push(update);
+          return { ...batch, quantity_available: quantityAvailable, status };
+        },
+        updateDonationStatusesByIds: async () => {},
+        updateStubAsClaimed: async () => {
+          stubClaimCount += 1;
+          return { ...stub, status: "CLAIMED" };
+        },
+      },
+      [inventoryTransactionRepositoryPath]: {
+        getDistributableInventoryBatchesByItemIdsForUpdate: async () => [batch],
+        insertInventoryTransaction: async (payload) => {
+          inventoryOutflows.push(payload);
+          return payload;
+        },
+      },
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemsByIdsForUpdate: async () => [
+          { id: "rice-item", packaging: "bag", quantity: 1, packaging_count: 5 },
+        ],
+        updateInventoryItemStockSnapshot: async () => {
+          throw new Error("claim outflow must not change item packaging metadata");
+        },
+      },
+      [reliefPackTemplateRepositoryPath]: {
+        getReliefPackTemplateItemsByTemplateId: async () => templateItems,
+      },
+      [reliefPackAssignmentServicePath]: {
+        resolveAssignedReliefPackTemplatesForHousehold: async () => [template],
+        getPrimaryAssignedReliefPackTemplate: (templates) => templates[0],
+      },
+    },
+    async ({ recordAutomaticReliefPackClaim }) => {
+      const result = await recordAutomaticReliefPackClaim({
+        client: dbClient,
+        stub,
+        claimedByName: "Family Head",
+        verifiedBy: "user-qr",
+        proofType: "QR",
+        qrReferenceValue: stub.qr_code_value,
+        receivedAt: "2026-09-24T03:00:00.000Z",
+      });
+
+      assert.equal(result.distributionTransaction.id, "distribution-qr");
+      assert.equal(transactionPayload.proof_type, "QR");
+      assert.equal(transactionPayload.qr_reference_value, stub.qr_code_value);
+      assert.equal(transactionPayload.proof_photo_path, null);
+      assert.equal(transactionPayload.proof_photo_sha256, null);
+      assert.deepEqual(transactionWrites.map((item) => item.quantity_released), [2]);
+      assert.deepEqual(inventoryOutflows.map((entry) => entry.quantity), [2]);
+      assert.deepEqual(batchUpdates, [{
+        batchId: "rice-batch",
+        quantityAvailable: 3,
+        status: "AVAILABLE",
+      }]);
+      assert.equal(stubClaimCount, 1);
     },
   );
 });
@@ -519,6 +683,8 @@ test("automatic claims reject insufficient inventory before any distribution wri
             stub,
             claimedByName: "Family Head",
             verifiedBy: "user-1",
+            proofType: "QR",
+            qrReferenceValue: "qr-1",
             receivedAt: "2026-08-28T08:00:00.000Z",
           }),
         (error) => {

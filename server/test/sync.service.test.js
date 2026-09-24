@@ -8,6 +8,9 @@ const servicePath = require.resolve("../src/services/sync.service");
 const familyHeadPhotoStoragePath = require.resolve(
   "../src/services/familyHeadPhotoStorage.service",
 );
+const claimProofPhotoStoragePath = require.resolve(
+  "../src/services/claimProofPhotoStorage.service",
+);
 const syncRepositoryPath = require.resolve("../src/repositories/sync.repository");
 const deviceServicePath = require.resolve("../src/services/device.service");
 const householdRegistrationRepositoryPath = require.resolve(
@@ -3671,6 +3674,150 @@ test("household photo sync persists only server-computed hash metadata and finge
   assert.equal(cleanupPaths.length, 2);
 });
 
+test("claim-photo sync persists only safe photo metadata and rejects changed-photo reuse of an operation ID", async () => {
+  const persistedClaimPayloads = [];
+  const uploadedDataUrls = [];
+  const objectPath = "event-1/barangay-1/claims/operations/0123456789abcdef0123456789abcdef/photo.jpg";
+  const photoA = "data:image/jpeg;base64,aW1hZ2UtYQ==";
+  const photoB = "data:image/jpeg;base64,aW1hZ2UtYg==";
+  let claimCount = 0;
+
+  const proofPhotoStorageStub = {
+    getClaimProofPhotoMetadata: (dataUrl) => {
+      if (!dataUrl) return null;
+      const bytes = Buffer.from(dataUrl.split(",")[1], "base64");
+      return {
+        proof_photo_present: true,
+        proof_photo_sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+        proof_photo_mime_type: "image/jpeg",
+        proof_photo_size_bytes: bytes.length,
+        valid: true,
+      };
+    },
+    uploadClaimProofPhoto: async ({ dataUrl }) => {
+      uploadedDataUrls.push(dataUrl);
+      return {
+        path: objectPath,
+        sha256: crypto.createHash("sha256").update(Buffer.from(dataUrl.split(",")[1], "base64")).digest("hex"),
+        mimeType: "image/jpeg",
+        sizeBytes: 6,
+      };
+    },
+    removeUnreferencedClaimProofPhoto: async () => false,
+  };
+
+  await withStubbedSyncService(
+    {
+      [claimProofPhotoStoragePath]: proofPhotoStorageStub,
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => {
+          persistedClaimPayloads.push(payload.payload_json.payload);
+          claimCount += 1;
+          return claimCount === 1
+            ? {
+                decision: "CLAIMED_NEW",
+                transaction: { id: "claim-sync-transaction-1", ...payload },
+              }
+            : {
+                decision: "REUSE_MISMATCH",
+                transaction: { id: "claim-sync-transaction-1", ...payload },
+              };
+        },
+        withSyncProcessingTransaction: async (callback) =>
+          callback({ query: async () => ({ rows: [] }) }),
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async (request) => {
+          await request.prepareClaimProofPhoto({
+            stub: {
+              id: request.id,
+              disaster_event_id: "event-1",
+              barangay_id: baseAuth.defaultBarangayId,
+            },
+          });
+          return {
+            message: "Claim completed",
+            data: { id: request.id, distribution_transaction_id: "distribution-1" },
+          };
+        },
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async () => {},
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const result = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "stable-photo-claim-operation",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_local_id: "stub-1",
+            entity_server_id: "stub-1",
+            device_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-09-24T03:00:00.000Z",
+            payload: {
+              disaster_event_id: "event-1",
+              household_id: "household-1",
+              proof_type: "PHOTO",
+              proof_photo_data_url: photoA,
+              proof_photo_captured_at: "2026-09-24T03:00:00.000Z",
+            },
+          },
+        ],
+      });
+      assert.equal(result[0].sync_status, "SYNCED");
+      assert.equal(JSON.stringify(result).includes(photoA), false);
+      assert.equal(JSON.stringify(result).includes(objectPath), false);
+
+      await assert.rejects(
+        () => processSyncEntries({
+          auth: baseAuth,
+          entries: [
+            {
+              client_sync_id: "stable-photo-claim-operation",
+              action_key: "STUB_CLAIM",
+              entity_type: "STUB",
+              entity_local_id: "stub-1",
+              entity_server_id: "stub-1",
+              device_id: "99999999-9999-4999-8999-999999999999",
+              client_timestamp: "2026-09-24T03:00:00.000Z",
+              payload: {
+                disaster_event_id: "event-1",
+                household_id: "household-1",
+                proof_type: "PHOTO",
+                proof_photo_data_url: photoB,
+                proof_photo_captured_at: "2026-09-24T03:00:01.000Z",
+              },
+            },
+          ],
+        }),
+        { code: "IDEMPOTENCY_KEY_REUSE_MISMATCH", statusCode: 409 },
+      );
+    },
+  );
+
+  assert.equal(persistedClaimPayloads.length, 2);
+  for (const payload of persistedClaimPayloads) {
+    assert.equal(payload.proof_photo_data_url, null);
+    assert.equal(payload.proof_photo_path, null);
+    assert.equal(payload.proof_photo_metadata.valid, true);
+    assert.equal(JSON.stringify(payload).includes("data:image/"), false);
+    assert.equal(JSON.stringify(payload).includes("signed-claim-proof"), false);
+  }
+  assert.notEqual(
+    persistedClaimPayloads[0].proof_photo_metadata.proof_photo_sha256,
+    persistedClaimPayloads[1].proof_photo_metadata.proof_photo_sha256,
+  );
+  assert.deepEqual(uploadedDataUrls, [photoA]);
+});
+
 test("processSyncEntries retries a FAILED row using the existing sync transaction", async () => {
   let handlerCalls = 0;
 
@@ -4680,20 +4827,24 @@ test("EE-FIX-03 STUB_CLAIM lifecycle failure becomes FAILED without FIRST_ACCEPT
 
 test("EE-FIX-03 same-ID STUB_CLAIM terminal replay bypasses lifecycle handler", async () => {
   let handlerCalls = 0;
+  let persistedLegacyClaimPayload = null;
 
   await withStubbedSyncService(
     {
       [syncRepositoryPath]: createBaseSyncRepositoryStub({
-        claimSyncTransaction: async () => ({
-          decision: "REPLAY_TERMINAL",
-          transaction: {
-            id: "sync-terminal-stub-claim",
-            sync_status: "SYNCED",
-            entity_server_id: "22222222-2222-4222-8222-222222222222",
-            error_message: null,
-          },
-          conflictRecord: null,
-        }),
+        claimSyncTransaction: async (payload) => {
+          persistedLegacyClaimPayload = payload.payload_json.payload;
+          return {
+            decision: "REPLAY_TERMINAL",
+            transaction: {
+              id: "sync-terminal-stub-claim",
+              sync_status: "SYNCED",
+              entity_server_id: "22222222-2222-4222-8222-222222222222",
+              error_message: null,
+            },
+            conflictRecord: null,
+          };
+        },
       }),
       [stubServicePath]: {
         claimBarangayStub: async () => {
@@ -4727,6 +4878,9 @@ test("EE-FIX-03 same-ID STUB_CLAIM terminal replay bypasses lifecycle handler", 
       assert.equal(result.sync_status, "SYNCED");
       assert.equal(result.replayed, true);
       assert.equal(handlerCalls, 0);
+      assert.deepEqual(persistedLegacyClaimPayload, {
+        stub_id: "22222222-2222-4222-8222-222222222222",
+      });
     },
   );
 });

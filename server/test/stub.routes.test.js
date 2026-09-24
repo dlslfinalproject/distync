@@ -5,10 +5,16 @@ const express = require("express");
 const routesPath = require.resolve("../src/routes/stub.routes");
 const authMiddlewarePath = require.resolve("../src/modules/auth/auth.middleware");
 const servicePath = require.resolve("../src/services/stub.service");
+const syncServicePath = require.resolve("../src/services/sync.service");
 const systemLogPath = require.resolve("../src/utils/systemLog");
 
-const withStubbedStubRoute = async ({ auth, serviceImpl }, runTest) => {
-  const dependencyPaths = [authMiddlewarePath, servicePath, systemLogPath];
+const withStubbedStubRoute = async ({ auth, serviceImpl, syncImpl }, runTest) => {
+  const dependencyPaths = [
+    authMiddlewarePath,
+    servicePath,
+    syncServicePath,
+    systemLogPath,
+  ];
   const originalEntries = new Map(
     dependencyPaths.map((modulePath) => [modulePath, require.cache[modulePath]]),
   );
@@ -48,6 +54,12 @@ const withStubbedStubRoute = async ({ auth, serviceImpl }, runTest) => {
       filename: servicePath,
       loaded: true,
       exports: serviceImpl,
+    };
+    require.cache[syncServicePath] = {
+      id: syncServicePath,
+      filename: syncServicePath,
+      loaded: true,
+      exports: syncImpl || { processSyncEntries: async () => [] },
     };
     require.cache[systemLogPath] = {
       id: systemLogPath,
@@ -393,8 +405,8 @@ test("DEPLOY-MSWDO-RGD-01 route keeps Barangay dashboard scoped to auth user", a
   assert.equal(capturedFilters.override_barangay_id, null);
 });
 
-test("DEPLOY-MSWDO-RGD-01 route passes MSWDO claim barangay_id without adding Mayor", async () => {
-  let capturedBody = null;
+test("DEPLOY-MSWDO-RGD-01 route passes MSWDO claim scope through the sync ledger without adding Mayor", async () => {
+  let capturedEntry = null;
   let capturedAllowedRoles = null;
 
   await withStubbedStubRoute(
@@ -405,9 +417,18 @@ test("DEPLOY-MSWDO-RGD-01 route passes MSWDO claim barangay_id without adding Ma
         defaultBarangayId: null,
       },
       serviceImpl: {
-        claimBarangayStub: async (body) => {
-          capturedBody = body;
-          return { data: { id: body.id, status: "CLAIMED" } };
+        claimBarangayStub: async () => {
+          throw new Error("direct service claims must not be used");
+        },
+      },
+      syncImpl: {
+        processSyncEntries: async ({ entries }) => {
+          capturedEntry = entries[0];
+          return [{
+            client_sync_id: entries[0].client_sync_id,
+            sync_status: "SYNCED",
+            data: { id: stubId, status: "CLAIMED" },
+          }];
         },
       },
     },
@@ -433,7 +454,13 @@ test("DEPLOY-MSWDO-RGD-01 route passes MSWDO claim barangay_id without adding Ma
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ barangay_id: selectedBarangayId }),
+            body: JSON.stringify({
+              barangay_id: selectedBarangayId,
+              disaster_event_id: eventId,
+              proof_type: "QR",
+              qr_reference_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+              client_sync_id: "33333333-3333-4333-8333-333333333333",
+            }),
           },
         );
 
@@ -445,10 +472,12 @@ test("DEPLOY-MSWDO-RGD-01 route passes MSWDO claim barangay_id without adding Ma
   );
 
   assert.deepEqual(capturedAllowedRoles, ["BARANGAY", "MSWDO"]);
-  assert.equal(capturedBody.user_id, null);
-  assert.equal(capturedBody.barangay_id, selectedBarangayId);
-  assert.equal(capturedBody.override_barangay_id, null);
-  assert.equal(capturedBody.verified_by, "mswdo-user");
+  assert.equal(capturedEntry.action_key, "STUB_CLAIM");
+  assert.equal(capturedEntry.entity_server_id, stubId);
+  assert.equal(capturedEntry.payload.user_id, null);
+  assert.equal(capturedEntry.payload.barangay_id, selectedBarangayId);
+  assert.equal(capturedEntry.payload.override_barangay_id, null);
+  assert.equal(capturedEntry.payload.proof_type, "QR");
 });
 
 for (const role of ["BARANGAY", "MSWDO"]) {
@@ -468,8 +497,17 @@ for (const role of ["BARANGAY", "MSWDO"]) {
         },
         serviceImpl: {
           claimBarangayStub: async () => {
-            throw claimError;
+            throw new Error("direct service claims must not be used");
           },
+        },
+        syncImpl: {
+          processSyncEntries: async ({ entries }) => [{
+            client_sync_id: entries[0].client_sync_id,
+            sync_status: "FAILED",
+            error_code: claimError.code,
+            status_code: claimError.statusCode,
+            message: claimError.message,
+          }],
         },
       },
       async (router) => {
@@ -486,23 +524,29 @@ for (const role of ["BARANGAY", "MSWDO"]) {
                   ? {
                       barangay_id: selectedBarangayId,
                       disaster_event_id: eventId,
+                      proof_type: "QR",
+                      qr_reference_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+                      client_sync_id: "33333333-3333-4333-8333-333333333333",
                     }
                   : {
                       user_id: stubId,
                       disaster_event_id: eventId,
+                      proof_type: "QR",
+                      qr_reference_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+                      client_sync_id: "33333333-3333-4333-8333-333333333333",
                     },
               ),
             },
           );
 
           assert.equal(response.status, 400);
-          assert.deepEqual(await response.json(), {
-            success: false,
-            code: "INSUFFICIENT_RELIEF_PACK_STOCK",
-            error: "INSUFFICIENT_RELIEF_PACK_STOCK",
-            message: "Insufficient stock to release Rice.",
-            details: null,
-          });
+          const payload = await response.json();
+          assert.equal(payload.success, false);
+          assert.equal(payload.code, "INSUFFICIENT_RELIEF_PACK_STOCK");
+          assert.equal(payload.error, "INSUFFICIENT_RELIEF_PACK_STOCK");
+          assert.equal(payload.message, "Insufficient stock to release Rice.");
+          assert.equal(payload.details, null);
+          assert.equal(payload.data.sync_status, "FAILED");
         } finally {
           await closeServer(server);
         }

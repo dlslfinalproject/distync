@@ -172,5 +172,7 @@ test("DEPLOY-MSWDO-RGD-03 confirm action is disabled during claim submission", a
     "../src/components/stubs/StubClaimConfirmModal.jsx",
   );
 
-  assert.match(source, /type="button"[\s\S]*onClick=\{onConfirm\}[\s\S]*disabled=\{isSubmitting\}/);
+  assert.match(source, /const handleConfirm = \(\) => \{[\s\S]*onConfirm\?\.\(\{/);
+  assert.match(source, /onClick=\{handleConfirm\}/);
+  assert.match(source, /disabled=\{isSubmitting \|\| isLoadingStubDetails \|\|/);
 });

@@ -22,6 +22,7 @@ import ErrorState from "../components/shared/ErrorState";
 import FeedbackToast from "../components/shared/FeedbackToast";
 import LoadingState from "../components/shared/LoadingState";
 import StubDetailModal from "../components/stubs/StubDetailModal";
+import ClaimProofPhotoModal from "../components/distribution/ClaimProofPhotoModal.jsx";
 import TablePagination from "../components/shared/TablePagination";
 import { FiEye, FiFileText, FiSearch } from "react-icons/fi";
 import {
@@ -257,6 +258,7 @@ const DistributionHistoryPage = () => {
   const [selectedStubDetails, setSelectedStubDetails] = useState(null);
   const [isLoadingStubDetails, setIsLoadingStubDetails] = useState(false);
   const [stubDetailsErrorMessage, setStubDetailsErrorMessage] = useState("");
+  const [proofPhotoTransaction, setProofPhotoTransaction] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const historyRequestIdRef = useRef(0);
@@ -884,6 +886,7 @@ const DistributionHistoryPage = () => {
                   <th style={tableStyles.th}>Relief Pack</th>
                   <th style={tableStyles.th}>Claimed At</th>
                   <th style={tableStyles.th}>Verified By</th>
+                  <th style={tableStyles.th}>Proof of Receipt</th>
                   <th style={{ ...tableStyles.th, textAlign: "center" }}>Action</th>
                 </tr>
               </thead>
@@ -934,6 +937,23 @@ const DistributionHistoryPage = () => {
                       {formatDateTime(row.claimed_at || row.distribution_date)}
                     </td>
                     <td className="distribution-history-text-cell" style={tableStyles.td}>{row.verified_by_name || "--"}</td>
+                    <td style={tableStyles.td}>
+                      {row.proof_type === "PHOTO" && row.has_proof_photo ? (
+                        <button
+                          type="button"
+                          onClick={() => setProofPhotoTransaction(row)}
+                          style={{ border: 0, padding: 0, background: "none", color: "#245b86", fontWeight: 700, cursor: "pointer" }}
+                        >
+                          View Photo
+                        </button>
+                      ) : row.proof_type === "QR" ? (
+                        "Verified QR"
+                      ) : row.proof_type === "PHOTO" ? (
+                        "Photo unavailable"
+                      ) : (
+                        "Not recorded"
+                      )}
+                    </td>
                     <td style={{ ...tableStyles.td, textAlign: "center" }}>
                       <button
                         type="button"
@@ -1170,6 +1190,16 @@ const DistributionHistoryPage = () => {
         errorMessage={stubDetailsErrorMessage}
         stubDetails={selectedStubDetails}
         onClose={closeStubDetailModal}
+      />
+
+      <ClaimProofPhotoModal
+        isOpen={Boolean(proofPhotoTransaction)}
+        transactionId={proofPhotoTransaction?.id}
+        context={{
+          familyHeadName: proofPhotoTransaction?.family_head_name,
+          stubNo: formatDisplayStubNumber(proofPhotoTransaction || {}),
+        }}
+        onClose={() => setProofPhotoTransaction(null)}
       />
     </>
   );

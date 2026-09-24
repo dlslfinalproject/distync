@@ -482,7 +482,7 @@ test("DEPLOY-MSWDO-RGD-01 STUB_CLAIM payload carries barangay_id separately from
 
   assert.match(
     source,
-    /payload = \{\s*user_id: userId \|\| null,\s*barangay_id: barangayId \|\| null,\s*override_barangay_id: overrideBarangayId \|\| null,\s*\.\.\.\(disasterEventId \? \{ disaster_event_id: disasterEventId \} : \{\}\),\s*\}/,
+    /payload = \{\s*user_id: userId \|\| null,\s*barangay_id: barangayId \|\| null,\s*override_barangay_id: overrideBarangayId \|\| null,\s*\.\.\.\(disasterEventId \? \{ disaster_event_id: disasterEventId \} : \{\}\),[\s\S]*?proof_type: normalizedProofType,/,
   );
   assert.match(source, /entityType:\s*"STUB"/);
   assert.match(source, /entityServerId: stubId/);

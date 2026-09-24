@@ -319,7 +319,7 @@ const DistributionTransactionPage = () => {
     }
   };
 
-  const handleConfirmDistribution = async () => {
+  const handleConfirmDistribution = async (proof = {}) => {
     if (!isServerVerifiedDistributionTarget(stubContext)) {
       setErrorMessage(UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE);
       setSuccessMessage("");
@@ -340,11 +340,25 @@ const DistributionTransactionPage = () => {
       const response = await claimStub({
         stubId: stubContext.stub_id,
         userId: authenticatedUser?.id || "",
+        barangayId: verifiedStubDetails.barangay?.id || "",
         disasterEventId: stubContext.disaster_event_id,
         disasterEventTitle:
           verifiedStubDetails.disaster_event?.title ||
           verifiedStubDetails.disaster_event?.name ||
           "",
+        householdId:
+          verifiedStubDetails.household?.id ||
+          verifiedStubDetails.household_id ||
+          "",
+        reliefPackContext: [
+          ...(verifiedStubDetails.assigned_relief_packs || []),
+          ...(verifiedStubDetails.available_donated_relief_packs || [])
+            .map((pack) => ({ ...pack, is_additional_pack: true })),
+        ],
+        proofType: proof.proofType,
+        qrReferenceValue: proof.qrReferenceValue,
+        proofPhotoDataUrl: proof.proofPhotoDataUrl,
+        proofPhotoCapturedAt: proof.proofPhotoCapturedAt,
       });
       const isQueuedOffline =
         response?.queued_offline || response?.data?.status === "PENDING_SYNC";
@@ -521,6 +535,8 @@ const DistributionTransactionPage = () => {
         onCancel={() => navigate("/barangay/stub-distribution")}
         onConfirm={handleConfirmDistribution}
         stubDetails={verifiedStubDetails}
+        initialProofType={qrLookupValue ? "QR" : ""}
+        qrReferenceValue={qrLookupValue}
       />
     </>
   );

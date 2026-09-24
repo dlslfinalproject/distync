@@ -89,12 +89,19 @@ const baseStub = {
   claimed_at: "2026-08-08T01:00:00.000Z",
   barangay_id: baseBarangayId,
   disaster_event_status: "ACTIVE",
+  qr_code_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+  qr_status: "ACTIVE",
 };
 
 const baseParams = {
   id: baseStub.id,
   user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   verified_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  client_sync_id: "stable-stub-claim-operation",
+  disaster_event_id: baseStub.disaster_event_id,
+  household_id: baseStub.household_id,
+  proof_type: "QR",
+  qr_reference_value: baseStub.qr_code_value,
 };
 
 const createBaseStubs = ({
@@ -744,6 +751,101 @@ test("EE-FIX-03 claimBarangayStub allows ACTIVE event claims to reach domain mut
   );
 });
 
+test("Barangay Photo proof is prepared after the locked stub passes claim validation", async () => {
+  const events = [];
+  const uploadedProofPhotos = [];
+  let claimRequest = null;
+
+  await withStubbedStubService(
+    createBaseStubs({
+      events,
+      scopedStub: {
+        ...baseStub,
+        status: "ISSUED",
+      },
+      lockedStub: {
+        ...baseStub,
+        status: "ISSUED",
+        disaster_event_status: "ACTIVE",
+      },
+      claimHandler: async (request) => {
+        claimRequest = request;
+        const proofPhoto = await request.prepareProofPhoto({ stub: request.stub });
+        return {
+          distributionTransaction: {
+            id: "photo-distribution-1",
+            proof_type: "PHOTO",
+            proof_photo_path: proofPhoto.path,
+          },
+          updatedStub: { ...baseStub, status: "CLAIMED" },
+          assignedReliefPackTemplates: [{ id: "assigned-standard-pack", name: "Standard" }],
+          packQuantity: 1,
+          donatedReliefPacks: [],
+          donatedLooseItems: [],
+        };
+      },
+    }),
+    async ({ claimBarangayStub }) => {
+      const result = await claimBarangayStub({
+        ...baseParams,
+        proof_type: "PHOTO",
+        qr_reference_value: null,
+        proof_photo_data_url: "data:image/jpeg;base64,dGVzdA==",
+        proof_photo_captured_at: "2026-09-24T03:00:00.000Z",
+        requester: {
+          userId: baseParams.user_id,
+          roleCode: "BARANGAY",
+          defaultBarangayId: baseBarangayId,
+        },
+        prepareClaimProofPhoto: async ({ stub }) => {
+          assert.equal(stub.id, baseStub.id);
+          const photo = {
+            path: "event/barangay/claims/operations/0123456789abcdef0123456789abcdef/photo.jpg",
+            sha256: "b".repeat(64),
+            mimeType: "image/jpeg",
+            sizeBytes: 4,
+          };
+          uploadedProofPhotos.push(photo);
+          return photo;
+        },
+      });
+
+      assert.equal(result.data.distribution_transaction_id, "photo-distribution-1");
+      assert.equal(result.data.status, "CLAIMED");
+    },
+  );
+
+  assert.equal(claimRequest.proofType, "PHOTO");
+  assert.equal(claimRequest.qrReferenceValue, null);
+  assert.deepEqual(uploadedProofPhotos.map((photo) => photo.sha256), ["b".repeat(64)]);
+  assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
+});
+
+test("MSWDO cannot submit Photo proof capture", async () => {
+  let stubLookupCalled = false;
+  const stubs = createBaseStubs({
+    stubRepositoryOverrides: {
+      getStubById: async () => {
+        stubLookupCalled = true;
+        return baseStub;
+      },
+    },
+  });
+
+  await withStubbedStubService(stubs, async ({ claimBarangayStub }) => {
+    await assert.rejects(
+      () => claimBarangayStub({
+        ...baseParams,
+        proof_type: "PHOTO",
+        requester: { roleCode: "MSWDO", userId: "mswdo-user" },
+      }),
+      { code: "CLAIM_PROOF_PHOTO_FORBIDDEN", statusCode: 403 },
+    );
+  });
+
+  assert.equal(stubLookupCalled, false);
+});
+
 test("offline stub claims defer their audit until the outer sync transaction commits", async () => {
   const deferredSideEffects = [];
   const auditCalls = [];
@@ -1028,11 +1130,11 @@ test("DEPLOY-MSWDO-RGD-01 Barangay user scope takes precedence over crafted bara
   assert.deepEqual(seenBarangayIds, [assignedBarangayId]);
 });
 
-test("DEPLOY-MSWDO-RGD-01 production MSWDO claim resolves barangay_id and reaches claim logic", async () => {
+test("DEPLOY-MSWDO-RGD-01 production MSWDO claim validates event scope and reaches claim logic", async () => {
   await withNodeEnv("production", async () => {
     const selectedBarangayId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
     const events = [];
-    let scopedLookupBarangayId = null;
+    let municipalStubLookupCalled = false;
     let lockedLookupCalled = false;
     let claimHandlerCalled = false;
 
@@ -1049,15 +1151,31 @@ test("DEPLOY-MSWDO-RGD-01 production MSWDO claim resolves barangay_id and reache
           status: "ISSUED",
           barangay_id: selectedBarangayId,
         },
-        masterlistOverrides: {
+      masterlistOverrides: {
           getBarangaySummaryById: async (barangayId) => ({
             id: barangayId,
             is_active: true,
           }),
         },
+        disasterEventOverrides: {
+          getAffectedBarangayScopeByDisasterEventId: async () => [
+            {
+              id: selectedBarangayId,
+              mapped_barangay_id: selectedBarangayId,
+              is_active: true,
+            },
+          ],
+        },
         stubRepositoryOverrides: {
+          getStubById: async () => {
+            municipalStubLookupCalled = true;
+            return {
+              ...baseStub,
+              status: "ISSUED",
+              barangay_id: selectedBarangayId,
+            };
+          },
           getScopedStubById: async (_stubId, barangayId) => {
-            scopedLookupBarangayId = barangayId;
             return {
               ...baseStub,
               status: "ISSUED",
@@ -1092,15 +1210,21 @@ test("DEPLOY-MSWDO-RGD-01 production MSWDO claim resolves barangay_id and reache
           barangay_id: selectedBarangayId,
           override_barangay_id: null,
           verified_by: "mswdo-user",
+          requester: { roleCode: "MSWDO", userId: "mswdo-user" },
+          client_sync_id: "mswdo-claim-operation",
+          disaster_event_id: baseStub.disaster_event_id,
+          household_id: baseStub.household_id,
+          proof_type: "QR",
+          qr_reference_value: baseStub.qr_code_value,
         });
 
         lockedLookupCalled = true;
         assert.equal(result.data.status, "CLAIMED");
-        assert.equal(scopedLookupBarangayId, selectedBarangayId);
       },
     );
 
     assert.equal(lockedLookupCalled, true);
+    assert.equal(municipalStubLookupCalled, true);
     assert.equal(claimHandlerCalled, true);
     assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
   });
@@ -1128,6 +1252,12 @@ test("DEPLOY-MSWDO-RGD-01 cross-barangay claim remains rejected", async () => {
             barangay_id: selectedBarangayId,
             override_barangay_id: null,
             verified_by: "mswdo-user",
+            requester: { roleCode: "MSWDO", userId: "mswdo-user" },
+            client_sync_id: "mswdo-cross-barangay-operation",
+            disaster_event_id: baseStub.disaster_event_id,
+            household_id: baseStub.household_id,
+            proof_type: "QR",
+            qr_reference_value: baseStub.qr_code_value,
           }),
         (error) => {
           assert.equal(error.code, "STUB_NOT_FOUND");
@@ -1175,7 +1305,11 @@ test("MSWDO municipal claim accepts another affected barangay in the selected ev
         id: foreignBarangayStub.id,
         barangay_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         disaster_event_id: foreignBarangayStub.disaster_event_id,
+        household_id: foreignBarangayStub.household_id,
         verified_by: "mswdo-user",
+        client_sync_id: "mswdo-municipal-claim-operation",
+        proof_type: "QR",
+        qr_reference_value: foreignBarangayStub.qr_code_value,
         requester: { roleCode: "MSWDO", userId: "mswdo-user" },
       });
 

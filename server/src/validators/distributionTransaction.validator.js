@@ -179,6 +179,8 @@ const validateClaimDistributionFromQr = (req, res, next) => {
       claimed_by_name,
       qr_reference_value,
       remarks,
+      client_sync_id,
+      device_id,
     } = req.body;
 
     if (!isValidUuid(disaster_event_id)) {
@@ -215,6 +217,26 @@ const validateClaimDistributionFromQr = (req, res, next) => {
       });
     }
 
+    if (!isValidUuid(client_sync_id)) {
+      return res.status(400).json({
+        code: "DISTRIBUTION_OPERATION_ID_REQUIRED",
+        message: "A stable claim operation ID is required.",
+      });
+    }
+
+    if (device_id != null && device_id !== "" && !isValidUuid(device_id)) {
+      return res.status(400).json({
+        message: "device_id must be a valid UUID when provided",
+      });
+    }
+
+    if (!String(qr_reference_value || "").trim()) {
+      return res.status(400).json({
+        code: "DISTRIBUTION_QR_PROOF_REQUIRED",
+        message: "Scan and verify the active stub QR before confirming.",
+      });
+    }
+
     if (remarks !== undefined && remarks !== null && typeof remarks !== "string") {
       return res.status(400).json({
         message: "remarks must be a string or null",
@@ -231,6 +253,8 @@ const validateClaimDistributionFromQr = (req, res, next) => {
           ? qr_reference_value.trim()
           : null,
       remarks: remarks ?? null,
+      client_sync_id,
+      device_id: device_id || null,
     };
 
     return next();
@@ -559,6 +583,24 @@ const validateInventoryDistributionDetail = (req, res, next) => {
   }
 };
 
+const validateClaimProofPhotoRequest = (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    if (!isValidUuid(transactionId)) {
+      return res.status(400).json({
+        message: "transactionId must be a valid UUID",
+      });
+    }
+    req.validatedParams = { transactionId };
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate claim proof photo request",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   validateCreateDistributionTransaction,
   validateClaimDistributionFromQr,
@@ -567,4 +609,5 @@ module.exports = {
   validateExportInventoryDistribution,
   validateInventoryDistributionExportOptions,
   validateInventoryDistributionDetail,
+  validateClaimProofPhotoRequest,
 };

@@ -353,6 +353,12 @@ const validateClaimBarangayStub = (req, res, next) => {
       override_barangay_id,
       donated_loose_items,
       disaster_event_id,
+      proof_type,
+      qr_reference_value,
+      proof_photo_data_url,
+      proof_photo_captured_at,
+      client_sync_id,
+      device_id,
     } = req.body;
 
     const hasUserId =
@@ -412,6 +418,66 @@ const validateClaimBarangayStub = (req, res, next) => {
       });
     }
 
+    const normalizedProofType = String(proof_type || "").trim().toUpperCase();
+    if (!["QR", "PHOTO"].includes(normalizedProofType)) {
+      return res.status(400).json({
+        code: "DISTRIBUTION_PROOF_REQUIRED",
+        message: "Choose QR or Photo Proof before confirming the distribution.",
+      });
+    }
+
+    if (!isValidUuid(client_sync_id)) {
+      return res.status(400).json({
+        code: "DISTRIBUTION_OPERATION_ID_REQUIRED",
+        message: "A stable claim operation ID is required.",
+      });
+    }
+
+    if (device_id != null && device_id !== "" && !isValidUuid(device_id)) {
+      return res.status(400).json({
+        message: "device_id must be a valid UUID when provided",
+      });
+    }
+
+    if (
+      qr_reference_value != null &&
+      typeof qr_reference_value !== "string"
+    ) {
+      return res.status(400).json({
+        message: "qr_reference_value must be a string or null",
+      });
+    }
+
+    if (
+      normalizedProofType === "QR" &&
+      !String(qr_reference_value || "").trim()
+    ) {
+      return res.status(400).json({
+        code: "QR_REFERENCE_MISMATCH",
+        message: "Scan and verify this stub's active QR before confirming QR proof.",
+      });
+    }
+
+    if (
+      normalizedProofType === "PHOTO" &&
+      (typeof proof_photo_data_url !== "string" || !proof_photo_data_url.trim())
+    ) {
+      return res.status(400).json({
+        code: "CLAIM_PROOF_PHOTO_INVALID",
+        message: "Capture a claim-time photo before confirming.",
+      });
+    }
+
+    if (
+      proof_photo_captured_at != null &&
+      (typeof proof_photo_captured_at !== "string" ||
+        Number.isNaN(Date.parse(proof_photo_captured_at)))
+    ) {
+      return res.status(400).json({
+        message: "proof_photo_captured_at must be a valid date when provided",
+      });
+    }
+
     if (
       donated_loose_items !== undefined &&
       !Array.isArray(donated_loose_items)
@@ -450,6 +516,18 @@ const validateClaimBarangayStub = (req, res, next) => {
       barangay_id: barangay_id || null,
       override_barangay_id: override_barangay_id || null,
       donated_loose_items: normalizedDonatedLooseItems,
+      proof_type: normalizedProofType,
+      qr_reference_value:
+        typeof qr_reference_value === "string" && qr_reference_value.trim()
+          ? qr_reference_value.trim()
+          : null,
+      proof_photo_data_url:
+        typeof proof_photo_data_url === "string" && proof_photo_data_url.trim()
+          ? proof_photo_data_url.trim()
+          : null,
+      proof_photo_captured_at: proof_photo_captured_at || null,
+      client_sync_id,
+      device_id: device_id || null,
       ...(disaster_event_id
         ? { disaster_event_id: disaster_event_id.trim() }
         : {}),

@@ -96,6 +96,9 @@ test("DEPLOY-MSWDO-RGD-01 claim validator accepts legitimate barangay_id scope",
     body: {
       barangay_id: barangayId,
       donated_loose_items: [],
+      proof_type: "QR",
+      qr_reference_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+      client_sync_id: "33333333-3333-4333-8333-333333333333",
     },
   });
 
@@ -106,6 +109,12 @@ test("DEPLOY-MSWDO-RGD-01 claim validator accepts legitimate barangay_id scope",
     barangay_id: barangayId,
     override_barangay_id: null,
     donated_loose_items: [],
+    proof_type: "QR",
+    qr_reference_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+    proof_photo_data_url: null,
+    proof_photo_captured_at: null,
+    client_sync_id: "33333333-3333-4333-8333-333333333333",
+    device_id: null,
   });
 });
 
@@ -115,6 +124,9 @@ test("DEPLOY-BRG-RGD-OFFLINE-QR claim validator preserves the requested disaster
     body: {
       barangay_id: barangayId,
       disaster_event_id: eventId,
+      proof_type: "QR",
+      qr_reference_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+      client_sync_id: "33333333-3333-4333-8333-333333333333",
     },
   });
 

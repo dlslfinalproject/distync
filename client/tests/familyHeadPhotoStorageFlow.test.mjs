@@ -28,7 +28,7 @@ test("online registration persists the same sync identity and payload before sub
 
 test("explicit family-head Storage failures stay visible and retain retryable local media", () => {
   const sync = read("client", "src", "offline", "syncService.js");
-  assert.match(sync, /FAMILY_HEAD_PHOTO_\(\?:STORAGE_UNAVAILABLE\|UPLOAD_FAILED\|RETRIEVAL_FAILED\)/);
+  assert.match(sync, /\(\?:FAMILY_HEAD\|CLAIM_PROOF\)_PHOTO_\(\?:STORAGE_UNAVAILABLE\|UPLOAD_FAILED\|RETRIEVAL_FAILED\)/);
   assert.match(sync, /status:\s*LOCAL_SYNC_STATUS\.FAILED,[\s\S]*?lastErrorCode:\s*error\.code/);
   assert.match(sync, /throw error;[\s\S]*?if \(!prePersisted\) \{/);
 });

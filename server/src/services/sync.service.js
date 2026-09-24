@@ -6,6 +6,7 @@ const inventoryBatchRepository = require("../repositories/inventoryBatch.reposit
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const householdRegistrationService = require("./householdRegistration.service");
 const familyHeadPhotoStorage = require("./familyHeadPhotoStorage.service");
+const claimProofPhotoStorage = require("./claimProofPhotoStorage.service");
 const distributionTransactionService = require("./distributionTransaction.service");
 const inventoryItemService = require("./inventoryItem.service");
 const inventoryBatchService = require("./inventoryBatch.service");
@@ -51,7 +52,7 @@ const SYNC_STATUS = {
   FAILED: "FAILED",
 };
 
-const FAMILY_HEAD_PHOTO_VALUE_FIELDS = new Set([
+const SYNC_MEDIA_VALUE_FIELDS = new Set([
   "family_head_photo_url",
   "family_head_photo_data_url",
   "family_head_photo",
@@ -63,11 +64,17 @@ const FAMILY_HEAD_PHOTO_VALUE_FIELDS = new Set([
   "family_head_photo_mime_type",
   "family_head_photo_size_bytes",
   "family_head_photo_metadata",
+  "proof_photo_data_url",
+  "proof_photo",
+  "proof_photo_path",
+  "proof_photo_signed_url",
+  "claim_photo_data_url",
+  "claim_proof_photo_data_url",
 ]);
 
-const redactFamilyHeadPhotoValues = (value) => {
+const redactSyncMediaValues = (value) => {
   if (Array.isArray(value)) {
-    return value.map(redactFamilyHeadPhotoValues);
+    return value.map(redactSyncMediaValues);
   }
 
   if (!value || typeof value !== "object") {
@@ -77,14 +84,44 @@ const redactFamilyHeadPhotoValues = (value) => {
   return Object.fromEntries(
     Object.entries(value).map(([key, nestedValue]) => [
       key,
-      FAMILY_HEAD_PHOTO_VALUE_FIELDS.has(key)
+      SYNC_MEDIA_VALUE_FIELDS.has(key)
         ? null
-        : redactFamilyHeadPhotoValues(nestedValue),
+        : redactSyncMediaValues(nestedValue),
     ]),
   );
 };
 
 const buildPersistableSyncEntry = (entry) => {
+  if (
+    entry?.action_key === "STUB_CLAIM" &&
+    entry?.payload &&
+    typeof entry.payload === "object" &&
+    !Array.isArray(entry.payload)
+  ) {
+    const photoValue = entry.payload.proof_photo_data_url;
+    const proofType = String(entry.payload.proof_type || "").trim().toUpperCase();
+    if (
+      !(typeof photoValue === "string" && photoValue.trim()) &&
+      !["QR", "PHOTO"].includes(proofType)
+    ) {
+      // Preserve the original fingerprint for accepted RC1 claims that predate
+      // explicit proof metadata, so a lost-response replay remains idempotent.
+      return entry;
+    }
+    const photoMetadata = claimProofPhotoStorage.getClaimProofPhotoMetadata(
+      photoValue,
+    );
+    return {
+      ...entry,
+      payload: {
+        ...redactSyncMediaValues(entry.payload),
+        proof_photo_data_url: null,
+        proof_photo_path: null,
+        proof_photo_metadata: photoMetadata,
+      },
+    };
+  }
+
   if (
     !["HOUSEHOLD_REGISTER", "HOUSEHOLD_RE_ADMISSION"].includes(
       entry?.action_key,
@@ -626,19 +663,28 @@ const ACTION_HANDLERS = {
       dbClient,
       canonicalDeviceId,
       deferDomainSideEffect,
+      entry,
+      prepareClaimProofPhoto,
     }) =>
       stubService.claimBarangayStub({
         id: entityServerId,
+        client_sync_id: entry?.client_sync_id,
         user_id: auth.roleCode === ROLE_CODES.BARANGAY ? auth.userId : null,
         barangay_id:
           auth.roleCode === ROLE_CODES.MSWDO ? payload?.barangay_id || null : null,
         verified_by: auth.userId,
         claimed_at: clientTimestamp,
         disaster_event_id: payload?.disaster_event_id || null,
+        household_id: payload?.household_id || null,
+        proof_type: payload?.proof_type || null,
+        qr_reference_value: payload?.qr_reference_value || null,
+        proof_photo_data_url: payload?.proof_photo_data_url || null,
+        proof_photo_captured_at: payload?.proof_photo_captured_at || null,
         override_barangay_id: null,
         device_id: canonicalDeviceId || null,
         requester: getRequesterForSync(auth),
         deferDomainSideEffect,
+        prepareClaimProofPhoto,
         dbClient,
       }),
   },
@@ -2111,6 +2157,7 @@ const tryAutoResolveCrossBarangayDuplicate = async ({
 const processSingleSyncEntry = async (entry, auth) => {
   const rawEntry = entry;
   const pendingPhotoPath = getPendingFamilyHeadPhotoPath(rawEntry);
+  let pendingClaimProofPhotoPath = null;
   entry = buildPersistableSyncEntry(entry);
   const actionConfig = ACTION_HANDLERS[entry.action_key];
 
@@ -2129,6 +2176,16 @@ const processSingleSyncEntry = async (entry, auth) => {
     (async (callback) => callback(undefined));
   const notificationOutboxEventIds = [];
   const domainSideEffects = [];
+  const prepareClaimProofPhoto = async ({ stub }) => {
+    const proofPhoto = await claimProofPhotoStorage.uploadClaimProofPhoto({
+      dataUrl: rawEntry?.payload?.proof_photo_data_url,
+      disasterEventId: stub?.disaster_event_id,
+      barangayId: stub?.barangay_id || "outside-malvar",
+      operationId: rawEntry?.client_sync_id,
+    });
+    pendingClaimProofPhotoPath = proofPhoto.path;
+    return proofPhoto;
+  };
 
   let syncResult;
   try {
@@ -2270,6 +2327,7 @@ const processSingleSyncEntry = async (entry, auth) => {
           domainSideEffects.push(sideEffect);
         }
       },
+      prepareClaimProofPhoto,
     });
     businessEffectApplied = true;
 
@@ -2369,6 +2427,13 @@ const processSingleSyncEntry = async (entry, auth) => {
             error: rollbackError,
           });
         }
+      }
+
+      if (!businessEffectApplied && pendingClaimProofPhotoPath) {
+        await claimProofPhotoStorage.removeUnreferencedClaimProofPhoto({
+          path: pendingClaimProofPhotoPath,
+        });
+        pendingClaimProofPhotoPath = null;
       }
 
       if (businessEffectApplied || error.rollbackSyncTransaction) {
@@ -2728,6 +2793,11 @@ const processSingleSyncEntry = async (entry, auth) => {
         path: pendingPhotoPath,
       });
     }
+    if (pendingClaimProofPhotoPath) {
+      await claimProofPhotoStorage.removeUnreferencedClaimProofPhoto({
+        path: pendingClaimProofPhotoPath,
+      });
+    }
     throw error;
   }
 
@@ -2777,7 +2847,7 @@ const processSyncEntries = async ({ entries, auth }) => {
     results[index] = await processSingleSyncEntry(entry, auth);
   }
 
-  return results.map(redactFamilyHeadPhotoValues);
+  return results.map(redactSyncMediaValues);
 };
 
 const getSyncHistory = async ({
@@ -2936,8 +3006,8 @@ const getSyncHistory = async ({
   ).slice(0, useServerHistoryPagination ? effectivePageSize : effectiveLimit);
 
   const response = {
-    transactions: transactions.map(redactFamilyHeadPhotoValues),
-    conflicts: sortedConflicts.map((conflict) => redactFamilyHeadPhotoValues({
+    transactions: transactions.map(redactSyncMediaValues),
+    conflicts: sortedConflicts.map((conflict) => redactSyncMediaValues({
       ...conflict,
       availableResolutionActions:
         getResolutionCapability(conflict, auth).availableResolutionActions,
@@ -3073,7 +3143,7 @@ const getSyncConflictDetail = async ({ auth, conflictId }) => {
       : conflict;
 
   return {
-    ...redactFamilyHeadPhotoValues(safeConflict),
+    ...redactSyncMediaValues(safeConflict),
     availableResolutionActions:
       getResolutionCapability(conflict, auth).availableResolutionActions,
     local_payload_summary: pickDefined(safeConflict.local_payload_json?.payload || safeConflict.local_payload_json, [
@@ -3811,7 +3881,7 @@ const resolveSyncConflict = async ({
     syncResult: result,
   });
 
-  return redactFamilyHeadPhotoValues(resolvedConflict);
+  return redactSyncMediaValues(resolvedConflict);
 };
 
 const auditSyncRetryRequest = async ({ auth, entries }) => {

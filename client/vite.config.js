@@ -145,6 +145,13 @@ export default defineConfig(({ mode }) => {
                 ),
               handler: "NetworkOnly",
             },
+            {
+              urlPattern: ({ url }) =>
+                url.pathname.includes(
+                  "/storage/v1/object/sign/distync-claim-proof-photos/",
+                ),
+              handler: "NetworkOnly",
+            },
           ],
         },
       }),

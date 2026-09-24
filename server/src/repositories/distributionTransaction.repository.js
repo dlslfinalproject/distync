@@ -578,11 +578,17 @@ const insertDistributionTransaction = async (transactionData, dbClient) => {
       received_at,
       relief_pack_template_id,
       remarks,
+      proof_type,
+      proof_photo_path,
+      proof_photo_sha256,
+      proof_photo_mime_type,
+      proof_photo_size_bytes,
+      proof_photo_captured_at,
       created_at,
       updated_at
     )
     VALUES (
-      $1, $2, $3, COALESCE($15::timestamptz, NOW()), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW()
+      $1, $2, $3, COALESCE($15::timestamptz, NOW()), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW(), NOW()
     )
     RETURNING
       id,
@@ -604,6 +610,12 @@ const insertDistributionTransaction = async (transactionData, dbClient) => {
       received_at,
       relief_pack_template_id,
       remarks,
+      proof_type,
+      (proof_photo_path IS NOT NULL) AS has_proof_photo,
+      proof_photo_sha256,
+      proof_photo_mime_type,
+      proof_photo_size_bytes,
+      proof_photo_captured_at,
       created_at,
       updated_at
   `;
@@ -626,6 +638,12 @@ const insertDistributionTransaction = async (transactionData, dbClient) => {
     transactionData.received_at,
     transactionData.relief_pack_template_id,
     transactionData.remarks,
+    transactionData.proof_type || null,
+    transactionData.proof_photo_path || null,
+    transactionData.proof_photo_sha256 || null,
+    transactionData.proof_photo_mime_type || null,
+    transactionData.proof_photo_size_bytes || null,
+    transactionData.proof_photo_captured_at || null,
   ];
 
   const result = await dbClient.query(query, values);
@@ -1269,6 +1287,8 @@ const selectDistributionHistoryRows = async ({
         dt.claimed_by_name,
         dt.verified_by,
         dt.qr_reference_value,
+        dt.proof_type,
+        (dt.proof_photo_path IS NOT NULL) AS has_proof_photo,
         dt.receipt_no,
         dt.receipt_status,
         dt.received_at,
@@ -1926,6 +1946,9 @@ const getInventoryDistributionDetailByStubId = async (
       CONCAT_WS(' ', u.first_name, u.middle_name, u.last_name) AS verified_by_name,
       dt.qr_reference_value,
       dt.qr_scanned_at,
+      dt.proof_type,
+      (dt.proof_photo_path IS NOT NULL) AS has_proof_photo,
+      dt.proof_photo_captured_at,
       dt.receipt_no,
       dt.receipt_status,
       dt.received_at,
@@ -1976,6 +1999,44 @@ const getInventoryDistributionDetailByStubId = async (
   };
 };
 
+const getDistributionTransactionClaimProofById = async (
+  transactionId,
+  barangayId = null,
+) => {
+  const query = `
+    SELECT
+      dt.id,
+      dt.disaster_event_id,
+      dt.household_id,
+      dt.stub_id,
+      dt.proof_type,
+      dt.proof_photo_path,
+      dt.proof_photo_sha256,
+      dt.proof_photo_mime_type,
+      dt.proof_photo_size_bytes,
+      dt.proof_photo_captured_at,
+      dt.received_at,
+      dt.distribution_date,
+      h.barangay_id,
+      s.stub_no,
+      CONCAT_WS(
+        ' ',
+        h.family_head_first_name,
+        h.family_head_middle_name,
+        h.family_head_last_name,
+        h.family_head_suffix
+      ) AS family_head_name
+    FROM distribution_transactions dt
+    INNER JOIN households h ON h.id = dt.household_id
+    INNER JOIN stubs s ON s.id = dt.stub_id
+    WHERE dt.id = $1
+      AND ($2::uuid IS NULL OR h.barangay_id = $2::uuid)
+    LIMIT 1
+  `;
+  const result = await pool.query(query, [transactionId, barangayId || null]);
+  return result.rows[0] || null;
+};
+
 module.exports = {
   getDistributionReceiptSequence,
   getStubByIdForUpdate,
@@ -2001,4 +2062,5 @@ module.exports = {
   getDistributionHistoryStubSummaryByEventIds,
   getDistributionHistoryExportRows,
   getInventoryDistributionDetailByStubId,
+  getDistributionTransactionClaimProofById,
 };

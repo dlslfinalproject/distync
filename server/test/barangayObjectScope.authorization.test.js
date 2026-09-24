@@ -700,6 +700,7 @@ test("distribution detail route forwards req.auth and keeps municipal role list"
     "validateExportInventoryDistribution",
     "validateInventoryDistributionExportOptions",
     "validateInventoryDistributionDetail",
+    "validateClaimProofPhotoRequest",
     "validateUpdateDistributionLifecycle",
   ];
   allDistributionValidators.forEach((name) => {

@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 import { RELATIONSHIP_OPTIONS } from "../../utils/registrationOptions";
 import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
+import { normalizeImageDrawableToDataUrl } from "../../utils/imageProcessing.js";
 import QrCodePanel from "./QrCodePanel";
 
 const modalStyles = {
@@ -357,7 +358,140 @@ const StubClaimConfirmModal = ({
   selectedStubs = [],
   selectedCount = 1,
   stubDetails = null,
+  initialProofType = "",
+  qrReferenceValue = "",
+  allowPhotoProof = true,
 }) => {
+  const [proofType, setProofType] = useState("");
+  const [proofPhotoDataUrl, setProofPhotoDataUrl] = useState("");
+  const [proofPhotoCapturedAt, setProofPhotoCapturedAt] = useState("");
+  const [isProofPhotoReady, setIsProofPhotoReady] = useState(false);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
+  const cameraVideoRef = useRef(null);
+  const captureRequestRef = useRef(0);
+
+  useEffect(() => {
+    if (!isOpen) {
+      captureRequestRef.current += 1;
+      setIsCameraOpen(false);
+      setProofPhotoDataUrl("");
+      setProofPhotoCapturedAt("");
+      setIsProofPhotoReady(false);
+      setIsPreparingPhoto(false);
+      setCameraError("");
+      return;
+    }
+    captureRequestRef.current += 1;
+    setProofType(
+      initialProofType === "QR" && qrReferenceValue ? "QR" : "",
+    );
+    setProofPhotoDataUrl("");
+    setProofPhotoCapturedAt("");
+    setIsProofPhotoReady(false);
+    setCameraError("");
+    setIsCameraOpen(false);
+  }, [isOpen, stubDetails?.id, initialProofType, qrReferenceValue]);
+
+  useEffect(() => {
+    if (!isOpen || !isCameraOpen) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let stream = null;
+    const openCamera = async () => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error("This device does not provide camera access.");
+        }
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { ideal: "environment" } },
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        if (cameraVideoRef.current) {
+          cameraVideoRef.current.srcObject = stream;
+          await cameraVideoRef.current.play().catch(() => undefined);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCameraError(error?.message || "Unable to open the camera.");
+          setIsCameraOpen(false);
+        }
+      }
+    };
+
+    openCamera();
+    return () => {
+      cancelled = true;
+      stream?.getTracks().forEach((track) => track.stop());
+      if (cameraVideoRef.current) {
+        cameraVideoRef.current.srcObject = null;
+      }
+    };
+  }, [isOpen, isCameraOpen]);
+
+  const captureProofPhoto = async () => {
+    const video = cameraVideoRef.current;
+    if (!video?.videoWidth || !video?.videoHeight) {
+      setCameraError("Wait for the camera preview, then capture the photo.");
+      return;
+    }
+    const requestId = ++captureRequestRef.current;
+    setIsPreparingPhoto(true);
+    setCameraError("");
+    try {
+      const photo = await normalizeImageDrawableToDataUrl(
+        video,
+        video.videoWidth,
+        video.videoHeight,
+        { maxDimension: 1600, maxOutputBytes: 2 * 1024 * 1024 },
+      );
+      if (
+        requestId !== captureRequestRef.current ||
+        !isOpen ||
+        proofType !== "PHOTO"
+      ) {
+        return;
+      }
+      setProofPhotoDataUrl(photo);
+      setProofPhotoCapturedAt(new Date().toISOString());
+      setIsProofPhotoReady(false);
+      setIsCameraOpen(false);
+    } catch (error) {
+      setCameraError(error?.message || "The photo could not be prepared.");
+    } finally {
+      if (requestId === captureRequestRef.current) {
+        setIsPreparingPhoto(false);
+      }
+    }
+  };
+
+  const handleConfirm = () => {
+    if (proofType === "QR" && qrReferenceValue) {
+      onConfirm?.({
+        proofType: "QR",
+        qrReferenceValue,
+        proofPhotoDataUrl: "",
+        proofPhotoCapturedAt: "",
+      });
+      return;
+    }
+    if (proofType === "PHOTO" && proofPhotoDataUrl && isProofPhotoReady) {
+      onConfirm?.({
+        proofType: "PHOTO",
+        qrReferenceValue: "",
+        proofPhotoDataUrl,
+        proofPhotoCapturedAt,
+      });
+    }
+  };
+
   if (!isOpen) {
     return null;
   }
@@ -383,6 +517,137 @@ const StubClaimConfirmModal = ({
       <div className="stub-claim-confirm-modal" style={modalStyles.modal}>
         <h3 style={modalStyles.title}>Confirm Relief Distribution</h3>
         <p style={modalStyles.message}>{message}</p>
+        {selectedCount === 1 ? (
+          <section
+            aria-label="Claim receipt proof"
+            style={{ ...modalStyles.infoCard, marginTop: "16px" }}
+          >
+            <p style={modalStyles.label}>Proof of Receipt</p>
+            <p style={{ ...modalStyles.message, marginTop: "6px" }}>
+              Choose the verified stub QR or take a photo at handoff. The registered family head photo is for identity verification only.
+            </p>
+            <div style={{ ...modalStyles.actions, justifyContent: "center" }}>
+              <button
+                type="button"
+                aria-pressed={proofType === "QR"}
+                disabled={!qrReferenceValue || isSubmitting || isLoadingStubDetails}
+                onClick={() => {
+                  captureRequestRef.current += 1;
+                  setProofType("QR");
+                  setProofPhotoDataUrl("");
+                  setProofPhotoCapturedAt("");
+                  setIsProofPhotoReady(false);
+                  setIsCameraOpen(false);
+                }}
+                style={proofType === "QR" ? pageHeaderStyles.primaryButton : pageHeaderStyles.secondaryButton}
+              >
+                {qrReferenceValue ? "Verified QR" : "Scan stub QR first"}
+              </button>
+              <button
+                type="button"
+                aria-pressed={proofType === "PHOTO"}
+                disabled={isSubmitting || isLoadingStubDetails || !allowPhotoProof}
+                onClick={() => {
+                  captureRequestRef.current += 1;
+                  setProofType("PHOTO");
+                  setIsCameraOpen(false);
+                  setCameraError("");
+                }}
+                style={proofType === "PHOTO" ? pageHeaderStyles.primaryButton : pageHeaderStyles.secondaryButton}
+              >
+                Photo Proof
+              </button>
+            </div>
+            <p style={{ ...modalStyles.capturedText, fontWeight: 700, color: "#24496e" }}>
+              Proof Method: {proofType === "QR" ? "QR" : proofType === "PHOTO" ? "Photo" : "Choose QR or Photo"}
+            </p>
+            {!allowPhotoProof ? (
+              <p style={modalStyles.capturedText}>
+                Photo Proof capture is available to Barangay officials. Use a verified QR for this claim.
+              </p>
+            ) : null}
+            {proofType === "PHOTO" ? (
+              <div style={{ display: "grid", gap: "10px", justifyItems: "center", marginTop: "12px" }}>
+                {isCameraOpen ? (
+                  <>
+                    <video
+                      ref={cameraVideoRef}
+                      autoPlay
+                      muted
+                      playsInline
+                      aria-label="Live claim proof camera preview"
+                      style={{ width: "100%", maxHeight: "280px", background: "#152536", borderRadius: "12px" }}
+                    />
+                    <button
+                      type="button"
+                      onClick={captureProofPhoto}
+                      disabled={isPreparingPhoto}
+                      style={pageHeaderStyles.primaryButton}
+                    >
+                      {isPreparingPhoto ? "Preparing Photo…" : "Capture Photo"}
+                    </button>
+                  </>
+                ) : proofPhotoDataUrl ? (
+                  <>
+                    <img
+                      src={proofPhotoDataUrl}
+                      alt="Claim handoff proof preview"
+                      style={{ width: "100%", maxHeight: "260px", objectFit: "contain", borderRadius: "12px", background: "#152536" }}
+                    />
+                    <p style={modalStyles.capturedText}>
+                      Captured {formatPhotoCapturedAt(proofPhotoCapturedAt)}. Photo stays queued on this device until sync completes.
+                    </p>
+                    {!isProofPhotoReady ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsProofPhotoReady(true)}
+                        disabled={isSubmitting}
+                        style={pageHeaderStyles.primaryButton}
+                      >
+                        Use Photo
+                      </button>
+                    ) : (
+                      <p style={{ ...modalStyles.capturedText, color: "#2f6f4e", fontWeight: 700 }}>
+                        Photo selected for this claim.
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProofPhotoDataUrl("");
+                        setProofPhotoCapturedAt("");
+                        setIsProofPhotoReady(false);
+                        captureRequestRef.current += 1;
+                        setIsCameraOpen(true);
+                      }}
+                      disabled={isSubmitting}
+                      style={pageHeaderStyles.secondaryButton}
+                    >
+                      Retake Photo
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCameraError("");
+                      setIsCameraOpen(true);
+                    }}
+                    disabled={isSubmitting}
+                    style={pageHeaderStyles.secondaryButton}
+                  >
+                    Open Camera
+                  </button>
+                )}
+              </div>
+            ) : null}
+            {cameraError ? (
+              <p role="alert" style={{ ...modalStyles.capturedText, color: "#a14d58" }}>
+                {cameraError}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
         {stubDetails?.offline_household_details_unavailable ? (
           <p style={modalStyles.message}>
             Complete household details are not available in the current offline data.
@@ -523,7 +788,11 @@ const StubClaimConfirmModal = ({
         <div className="stub-claim-confirm-actions" style={modalStyles.actions}>
           <button
             type="button"
-            onClick={onCancel}
+            onClick={() => {
+              captureRequestRef.current += 1;
+              setIsCameraOpen(false);
+              onCancel?.();
+            }}
             disabled={isSubmitting}
             style={{
               ...pageHeaderStyles.secondaryButton,
@@ -535,8 +804,8 @@ const StubClaimConfirmModal = ({
           </button>
           <button
             type="button"
-            onClick={onConfirm}
-            disabled={isSubmitting}
+            onClick={handleConfirm}
+            disabled={isSubmitting || isLoadingStubDetails || (selectedCount === 1 && (proofType === "PHOTO" ? !proofPhotoDataUrl || !isProofPhotoReady : proofType !== "QR" || !qrReferenceValue))}
             style={{
               ...pageHeaderStyles.primaryButton,
               opacity: isSubmitting ? 0.7 : 1,

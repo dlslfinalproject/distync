@@ -2,6 +2,7 @@ import {
   buildOfflineQueuedResponse,
   performSyncableMutation,
 } from "../../offline/syncService";
+import { getOfflineDeviceId } from "../../offline/deviceIdentity.js";
 import {
   canUseOfflineStubCacheFallback,
   getCachedStubClaimSyncEntry,
@@ -151,6 +152,69 @@ const assertNoBlockingLocalStubClaim = async (stubId) => {
   error.code = isConflict ? "STUB_CLAIM_CONFLICT" : "STUB_CLAIM_PENDING";
   error.statusCode = 409;
   throw error;
+};
+
+const isOfflineClaimLocallyReady = async ({
+  stubId,
+  currentBarangayId,
+  disasterEventId,
+  householdId,
+  proofType,
+  qrReferenceValue,
+}) => {
+  if (typeof navigator !== "undefined" && navigator.onLine !== false) {
+    return true;
+  }
+
+  const details = await getCachedStubDetailsById(stubId, {
+    currentBarangayId: currentBarangayId || undefined,
+  });
+  if (!details || details.is_local_only || details.status !== "ISSUED") {
+    return false;
+  }
+
+  const cachedEventId =
+    details.disaster_event?.id || details.disaster_event_id || "";
+  const cachedHouseholdId = details.household?.id || details.household_id || "";
+  const attendanceStatus = String(
+    details.latest_attendance?.status || details.latest_attendance_status || "",
+  ).toUpperCase();
+  const attendanceTimeOut =
+    details.latest_attendance?.time_out ?? details.latest_attendance_time_out;
+  const eventStatus = String(
+    details.disaster_event?.status || details.disaster_event_status || "",
+  ).toUpperCase();
+  const assignedPacks = Array.isArray(details.assigned_relief_packs)
+    ? details.assigned_relief_packs
+    : [];
+  const hasStandardPack = assignedPacks.some(
+    (pack) => pack?.id && !pack?.is_additional_pack,
+  );
+
+  if (
+    !cachedEventId ||
+    !disasterEventId ||
+    String(cachedEventId) !== String(disasterEventId) ||
+    (eventStatus && eventStatus !== "ACTIVE") ||
+    !cachedHouseholdId ||
+    (householdId && String(cachedHouseholdId) !== String(householdId)) ||
+    details.household?.is_active === false ||
+    attendanceStatus !== "PRESENT" ||
+    attendanceTimeOut ||
+    !hasStandardPack
+  ) {
+    return false;
+  }
+
+  if (proofType === "QR") {
+    return Boolean(
+      qrReferenceValue &&
+        details.qr_code_value === qrReferenceValue &&
+        String(details.qr_status || "").toUpperCase() === "ACTIVE",
+    );
+  }
+
+  return proofType === "PHOTO";
 };
 
 export const fetchBarangayStubDashboard = async ({
@@ -405,12 +469,48 @@ export const claimStub = async ({
   overrideBarangayId,
   disasterEventId,
   disasterEventTitle,
+  householdId,
+  reliefPackContext = [],
+  proofType,
+  qrReferenceValue,
+  proofPhotoDataUrl,
+  proofPhotoCapturedAt,
 }) => {
+  const normalizedProofType = String(proofType || "").trim().toUpperCase();
+  if (
+    normalizedProofType === "QR" &&
+    !String(qrReferenceValue || "").trim()
+  ) {
+    const error = new Error("Scan and verify the stub QR before confirming.");
+    error.code = "DISTRIBUTION_QR_PROOF_REQUIRED";
+    throw error;
+  }
+  if (
+    normalizedProofType === "PHOTO" &&
+    !String(proofPhotoDataUrl || "").trim()
+  ) {
+    const error = new Error("Capture a claim-time photo before confirming.");
+    error.code = "DISTRIBUTION_PHOTO_PROOF_REQUIRED";
+    throw error;
+  }
+
   const payload = {
     user_id: userId || null,
     barangay_id: barangayId || null,
     override_barangay_id: overrideBarangayId || null,
     ...(disasterEventId ? { disaster_event_id: disasterEventId } : {}),
+    ...(householdId ? { household_id: householdId } : {}),
+    relief_pack_context: (Array.isArray(reliefPackContext) ? reliefPackContext : [])
+      .filter((pack) => pack?.id)
+      .map((pack) => ({
+        id: pack.id,
+        name: String(pack.name || "").slice(0, 160),
+        is_additional_pack: Boolean(pack.is_additional_pack),
+      })),
+    proof_type: normalizedProofType,
+    qr_reference_value: qrReferenceValue || null,
+    proof_photo_data_url: proofPhotoDataUrl || null,
+    proof_photo_captured_at: proofPhotoCapturedAt || null,
   };
 
   await assertNoBlockingLocalStubClaim(stubId);
@@ -421,16 +521,41 @@ export const claimStub = async ({
     entityType: "STUB",
     entityServerId: stubId,
     payload,
+    requiredFields: ["proof_type"],
+    persistBeforeRequest: true,
+    canQueueOffline: () =>
+      isOfflineClaimLocallyReady({
+        stubId,
+        currentBarangayId: barangayId || overrideBarangayId,
+        disasterEventId,
+        householdId,
+        proofType: normalizedProofType,
+        qrReferenceValue,
+      }),
     queueDisplayContext: disasterEventTitle
       ? { disaster_event_title: disasterEventTitle }
       : null,
-    request: async () => {
-      const response = await fetch(`${API_BASE_URL}/api/v1/stubs/${stubId}/claim`, {
+    request: async ({ clientSyncId, clientTimestamp }) => {
+      const response = await fetch(`${API_BASE_URL}/api/v1/sync/process`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          entries: [
+            {
+              client_sync_id: clientSyncId,
+              action_key: "STUB_CLAIM",
+              entity_type: "STUB",
+              entity_local_id: stubId,
+              entity_server_id: stubId,
+              device_id: getOfflineDeviceId(),
+              client_timestamp: clientTimestamp,
+              client_updated_at: clientTimestamp,
+              payload,
+            },
+          ],
+        }),
       });
 
       const responseData = await handleJsonResponse(
@@ -438,9 +563,34 @@ export const claimStub = async ({
         "Failed to mark the stub as claimed",
       );
 
-      await markCachedStubClaimTerminal(stubId);
+      const syncResult = Array.isArray(responseData?.data)
+        ? responseData.data.find(
+            (entry) => entry?.client_sync_id === clientSyncId,
+          )
+        : null;
 
-      return responseData;
+      if (!syncResult || syncResult.sync_status !== "SYNCED") {
+        const error = new Error(
+          syncResult?.message || "The relief distribution could not be confirmed.",
+        );
+        error.code = syncResult?.error_code || syncResult?.conflict?.conflict_type || "STUB_CLAIM_SYNC_FAILED";
+        error.statusCode = syncResult?.status_code || 409;
+        error.syncResult = syncResult || null;
+        throw error;
+      }
+
+      try {
+        await markCachedStubClaimTerminal(stubId);
+      } catch {
+        // The server and durable sync ledger are authoritative. Cache refresh
+        // will reconcile the claim the next time the stub dashboard loads.
+      }
+
+      return {
+        ...responseData,
+        ...syncResult,
+        data: syncResult.data,
+      };
     },
     buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
       buildOfflineQueuedResponse({

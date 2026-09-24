@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
 import DetailsModalShell from "../shared/DetailsModalShell";
 import EmptyState from "../shared/EmptyState";
@@ -7,6 +7,7 @@ import LoadingState from "../shared/LoadingState";
 import StatusPill from "../shared/StatusPill";
 import { shellStyles } from "../layout/BarangayLayout";
 import QrCodePanel from "../stubs/QrCodePanel";
+import ClaimProofPhotoModal from "../distribution/ClaimProofPhotoModal.jsx";
 import { formatStayTypeLabel } from "../../utils/stayType";
 import {
   getReliefPackReadinessForTemplates,
@@ -950,6 +951,7 @@ const InventoryDistributionDetailModal = ({
   showReadinessStatus = false,
   onClose,
 }) => {
+  const [isProofPhotoOpen, setIsProofPhotoOpen] = useState(false);
   if (!isOpen) {
     return null;
   }
@@ -1117,6 +1119,29 @@ const InventoryDistributionDetailModal = ({
               />
               <InfoField label="Recorded By" value={recordedBy} />
             </div>
+          </section>
+
+          <section
+            className="inventory-distribution-detail-section"
+            style={styles.sectionCard}
+          >
+            <h3 style={{ margin: 0, color: "#17324d" }}>Proof of Receipt</h3>
+            {distributionTransaction?.proof_type === "PHOTO" &&
+            distributionTransaction?.has_proof_photo ? (
+              <button
+                type="button"
+                onClick={() => setIsProofPhotoOpen(true)}
+                style={{ marginTop: "12px", border: 0, padding: 0, background: "none", color: "#245b86", fontWeight: 700, cursor: "pointer" }}
+              >
+                View Claim Photo
+              </button>
+            ) : (
+              <p style={{ ...shellStyles.mutedText, margin: "10px 0 0" }}>
+                {distributionTransaction?.proof_type === "QR"
+                  ? "Verified stub QR"
+                  : "Proof not recorded"}
+              </p>
+            )}
           </section>
 
           <section
@@ -1301,6 +1326,12 @@ const InventoryDistributionDetailModal = ({
             )}
           </section>
 
+          <ClaimProofPhotoModal
+            isOpen={isProofPhotoOpen}
+            transactionId={distributionTransaction?.id}
+            context={{ familyHeadName, stubNo: getDisplayStubNumber(stubDetails, row) }}
+            onClose={() => setIsProofPhotoOpen(false)}
+          />
         </div>
       )}
     </DetailsModalShell>
