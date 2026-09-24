@@ -264,6 +264,18 @@ const getStatusLabel = (status) => {
   return status || "-";
 };
 
+const isRowBlockedByClaimSync = (row) =>
+  row?.is_claim_pending ||
+  ["PENDING", "FAILED", "CONFLICT"].includes(
+    String(row?.sync_status || "").toUpperCase(),
+  );
+
+const getClaimSyncStatusLabel = (status) => {
+  if (status === "FAILED") return "Sync Failed";
+  if (status === "CONFLICT") return "Conflict";
+  return "Pending Sync";
+};
+
 const MswdoStubResultsTable = ({
   rows,
   isLoading,
@@ -427,6 +439,7 @@ const MswdoStubResultsTable = ({
         (row) =>
           row.status === "ISSUED" &&
           !row.is_local_only &&
+          !isRowBlockedByClaimSync(row) &&
           row.presentation_status === STUB_PRESENTATION_STATUSES.FOR_CLAIM &&
           isCurrentlyPresentStubRow(row),
       );
@@ -558,6 +571,7 @@ const MswdoStubResultsTable = ({
                 !isClaimReadOnly &&
                 row.status === "ISSUED" &&
                 !row.is_local_only &&
+                !isRowBlockedByClaimSync(row) &&
                 row.presentation_status === STUB_PRESENTATION_STATUSES.FOR_CLAIM &&
                 isCurrentlyPresentStubRow(row);
               const isSelected = safeSelectedStubIds.includes(row.id);
@@ -646,6 +660,18 @@ const MswdoStubResultsTable = ({
                     {row.is_local_only ? (
                       <span style={getStatusChipStyles("PENDING_SYNC")}>
                         Pending Sync
+                      </span>
+                    ) : isRowBlockedByClaimSync(row) ? (
+                      <span
+                        style={getStatusChipStyles(
+                          row.sync_status === "FAILED"
+                            ? "FAILED_SYNC"
+                            : row.sync_status === "CONFLICT"
+                              ? "CONFLICT"
+                              : "PENDING_SYNC",
+                        )}
+                      >
+                        {getClaimSyncStatusLabel(row.sync_status)}
                       </span>
                     ) : row.presentation_status === STUB_PRESENTATION_STATUSES.NOT_PRESENT ? (
                       <span

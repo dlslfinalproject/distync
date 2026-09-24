@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { fetchStubDetails, verifyStub } from "../features/stubs/stubService";
+import { isLocalStubClaimBlocked } from "../features/stubs/stubCache.js";
 import { ROLE_CODES } from "../utils/roleSession";
 import { extractStubQrValue } from "../utils/stubQr";
 import "./verifyStubPage.css";
@@ -394,9 +395,15 @@ const VerifyStubPage = () => {
     isAuthenticated &&
     (currentRole === ROLE_CODES.BARANGAY || currentRole === ROLE_CODES.MSWDO) &&
     stubDetails?.status === "ISSUED" &&
+    !isLocalStubClaimBlocked(stubDetails) &&
     !isArchivedHousehold(stubDetails);
 
   const isClaimedStub = stubDetails?.status === "CLAIMED";
+  const isPendingLocalClaim =
+    stubDetails?.is_claim_pending ||
+    ["PENDING", "FAILED"].includes(String(stubDetails?.sync_status || "").toUpperCase());
+  const hasLocalClaimConflict =
+    String(stubDetails?.sync_status || "").toUpperCase() === "CONFLICT";
   const proceedLink =
     currentRole === ROLE_CODES.BARANGAY
       ? buildBarangayDistributionLink(stubDetails)
@@ -429,7 +436,11 @@ const VerifyStubPage = () => {
               >
                 {isClaimedStub
                   ? "This stub has already been claimed."
-                  : `Claim status: ${stubDetails.status || "UNKNOWN"}`}
+                  : isPendingLocalClaim
+                    ? "A claim is pending synchronization on this device."
+                    : hasLocalClaimConflict
+                      ? "This stub has a synchronization conflict that needs review."
+                      : `Claim status: ${stubDetails.status || "UNKNOWN"}`}
               </div>
 
               {verificationMessage && !isClaimedStub ? (
@@ -507,7 +518,13 @@ const VerifyStubPage = () => {
                       className="verify-stub-page__detail-value"
                       style={pageStyles.detailValue}
                     >
-                      {stubDetails.status || "--"}
+                      {isClaimedStub
+                        ? "Claimed"
+                        : isPendingLocalClaim
+                          ? "Pending Sync"
+                          : hasLocalClaimConflict
+                            ? "Conflict"
+                            : stubDetails.status || "--"}
                     </p>
                   </div>
 

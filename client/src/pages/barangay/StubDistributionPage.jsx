@@ -184,7 +184,9 @@ const isSelectableClaimStubRow = (row) =>
   isCurrentlyPresentStubRow(row) &&
   !row?.is_claim_pending &&
   row?.sync_status !== "PENDING" &&
+  row?.sync_status !== "FAILED" &&
   row?.sync_status !== "CONFLICT" &&
+  row?.sync_status !== "SYNCED" &&
   !isArchivedStubHousehold(row);
 
 const buildQrScanErrorDetails = (verification, stubDetails) => {
@@ -1040,7 +1042,11 @@ const StubDistributionPage = () => {
 
       const localClaimStatus = String(stubDetails?.sync_status || "").toUpperCase();
 
-      if (localClaimStatus === "PENDING" || stubDetails?.is_claim_pending) {
+      if (
+        localClaimStatus === "PENDING" ||
+        localClaimStatus === "FAILED" ||
+        stubDetails?.is_claim_pending
+      ) {
         throw createQrScanError({
           code: QR_SCAN_ERROR_CODES.STUB_CLAIM_PENDING,
           message:

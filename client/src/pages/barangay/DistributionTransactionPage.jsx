@@ -12,6 +12,7 @@ import {
   fetchStubDetails,
   verifyStub,
 } from "../../features/stubs/stubService";
+import { isLocalStubClaimBlocked } from "../../features/stubs/stubCache.js";
 import { extractStubQrValue } from "../../utils/stubQr";
 import {
   UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE,
@@ -189,6 +190,11 @@ const DistributionTransactionPage = () => {
         }
 
         setVerifiedStubDetails(stubDetails);
+        setErrorMessage(
+          isLocalStubClaimBlocked(stubDetails)
+            ? "This relief stub already has a local claim awaiting synchronization. Review or retry synchronization before trying again."
+            : "",
+        );
         setStubContext((currentValue) => {
           if (!currentValue) {
             return currentValue;
@@ -322,6 +328,14 @@ const DistributionTransactionPage = () => {
   const handleConfirmDistribution = async (proof = {}) => {
     if (!isServerVerifiedDistributionTarget(stubContext)) {
       setErrorMessage(UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE);
+      setSuccessMessage("");
+      return;
+    }
+
+    if (isLocalStubClaimBlocked(verifiedStubDetails)) {
+      setErrorMessage(
+        "This relief stub already has a local claim awaiting synchronization. Review or retry synchronization before trying again.",
+      );
       setSuccessMessage("");
       return;
     }
@@ -528,7 +542,8 @@ const DistributionTransactionPage = () => {
       <StubClaimConfirmModal
         isOpen={
           hasTrustedStubContext &&
-          verifiedStubDetails?.status === "ISSUED"
+          verifiedStubDetails?.status === "ISSUED" &&
+          !isLocalStubClaimBlocked(verifiedStubDetails)
         }
         isSubmitting={isSubmitting}
         isLoadingStubDetails={isLoadingStubDetails}

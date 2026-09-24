@@ -187,9 +187,46 @@ export const getSyncQueueSnapshot = async () => {
 };
 
 export const getVisibleSyncQueueEntries = async () => {
+  const actorContext = getSyncQueueActorContext();
   return db.syncQueue
     .orderBy("clientTimestamp")
-    .filter((entry) => isSyncEntryVisibleForContext(entry))
+    .filter((entry) => isSyncEntryVisibleForContext(entry, actorContext))
+    .toArray();
+};
+
+export const getVisibleSyncQueueEntriesForBarangay = async (barangayId = "") => {
+  const actorContext = getSyncQueueActorContext();
+  const scopedContext =
+    actorContext.roleCode === "BARANGAY" && normalizeScopeValue(barangayId)
+      ? { ...actorContext, barangayId: normalizeScopeValue(barangayId) }
+      : actorContext;
+
+  return db.syncQueue
+    .orderBy("clientTimestamp")
+    .filter((entry) => isSyncEntryVisibleForContext(entry, scopedContext))
+    .toArray();
+};
+
+export const getVisibleStubClaimSyncEntriesForStub = async (stubId) => {
+  const normalizedStubId = normalizeScopeValue(stubId);
+  if (!normalizedStubId) {
+    return [];
+  }
+
+  const actorContext = getSyncQueueActorContext();
+  return db.syncQueue
+    .where("entityServerId")
+    .equals(normalizedStubId)
+    .filter(
+      (entry) =>
+        entry.actionKey === "STUB_CLAIM" &&
+        entry.entityType === "STUB" &&
+        entry.accessMode === actorContext.accessMode &&
+        entry.userId === actorContext.userId &&
+        entry.roleCode === actorContext.roleCode &&
+        (!entry.deviceId || !actorContext.deviceId || entry.deviceId === actorContext.deviceId) &&
+        entry.resolutionStatus !== "RESOLVED_AUTOMATICALLY",
+    )
     .toArray();
 };
 
@@ -229,6 +266,51 @@ export const getFailedSyncEntries = async (entryIds = []) => {
     .toArray();
 };
 
+const blockingStubClaimStatuses = new Set([
+  LOCAL_SYNC_STATUS.PENDING,
+  LOCAL_SYNC_STATUS.FAILED,
+  LOCAL_SYNC_STATUS.CONFLICT,
+  LOCAL_SYNC_STATUS.SYNCED,
+]);
+
+const hasSameQueueOwner = (left, right) =>
+  left?.accessMode === right?.accessMode &&
+  left?.userId === right?.userId &&
+  left?.roleCode === right?.roleCode &&
+  (!left?.deviceId || !right?.deviceId || left.deviceId === right.deviceId);
+
+export const findBlockingStubClaimEntry = (
+  existingEntries = [],
+  incomingEntry = {},
+) =>
+  existingEntries.find(
+    (candidate) =>
+      candidate.actionKey === "STUB_CLAIM" &&
+      candidate.entityType === "STUB" &&
+      candidate.entityServerId === incomingEntry.entityServerId &&
+      hasSameQueueOwner(candidate, incomingEntry) &&
+      blockingStubClaimStatuses.has(candidate.status) &&
+      candidate.resolutionStatus !== "RESOLVED_AUTOMATICALLY",
+  ) || null;
+
+const createBlockingStubClaimError = (existingEntry) => {
+  const error = new Error(
+    existingEntry?.status === LOCAL_SYNC_STATUS.CONFLICT
+      ? "This relief stub has a synchronization conflict and cannot be claimed again until it is reviewed."
+      : existingEntry?.status === LOCAL_SYNC_STATUS.SYNCED
+        ? "This relief stub already has a centrally confirmed claim."
+        : "This relief stub already has a local claim awaiting synchronization. Review or retry it before trying again.",
+  );
+  error.code =
+    existingEntry?.status === LOCAL_SYNC_STATUS.CONFLICT
+      ? "STUB_CLAIM_CONFLICT"
+      : existingEntry?.status === LOCAL_SYNC_STATUS.SYNCED
+        ? "STUB_ALREADY_CLAIMED"
+        : "STUB_CLAIM_PENDING";
+  error.statusCode = 409;
+  return error;
+};
+
 export const queueSyncEntry = async (entry) => {
   const now = getIsoNow();
   const actorContext = getSyncQueueActorContext();
@@ -240,19 +322,49 @@ export const queueSyncEntry = async (entry) => {
   // queueGroupKey remains stored for grouping/filtering, but is not an
   // idempotency boundary.
 
+  const completeStoredEntry = {
+    ...storedEntry,
+    status: LOCAL_SYNC_STATUS.PENDING,
+    lastError: null,
+    lastErrorCode: null,
+    syncedAt: null,
+    processingOwner: null,
+    processingUntil: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
   try {
-    await db.syncQueue.put({
-      ...storedEntry,
-      status: LOCAL_SYNC_STATUS.PENDING,
-      lastError: null,
-      lastErrorCode: null,
-      syncedAt: null,
-      processingOwner: null,
-      processingUntil: null,
-      createdAt: now,
-      updatedAt: now,
-    });
+    if (
+      completeStoredEntry.actionKey === "STUB_CLAIM" &&
+      completeStoredEntry.entityType === "STUB" &&
+      completeStoredEntry.entityServerId
+    ) {
+      await db.transaction("rw", db.syncQueue, async () => {
+        const existingEntries = await db.syncQueue
+          .where("entityServerId")
+          .equals(completeStoredEntry.entityServerId)
+          .toArray();
+        const blockingEntry = findBlockingStubClaimEntry(
+          existingEntries,
+          completeStoredEntry,
+        );
+        if (blockingEntry) {
+          throw createBlockingStubClaimError(blockingEntry);
+        }
+        await db.syncQueue.put(completeStoredEntry);
+      });
+    } else {
+      await db.syncQueue.put(completeStoredEntry);
+    }
   } catch (error) {
+    if (
+      ["STUB_CLAIM_PENDING", "STUB_CLAIM_CONFLICT", "STUB_ALREADY_CLAIMED"].includes(
+        error?.code,
+      )
+    ) {
+      throw error;
+    }
     const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
     storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
     storageError.cause = error;

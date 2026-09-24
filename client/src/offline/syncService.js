@@ -347,6 +347,11 @@ const flushSelectedSyncEntries = async (
         });
       }
 
+      // Reconcile the local claim cache before publishing a terminal queue
+      // status. If cache persistence fails, the queue stays retryable and
+      // continues to block another local distribution.
+      await reconcileOfflineStubCacheForSyncResult(entry, result);
+
       await updateSyncEntryStatus(entry.id, {
         status: resultStatus,
         syncTransactionId: result.sync_transaction_id || null,
@@ -365,8 +370,6 @@ const flushSelectedSyncEntries = async (
         processingUntil: null,
       });
       locallyFinalizedIds.add(entry.id);
-
-      await reconcileOfflineStubCacheForSyncResult(entry, result);
 
       if (
         entry.actionKey === "HOUSEHOLD_DEPART" &&
@@ -591,6 +594,7 @@ export const performSyncableMutation = async ({
   queueDisplayContext = null,
   canQueueOffline = null,
   persistBeforeRequest = false,
+  reconcileBeforeQueueCleanup = null,
 }) => {
   validateRequiredFields(payload, requiredFields);
   // Delete/deactivate operations require online connection to avoid unsafe
@@ -659,6 +663,33 @@ export const performSyncableMutation = async ({
       clientTimestamp,
     });
 
+    let retainPersistedEntry = false;
+    if (prePersisted && typeof reconcileBeforeQueueCleanup === "function") {
+      try {
+        await reconcileBeforeQueueCleanup(response);
+      } catch (error) {
+        // Keep the idempotent operation locally visible until the confirmed
+        // server result has also been reflected in the durable stub cache.
+        retainPersistedEntry = true;
+        try {
+          await updateSyncEntryStatus(clientSyncId, {
+            status: LOCAL_SYNC_STATUS.FAILED,
+            lastError: getSafeSyncErrorMessage(
+              error,
+              "The distribution was confirmed, but local status reconciliation needs retry.",
+            ),
+            serverMessage:
+              "The distribution was confirmed, but local status reconciliation needs retry.",
+            lastErrorCode: error?.code || "LOCAL_CLAIM_RECONCILIATION_FAILED",
+            processingOwner: null,
+            processingUntil: null,
+          });
+        } catch (_queueError) {
+          // The original pending queue row still blocks another local claim.
+        }
+      }
+    }
+
     notifyInventoryMutationListeners({
       type: "mutation-succeeded",
       actionKey,
@@ -668,7 +699,7 @@ export const performSyncableMutation = async ({
       moduleName,
     });
 
-    if (prePersisted) {
+    if (prePersisted && !retainPersistedEntry) {
       try {
         await removeSyncEntry(clientSyncId);
       } catch (error) {
@@ -714,8 +745,43 @@ export const performSyncableMutation = async ({
       throw error;
     }
 
+    let retainPersistedEntry = false;
+    const terminalSyncStatus = error?.syncResult?.sync_status;
+    if (
+      prePersisted &&
+      typeof reconcileBeforeQueueCleanup === "function" &&
+      [LOCAL_SYNC_STATUS.SYNCED, LOCAL_SYNC_STATUS.CONFLICT].includes(
+        terminalSyncStatus,
+      )
+    ) {
+      try {
+        await reconcileBeforeQueueCleanup(error.syncResult);
+      } catch (reconciliationError) {
+        // A terminal server response still needs durable local reconciliation
+        // before dropping the idempotent row that protects the stub.
+        retainPersistedEntry = true;
+        try {
+          await updateSyncEntryStatus(clientSyncId, {
+            status: LOCAL_SYNC_STATUS.FAILED,
+            lastError: getSafeSyncErrorMessage(
+              reconciliationError,
+              "The server resolved this claim, but local status reconciliation needs retry.",
+            ),
+            serverMessage:
+              "The server resolved this claim, but local status reconciliation needs retry.",
+            lastErrorCode:
+              reconciliationError?.code || "LOCAL_CLAIM_RECONCILIATION_FAILED",
+            processingOwner: null,
+            processingUntil: null,
+          });
+        } catch (_queueError) {
+          // The original pending queue row still blocks another local claim.
+        }
+      }
+    }
+
     if (!allowOffline || !isNetworkFailure(error)) {
-      if (prePersisted) {
+      if (prePersisted && !retainPersistedEntry) {
         try {
           await removeSyncEntry(clientSyncId);
         } catch (queueError) {

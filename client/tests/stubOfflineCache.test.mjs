@@ -5,7 +5,10 @@ import fs from "node:fs/promises";
 import { ACCESS_MODES } from "../src/utils/accessMode.js";
 import {
   canUseOfflineStubCacheFallback,
+  applyLocalStubClaimSyncState,
+  getClaimSyncEntryForStub,
   hasCompleteOfflineStubOwnerContext,
+  isLocalStubClaimBlocked,
   isOfflineStubVisibleForContext,
   toOfflineStubSnapshot,
   toStubDetailsFromOfflineSnapshot,
@@ -314,13 +317,91 @@ test("BRG-SC-07-M01 TEST H manual and QR confirmation still converge on STUB_CLA
   assert.match(serviceSource, /actionKey:\s*"STUB_CLAIM"/);
 });
 
-test("BRG-SC-07-M01 TEST I terminal reconciliation marks synced or conflict claims unclaimable and leaves failed claims alone", async () => {
+test("BRG-SC-07-M01 TEST I terminal cache reconciliation is distinct from retryable claim blocking", async () => {
   const source = await readSource("../src/features/stubs/stubCache.js");
+  const terminalStatuses = source.match(
+    /const claimTerminalStatuses = new Set\(\[([\s\S]*?)\]\)/,
+  )?.[1] || "";
+  const blockingStatuses = source.match(
+    /const claimBlockingStatuses = new Set\(\[([\s\S]*?)\]\)/,
+  )?.[1] || "";
 
-  assert.match(source, /claimTerminalStatuses[\s\S]*LOCAL_SYNC_STATUS\.SYNCED/);
-  assert.match(source, /claimTerminalStatuses[\s\S]*LOCAL_SYNC_STATUS\.CONFLICT/);
-  assert.doesNotMatch(source, /claimTerminalStatuses[\s\S]*LOCAL_SYNC_STATUS\.FAILED/);
+  assert.match(terminalStatuses, /LOCAL_SYNC_STATUS\.SYNCED/);
+  assert.match(terminalStatuses, /LOCAL_SYNC_STATUS\.CONFLICT/);
+  assert.doesNotMatch(terminalStatuses, /LOCAL_SYNC_STATUS\.FAILED/);
+  assert.match(blockingStatuses, /LOCAL_SYNC_STATUS\.FAILED/);
   assert.match(source, /status:\s*"CLAIMED"/);
+});
+
+test("failed local claim remains pending and blocks a repeat claim", () => {
+  const failedEntry = {
+    actionKey: "STUB_CLAIM",
+    entityType: "STUB",
+    entityServerId: "stub-1",
+    status: "FAILED",
+    payload: {
+      disaster_event_id: "event-1",
+      barangay_id: "barangay-1",
+      proof_type: "PHOTO",
+      proof_photo_data_url: "data:image/jpeg;base64,local-proof",
+    },
+  };
+  const row = applyLocalStubClaimSyncState(
+    { id: "stub-1", status: "ISSUED" },
+    getClaimSyncEntryForStub([failedEntry], "stub-1", {
+      disasterEventId: "event-1",
+      barangayId: "barangay-1",
+    }),
+  );
+
+  assert.equal(row.status, "ISSUED");
+  assert.equal(row.sync_status, "FAILED");
+  assert.equal(row.is_claim_pending, true);
+  assert.equal(isLocalStubClaimBlocked(row), true);
+  assert.equal(row.sync_status === "CLAIMED", false);
+});
+
+test("claim queue lookup uses canonical stub, event, and barangay identities", () => {
+  const queued = {
+    actionKey: "STUB_CLAIM",
+    entityType: "STUB",
+    entityServerId: "stub-a",
+    status: "PENDING",
+    payload: {
+      disaster_event_id: "event-a",
+      barangay_id: "barangay-a",
+      stub_number: "STUB#1",
+    },
+  };
+
+  assert.equal(
+    getClaimSyncEntryForStub([queued], "stub-a", {
+      disasterEventId: "event-a",
+      barangayId: "barangay-a",
+    }),
+    queued,
+  );
+  assert.equal(
+    getClaimSyncEntryForStub([queued], "stub-b", {
+      disasterEventId: "event-b",
+      barangayId: "barangay-b",
+    }),
+    null,
+  );
+  assert.equal(
+    getClaimSyncEntryForStub([queued], "stub-a", {
+      disasterEventId: "event-b",
+      barangayId: "barangay-a",
+    }),
+    null,
+  );
+  assert.equal(
+    getClaimSyncEntryForStub([queued], "stub-a", {
+      disasterEventId: "event-a",
+      barangayId: "barangay-b",
+    }),
+    null,
+  );
 });
 
 test("BRG-SC-07-M01 TEST J dashboard and detail fetches populate cache only after successful JSON responses", async () => {

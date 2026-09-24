@@ -108,6 +108,8 @@ const getMappedRows = (stubRows, disasterEventId = "") =>
     latest_attendance_time_out: stubRow.latest_attendance_time_out || null,
     is_active: stubRow.is_active !== false && stubRow.household?.is_active !== false,
     is_local_only: Boolean(stubRow.is_local_only),
+    sync_status: stubRow.sync_status || "",
+    is_claim_pending: Boolean(stubRow.is_claim_pending),
     presentation_status: stubRow.presentation_status || "",
     unclaimed_queue_position: stubRow.unclaimed_queue_position || null,
     relief_pack_name: stubRow.relief_pack_name || "--",
