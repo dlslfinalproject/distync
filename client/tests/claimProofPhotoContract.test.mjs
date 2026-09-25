@@ -1,27 +1,52 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { resolveClaimProof } from "../src/features/stubs/claimProofWorkflow.js";
 
 const readClientSource = (relativePath) =>
   fs.readFile(new URL(`../${relativePath}`, import.meta.url), "utf8");
 
-test("Barangay claim confirmation offers QR or Photo Proof and confirms only a prepared photo", async () => {
+test("claim confirmation automatically uses active QR and requires Photo Proof only as fallback", async () => {
   const source = await readClientSource("src/components/stubs/StubClaimConfirmModal.jsx");
+  const [qrProof, photoFallback, loadingProof, restrictedFallback] = [
+    resolveClaimProof({
+      stubDetails: { id: "stub-1", qr_code_value: "qr-1", qr_status: "ACTIVE" },
+    }),
+    resolveClaimProof({ stubDetails: { id: "stub-2", qr_code_value: null } }),
+    resolveClaimProof({
+      stubDetails: null,
+      isLoadingStubDetails: true,
+    }),
+    resolveClaimProof({
+      stubDetails: { id: "stub-3", qr_code_value: "qr-3", qr_status: "INACTIVE" },
+      allowPhotoProof: false,
+    }),
+  ];
 
-  assert.match(source, /Photo Proof/);
-  assert.match(source, /setProofType\("PHOTO"\);[\s\S]*Photo Proof/);
-  assert.doesNotMatch(source, /setProofType\("PHOTO"\)[\s\S]{0,160}qrReferenceValue/);
+  assert.equal(qrProof.proofType, "QR");
+  assert.equal(qrProof.qrReferenceValue, "qr-1");
+  assert.equal(photoFallback.proofType, "PHOTO");
+  assert.equal(photoFallback.qrReferenceValue, "");
+  assert.equal(loadingProof.proofType, "");
+  assert.equal(restrictedFallback.proofType, "");
+  assert.match(source, /resolveClaimProof\(/);
+  assert.match(source, /Photo Proof Required/);
+  assert.doesNotMatch(source, /Choose proof method/);
+  assert.doesNotMatch(source, /type="radio"/);
+  assert.doesNotMatch(source, /setProofType/);
+  assert.match(source, /<QrCodePanel[\s\S]*?value=\{resolvedQrReferenceValue\}/);
+  assert.match(source, /proofType === "QR" && resolvedQrReferenceValue/);
+  assert.match(source, /proofPhotoDataUrl: ""/);
   assert.match(source, /navigator\.mediaDevices\?\.getUserMedia/);
-  assert.match(source, /Choose proof method/);
-  assert.match(source, /Scan the household distribution Stub QR code/);
-  assert.match(source, /Capture a photo as proof that the relief goods were received/);
+  assert.match(source, /QR proof is unavailable for this distribution/);
   assert.match(source, /Take Photo/);
+  assert.match(source, /Open Camera/);
   assert.match(source, /Capture Photo/);
   assert.match(source, /Choose from Device/);
   assert.match(source, /Photo guidelines/);
   assert.match(source, /showing the recipient and the relief goods being handed over/);
   assert.match(source, /alt="Claim handoff proof preview"/);
-  assert.match(source, /Photo ready for this distribution/);
+  assert.match(source, /Photo ready/);
   assert.match(source, /Retake Photo/);
   assert.match(source, /Choose Another Photo/);
   assert.match(source, /normalizeImageDrawableToDataUrl\([\s\S]*?maxDimension: 1600[\s\S]*?maxOutputBytes: 2 \* 1024 \* 1024/);
@@ -32,11 +57,12 @@ test("Barangay claim confirmation offers QR or Photo Proof and confirms only a p
   assert.match(source, /Processing distribution/);
   assert.match(source, /role="dialog"[\s\S]*aria-modal="true"/);
   assert.match(source, /className="claim-proof-file-input"[\s\S]*type="file"[\s\S]*accept="image\/\*"/);
-  assert.match(source, /disabled=\{[\s\S]*?selectedCount === 1[\s\S]*?isProofPhotoReady/);
+  assert.match(source, /const isConfirmDisabled =/);
+  assert.match(source, /disabled=\{isConfirmDisabled\}/);
   assert.doesNotMatch(source, /Use Photo/);
 });
 
-test("camera cancellation and method changes discard pending photo and stop tracks", async () => {
+test("camera cancellation and retake discard drafts and stop tracks safely", async () => {
   const source = await readClientSource("src/components/stubs/StubClaimConfirmModal.jsx");
 
   assert.match(source, /if \(!isOpen\)\s*\{[\s\S]*?captureRequestRef\.current \+= 1;[\s\S]*?setProofPhotoDataUrl\(""\);/);
@@ -44,19 +70,35 @@ test("camera cancellation and method changes discard pending photo and stop trac
   assert.match(source, /if \(cancelled\) \{\s*stream\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
   assert.match(source, /requestId !== captureRequestRef\.current/);
   assert.match(source, /proofType !== "PHOTO"/);
-  assert.match(source, /setProofType\("QR"\);\s*setProofPhotoDataUrl\(""\);/);
+  assert.match(source, /setProofPhotoDataUrl\(""\);\s*setProofPhotoCapturedAt\(""\);\s*setIsProofPhotoReady\(false\);/);
   assert.match(source, /submissionStartedRef\.current = true/);
   assert.match(source, /Camera unavailable\. Choose a photo from this device or try again\./);
+  assert.match(source, /onClick=\{\(\) => startCameraCapture\(\{ replacePhoto: true \}\)\}/);
+  assert.match(source, /claimProof\.isResolved[\s\S]*proofType !== "PHOTO"[\s\S]*setIsCameraOpen\(true\)/);
+  assert.match(source, /if \(!isOpen \|\| !isCameraOpen \|\| proofType !== "PHOTO"\)/);
 });
 
-test("claim proof layout keeps controls and preview usable on narrow and short screens", async () => {
+test("claim proof layout removes method cards and keeps 4:3 camera framing responsive", async () => {
   const source = await readClientSource("src/index.css");
 
-  assert.match(source, /\.claim-proof-method-options[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
-  assert.match(source, /@media \(max-width: 520px\)[\s\S]*\.claim-proof-method-options,[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);
+  assert.doesNotMatch(source, /claim-proof-method-(?:options|option|card)/);
+  assert.match(source, /\.claim-proof-camera-preview,[\s\S]*?width: min\(100%, 480px, 60vh\)[\s\S]*?max-height: 45vh[\s\S]*?aspect-ratio: 4 \/ 3/);
+  assert.match(source, /@supports \(height: 1dvh\)[\s\S]*?60dvh[\s\S]*?45dvh/);
   assert.match(source, /\.claim-proof-photo-preview[\s\S]*object-fit: contain/);
   assert.match(source, /@media \(max-height: 620px\)[\s\S]*\.stub-claim-confirm-modal[\s\S]*max-height: calc\(100dvh - 16px\)/);
-  assert.match(source, /@media \(max-height: 620px\) and \(orientation: landscape\)/);
+  assert.match(source, /@media \(max-width: 520px\)[\s\S]*\.claim-proof-capture-actions[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);
+});
+
+test("family-head photo remains separate from required claim-time proof", async () => {
+  const [source, proofResolver] = await Promise.all([
+    readClientSource("src/components/stubs/StubClaimConfirmModal.jsx"),
+    readClientSource("src/features/stubs/claimProofWorkflow.js"),
+  ]);
+
+  assert.match(source, /Registered Family Head Photo/);
+  assert.match(source, /For manual identity verification only\./);
+  assert.match(source, /proofType: "PHOTO"[\s\S]*proofPhotoDataUrl/);
+  assert.doesNotMatch(proofResolver, /family_head_photo/);
 });
 
 test("claim payload uses one durable sync identity and refuses unprepared offline context", async () => {

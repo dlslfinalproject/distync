@@ -550,7 +550,6 @@ const DistributionTransactionPage = () => {
         onCancel={() => navigate("/barangay/stub-distribution")}
         onConfirm={handleConfirmDistribution}
         stubDetails={verifiedStubDetails}
-        initialProofType={qrLookupValue ? "QR" : ""}
         qrReferenceValue={qrLookupValue}
       />
     </>

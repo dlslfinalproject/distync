@@ -174,5 +174,6 @@ test("DEPLOY-MSWDO-RGD-03 confirm action is disabled during claim submission", a
 
   assert.match(source, /const handleConfirm = \(\) => \{[\s\S]*onConfirm\?\.\(\{/);
   assert.match(source, /onClick=\{handleConfirm\}/);
-  assert.match(source, /disabled=\{isSubmitting \|\| isLoadingStubDetails \|\|/);
+  assert.match(source, /const isConfirmDisabled =\s+isSubmitting \|\| isLoadingStubDetails/);
+  assert.match(source, /disabled=\{isConfirmDisabled\}/);
 });

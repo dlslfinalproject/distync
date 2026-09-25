@@ -4235,8 +4235,6 @@ img {
 }
 
 .claim-proof-workflow,
-.claim-proof-methods,
-.claim-proof-method-options,
 .claim-proof-capture,
 .claim-distribution-summary,
 .claim-distribution-summary-grid,
@@ -4254,7 +4252,6 @@ img {
   box-sizing: border-box;
 }
 
-.claim-proof-section-title,
 .claim-proof-capture-title,
 .claim-distribution-summary h4 {
   margin: 0;
@@ -4269,103 +4266,30 @@ img {
   border-radius: 4px;
 }
 
-.claim-proof-methods {
-  margin: 12px 0 0;
-  padding: 0;
-  border: 0;
-}
-
-.claim-proof-methods legend {
-  margin-bottom: 8px;
-  padding: 0;
-  color: #60738a;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.claim-proof-method-options {
+.claim-proof-required-notice {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid #e6cc92;
+  border-radius: 12px;
+  background: #fff9e9;
+  color: #5f4a20;
+  line-height: 1.45;
 }
 
-.claim-proof-method-option {
-  position: relative;
-  display: block;
-  min-width: 0;
-  cursor: pointer;
+.claim-proof-required-notice strong {
+  color: #513d14;
 }
 
-.claim-proof-method-option input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.claim-proof-method-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  min-height: 76px;
-  padding: 13px;
-  border: 1px solid #cbd9e7;
-  border-radius: 13px;
-  background: #fff;
-  color: #24496e;
-  box-sizing: border-box;
-  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
-}
-
-.claim-proof-method-card > svg {
-  flex: 0 0 auto;
-  margin-top: 2px;
-}
-
-.claim-proof-method-card > span {
-  display: block;
-  min-width: 0;
-}
-
-.claim-proof-method-card strong,
-.claim-proof-method-card small {
-  display: block;
+.claim-proof-required-notice span,
+.claim-proof-unavailable {
   overflow-wrap: anywhere;
+  font-size: 13px;
 }
 
-.claim-proof-method-card strong {
-  color: #17324d;
-  font-size: 14px;
-  line-height: 1.35;
-}
-
-.claim-proof-method-card small {
-  margin-top: 4px;
-  color: #60738a;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.claim-proof-method-option input:checked + .claim-proof-method-card {
-  border-color: #2878bf;
-  background: #eff7ff;
-  box-shadow: inset 0 0 0 1px #2878bf;
-}
-
-.claim-proof-method-option input:focus-visible + .claim-proof-method-card {
-  outline: 3px solid rgba(40, 120, 191, 0.35);
-  outline-offset: 2px;
-}
-
-.claim-proof-method-option input:disabled + .claim-proof-method-card {
-  opacity: 0.56;
-  cursor: not-allowed;
-}
-
-.claim-proof-supporting-copy {
-  margin-top: 10px !important;
+.claim-proof-unavailable {
+  margin: 14px 0 0;
+  color: #7a4b27;
 }
 
 .claim-proof-capture {
@@ -4442,13 +4366,16 @@ img {
 .claim-proof-camera-preview,
 .claim-proof-photo-frame {
   display: block;
-  width: 100%;
-  height: clamp(148px, 34vh, 300px);
+  width: min(100%, 480px, 60vh);
+  height: auto;
+  max-height: 45vh;
+  aspect-ratio: 4 / 3;
   max-width: 100%;
   border: 1px solid #d1dce7;
   border-radius: 12px;
   background: #152536;
   box-sizing: border-box;
+  justify-self: center;
 }
 
 .claim-proof-camera-preview {
@@ -4546,22 +4473,18 @@ img {
   text-align: right;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .claim-proof-method-option:hover:not(:has(input:disabled))
-    .claim-proof-method-card {
-    border-color: #2878bf;
-  }
-}
-
 @media (max-width: 520px) {
-  .claim-proof-method-options,
   .claim-proof-capture-actions,
   .claim-distribution-summary-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
 
-  .claim-proof-method-card {
-    min-height: 68px;
+@supports (height: 1dvh) {
+  .claim-proof-camera-preview,
+  .claim-proof-photo-frame {
+    width: min(100%, 480px, 60dvh);
+    max-height: 45dvh;
   }
 }
 
@@ -4583,15 +4506,4 @@ img {
     padding: 12px;
   }
 
-  .claim-proof-photo-frame,
-  .claim-proof-camera-preview {
-    height: clamp(112px, 27vh, 210px);
-  }
-}
-
-@media (max-height: 620px) and (orientation: landscape) {
-  .claim-proof-photo-frame,
-  .claim-proof-camera-preview {
-    height: clamp(104px, 25vh, 190px);
-  }
 }

@@ -131,9 +131,9 @@ test("shared claim modal hides raw QR text while preserving the canonical payloa
 
   assert.match(
     claimSource,
-    /<QrCodePanel[\s\S]*?value=\{stubDetails\?\.qr_code_value \|\| ""\}[\s\S]*?showValue=\{false\}[\s\S]*?\/>/,
+    /<QrCodePanel[\s\S]*?value=\{resolvedQrReferenceValue\}[\s\S]*?showValue=\{false\}[\s\S]*?\/>/,
   );
-  assert.match(claimSource, /<dt>Stub Number<\/dt>/);
+  assert.match(claimSource, /<p style=\{modalStyles\.label\}>Stub Number<\/p>/);
   assert.match(claimSource, /\{getDisplayStubNumber\(stubDetails\)\}/);
   assert.match(claimSource, /<dt>Relief Pack<\/dt>/);
   assert.match(claimSource, /Donated:/);

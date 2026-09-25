@@ -1372,7 +1372,6 @@ const StubDistributionPage = () => {
         selectedCount={isBulkClaimConfirmOpen ? selectedStubIds.length : 1}
         selectedStubs={selectedClaimRows}
         stubDetails={pendingClaimStubDetails}
-        initialProofType={pendingClaimQrReference ? "QR" : ""}
         qrReferenceValue={pendingClaimQrReference}
       />
 
