@@ -4227,3 +4227,371 @@ img {
     max-width: 100%;
   }
 }
+
+.stub-claim-confirm-modal {
+  overscroll-behavior: contain;
+  max-height: calc(100vh - 32px) !important;
+  max-height: calc(100dvh - 32px) !important;
+}
+
+.claim-proof-workflow,
+.claim-proof-methods,
+.claim-proof-method-options,
+.claim-proof-capture,
+.claim-distribution-summary,
+.claim-distribution-summary-grid,
+.claim-proof-capture-actions {
+  min-width: 0;
+}
+
+.claim-proof-workflow {
+  width: 100%;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #dce7f1;
+  border-radius: 16px;
+  background: #f8fbfe;
+  box-sizing: border-box;
+}
+
+.claim-proof-section-title,
+.claim-proof-capture-title,
+.claim-distribution-summary h4 {
+  margin: 0;
+  color: #17324d;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.stub-claim-confirm-modal > h3:focus {
+  outline: 2px solid rgba(40, 120, 191, 0.55);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.claim-proof-methods {
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.claim-proof-methods legend {
+  margin-bottom: 8px;
+  padding: 0;
+  color: #60738a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.claim-proof-method-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.claim-proof-method-option {
+  position: relative;
+  display: block;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.claim-proof-method-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.claim-proof-method-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  min-height: 76px;
+  padding: 13px;
+  border: 1px solid #cbd9e7;
+  border-radius: 13px;
+  background: #fff;
+  color: #24496e;
+  box-sizing: border-box;
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.claim-proof-method-card > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.claim-proof-method-card > span {
+  display: block;
+  min-width: 0;
+}
+
+.claim-proof-method-card strong,
+.claim-proof-method-card small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.claim-proof-method-card strong {
+  color: #17324d;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.claim-proof-method-card small {
+  margin-top: 4px;
+  color: #60738a;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.claim-proof-method-option input:checked + .claim-proof-method-card {
+  border-color: #2878bf;
+  background: #eff7ff;
+  box-shadow: inset 0 0 0 1px #2878bf;
+}
+
+.claim-proof-method-option input:focus-visible + .claim-proof-method-card {
+  outline: 3px solid rgba(40, 120, 191, 0.35);
+  outline-offset: 2px;
+}
+
+.claim-proof-method-option input:disabled + .claim-proof-method-card {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+.claim-proof-supporting-copy {
+  margin-top: 10px !important;
+}
+
+.claim-proof-capture {
+  display: grid;
+  gap: 9px;
+  margin-top: 16px;
+  padding-top: 15px;
+  border-top: 1px solid #dce7f1;
+}
+
+.claim-proof-capture-title {
+  font-size: 14px;
+}
+
+.claim-proof-guidance,
+.claim-proof-captured-at {
+  margin: 0;
+  color: #60738a;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.claim-proof-file-input {
+  display: none;
+}
+
+.claim-proof-capture-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  width: 100%;
+}
+
+.claim-proof-capture-actions > button,
+.claim-proof-take-photo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px !important;
+  padding: 10px 12px !important;
+  box-sizing: border-box;
+  white-space: normal;
+  line-height: 1.3;
+}
+
+.claim-proof-take-photo {
+  border: 1px solid #246ca9;
+  border-radius: 9px;
+  background: #2878bf;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.claim-proof-take-photo:hover:not(:disabled) {
+  background: #2169a8;
+}
+
+.claim-proof-capture-actions button:focus-visible {
+  outline: 3px solid rgba(40, 120, 191, 0.35);
+  outline-offset: 2px;
+}
+
+.claim-proof-capture-actions button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.claim-proof-camera-preview,
+.claim-proof-photo-frame {
+  display: block;
+  width: 100%;
+  height: clamp(148px, 34vh, 300px);
+  max-width: 100%;
+  border: 1px solid #d1dce7;
+  border-radius: 12px;
+  background: #152536;
+  box-sizing: border-box;
+}
+
+.claim-proof-camera-preview {
+  object-fit: cover;
+}
+
+.claim-proof-photo-frame {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.claim-proof-photo-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.claim-proof-photo-ready {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: #2f6f4e;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.claim-proof-photo-ready svg {
+  flex: 0 0 auto;
+}
+
+.claim-proof-preparing,
+.claim-proof-error,
+.claim-distribution-processing {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.claim-proof-preparing,
+.claim-distribution-processing {
+  color: #4c657d;
+}
+
+.claim-proof-error {
+  color: #a14d58;
+}
+
+.claim-distribution-summary {
+  width: 100%;
+  padding: 15px;
+  border: 1px solid #e1eaf3;
+  border-radius: 16px;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.claim-distribution-summary h4 {
+  margin-bottom: 11px;
+}
+
+.claim-distribution-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin: 0;
+}
+
+.claim-distribution-summary-grid > div {
+  min-width: 0;
+}
+
+.claim-distribution-summary-grid dt {
+  color: #60738a;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.claim-distribution-summary-grid dd {
+  margin: 3px 0 0;
+  color: #17324d;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.claim-distribution-processing {
+  margin-top: 10px;
+  text-align: right;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .claim-proof-method-option:hover:not(:has(input:disabled))
+    .claim-proof-method-card {
+    border-color: #2878bf;
+  }
+}
+
+@media (max-width: 520px) {
+  .claim-proof-method-options,
+  .claim-proof-capture-actions,
+  .claim-distribution-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .claim-proof-method-card {
+    min-height: 68px;
+  }
+}
+
+@media (max-height: 620px) {
+  .stub-claim-confirm-modal-backdrop {
+    align-items: flex-start !important;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+  }
+
+  .stub-claim-confirm-modal {
+    max-height: calc(100vh - 16px) !important;
+    max-height: calc(100dvh - 16px) !important;
+    padding: 12px !important;
+  }
+
+  .claim-proof-workflow {
+    margin-top: 10px;
+    padding: 12px;
+  }
+
+  .claim-proof-photo-frame,
+  .claim-proof-camera-preview {
+    height: clamp(112px, 27vh, 210px);
+  }
+}
+
+@media (max-height: 620px) and (orientation: landscape) {
+  .claim-proof-photo-frame,
+  .claim-proof-camera-preview {
+    height: clamp(104px, 25vh, 190px);
+  }
+}

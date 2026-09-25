@@ -3,8 +3,13 @@ import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 import { RELATIONSHIP_OPTIONS } from "../../utils/registrationOptions";
 import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
-import { normalizeImageDrawableToDataUrl } from "../../utils/imageProcessing.js";
+import {
+  normalizeImageDrawableToDataUrl,
+  normalizeImageFileToDataUrl,
+} from "../../utils/imageProcessing.js";
 import QrCodePanel from "./QrCodePanel";
+import { FiCamera, FiCheckCircle, FiImage, FiRotateCcw } from "react-icons/fi";
+import { MdQrCodeScanner } from "react-icons/md";
 
 const modalStyles = {
   overlay: {
@@ -367,15 +372,21 @@ const StubClaimConfirmModal = ({
   const [proofPhotoCapturedAt, setProofPhotoCapturedAt] = useState("");
   const [isProofPhotoReady, setIsProofPhotoReady] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isCameraReady, setIsCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
   const cameraVideoRef = useRef(null);
+  const photoFileInputRef = useRef(null);
+  const dialogHeadingRef = useRef(null);
+  const submissionStartedRef = useRef(false);
   const captureRequestRef = useRef(0);
 
   useEffect(() => {
     if (!isOpen) {
       captureRequestRef.current += 1;
+      submissionStartedRef.current = false;
       setIsCameraOpen(false);
+      setIsCameraReady(false);
       setProofPhotoDataUrl("");
       setProofPhotoCapturedAt("");
       setIsProofPhotoReady(false);
@@ -384,15 +395,34 @@ const StubClaimConfirmModal = ({
       return;
     }
     captureRequestRef.current += 1;
+    submissionStartedRef.current = false;
     setProofType(
       initialProofType === "QR" && qrReferenceValue ? "QR" : "",
     );
     setProofPhotoDataUrl("");
     setProofPhotoCapturedAt("");
     setIsProofPhotoReady(false);
+    setIsPreparingPhoto(false);
+    setIsCameraReady(false);
     setCameraError("");
     setIsCameraOpen(false);
   }, [isOpen, stubDetails?.id, initialProofType, qrReferenceValue]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const previouslyFocusedElement = document.activeElement;
+    dialogHeadingRef.current?.focus();
+    return () => previouslyFocusedElement?.focus?.();
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isSubmitting) {
+      submissionStartedRef.current = false;
+    }
+  }, [isSubmitting]);
 
   useEffect(() => {
     if (!isOpen || !isCameraOpen) {
@@ -415,13 +445,23 @@ const StubClaimConfirmModal = ({
           return;
         }
         if (cameraVideoRef.current) {
-          cameraVideoRef.current.srcObject = stream;
-          await cameraVideoRef.current.play().catch(() => undefined);
+          const video = cameraVideoRef.current;
+          video.srcObject = stream;
+          video.onloadedmetadata = () => {
+            setIsCameraReady(Boolean(video.videoWidth && video.videoHeight));
+          };
+          await video.play().catch(() => undefined);
+          if (video.videoWidth && video.videoHeight) {
+            setIsCameraReady(true);
+          }
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
-          setCameraError(error?.message || "Unable to open the camera.");
+          setCameraError(
+            "Camera unavailable. Choose a photo from this device or try again.",
+          );
           setIsCameraOpen(false);
+          setIsCameraReady(false);
         }
       }
     };
@@ -431,6 +471,7 @@ const StubClaimConfirmModal = ({
       cancelled = true;
       stream?.getTracks().forEach((track) => track.stop());
       if (cameraVideoRef.current) {
+        cameraVideoRef.current.onloadedmetadata = null;
         cameraVideoRef.current.srcObject = null;
       }
     };
@@ -455,16 +496,20 @@ const StubClaimConfirmModal = ({
       if (
         requestId !== captureRequestRef.current ||
         !isOpen ||
-        proofType !== "PHOTO"
+        proofType !== "PHOTO" ||
+        isSubmitting
       ) {
         return;
       }
       setProofPhotoDataUrl(photo);
       setProofPhotoCapturedAt(new Date().toISOString());
-      setIsProofPhotoReady(false);
+      setIsProofPhotoReady(true);
       setIsCameraOpen(false);
-    } catch (error) {
-      setCameraError(error?.message || "The photo could not be prepared.");
+      setIsCameraReady(false);
+    } catch {
+      setCameraError(
+        "Unable to prepare this photo. Please take another photo and try again.",
+      );
     } finally {
       if (requestId === captureRequestRef.current) {
         setIsPreparingPhoto(false);
@@ -472,8 +517,81 @@ const StubClaimConfirmModal = ({
     }
   };
 
+  const handleProofPhotoFileChange = async (event) => {
+    const selectedFile = event.target.files?.[0];
+    event.target.value = "";
+    if (!selectedFile || proofType !== "PHOTO" || isSubmitting) {
+      return;
+    }
+
+    const requestId = ++captureRequestRef.current;
+    setIsCameraOpen(false);
+    setIsCameraReady(false);
+    setIsPreparingPhoto(true);
+    setCameraError("");
+    setProofPhotoDataUrl("");
+    setProofPhotoCapturedAt("");
+    setIsProofPhotoReady(false);
+
+    try {
+      const photo = await normalizeImageFileToDataUrl(selectedFile, {
+        maxSourceBytes: 8 * 1024 * 1024,
+        maxDimension: 1600,
+        maxOutputBytes: 2 * 1024 * 1024,
+      });
+      if (
+        requestId !== captureRequestRef.current ||
+        !isOpen ||
+        proofType !== "PHOTO" ||
+        isSubmitting
+      ) {
+        return;
+      }
+
+      setProofPhotoDataUrl(photo);
+      setProofPhotoCapturedAt(new Date().toISOString());
+      setIsProofPhotoReady(true);
+    } catch {
+      if (requestId === captureRequestRef.current) {
+        setCameraError(
+          "Unable to use this photo. Please take another photo or choose a different image.",
+        );
+      }
+    } finally {
+      if (requestId === captureRequestRef.current) {
+        setIsPreparingPhoto(false);
+      }
+    }
+  };
+
+  const openDevicePhotoPicker = () => {
+    if (isSubmitting || isPreparingPhoto) {
+      return;
+    }
+    photoFileInputRef.current?.click();
+  };
+
+  const startCameraCapture = ({ replacePhoto = false } = {}) => {
+    if (isSubmitting || isPreparingPhoto) {
+      return;
+    }
+    captureRequestRef.current += 1;
+    setIsCameraReady(false);
+    if (replacePhoto) {
+      setProofPhotoDataUrl("");
+      setProofPhotoCapturedAt("");
+      setIsProofPhotoReady(false);
+    }
+    setCameraError("");
+    setIsCameraOpen(true);
+  };
+
   const handleConfirm = () => {
+    if (isSubmitting || submissionStartedRef.current) {
+      return;
+    }
     if (proofType === "QR" && qrReferenceValue) {
+      submissionStartedRef.current = true;
       onConfirm?.({
         proofType: "QR",
         qrReferenceValue,
@@ -482,7 +600,13 @@ const StubClaimConfirmModal = ({
       });
       return;
     }
-    if (proofType === "PHOTO" && proofPhotoDataUrl && isProofPhotoReady) {
+    if (
+      proofType === "PHOTO" &&
+      proofPhotoDataUrl &&
+      isProofPhotoReady &&
+      !isPreparingPhoto
+    ) {
+      submissionStartedRef.current = true;
       onConfirm?.({
         proofType: "PHOTO",
         qrReferenceValue: "",
@@ -496,78 +620,178 @@ const StubClaimConfirmModal = ({
     return null;
   }
 
-  const message =
-    selectedCount > 1
-      ? "Are you sure the selected stubs have been claimed?"
-      : "Are you sure this stub has been claimed?";
   const familyMembers = Array.isArray(stubDetails?.household?.members)
     ? stubDetails.household.members
     : [];
   const reliefPackParts = buildReliefPackDisplayParts(stubDetails);
   const reliefPackDisplay = reliefPackParts.reliefPackDisplay;
   const donatedReliefPackNames = getDonatedReliefPackNames(stubDetails);
+  const disasterEventName =
+    stubDetails?.disaster_event?.title ||
+    stubDetails?.disaster_event?.name ||
+    "--";
   const familyHeadPhotoUrl = resolveFamilyHeadPhoto(stubDetails?.household, {
     isOffline: stubDetails?.is_cached_offline === true,
   });
   const selectedStubSummaries = selectedStubs.map(getSelectedStubSummary);
   const hasDonatedRelief = donatedReliefPackNames.length > 0;
+  const distributionMessage =
+    selectedCount > 1
+      ? "Review the selected stubs and confirm after the relief handover."
+      : "Review the distribution details, then confirm after the relief handover.";
+  const handleDialogKeyDown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (!isSubmitting) {
+        onCancel?.();
+      }
+      return;
+    }
+
+    if (event.key !== "Tab") {
+      return;
+    }
+
+    const focusableElements = event.currentTarget.querySelectorAll(
+      'button:not(:disabled), input[type="radio"]:not(:disabled)',
+    );
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    if (!firstElement || !lastElement) {
+      return;
+    }
+
+    if (event.shiftKey && document.activeElement === firstElement) {
+      event.preventDefault();
+      lastElement.focus();
+    } else if (!event.shiftKey && document.activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  };
 
   return (
     <div className="stub-claim-confirm-modal-backdrop" style={modalStyles.overlay}>
-      <div className="stub-claim-confirm-modal" style={modalStyles.modal}>
-        <h3 style={modalStyles.title}>Confirm Relief Distribution</h3>
-        <p style={modalStyles.message}>{message}</p>
+      <div
+        className="stub-claim-confirm-modal"
+        style={modalStyles.modal}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="claim-distribution-title"
+        aria-describedby="claim-distribution-message"
+        tabIndex={-1}
+        onKeyDown={handleDialogKeyDown}
+      >
+        <h3
+          id="claim-distribution-title"
+          ref={dialogHeadingRef}
+          tabIndex={-1}
+          style={modalStyles.title}
+        >
+          Confirm Relief Distribution
+        </h3>
+        <p id="claim-distribution-message" style={modalStyles.message}>
+          {distributionMessage}
+        </p>
         {selectedCount === 1 ? (
           <section
-            aria-label="Claim receipt proof"
-            style={{ ...modalStyles.infoCard, marginTop: "16px" }}
+            className="claim-proof-workflow"
+            aria-labelledby="claim-proof-section-title"
           >
-            <p style={modalStyles.label}>Proof of Receipt</p>
-            <p style={{ ...modalStyles.message, marginTop: "6px" }}>
-              Choose the verified stub QR or take a photo at handoff. The registered family head photo is for identity verification only.
-            </p>
-            <div style={{ ...modalStyles.actions, justifyContent: "center" }}>
-              <button
-                type="button"
-                aria-pressed={proofType === "QR"}
-                disabled={!qrReferenceValue || isSubmitting || isLoadingStubDetails}
-                onClick={() => {
-                  captureRequestRef.current += 1;
-                  setProofType("QR");
-                  setProofPhotoDataUrl("");
-                  setProofPhotoCapturedAt("");
-                  setIsProofPhotoReady(false);
-                  setIsCameraOpen(false);
-                }}
-                style={proofType === "QR" ? pageHeaderStyles.primaryButton : pageHeaderStyles.secondaryButton}
-              >
-                {qrReferenceValue ? "Verified QR" : "Scan stub QR first"}
-              </button>
-              <button
-                type="button"
-                aria-pressed={proofType === "PHOTO"}
-                disabled={isSubmitting || isLoadingStubDetails || !allowPhotoProof}
-                onClick={() => {
-                  captureRequestRef.current += 1;
-                  setProofType("PHOTO");
-                  setIsCameraOpen(false);
-                  setCameraError("");
-                }}
-                style={proofType === "PHOTO" ? pageHeaderStyles.primaryButton : pageHeaderStyles.secondaryButton}
-              >
-                Photo Proof
-              </button>
-            </div>
-            <p style={{ ...modalStyles.capturedText, fontWeight: 700, color: "#24496e" }}>
-              Proof Method: {proofType === "QR" ? "QR" : proofType === "PHOTO" ? "Photo" : "Choose QR or Photo"}
-            </p>
+            <h4 id="claim-proof-section-title" className="claim-proof-section-title">
+              Proof of Receipt
+            </h4>
+            <fieldset
+              className="claim-proof-methods"
+              disabled={isSubmitting || isLoadingStubDetails}
+            >
+              <legend>Choose proof method</legend>
+              <div className="claim-proof-method-options">
+                <label className="claim-proof-method-option">
+                  <input
+                    type="radio"
+                    name="claim-proof-method"
+                    value="QR"
+                    checked={proofType === "QR"}
+                    disabled={!qrReferenceValue || isSubmitting || isLoadingStubDetails}
+                    onChange={() => {
+                      captureRequestRef.current += 1;
+                      setProofType("QR");
+                      setProofPhotoDataUrl("");
+                      setProofPhotoCapturedAt("");
+                      setIsProofPhotoReady(false);
+                      setIsCameraOpen(false);
+                      setIsCameraReady(false);
+                      setIsPreparingPhoto(false);
+                      setCameraError("");
+                    }}
+                  />
+                  <span className="claim-proof-method-card">
+                    <MdQrCodeScanner aria-hidden="true" size={22} />
+                    <span>
+                      <strong>QR Code</strong>
+                      <small>
+                        {qrReferenceValue
+                          ? "Scan the household distribution Stub QR code."
+                          : "Scan and verify the household Stub QR code first."}
+                      </small>
+                    </span>
+                  </span>
+                </label>
+                <label className="claim-proof-method-option">
+                  <input
+                    type="radio"
+                    name="claim-proof-method"
+                    value="PHOTO"
+                    checked={proofType === "PHOTO"}
+                    disabled={isSubmitting || isLoadingStubDetails || !allowPhotoProof}
+                    onChange={() => {
+                      captureRequestRef.current += 1;
+                      setProofType("PHOTO");
+                      setIsCameraOpen(false);
+                      setIsCameraReady(false);
+                      setIsPreparingPhoto(false);
+                      setCameraError("");
+                    }}
+                  />
+                  <span className="claim-proof-method-card">
+                    <FiCamera aria-hidden="true" size={22} />
+                    <span>
+                      <strong>Photo Proof</strong>
+                      <small>
+                        Capture a photo as proof that the relief goods were received.
+                      </small>
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
             {!allowPhotoProof ? (
-              <p style={modalStyles.capturedText}>
+              <p className="claim-proof-supporting-copy" style={modalStyles.capturedText}>
                 Photo Proof capture is available to Barangay officials. Use a verified QR for this claim.
               </p>
             ) : null}
             {proofType === "PHOTO" ? (
-              <div style={{ display: "grid", gap: "10px", justifyItems: "center", marginTop: "12px" }}>
+              <section
+                className="claim-proof-capture"
+                aria-labelledby="claim-proof-photo-title"
+              >
+                <h5 id="claim-proof-photo-title" className="claim-proof-capture-title">
+                  Photo guidelines
+                </h5>
+                <p className="claim-proof-guidance">
+                  Capture a clear photo showing the recipient and the relief goods being handed over.
+                  Make sure the image is visible and not blurred.
+                </p>
+                <input
+                  ref={photoFileInputRef}
+                  className="claim-proof-file-input"
+                  type="file"
+                  accept="image/*"
+                  aria-label="Choose a claim proof photo from this device"
+                  tabIndex={-1}
+                  onChange={handleProofPhotoFileChange}
+                />
                 {isCameraOpen ? (
                   <>
                     <video
@@ -576,75 +800,104 @@ const StubClaimConfirmModal = ({
                       muted
                       playsInline
                       aria-label="Live claim proof camera preview"
-                      style={{ width: "100%", maxHeight: "280px", background: "#152536", borderRadius: "12px" }}
+                      className="claim-proof-camera-preview"
                     />
-                    <button
-                      type="button"
-                      onClick={captureProofPhoto}
-                      disabled={isPreparingPhoto}
-                      style={pageHeaderStyles.primaryButton}
-                    >
-                      {isPreparingPhoto ? "Preparing Photo…" : "Capture Photo"}
-                    </button>
+                    <div className="claim-proof-capture-actions">
+                      <button
+                        type="button"
+                        onClick={captureProofPhoto}
+                        disabled={!isCameraReady || isPreparingPhoto || isSubmitting}
+                        className="claim-proof-take-photo"
+                      >
+                        <FiCamera aria-hidden="true" size={18} />
+                        {isPreparingPhoto ? "Preparing photo…" : "Capture Photo"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openDevicePhotoPicker}
+                        disabled={isPreparingPhoto || isSubmitting}
+                        style={pageHeaderStyles.secondaryButton}
+                      >
+                        <FiImage aria-hidden="true" size={17} />
+                        Choose from Device
+                      </button>
+                    </div>
+                    {!isCameraReady && !isPreparingPhoto ? (
+                      <p className="claim-proof-preparing" role="status" aria-live="polite">
+                        Opening camera…
+                      </p>
+                    ) : null}
                   </>
                 ) : proofPhotoDataUrl ? (
                   <>
-                    <img
-                      src={proofPhotoDataUrl}
-                      alt="Claim handoff proof preview"
-                      style={{ width: "100%", maxHeight: "260px", objectFit: "contain", borderRadius: "12px", background: "#152536" }}
-                    />
-                    <p style={modalStyles.capturedText}>
-                      Captured {formatPhotoCapturedAt(proofPhotoCapturedAt)}. Photo stays queued on this device until sync completes.
+                    <div className="claim-proof-photo-frame">
+                      <img
+                        src={proofPhotoDataUrl}
+                        alt="Claim handoff proof preview"
+                        className="claim-proof-photo-preview"
+                      />
+                    </div>
+                    <p className="claim-proof-photo-ready" role="status" aria-live="polite">
+                      <FiCheckCircle aria-hidden="true" size={17} />
+                      Photo ready for this distribution
                     </p>
-                    {!isProofPhotoReady ? (
+                    <p className="claim-proof-captured-at">
+                      Captured {formatPhotoCapturedAt(proofPhotoCapturedAt)}
+                    </p>
+                    <div className="claim-proof-capture-actions">
                       <button
                         type="button"
-                        onClick={() => setIsProofPhotoReady(true)}
-                        disabled={isSubmitting}
-                        style={pageHeaderStyles.primaryButton}
+                        onClick={() => startCameraCapture({ replacePhoto: true })}
+                        disabled={isSubmitting || isPreparingPhoto}
+                        style={pageHeaderStyles.secondaryButton}
                       >
-                        Use Photo
+                        <FiRotateCcw aria-hidden="true" size={17} />
+                        Retake Photo
                       </button>
-                    ) : (
-                      <p style={{ ...modalStyles.capturedText, color: "#2f6f4e", fontWeight: 700 }}>
-                        Photo selected for this claim.
-                      </p>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProofPhotoDataUrl("");
-                        setProofPhotoCapturedAt("");
-                        setIsProofPhotoReady(false);
-                        captureRequestRef.current += 1;
-                        setIsCameraOpen(true);
-                      }}
-                      disabled={isSubmitting}
-                      style={pageHeaderStyles.secondaryButton}
-                    >
-                      Retake Photo
-                    </button>
+                      <button
+                        type="button"
+                        onClick={openDevicePhotoPicker}
+                        disabled={isSubmitting || isPreparingPhoto}
+                        style={pageHeaderStyles.secondaryButton}
+                      >
+                        <FiImage aria-hidden="true" size={17} />
+                        Choose Another Photo
+                      </button>
+                    </div>
                   </>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCameraError("");
-                      setIsCameraOpen(true);
-                    }}
-                    disabled={isSubmitting}
-                    style={pageHeaderStyles.secondaryButton}
-                  >
-                    Open Camera
-                  </button>
+                  <div className="claim-proof-capture-actions">
+                    <button
+                      type="button"
+                      onClick={() => startCameraCapture()}
+                      disabled={isSubmitting || isPreparingPhoto}
+                      className="claim-proof-take-photo"
+                    >
+                      <FiCamera aria-hidden="true" size={18} />
+                      Take Photo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openDevicePhotoPicker}
+                      disabled={isSubmitting || isPreparingPhoto}
+                      style={pageHeaderStyles.secondaryButton}
+                    >
+                      <FiImage aria-hidden="true" size={17} />
+                      Choose from Device
+                    </button>
+                  </div>
                 )}
-              </div>
-            ) : null}
-            {cameraError ? (
-              <p role="alert" style={{ ...modalStyles.capturedText, color: "#a14d58" }}>
-                {cameraError}
-              </p>
+                {isPreparingPhoto ? (
+                  <p className="claim-proof-preparing" role="status" aria-live="polite">
+                    Preparing photo…
+                  </p>
+                ) : null}
+                {cameraError ? (
+                  <p className="claim-proof-error" role="alert">
+                    {cameraError}
+                  </p>
+                ) : null}
+              </section>
             ) : null}
           </section>
         ) : null}
@@ -659,64 +912,106 @@ const StubClaimConfirmModal = ({
             className="stub-claim-confirm-content"
             style={modalStyles.photoSection}
           >
-            <div style={modalStyles.infoCard}>
-              <p style={modalStyles.label}>Stub Number</p>
-              <p style={modalStyles.value}>
-                {getDisplayStubNumber(stubDetails)}
-              </p>
-            </div>
+            <section
+              className="claim-distribution-summary"
+              aria-labelledby="claim-distribution-summary-title"
+            >
+              <h4 id="claim-distribution-summary-title">
+                Distribution summary
+              </h4>
+              <dl className="claim-distribution-summary-grid">
+                <div>
+                  <dt>Household / Family Head</dt>
+                  <dd>
+                    {stubDetails?.household?.family_head_name ||
+                      stubDetails?.family_head_name ||
+                      "--"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Stub Number</dt>
+                  <dd>{getDisplayStubNumber(stubDetails)}</dd>
+                </div>
+                <div>
+                  <dt>Disaster Event</dt>
+                  <dd>{disasterEventName}</dd>
+                </div>
+                <div>
+                  <dt>Relief Pack</dt>
+                  <dd>
+                    {reliefPackDisplay}
+                    {hasDonatedRelief
+                      ? [" · Donated: ", donatedReliefPackNames.join(", ").toUpperCase()].join("")
+                      : ""}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Proof Method</dt>
+                  <dd>
+                    {proofType === "QR"
+                      ? "QR Code"
+                      : proofType === "PHOTO"
+                        ? "Photo Proof"
+                        : "Choose a method"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Proof Photo</dt>
+                  <dd>
+                    {proofType === "PHOTO"
+                      ? isProofPhotoReady
+                        ? "Attached"
+                        : "Required"
+                      : "Not used"}
+                  </dd>
+                </div>
+              </dl>
+            </section>
 
-            <div style={modalStyles.qrCard}>
-              <p style={modalStyles.label}>QR Code</p>
-              <QrCodePanel
-                value={stubDetails?.qr_code_value || ""}
-                emptyLabel="No QR available"
-                showValue={false}
-                containerStyle={modalStyles.qrPanel}
-                imageStyle={modalStyles.qrImage}
-                valueStyle={modalStyles.qrValue}
-              />
-              <p style={modalStyles.label}>Standard Relief</p>
-              <p style={modalStyles.centeredValue}>{reliefPackDisplay}</p>
-              {reliefPackParts.multiplierText ? (
-                <p style={{ ...modalStyles.capturedText, textAlign: "center" }}>
-                  {reliefPackParts.multiplierText}
-                </p>
-              ) : null}
-              {hasDonatedRelief ? (
-                <>
-                  <p style={{ ...modalStyles.label, marginTop: "8px" }}>
-                    Donated Relief
+            {proofType === "QR" ? (
+              <div style={modalStyles.qrCard}>
+                <p style={modalStyles.label}>Stub QR Reference</p>
+                <QrCodePanel
+                  value={stubDetails?.qr_code_value || ""}
+                  emptyLabel="No QR available"
+                  showValue={false}
+                  containerStyle={modalStyles.qrPanel}
+                  imageStyle={modalStyles.qrImage}
+                  valueStyle={modalStyles.qrValue}
+                />
+                {reliefPackParts.multiplierText ? (
+                  <p style={{ ...modalStyles.capturedText, textAlign: "center" }}>
+                    {reliefPackParts.multiplierText}
                   </p>
-                  {donatedReliefPackNames.length > 0 ? (
-                    <p style={modalStyles.centeredValue}>
-                      {donatedReliefPackNames.join(", ").toUpperCase()}
-                    </p>
-                  ) : null}
-                </>
-              ) : null}
-            </div>
+                ) : null}
+              </div>
+            ) : null}
 
             <div
               className="stub-claim-confirm-family-head"
               style={modalStyles.familyHeadCard}
             >
               {isLoadingStubDetails ? (
-                <div style={modalStyles.photoPlaceholder}>Loading photo...</div>
+                <div style={modalStyles.photoPlaceholder}>Loading registered photo...</div>
               ) : familyHeadPhotoUrl ? (
                 <img
                   src={familyHeadPhotoUrl}
-                  alt="Registered family head"
+                  alt="Registered family head photo for manual identity verification"
                   style={modalStyles.photoPreview}
                 />
               ) : (
-                <div style={modalStyles.photoPlaceholder}>No photo available</div>
+                <div style={modalStyles.photoPlaceholder}>No registered photo available</div>
               )}
 
               <div>
-                <p style={modalStyles.label}>Family Head</p>
+                <p style={modalStyles.label}>Registered Family Head Photo</p>
                 <p style={modalStyles.value}>
-                  {stubDetails?.household?.family_head_name || "--"}
+                  {stubDetails?.household?.family_head_name ||
+                    stubDetails?.family_head_name ||
+                    "--"}
+                </p>
+                <p style={modalStyles.capturedText}>
+                  For manual identity verification only.
                 </p>
                 {stubDetails?.household?.photo_captured_at ? (
                   <p style={modalStyles.capturedText}>
@@ -805,16 +1100,46 @@ const StubClaimConfirmModal = ({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={isSubmitting || isLoadingStubDetails || (selectedCount === 1 && (proofType === "PHOTO" ? !proofPhotoDataUrl || !isProofPhotoReady : proofType !== "QR" || !qrReferenceValue))}
+            disabled={
+              isSubmitting ||
+              isLoadingStubDetails ||
+              isPreparingPhoto ||
+              (selectedCount === 1 &&
+                (proofType === "PHOTO"
+                  ? !proofPhotoDataUrl || !isProofPhotoReady
+                  : proofType !== "QR" || !qrReferenceValue))
+            }
             style={{
               ...pageHeaderStyles.primaryButton,
-              opacity: isSubmitting ? 0.7 : 1,
+              opacity:
+                isSubmitting ||
+                isLoadingStubDetails ||
+                isPreparingPhoto ||
+                (selectedCount === 1 &&
+                  (proofType === "PHOTO"
+                    ? !proofPhotoDataUrl || !isProofPhotoReady
+                    : proofType !== "QR" || !qrReferenceValue))
+                  ? 0.58
+                  : 1,
               cursor: isSubmitting ? "wait" : "pointer",
             }}
           >
-            {isSubmitting ? "Marking as Claimed..." : "Confirm"}
+            {isSubmitting
+              ? "Processing distribution…"
+              : selectedCount > 1
+                ? "Confirm Distributions"
+                : "Confirm Distribution"}
           </button>
         </div>
+        {isSubmitting ? (
+          <p className="claim-distribution-processing" role="status" aria-live="polite">
+            {selectedCount > 1
+              ? "Recording the selected relief distributions."
+              : proofType === "PHOTO"
+                ? "Recording the claim and securing the photo proof."
+                : "Recording the relief distribution."}
+          </p>
+        ) : null}
       </div>
     </div>
   );
