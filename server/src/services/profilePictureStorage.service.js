@@ -273,11 +273,32 @@ const uploadProfilePicture = async ({
       cacheControl: "300",
     });
 
-  if (error) {
-    const uploadError = new Error("Failed to upload the profile picture.");
-    uploadError.statusCode = 500;
-    throw uploadError;
-  }
+ if (error) {
+   let projectHost = null;
+
+   try {
+     projectHost = new URL(config.supabaseUrl).hostname;
+   } catch {
+     projectHost = null;
+   }
+
+   console.error("[profile-picture-storage:upload]", {
+     projectHost,
+     bucketName: config.bucketName,
+     name: typeof error?.name === "string" ? error.name : null,
+     status: Number.isInteger(error?.status) ? error.status : null,
+     statusCode:
+       typeof error?.statusCode === "string" ? error.statusCode : null,
+     message:
+       typeof error?.message === "string"
+         ? error.message.replace(/[\r\n\t]/g, " ").slice(0, 300)
+         : null,
+   });
+
+   const uploadError = new Error("Failed to upload the profile picture.");
+   uploadError.statusCode = 500;
+   throw uploadError;
+ }
 
   return {
     profilePicturePath,
