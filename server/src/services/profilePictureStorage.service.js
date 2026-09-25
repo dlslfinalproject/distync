@@ -69,17 +69,28 @@ const getStorageErrorField = (error, field, isValid) => {
   }
 };
 
-const logProfilePictureStorageUploadError = (error, config) => {
-  let projectHost = null;
-
+const getProfilePictureStorageProjectHost = (config) => {
   try {
-    projectHost = new URL(config.supabaseUrl).hostname || null;
+    return new URL(config.supabaseUrl).hostname || null;
   } catch {
-    projectHost = null;
+    return null;
   }
+};
 
+const logProfilePictureStorageUploadAttempt = (config) => {
+  try {
+    console.error("[profile-picture-storage:upload-attempt]", {
+      projectHost: getProfilePictureStorageProjectHost(config),
+      bucketName: sanitizeStorageDiagnosticText(config.bucketName, config),
+    });
+  } catch {
+    // Diagnostic logging must not interfere with the upload attempt.
+  }
+};
+
+const logProfilePictureStorageUploadError = (error, config) => {
   const diagnostic = {
-    projectHost,
+    projectHost: getProfilePictureStorageProjectHost(config),
     bucketName: sanitizeStorageDiagnosticText(config.bucketName, config),
     name: sanitizeStorageDiagnosticText(
       getStorageErrorField(
@@ -349,13 +360,17 @@ const uploadProfilePicture = async ({
     userId,
     fileExtension: parsedFile.fileExtension,
   });
-  const { error } = await supabase.storage
-    .from(config.bucketName)
-    .upload(profilePicturePath, parsedFile.buffer, {
+  const profilePictureStorageBucket = supabase.storage.from(config.bucketName);
+  logProfilePictureStorageUploadAttempt(config);
+  const { error } = await profilePictureStorageBucket.upload(
+    profilePicturePath,
+    parsedFile.buffer,
+    {
       contentType: parsedFile.mimeType,
       upsert: false,
       cacheControl: "300",
-    });
+    },
+  );
 
   if (error) {
     logProfilePictureStorageUploadError(error, config);

@@ -87,7 +87,7 @@ const withStorageConfig = async (callback, overrides = {}) => {
   }
 };
 
-const captureStorageDiagnostic = async (callback) => {
+const captureStorageLogs = async (callback) => {
   const originalConsoleError = console.error;
   const entries = [];
   console.error = (...args) => entries.push(args);
@@ -144,25 +144,40 @@ test("parseProfilePictureUpload rejects decoded PNG content above 2 MB", () => {
   );
 });
 
-test("successful profile picture upload does not emit the failure diagnostic", async () => {
+test("successful profile picture upload emits only the safe attempt marker", async () => {
   await withStorageConfig(async () => {
     uploadCalls.length = 0;
     uploadResult = { data: { path: "stored/path.png" }, error: null };
     let result;
-    const entries = await captureStorageDiagnostic(async () => {
+    const entries = await captureStorageLogs(async () => {
       result = await uploadProfilePicture(validUpload);
     });
 
-    assert.equal(entries.length, 0);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0][0], "[profile-picture-storage:upload-attempt]");
+    assert.deepEqual(entries[0][1], {
+      projectHost: "project-123.supabase.co",
+      bucketName: "distync-profile-pictures",
+    });
     assert.equal(result.profilePictureFileName, "private-original.png");
     assert.match(result.profilePicturePath, /^private-user-id\//);
     assert.equal(uploadCalls.length, 1);
     assert.equal(uploadCalls[0].bucketName, "distync-profile-pictures");
     assert.equal(uploadCalls[0].buffer.toString("base64"), validUpload.fileDataBase64);
+    const markerOutput = JSON.stringify(entries);
+    for (const privateValue of [
+      "service-role-secret-value",
+      "https://project-123.supabase.co?private=query",
+      "private-user-id",
+      "private-original.png",
+      validUpload.fileDataBase64,
+    ]) {
+      assert.equal(markerOutput.includes(privateValue), false, privateValue);
+    }
   });
 });
 
-test("Storage upload failure logs only sanitized metadata and keeps the generic error", async () => {
+test("Storage upload failure logs attempt then sanitized failure and keeps the generic error", async () => {
   await withStorageConfig(async () => {
     uploadCalls.length = 0;
     const storageError = Object.assign(
@@ -178,7 +193,7 @@ test("Storage upload failure logs only sanitized metadata and keeps the generic 
     );
     uploadResult = { data: null, error: storageError };
 
-    const entries = await captureStorageDiagnostic(async () => {
+    const entries = await captureStorageLogs(async () => {
       await assert.rejects(
         uploadProfilePicture(validUpload),
         (error) => {
@@ -189,9 +204,14 @@ test("Storage upload failure logs only sanitized metadata and keeps the generic 
       );
     });
 
-    assert.equal(entries.length, 1);
-    assert.equal(entries[0][0], "[profile-picture-storage:upload]");
-    const diagnostic = entries[0][1];
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0][0], "[profile-picture-storage:upload-attempt]");
+    assert.deepEqual(entries[0][1], {
+      projectHost: "project-123.supabase.co",
+      bucketName: "distync-profile-pictures",
+    });
+    assert.equal(entries[1][0], "[profile-picture-storage:upload]");
+    const diagnostic = entries[1][1];
     assert.equal(diagnostic.projectHost, "project-123.supabase.co");
     assert.equal(diagnostic.bucketName, "distync-profile-pictures");
     assert.equal(diagnostic.name, "StorageApiError");
@@ -230,15 +250,15 @@ test("Storage diagnostic message is bounded at 300 characters", async () => {
         statusCode: "InternalError",
       }),
     };
-    const entries = await captureStorageDiagnostic(() =>
+    const entries = await captureStorageLogs(() =>
       assert.rejects(
         uploadProfilePicture(validUpload),
         /Failed to upload the profile picture\./,
       ),
     );
 
-    assert.equal(entries.length, 1);
-    assert.equal(entries[0][1].message.length, 300);
+    assert.equal(entries.length, 2);
+    assert.equal(entries[1][1].message.length, 300);
   });
 });
 
@@ -254,7 +274,7 @@ test("malformed Supabase URL and unknown error fields do not mask the generic er
         },
       );
       uploadResult = { data: null, error: unknownError };
-      const entries = await captureStorageDiagnostic(() =>
+      const entries = await captureStorageLogs(() =>
         assert.rejects(
           uploadProfilePicture(validUpload),
           (error) => {
@@ -264,8 +284,14 @@ test("malformed Supabase URL and unknown error fields do not mask the generic er
         ),
       );
 
-      assert.equal(entries.length, 1);
+      assert.equal(entries.length, 2);
+      assert.equal(entries[0][0], "[profile-picture-storage:upload-attempt]");
       assert.deepEqual(entries[0][1], {
+        projectHost: null,
+        bucketName: "distync-profile-pictures",
+      });
+      assert.equal(entries[1][0], "[profile-picture-storage:upload]");
+      assert.deepEqual(entries[1][1], {
         projectHost: null,
         bucketName: "distync-profile-pictures",
         name: null,
@@ -288,16 +314,16 @@ test("StorageUnknownError uses only its safe top-level message", async () => {
         originalError: new Error("raw transport details"),
       }),
     };
-    const entries = await captureStorageDiagnostic(() =>
+    const entries = await captureStorageLogs(() =>
       assert.rejects(
         uploadProfilePicture(validUpload),
         /Failed to upload the profile picture\./,
       ),
     );
 
-    assert.equal(entries.length, 1);
-    assert.equal(entries[0][1].name, "StorageUnknownError");
-    assert.equal(entries[0][1].message, "fetch failed");
+    assert.equal(entries.length, 2);
+    assert.equal(entries[1][1].name, "StorageUnknownError");
+    assert.equal(entries[1][1].message, "fetch failed");
     assert.equal(JSON.stringify(entries).includes("raw transport details"), false);
   });
 });
@@ -326,5 +352,22 @@ test("a logging failure cannot replace the generic profile picture error", async
     } finally {
       console.error = originalConsoleError;
     }
+  });
+});
+
+test("validation failure before Storage does not emit an upload attempt", async () => {
+  await withStorageConfig(async () => {
+    uploadCalls.length = 0;
+    const entries = await captureStorageLogs(() =>
+      assert.rejects(
+        uploadProfilePicture({
+          ...validUpload,
+          fileDataBase64: "not-base64",
+        }),
+      ),
+    );
+
+    assert.deepEqual(entries, []);
+    assert.equal(uploadCalls.length, 0);
   });
 });

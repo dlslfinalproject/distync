@@ -1483,9 +1483,10 @@ test("saveCurrentSettings does not write PROFILE_UPDATED for notification-only u
   );
 });
 
-test("saveCurrentSettings does not write PROFILE_UPDATED for unchanged profile submissions", async () => {
+test("unchanged profile submissions do not audit or upload a profile picture", async () => {
   const dbClient = buildDbClient();
   const auditEntries = [];
+  const profilePictureUploadCalls = [];
   const user = {
     id: "user-noop-profile",
     email: "mayor-noop@example.com",
@@ -1522,7 +1523,15 @@ test("saveCurrentSettings does not write PROFILE_UPDATED for unchanged profile s
       [notificationServicePath]: {
         getNotificationRulesForRole: async () => [],
       },
-      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub({
+        uploadProfilePicture: async (...args) => {
+          profilePictureUploadCalls.push(args);
+          return {
+            profilePicturePath: "user/default-picture.jpg",
+            profilePictureFileName: "default-picture.jpg",
+          };
+        },
+      }),
       [systemLogRepositoryPath]: {
         insertAuditLog: async (payload) => {
           auditEntries.push(payload);
@@ -1552,6 +1561,7 @@ test("saveCurrentSettings does not write PROFILE_UPDATED for unchanged profile s
         auditEntries.some((entry) => entry.action === "PROFILE_UPDATED"),
         false,
       );
+      assert.deepEqual(profilePictureUploadCalls, []);
     },
   );
 });
