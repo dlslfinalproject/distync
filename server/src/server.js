@@ -1,20 +1,6 @@
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
-try {
-  require("./utils/runtimeBuildFingerprint").logRuntimeBuildFingerprint({
-    env: {
-      RENDER_GIT_COMMIT: process.env.RENDER_GIT_COMMIT,
-      RENDER_GIT_BRANCH: process.env.RENDER_GIT_BRANCH,
-    },
-    serverEntrypoint: __filename,
-    resolveProfileStorageModule: () =>
-      require.resolve("./services/profilePictureStorage.service"),
-  });
-} catch {
-  // Temporary runtime fingerprinting must never prevent server startup.
-}
-
 let app;
 let pool;
 let notificationService;
