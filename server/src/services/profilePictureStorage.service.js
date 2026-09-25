@@ -8,6 +8,7 @@ const PROFILE_PICTURE_MAX_BASE64_ENCODED_LENGTH = getMaxBase64EncodedLength(
   PROFILE_PICTURE_MAX_FILE_SIZE_BYTES,
 );
 const PROFILE_PICTURE_SIGNED_URL_TTL_SECONDS = 10 * 60;
+const PROFILE_PICTURE_STORAGE_DIAGNOSTIC_MESSAGE_MAX_LENGTH = 300;
 const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
@@ -29,6 +30,89 @@ const normalizeEnvValue = (value) => {
   }
 
   return value.trim();
+};
+
+const sanitizeStorageDiagnosticText = (value, config) => {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  let sanitizedValue = value.replace(/[\r\n\t\v\f\u2028\u2029]+/g, " ");
+  const secrets = [config.supabaseServiceRoleKey, config.supabaseUrl].filter(
+    (secret) => typeof secret === "string" && secret.length > 0,
+  );
+
+  for (const secret of secrets) {
+    sanitizedValue = sanitizedValue.split(secret).join("[REDACTED]");
+  }
+
+  sanitizedValue = sanitizedValue
+    .replace(
+      /\bAuthorization\s*:\s*(?:Bearer\s+)?[^\s,;]+/gi,
+      "[REDACTED_AUTH]",
+    )
+    .replace(/\bBearer\s+[^\s,;]+/gi, "Bearer [REDACTED]")
+    .replace(/https?:\/\/[^\s"'<>]+/gi, "[REDACTED_URL]");
+
+  return sanitizedValue.slice(
+    0,
+    PROFILE_PICTURE_STORAGE_DIAGNOSTIC_MESSAGE_MAX_LENGTH,
+  );
+};
+
+const getStorageErrorField = (error, field, isValid) => {
+  try {
+    const value = error?.[field];
+    return isValid(value) ? value : null;
+  } catch {
+    return null;
+  }
+};
+
+const logProfilePictureStorageUploadError = (error, config) => {
+  let projectHost = null;
+
+  try {
+    projectHost = new URL(config.supabaseUrl).hostname || null;
+  } catch {
+    projectHost = null;
+  }
+
+  const diagnostic = {
+    projectHost,
+    bucketName: sanitizeStorageDiagnosticText(config.bucketName, config),
+    name: sanitizeStorageDiagnosticText(
+      getStorageErrorField(
+        error,
+        "name",
+        (value) => typeof value === "string",
+      ),
+      config,
+    ),
+    status: getStorageErrorField(error, "status", Number.isInteger),
+    statusCode: sanitizeStorageDiagnosticText(
+      getStorageErrorField(
+        error,
+        "statusCode",
+        (value) => typeof value === "string",
+      ),
+      config,
+    ),
+    message: sanitizeStorageDiagnosticText(
+      getStorageErrorField(
+        error,
+        "message",
+        (value) => typeof value === "string",
+      ),
+      config,
+    ),
+  };
+
+  try {
+    console.error("[profile-picture-storage:upload]", diagnostic);
+  } catch {
+    // Diagnostic logging must never replace the generic application error.
+  }
 };
 
 const normalizeStoragePath = (value = "") => {
@@ -273,32 +357,13 @@ const uploadProfilePicture = async ({
       cacheControl: "300",
     });
 
- if (error) {
-   let projectHost = null;
+  if (error) {
+    logProfilePictureStorageUploadError(error, config);
 
-   try {
-     projectHost = new URL(config.supabaseUrl).hostname;
-   } catch {
-     projectHost = null;
-   }
-
-   console.error("[profile-picture-storage:upload]", {
-     projectHost,
-     bucketName: config.bucketName,
-     name: typeof error?.name === "string" ? error.name : null,
-     status: Number.isInteger(error?.status) ? error.status : null,
-     statusCode:
-       typeof error?.statusCode === "string" ? error.statusCode : null,
-     message:
-       typeof error?.message === "string"
-         ? error.message.replace(/[\r\n\t]/g, " ").slice(0, 300)
-         : null,
-   });
-
-   const uploadError = new Error("Failed to upload the profile picture.");
-   uploadError.statusCode = 500;
-   throw uploadError;
- }
+    const uploadError = new Error("Failed to upload the profile picture.");
+    uploadError.statusCode = 500;
+    throw uploadError;
+  }
 
   return {
     profilePicturePath,
