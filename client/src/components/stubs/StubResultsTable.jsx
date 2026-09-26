@@ -7,7 +7,10 @@ import { formatOrderedSectorText } from "../../utils/sectorDisplay";
 import SyncStatusIcon from "../shared/SyncStatusIcon";
 import TablePagination from "../shared/TablePagination";
 import QrCodePanel from "./QrCodePanel";
-import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
+import {
+  isCurrentlyPresentStubRow,
+  isSelectableClaimStubRow,
+} from "../../features/stubs/stubEligibility";
 import { shouldShowSyncStatusIcon } from "../../offline/syncStatus";
 
 const tableStyles = {
@@ -364,15 +367,7 @@ const StubResultsTable = ({
 
   const selectableRows = isClaimReadOnly
     ? []
-    : rows.filter(
-        (row) =>
-          getPresentationStatus(row) === "FOR_CLAIM" &&
-          row.status === "ISSUED" &&
-          !row.is_local_only &&
-          isCurrentlyPresentStubRow(row) &&
-          !isArchivedHouseholdRow(row) &&
-          !isRowBlockedByClaimSync(row),
-      );
+    : rows.filter((row) => isSelectableClaimStubRow(row));
 
   const areAllSelected =
     selectableRows.length > 0 &&
@@ -481,12 +476,7 @@ const StubResultsTable = ({
               const presentationStatus = getPresentationStatus(row);
               const isSelectable =
                 !isClaimReadOnly &&
-                presentationStatus === "FOR_CLAIM" &&
-                row.status === "ISSUED" &&
-                !row.is_local_only &&
-                isCurrentlyPresentStubRow(row) &&
-                !isArchivedRow &&
-                !isRowBlockedByClaimSync(row);
+                isSelectableClaimStubRow(row);
               const isSelected = safeSelectedStubIds.includes(row.id);
               const syncStatus = row.sync_status || "SYNCED";
 

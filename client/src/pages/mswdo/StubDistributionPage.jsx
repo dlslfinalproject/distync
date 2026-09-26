@@ -27,7 +27,7 @@ import { getStubClaimErrorDialog } from "../../features/stubs/stubClaimErrors";
 import { useMswdoStubDistribution } from "../../features/stubs/useMswdoStubDistribution";
 import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 import db from "../../offline/db.js";
-import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
+import { findSyncEntry } from "../../offline/syncStatus";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import { buildMasterlistFilterSectorOptions } from "../../utils/registrationOptions";
 import { STATUS_FILTERS } from "../../features/stubs/stubStatusFilters";
@@ -40,13 +40,12 @@ import { readOperationalDisasterEventScope } from "../../features/disaster-event
 import { ROLE_CODES } from "../../utils/roleSession";
 import {
   getStubClaimUnavailableMessage,
+  getStubClaimRowSyncStatus,
   isCurrentlyPresentStubRow,
+  isSelectableClaimStubRow,
 } from "../../features/stubs/stubEligibility";
 import { resolveStubDetailsForOfflineDisplay } from "../../features/stubs/offlineHouseholdHydration";
-import {
-  comparePresentedStubRows,
-  STUB_PRESENTATION_STATUSES,
-} from "../../features/stubs/stubPresentation.js";
+import { comparePresentedStubRows } from "../../features/stubs/stubPresentation.js";
 import { ALL_BARANGAYS } from "../../features/stubs/useMswdoStubDistribution";
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
@@ -221,16 +220,6 @@ const stubStatusOptions = [
   { value: STATUS_FILTERS.CLAIMED, label: "Claimed" },
   { value: STATUS_FILTERS.NOT_PRESENT, label: "Unclaimed" },
 ];
-
-const isSelectableClaimStubRow = (row) =>
-  row?.status === "ISSUED" &&
-  !row?.is_local_only &&
-  !row?.is_claim_pending &&
-  !["PENDING", "FAILED", "CONFLICT", "SYNCED"].includes(
-    String(row?.sync_status || "").toUpperCase(),
-  ) &&
-  row?.presentation_status === STUB_PRESENTATION_STATUSES.FOR_CLAIM &&
-  isCurrentlyPresentStubRow(row);
 
 const getStubSortTime = (row) => {
   const timestamp =
@@ -478,9 +467,7 @@ const StubDistributionPage = () => {
 
       return {
         ...row,
-        sync_status: row.is_local_only
-          ? row.sync_status
-          : buildSyncDescriptor(matchingEntry).status,
+        sync_status: getStubClaimRowSyncStatus(row, matchingEntry),
       };
     });
   }, [displayedRows, pagination, selectedSortOrder, syncQueueEntries]);

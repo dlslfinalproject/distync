@@ -176,11 +176,13 @@ test("failed claims remain blocked in both Barangay and MSWDO distribution table
   const barangayTable = await readSource("../src/components/stubs/StubResultsTable.jsx");
   const mswdoTable = await readSource("../src/components/stubs/MswdoStubResultsTable.jsx");
   const mswdoPage = await readSource("../src/pages/mswdo/StubDistributionPage.jsx");
+  const eligibilitySource = await readSource("../src/features/stubs/stubEligibility.js");
 
-  assert.match(barangayTable, /row\?\.sync_status === "FAILED"/);
+  assert.match(barangayTable, /isSelectableClaimStubRow\(row\)/);
   assert.match(barangayTable, /getClaimSyncStatusLabel\(row\.sync_status\)/);
-  assert.match(mswdoTable, /\["PENDING", "FAILED", "CONFLICT"\]/);
-  assert.match(mswdoPage, /row\?\.sync_status \|\| ""\)\.toUpperCase\(\)/);
+  assert.match(mswdoTable, /isSelectableClaimStubRow\(row\)/);
+  assert.match(mswdoPage, /getStubClaimRowSyncStatus\(row, matchingEntry\)/);
+  assert.match(eligibilitySource, /"PENDING",\s*"FAILED",\s*"CONFLICT",\s*"SYNCED"/);
 });
 
 test("server-confirmed claims reconcile the cache before releasing the local lock", async () => {
