@@ -2,7 +2,6 @@ export const resolveClaimProof = ({
   stubDetails,
   qrReferenceValue = "",
   isLoadingStubDetails = false,
-  allowPhotoProof = true,
 } = {}) => {
   if (isLoadingStubDetails || !stubDetails?.id) {
     return {
@@ -37,7 +36,7 @@ export const resolveClaimProof = ({
   return {
     isResolved: true,
     isQrProofAvailable: false,
-    proofType: allowPhotoProof ? "PHOTO" : "",
+    proofType: "PHOTO",
     qrReferenceValue: "",
   };
 };

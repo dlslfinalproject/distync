@@ -364,7 +364,6 @@ const StubClaimConfirmModal = ({
   selectedCount = 1,
   stubDetails = null,
   qrReferenceValue = "",
-  allowPhotoProof = true,
 }) => {
   const [proofPhotoDataUrl, setProofPhotoDataUrl] = useState("");
   const [proofPhotoCapturedAt, setProofPhotoCapturedAt] = useState("");
@@ -409,7 +408,6 @@ const StubClaimConfirmModal = ({
           stubDetails,
           qrReferenceValue,
           isLoadingStubDetails,
-          allowPhotoProof,
         })
       : {
           isResolved: false,
@@ -431,7 +429,6 @@ const StubClaimConfirmModal = ({
       !isOpen ||
       !claimProof.isResolved ||
       proofType !== "PHOTO" ||
-      !allowPhotoProof ||
       isSubmitting
     ) {
       return;
@@ -441,7 +438,6 @@ const StubClaimConfirmModal = ({
     setCameraError("");
     setIsCameraOpen(true);
   }, [
-    allowPhotoProof,
     claimProof.isResolved,
     isOpen,
     isSubmitting,
@@ -883,14 +879,6 @@ const StubClaimConfirmModal = ({
                 ) : null}
               </section>
           </section>
-        ) : null}
-        {selectedCount === 1 &&
-        claimProof.isResolved &&
-        !claimProof.isQrProofAvailable &&
-        !allowPhotoProof ? (
-          <p className="claim-proof-unavailable" role="status">
-            QR proof is unavailable for this distribution. Photo Proof capture is available to Barangay officials.
-          </p>
         ) : null}
         {stubDetails?.offline_household_details_unavailable ? (
           <p style={modalStyles.message}>

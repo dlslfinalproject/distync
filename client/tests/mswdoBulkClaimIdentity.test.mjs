@@ -33,5 +33,7 @@ test("MSWDO queued claims keep per-record identity in the shared STUB_CLAIM payl
 
   assert.match(serviceSource, /barangay_id: barangayId \|\| null/);
   assert.match(serviceSource, /disaster_event_id: disasterEventId/);
+  assert.match(serviceSource, /proof_type: normalizedProofType/);
+  assert.match(serviceSource, /proof_photo_data_url: proofPhotoDataUrl \|\| null/);
   assert.match(serviceSource, /actionKey: "STUB_CLAIM"/);
 });

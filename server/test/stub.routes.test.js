@@ -405,7 +405,7 @@ test("DEPLOY-MSWDO-RGD-01 route keeps Barangay dashboard scoped to auth user", a
   assert.equal(capturedFilters.override_barangay_id, null);
 });
 
-test("DEPLOY-MSWDO-RGD-01 route passes MSWDO claim scope through the sync ledger without adding Mayor", async () => {
+test("MSWDO Photo claim keeps its barangay scope in the shared STUB_CLAIM route", async () => {
   let capturedEntry = null;
   let capturedAllowedRoles = null;
 
@@ -457,8 +457,9 @@ test("DEPLOY-MSWDO-RGD-01 route passes MSWDO claim scope through the sync ledger
             body: JSON.stringify({
               barangay_id: selectedBarangayId,
               disaster_event_id: eventId,
-              proof_type: "QR",
-              qr_reference_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+              proof_type: "PHOTO",
+              proof_photo_data_url: "data:image/jpeg;base64,dGVzdA==",
+              proof_photo_captured_at: "2026-09-24T03:00:00.000Z",
               client_sync_id: "33333333-3333-4333-8333-333333333333",
             }),
           },
@@ -477,7 +478,54 @@ test("DEPLOY-MSWDO-RGD-01 route passes MSWDO claim scope through the sync ledger
   assert.equal(capturedEntry.payload.user_id, null);
   assert.equal(capturedEntry.payload.barangay_id, selectedBarangayId);
   assert.equal(capturedEntry.payload.override_barangay_id, null);
-  assert.equal(capturedEntry.payload.proof_type, "QR");
+  assert.equal(capturedEntry.payload.proof_type, "PHOTO");
+  assert.equal(capturedEntry.payload.proof_photo_data_url, "data:image/jpeg;base64,dGVzdA==");
+});
+
+test("Mayor remains unauthorized to submit a Photo Proof Stub claim", async () => {
+  let syncCalled = false;
+
+  await withStubbedStubRoute(
+    {
+      auth: {
+        userId: "mayor-user",
+        roleCode: "MAYOR",
+        defaultBarangayId: null,
+      },
+      serviceImpl: {},
+      syncImpl: {
+        processSyncEntries: async () => {
+          syncCalled = true;
+          return [];
+        },
+      },
+    },
+    async (router) => {
+      const server = await listen(router);
+
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:${server.address().port}/api/v1/stubs/${stubId}/claim`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+              proof_type: "PHOTO",
+              proof_photo_data_url: "data:image/jpeg;base64,dGVzdA==",
+              client_sync_id: "33333333-3333-4333-8333-333333333333",
+            }),
+          },
+        );
+
+        assert.equal(response.status, 403);
+      } finally {
+        await closeServer(server);
+      }
+    },
+  );
+
+  assert.equal(syncCalled, false);
 });
 
 for (const role of ["BARANGAY", "MSWDO"]) {

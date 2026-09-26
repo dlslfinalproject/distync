@@ -118,6 +118,38 @@ test("DEPLOY-MSWDO-RGD-01 claim validator accepts legitimate barangay_id scope",
   });
 });
 
+test("MSWDO claim validator accepts Photo Proof only with a claim-time photo", async () => {
+  const photoResult = await runMiddleware(validateClaimBarangayStub, {
+    params: { id: stubId },
+    body: {
+      barangay_id: barangayId,
+      disaster_event_id: eventId,
+      proof_type: "PHOTO",
+      proof_photo_data_url: "data:image/jpeg;base64,dGVzdA==",
+      proof_photo_captured_at: "2026-09-24T03:00:00.000Z",
+      client_sync_id: "33333333-3333-4333-8333-333333333333",
+    },
+  });
+
+  assert.equal(photoResult.calledNext, true);
+  assert.equal(photoResult.req.validatedBody.proof_type, "PHOTO");
+  assert.equal(photoResult.req.validatedBody.proof_photo_data_url, "data:image/jpeg;base64,dGVzdA==");
+  assert.equal(photoResult.req.validatedBody.disaster_event_id, eventId);
+
+  const missingPhotoResult = await runMiddleware(validateClaimBarangayStub, {
+    params: { id: stubId },
+    body: {
+      barangay_id: barangayId,
+      proof_type: "PHOTO",
+      client_sync_id: "33333333-3333-4333-8333-333333333333",
+    },
+  });
+
+  assert.equal(missingPhotoResult.calledNext, false);
+  assert.equal(missingPhotoResult.statusCode, 400);
+  assert.equal(missingPhotoResult.payload.code, "CLAIM_PROOF_PHOTO_INVALID");
+});
+
 test("DEPLOY-BRG-RGD-OFFLINE-QR claim validator preserves the requested disaster event", async () => {
   const result = await runMiddleware(validateClaimBarangayStub, {
     params: { id: stubId },

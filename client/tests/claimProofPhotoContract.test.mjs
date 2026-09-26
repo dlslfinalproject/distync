@@ -8,18 +8,17 @@ const readClientSource = (relativePath) =>
 
 test("claim confirmation automatically uses active QR and requires Photo Proof only as fallback", async () => {
   const source = await readClientSource("src/components/stubs/StubClaimConfirmModal.jsx");
-  const [qrProof, photoFallback, loadingProof, restrictedFallback] = [
+  const [qrProof, photoFallback, inactiveQrFallback, loadingProof] = [
     resolveClaimProof({
       stubDetails: { id: "stub-1", qr_code_value: "qr-1", qr_status: "ACTIVE" },
     }),
     resolveClaimProof({ stubDetails: { id: "stub-2", qr_code_value: null } }),
     resolveClaimProof({
-      stubDetails: null,
-      isLoadingStubDetails: true,
+      stubDetails: { id: "stub-3", qr_code_value: "qr-3", qr_status: "INACTIVE" },
     }),
     resolveClaimProof({
-      stubDetails: { id: "stub-3", qr_code_value: "qr-3", qr_status: "INACTIVE" },
-      allowPhotoProof: false,
+      stubDetails: null,
+      isLoadingStubDetails: true,
     }),
   ];
 
@@ -27,9 +26,11 @@ test("claim confirmation automatically uses active QR and requires Photo Proof o
   assert.equal(qrProof.qrReferenceValue, "qr-1");
   assert.equal(photoFallback.proofType, "PHOTO");
   assert.equal(photoFallback.qrReferenceValue, "");
+  assert.equal(inactiveQrFallback.proofType, "PHOTO");
+  assert.equal(inactiveQrFallback.qrReferenceValue, "");
   assert.equal(loadingProof.proofType, "");
-  assert.equal(restrictedFallback.proofType, "");
   assert.match(source, /resolveClaimProof\(/);
+  assert.doesNotMatch(source, /allowPhotoProof/);
   assert.match(source, /Photo Proof Required/);
   assert.doesNotMatch(source, /Choose proof method/);
   assert.doesNotMatch(source, /type="radio"/);
@@ -60,6 +61,16 @@ test("claim confirmation automatically uses active QR and requires Photo Proof o
   assert.match(source, /const isConfirmDisabled =/);
   assert.match(source, /disabled=\{isConfirmDisabled\}/);
   assert.doesNotMatch(source, /Use Photo/);
+});
+
+test("MSWDO row confirmation uses the shared automatic proof workflow", async () => {
+  const source = await readClientSource("src/pages/mswdo/StubDistributionPage.jsx");
+
+  assert.match(source, /const handleOpenClaimConfirmation = \(stubId\) =>/);
+  assert.match(source, /setPendingClaimStubId\(stubId\)/);
+  assert.match(source, /fetchStubDetails\(pendingClaimStubId\)/);
+  assert.match(source, /<StubClaimConfirmModal[\s\S]*?stubDetails=\{pendingClaimStubDetails\}/);
+  assert.doesNotMatch(source, /allowPhotoProof|must start with a verified QR scan/);
 });
 
 test("camera cancellation and retake discard drafts and stop tracks safely", async () => {

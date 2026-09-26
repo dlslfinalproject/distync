@@ -821,7 +821,174 @@ test("Barangay Photo proof is prepared after the locked stub passes claim valida
   assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
 });
 
-test("MSWDO cannot submit Photo proof capture", async () => {
+test("MSWDO Photo proof uses the same locked claim transaction within event scope", async () => {
+  const events = [];
+  const uploadedProofPhotos = [];
+  let claimRequest = null;
+  const scopedMswdoStub = { ...baseStub, status: "ISSUED" };
+
+  await withStubbedStubService(
+    createBaseStubs({
+      events,
+      scopedStub: scopedMswdoStub,
+      lockedStub: {
+        ...scopedMswdoStub,
+        disaster_event_status: "ACTIVE",
+      },
+      disasterEventOverrides: {
+        getAffectedBarangayScopeByDisasterEventId: async () => [{
+          id: baseBarangayId,
+          mapped_barangay_id: baseBarangayId,
+          is_active: true,
+        }],
+      },
+      claimHandler: async (request) => {
+        claimRequest = request;
+        const proofPhoto = await request.prepareProofPhoto({ stub: request.stub });
+        return {
+          distributionTransaction: {
+            id: "mswdo-photo-distribution-1",
+            proof_type: "PHOTO",
+            proof_photo_path: proofPhoto.path,
+          },
+          updatedStub: { ...scopedMswdoStub, status: "CLAIMED" },
+          assignedReliefPackTemplates: [{ id: "assigned-standard-pack", name: "Standard" }],
+          packQuantity: 1,
+          donatedReliefPacks: [],
+          donatedLooseItems: [],
+        };
+      },
+    }),
+    async ({ claimBarangayStub }) => {
+      const result = await claimBarangayStub({
+        ...baseParams,
+        barangay_id: baseBarangayId,
+        proof_type: "PHOTO",
+        qr_reference_value: null,
+        proof_photo_data_url: "data:image/jpeg;base64,dGVzdA==",
+        proof_photo_captured_at: "2026-09-24T03:00:00.000Z",
+        requester: { roleCode: "MSWDO", userId: "mswdo-user" },
+        prepareClaimProofPhoto: async ({ stub }) => {
+          assert.equal(stub.id, scopedMswdoStub.id);
+          const photo = {
+            path: "event/barangay/claims/operations/0123456789abcdef0123456789abcdef/photo.jpg",
+            sha256: "c".repeat(64),
+            mimeType: "image/jpeg",
+            sizeBytes: 4,
+          };
+          uploadedProofPhotos.push(photo);
+          return photo;
+        },
+      });
+
+      assert.equal(result.data.distribution_transaction_id, "mswdo-photo-distribution-1");
+      assert.equal(result.data.status, "CLAIMED");
+    },
+  );
+
+  assert.equal(claimRequest.proofType, "PHOTO");
+  assert.equal(claimRequest.qrReferenceValue, null);
+  assert.equal(claimRequest.proofPhotoCapturedAt, "2026-09-24T03:00:00.000Z");
+  assert.deepEqual(uploadedProofPhotos.map((photo) => photo.sha256), ["c".repeat(64)]);
+  assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
+});
+
+test("cross-role QR and Photo claims share the same already-claimed Stub protection", async () => {
+  const scenarios = [
+    {
+      priorProofType: "QR",
+      proofType: "PHOTO",
+      requester: { roleCode: "MSWDO", userId: "mswdo-user" },
+      proofPayload: { proof_photo_data_url: "data:image/jpeg;base64,dGVzdA==" },
+    },
+    {
+      priorProofType: "PHOTO",
+      proofType: "QR",
+      requester: {
+        roleCode: "BARANGAY",
+        userId: baseParams.user_id,
+        defaultBarangayId: baseBarangayId,
+      },
+      proofPayload: { qr_reference_value: baseStub.qr_code_value },
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const events = [];
+    const claimedStub = { ...baseStub, status: "CLAIMED" };
+
+    await withStubbedStubService(
+      createBaseStubs({
+        events,
+        scopedStub: claimedStub,
+        disasterEventOverrides: {
+          getAffectedBarangayScopeByDisasterEventId: async () => [{
+            id: baseBarangayId,
+            mapped_barangay_id: baseBarangayId,
+            is_active: true,
+          }],
+        },
+        stubRepositoryOverrides: {
+          getLatestDistributionTransactionByStubId: async () => ({
+            id: "prior-distribution",
+            stub_id: claimedStub.id,
+            proof_type: scenario.priorProofType,
+            distribution_status: "CLAIMED",
+          }),
+        },
+      }),
+      async ({ claimBarangayStub }) => {
+        await assert.rejects(
+          () => claimBarangayStub({
+            ...baseParams,
+            ...scenario.proofPayload,
+            proof_type: scenario.proofType,
+            requester: scenario.requester,
+          }),
+          { code: "STUB_ALREADY_CLAIMED", statusCode: 409 },
+        );
+      },
+    );
+
+    assert.deepEqual(events, []);
+  }
+});
+
+test("MSWDO Photo proof does not bypass affected-barangay event scope", async () => {
+  let stubLookupCalled = false;
+  let claimHandlerCalled = false;
+  const stubs = createBaseStubs({
+    scopedStub: { ...baseStub, status: "ISSUED" },
+    lockedStub: { ...baseStub, status: "ISSUED", disaster_event_status: "ACTIVE" },
+    stubRepositoryOverrides: {
+      getStubById: async () => {
+        stubLookupCalled = true;
+        return baseStub;
+      },
+    },
+    claimHandler: async () => {
+      claimHandlerCalled = true;
+      return {};
+    },
+  });
+
+  await withStubbedStubService(stubs, async ({ claimBarangayStub }) => {
+    await assert.rejects(
+      () => claimBarangayStub({
+        ...baseParams,
+        proof_type: "PHOTO",
+        proof_photo_data_url: "data:image/jpeg;base64,dGVzdA==",
+        requester: { roleCode: "MSWDO", userId: "mswdo-user" },
+      }),
+      { code: "STUB_NOT_FOUND", statusCode: 404 },
+    );
+  });
+
+  assert.equal(stubLookupCalled, true);
+  assert.equal(claimHandlerCalled, false);
+});
+
+test("non-distribution roles remain forbidden from Photo proof claims", async () => {
   let stubLookupCalled = false;
   const stubs = createBaseStubs({
     stubRepositoryOverrides: {
@@ -833,14 +1000,16 @@ test("MSWDO cannot submit Photo proof capture", async () => {
   });
 
   await withStubbedStubService(stubs, async ({ claimBarangayStub }) => {
-    await assert.rejects(
-      () => claimBarangayStub({
-        ...baseParams,
-        proof_type: "PHOTO",
-        requester: { roleCode: "MSWDO", userId: "mswdo-user" },
-      }),
-      { code: "CLAIM_PROOF_PHOTO_FORBIDDEN", statusCode: 403 },
-    );
+    for (const roleCode of ["MAYOR", "DONOR", "PUBLIC"]) {
+      await assert.rejects(
+        () => claimBarangayStub({
+          ...baseParams,
+          proof_type: "PHOTO",
+          requester: { roleCode, userId: `${roleCode.toLowerCase()}-user` },
+        }),
+        { code: "CLAIM_PROOF_PHOTO_FORBIDDEN", statusCode: 403 },
+      );
+    }
   });
 
   assert.equal(stubLookupCalled, false);

@@ -669,14 +669,29 @@ const StubDistributionPage = () => {
     setIsBulkClaimConfirmOpen(true);
   };
 
-  const handleOpenClaimConfirmation = () => {
+  const handleOpenClaimConfirmation = (stubId) => {
     if (isEndedView || claimingStubId) {
       return;
     }
 
-    setClaimErrorMessage(
-      "MSWDO distribution confirmation must start with a verified QR scan.",
+    const selectedRow = displayedRowsWithSyncStatus.find(
+      (row) => row.id === stubId,
     );
+    if (!isSelectableClaimStubRow(selectedRow)) {
+      setClaimErrorMessage(
+        selectedRow?.household?.is_active === false
+          ? "This household is archived and cannot receive a new relief distribution."
+          : "Only households currently present in the evacuation center can receive a relief distribution.",
+      );
+      return;
+    }
+
+    setClaimErrorMessage("");
+    setClaimErrorDialog(null);
+    setPendingClaimStubId(stubId);
+    setPendingClaimQrReference("");
+    setPendingClaimStubDetails(null);
+    setIsBulkClaimConfirmOpen(false);
   };
 
   useEffect(() => {
@@ -1333,7 +1348,6 @@ const StubDistributionPage = () => {
         selectedStubs={selectedClaimRows}
         stubDetails={pendingClaimStubDetails}
         qrReferenceValue={pendingClaimQrReference}
-        allowPhotoProof={false}
       />
 
       <FormModalShell

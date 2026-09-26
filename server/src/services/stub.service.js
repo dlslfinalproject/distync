@@ -1065,8 +1065,13 @@ const claimBarangayStub = async (params) => {
     error.code = "DISTRIBUTION_OPERATION_ID_REQUIRED";
     throw error;
   }
-  if (proofType === "PHOTO" && params.requester?.roleCode !== BARANGAY_ROLE_CODE) {
-    const error = new Error("Photo Proof capture is available to Barangay officials.");
+  if (
+    proofType === "PHOTO" &&
+    ![BARANGAY_ROLE_CODE, MSWDO_ROLE_CODE].includes(params.requester?.roleCode)
+  ) {
+    const error = new Error(
+      "Photo Proof capture is available to Barangay and MSWDO distribution staff.",
+    );
     error.statusCode = 403;
     error.code = "CLAIM_PROOF_PHOTO_FORBIDDEN";
     throw error;
