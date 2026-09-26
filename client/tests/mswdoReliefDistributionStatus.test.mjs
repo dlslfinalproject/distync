@@ -53,7 +53,7 @@ test("MSWDO exposes all required labels and blocks Unclaimed rows in the UI path
   const table = await fs.readFile(new URL("../src/components/stubs/MswdoStubResultsTable.jsx", import.meta.url), "utf8");
 
   for (const label of ["All", "For Claim", "Claimed", "Unclaimed"]) assert.match(page, new RegExp(`label: "${label}"`));
-  assert.match(table, /presentation_status === STUB_PRESENTATION_STATUSES\.FOR_CLAIM/);
+  assert.match(table, /isSelectableClaimStubRow/);
   assert.match(table, /presentation_status === STUB_PRESENTATION_STATUSES\.NOT_PRESENT/);
   assert.match(page, /isOfflineForDisplay/);
   assert.match(page, /isOffline=\{isOfflineForDisplay\}/);

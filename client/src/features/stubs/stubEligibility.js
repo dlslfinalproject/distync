@@ -1,3 +1,5 @@
+import { buildSyncDescriptor } from "../../offline/syncStatus.js";
+
 const normalizeAttendanceStatus = (value) =>
   String(value || "").trim().toUpperCase();
 
@@ -19,6 +21,45 @@ export const getStubPresenceState = (row) => {
 
 export const isCurrentlyPresentStubRow = (row) =>
   getStubPresenceState(row) === "PRESENT";
+
+const CLAIM_BLOCKING_SYNC_STATUSES = new Set([
+  "PENDING",
+  "FAILED",
+  "CONFLICT",
+  "SYNCED",
+]);
+
+export const getStubClaimRowSyncStatus = (row, matchingEntry = null) => {
+  if (row?.is_local_only) {
+    return row.sync_status || "";
+  }
+
+  if (matchingEntry) {
+    return buildSyncDescriptor(matchingEntry).status;
+  }
+
+  return row?.sync_status || "";
+};
+
+export const isSelectableClaimStubRow = (row) => {
+  const presentationStatus = String(row?.presentation_status || "")
+    .trim()
+    .toUpperCase();
+  const syncStatus = String(row?.sync_status || "")
+    .trim()
+    .toUpperCase();
+
+  return (
+    row?.status === "ISSUED" &&
+    (!presentationStatus || presentationStatus === "FOR_CLAIM") &&
+    !row?.is_local_only &&
+    !row?.is_claim_pending &&
+    !CLAIM_BLOCKING_SYNC_STATUSES.has(syncStatus) &&
+    row?.is_active !== false &&
+    row?.household?.is_active !== false &&
+    isCurrentlyPresentStubRow(row)
+  );
+};
 
 export const getStubClaimUnavailableMessage = (row) => {
   const householdName = String(

@@ -445,10 +445,11 @@ test("BRG-RGD-PAG-006 prepares the complete scoped dataset after the paginated l
 test("BRG-SC-07-M01 TEST M pending duplicate protection blocks another local claim attempt", async () => {
   const tableSource = await readSource("../src/components/stubs/StubResultsTable.jsx");
   const pageSource = await readSource("../src/pages/barangay/StubDistributionPage.jsx");
+  const eligibilitySource = await readSource("../src/features/stubs/stubEligibility.js");
 
-  assert.match(tableSource, /isRowBlockedByClaimSync/);
-  assert.match(tableSource, /row\?\.sync_status === "PENDING"/);
-  assert.match(pageSource, /row\?\.sync_status !== "PENDING"/);
+  assert.match(tableSource, /isSelectableClaimStubRow\(row\)/);
+  assert.match(pageSource, /isSelectableClaimStubRow\(selectedRow\)/);
+  assert.match(eligibilitySource, /"PENDING",\s*"FAILED",\s*"CONFLICT",\s*"SYNCED"/);
 });
 
 test("BRG-SC-07-M01 TEST N QR component IDs are not trusted independently", async () => {

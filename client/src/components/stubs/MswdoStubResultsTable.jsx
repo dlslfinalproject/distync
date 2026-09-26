@@ -8,6 +8,7 @@ import QrCodePanel from "./QrCodePanel";
 import {
   getStubClaimUnavailableMessage,
   isCurrentlyPresentStubRow,
+  isSelectableClaimStubRow,
 } from "../../features/stubs/stubEligibility";
 import { STUB_PRESENTATION_STATUSES } from "../../features/stubs/stubPresentation.js";
 import TablePagination from "../shared/TablePagination";
@@ -438,14 +439,7 @@ const MswdoStubResultsTable = ({
 
   const selectableRows = isClaimReadOnly
     ? []
-    : safeRows.filter(
-        (row) =>
-          row.status === "ISSUED" &&
-          !row.is_local_only &&
-          !isRowBlockedByClaimSync(row) &&
-          row.presentation_status === STUB_PRESENTATION_STATUSES.FOR_CLAIM &&
-          isCurrentlyPresentStubRow(row),
-      );
+    : safeRows.filter((row) => isSelectableClaimStubRow(row));
 
   const areAllSelected =
     selectableRows.length > 0 &&
@@ -573,11 +567,7 @@ const MswdoStubResultsTable = ({
             {paginatedRows.map((row) => {
               const isSelectable =
                 !isClaimReadOnly &&
-                row.status === "ISSUED" &&
-                !row.is_local_only &&
-                !isRowBlockedByClaimSync(row) &&
-                row.presentation_status === STUB_PRESENTATION_STATUSES.FOR_CLAIM &&
-                isCurrentlyPresentStubRow(row);
+                isSelectableClaimStubRow(row);
               const isSelected = safeSelectedStubIds.includes(row.id);
 
               return (

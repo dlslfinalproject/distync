@@ -48,7 +48,10 @@ import {
   upsertOfflineStubSnapshots,
 } from "../../features/stubs/stubCache";
 import { getCachedFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
-import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
+import {
+  isCurrentlyPresentStubRow,
+  isSelectableClaimStubRow,
+} from "../../features/stubs/stubEligibility";
 import { resolveStubDetailsForOfflineDisplay } from "../../features/stubs/offlineHouseholdHydration";
 import { DEFAULT_TABLE_PAGE_SIZE } from "../../features/pagination/pagination.mjs";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue.js";
@@ -176,18 +179,6 @@ const getStubReferenceNumber = (stubDetails, verification) =>
 
 const isArchivedStubHousehold = (stubLike) =>
   stubLike?.household?.is_active === false;
-
-const isSelectableClaimStubRow = (row) =>
-  row?.status === "ISSUED" &&
-  (row?.presentation_status === "FOR_CLAIM" || !row?.presentation_status) &&
-  !row?.is_local_only &&
-  isCurrentlyPresentStubRow(row) &&
-  !row?.is_claim_pending &&
-  row?.sync_status !== "PENDING" &&
-  row?.sync_status !== "FAILED" &&
-  row?.sync_status !== "CONFLICT" &&
-  row?.sync_status !== "SYNCED" &&
-  !isArchivedStubHousehold(row);
 
 const buildQrScanErrorDetails = (verification, stubDetails) => {
   return {

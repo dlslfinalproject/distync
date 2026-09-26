@@ -3,13 +3,74 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 
 import {
+  getStubClaimRowSyncStatus,
   getStubClaimUnavailableMessage,
   getStubPresenceState,
   isCurrentlyPresentStubRow,
+  isSelectableClaimStubRow,
 } from "../src/features/stubs/stubEligibility.js";
 
 const readSource = async (relativePath) =>
   fs.readFile(new URL(relativePath, import.meta.url), "utf8");
+
+test("Barangay and MSWDO use the same claim guard and missing queue entries stay unlocked", async () => {
+  const eligibleRow = {
+    id: "stub-1",
+    status: "ISSUED",
+    presentation_status: "FOR_CLAIM",
+    is_active: true,
+    household: { id: "household-1", is_active: true },
+    latest_attendance_status: "PRESENT",
+    latest_attendance_time_out: null,
+    qr_status: "INACTIVE",
+  };
+  const mswdoRow = {
+    ...eligibleRow,
+    sync_status: getStubClaimRowSyncStatus(eligibleRow, null),
+  };
+  const barangayRow = { ...eligibleRow, sync_status: "" };
+
+  assert.equal(mswdoRow.sync_status, "");
+  assert.equal(isSelectableClaimStubRow(barangayRow), true);
+  assert.equal(isSelectableClaimStubRow(mswdoRow), true);
+  assert.equal(
+    isSelectableClaimStubRow({
+      ...eligibleRow,
+      sync_status: getStubClaimRowSyncStatus(eligibleRow, { status: "FAILED" }),
+    }),
+    false,
+  );
+  assert.equal(isSelectableClaimStubRow({ ...eligibleRow, status: "CLAIMED" }), false);
+  assert.equal(
+    isSelectableClaimStubRow({
+      ...eligibleRow,
+      latest_attendance_status: "LEFT",
+      latest_attendance_time_out: "2026-09-26T02:00:00.000Z",
+    }),
+    false,
+  );
+  assert.equal(
+    isSelectableClaimStubRow({
+      ...eligibleRow,
+      latest_attendance_status: "",
+      latest_attendance_time_out: null,
+    }),
+    false,
+  );
+
+  const [barangayPage, mswdoPage, barangayTable, mswdoTable] =
+    await Promise.all([
+      readSource("../src/pages/barangay/StubDistributionPage.jsx"),
+      readSource("../src/pages/mswdo/StubDistributionPage.jsx"),
+      readSource("../src/components/stubs/StubResultsTable.jsx"),
+      readSource("../src/components/stubs/MswdoStubResultsTable.jsx"),
+    ]);
+  for (const source of [barangayPage, mswdoPage, barangayTable, mswdoTable]) {
+    assert.match(source, /isSelectableClaimStubRow/);
+  }
+  assert.match(mswdoPage, /getStubClaimRowSyncStatus\(row, matchingEntry\)/);
+  assert.doesNotMatch(mswdoPage, /buildSyncDescriptor\(matchingEntry\)\.status/);
+});
 
 test("stub attendance eligibility accepts only a current PRESENT record", () => {
   assert.equal(
@@ -101,7 +162,7 @@ test("Barangay and MSWDO claim controls require both ISSUED and current PRESENT 
 
   for (const source of [barangayPage, mswdoPage, barangayTable, mswdoTable]) {
     assert.match(source, /isCurrentlyPresentStubRow/);
-    assert.match(source, /row\??\.status === "ISSUED"/);
+    assert.match(source, /isSelectableClaimStubRow/);
   }
 
   assert.match(barangayPage, /HOUSEHOLD_NOT_PRESENT_IN_EVAC_CENTER/);
