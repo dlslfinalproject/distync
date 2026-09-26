@@ -38,7 +38,10 @@ import {
 } from "../../features/stubs/stubQrScanErrors";
 import { readOperationalDisasterEventScope } from "../../features/disaster-events/operationalDisasterEventSelection";
 import { ROLE_CODES } from "../../utils/roleSession";
-import { isCurrentlyPresentStubRow } from "../../features/stubs/stubEligibility";
+import {
+  getStubClaimUnavailableMessage,
+  isCurrentlyPresentStubRow,
+} from "../../features/stubs/stubEligibility";
 import { resolveStubDetailsForOfflineDisplay } from "../../features/stubs/offlineHouseholdHydration";
 import {
   comparePresentedStubRows,
@@ -442,6 +445,19 @@ const StubDistributionPage = () => {
     filtersByTab[activeTab]?.stubStatus ?? DEFAULT_STUB_STATUS;
   const selectedSortOrder =
     filtersByTab[activeTab]?.sortOrder ?? DEFAULT_STUB_SORT_ORDER;
+
+  useEffect(() => {
+    setClaimErrorMessage("");
+  }, [
+    activeTab,
+    searchTerm,
+    selectedBarangayId,
+    selectedDisasterEventId,
+    selectedSectorIds,
+    selectedSortOrder,
+    selectedStubStatus,
+  ]);
+
   const displayedRowsWithSyncStatus = useMemo(() => {
     const orderedRows = pagination
       ? displayedRows
@@ -598,6 +614,7 @@ const StubDistributionPage = () => {
   };
 
   const handleEventScopeChange = (nextTab) => {
+    setClaimErrorMessage("");
     setActiveTab(nextTab);
 
     const allowedStatuses = nextTab === "active" ? ["ACTIVE"] : ["CLOSED"];
@@ -628,6 +645,7 @@ const StubDistributionPage = () => {
       return;
     }
 
+    setClaimErrorMessage("");
     setSelectedStubIds((currentValues) =>
       currentValues.includes(stubId)
         ? currentValues.filter((id) => id !== stubId)
@@ -678,11 +696,7 @@ const StubDistributionPage = () => {
       (row) => row.id === stubId,
     );
     if (!isSelectableClaimStubRow(selectedRow)) {
-      setClaimErrorMessage(
-        selectedRow?.household?.is_active === false
-          ? "This household is archived and cannot receive a new relief distribution."
-          : "Only households currently present in the evacuation center can receive a relief distribution.",
-      );
+      setClaimErrorMessage(getStubClaimUnavailableMessage(selectedRow));
       return;
     }
 
@@ -763,10 +777,11 @@ const StubDistributionPage = () => {
         displayedRowsWithSyncStatus.find((row) => row.id === stubId),
       );
 
-      if (selectedRows.some((row) => !isSelectableClaimStubRow(row))) {
-        setClaimErrorMessage(
-          "Only households currently present in the evacuation center can receive a relief distribution.",
-        );
+      const blockedRow = selectedRows.find(
+        (row) => !isSelectableClaimStubRow(row),
+      );
+      if (blockedRow) {
+        setClaimErrorMessage(getStubClaimUnavailableMessage(blockedRow));
         return;
       }
 
