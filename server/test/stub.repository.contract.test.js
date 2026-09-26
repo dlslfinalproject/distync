@@ -74,6 +74,11 @@ test("Stage 5 municipal Stub repository is one set-wise query with per-Barangay 
   assert.match(capturedQuery, /s\.id ASC/i);
   assert.match(capturedQuery, /s\.status IN \('ISSUED', 'CLAIMED'\)/i);
   assert.match(capturedQuery, /PARTITION|sequence_stubs\.disaster_event_id/i);
+  assert.match(capturedQuery, /s\.disaster_event_id = \$1/i);
+  assert.match(
+    capturedQuery,
+    /WHERE el\.household_id = h\.id\s+AND el\.disaster_event_id = s\.disaster_event_id\s+ORDER BY\s+COALESCE\(el\.time_out, el\.time_in\) DESC,\s+el\.updated_at DESC,\s+el\.created_at DESC\s+LIMIT 1/i,
+  );
   assert.doesNotMatch(
     capturedQuery,
     /queued_households\.barangay_id\s+IS\s+NOT\s+DISTINCT\s+FROM\s+h\.barangay_id/i,
