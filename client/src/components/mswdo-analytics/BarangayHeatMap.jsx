@@ -1,36 +1,21 @@
 import React, { useId, useMemo, useState } from "react";
-import { geoMercator, geoPath } from "d3-geo";
 import malvarBarangaysRaw from "../../assets/malvar-barangays.geojson?raw";
 import {
   BARANGAY_HEATMAP_COLORS,
   BARANGAY_HEATMAP_METRICS,
   BARANGAY_HEATMAP_UNAFFECTED_COLOR,
+  BARANGAY_HEATMAP_VIEWBOX,
   DEFAULT_BARANGAY_HEATMAP_METRIC,
   buildBarangayHeatmapModel,
   indexBarangayHeatmapRows,
   createBarangayHeatmapInteractionHandlers,
+  createBarangayHeatmapGeometry,
   getSelectedBarangayHeatmapRow,
 } from "./barangayHeatmapModel.mjs";
 import "./BarangayHeatMap.css";
 
-const VIEWBOX_WIDTH = 760;
-const VIEWBOX_HEIGHT = 540;
-const MAP_PADDING = 24;
-const malvarBarangays = JSON.parse(malvarBarangaysRaw);
-const projection = geoMercator().fitExtent(
-  [
-    [MAP_PADDING, MAP_PADDING],
-    [VIEWBOX_WIDTH - MAP_PADDING, VIEWBOX_HEIGHT - MAP_PADDING],
-  ],
-  malvarBarangays,
-);
-const geoPathGenerator = geoPath(projection);
-const pathByFeature = new Map(
-  malvarBarangays.features.map((feature) => [
-    feature,
-    geoPathGenerator(feature),
-  ]),
-);
+const { geoJson: malvarBarangays, pathByFeature } =
+  createBarangayHeatmapGeometry(JSON.parse(malvarBarangaysRaw));
 
 const formatCount = (value) => {
   const number = typeof value === "number" ? value : Number(value);
@@ -117,7 +102,12 @@ const BarangayHeatMap = ({ barangays }) => {
               <div className="barangay-heatmap-map">
                 <svg
                   className="barangay-heatmap-svg"
-                  viewBox={"0 0 " + VIEWBOX_WIDTH + " " + VIEWBOX_HEIGHT}
+                  viewBox={
+                    "0 0 " +
+                    BARANGAY_HEATMAP_VIEWBOX.width +
+                    " " +
+                    BARANGAY_HEATMAP_VIEWBOX.height
+                  }
                   role="group"
                   aria-labelledby={svgTitleId}
                 >

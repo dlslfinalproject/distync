@@ -5,15 +5,19 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
+import { geoArea, geoBounds } from "d3-geo";
 import {
   BARANGAY_HEATMAP_COLORS,
   BARANGAY_HEATMAP_METRICS,
   BARANGAY_HEATMAP_UNAFFECTED_COLOR,
+  BARANGAY_HEATMAP_VIEWBOX,
   DEFAULT_BARANGAY_HEATMAP_METRIC,
   buildBarangayHeatmapModel,
   indexBarangayHeatmapRows,
   createBarangayHeatmapInteractionHandlers,
+  createBarangayHeatmapGeometry,
   getSelectedBarangayHeatmapRow,
+  normalizeGeoJsonWindingForD3,
 } from "../src/components/mswdo-analytics/barangayHeatmapModel.mjs";
 
 const readSource = (...segments) =>
@@ -28,6 +32,12 @@ const geoJsonPath = path.join(
 const geoJsonSource = fs.readFileSync(geoJsonPath, "utf8");
 const geoJson = JSON.parse(geoJsonSource);
 
+const signedRingArea = (ring) =>
+  ring.slice(0, -1).reduce((twiceArea, point, index) => {
+    const next = ring[index + 1];
+    return twiceArea + point[0] * next[1] - next[0] * point[1];
+  }, 0) / 2;
+
 const makeRows = () =>
   geoJson.features.map((feature, index) => ({
     barangay_id: "barangay-" + (index + 1),
@@ -41,14 +51,124 @@ const makeRows = () =>
     pending_relief_claims: index === 0 ? 0 : index === 1 ? 3 : 9999,
   }));
 
+test("raw RFC 7946 winding makes d3-geo interpret each barangay as its spherical complement", () => {
+  const sourceSnapshot = structuredClone(geoJson);
+  const geometry = createBarangayHeatmapGeometry(geoJson);
+
+  assert.deepEqual(geoJson, sourceSnapshot);
+  assert.equal(geometry.geoJson.features.length, 15);
+
+  for (const [index, rawFeature] of geoJson.features.entries()) {
+    const normalizedFeature = geometry.geoJson.features[index];
+    const rawExterior = rawFeature.geometry.coordinates[0];
+    const normalizedExterior = normalizedFeature.geometry.coordinates[0];
+    const rawArea = geoArea(rawFeature);
+    const normalizedArea = geoArea(normalizedFeature);
+    const rawBounds = geoBounds(rawFeature);
+    const normalizedBounds = geoBounds(normalizedFeature);
+
+    assert.ok(signedRingArea(rawExterior) > 0, rawFeature.properties.distync_code);
+    assert.ok(signedRingArea(normalizedExterior) < 0, rawFeature.properties.distync_code);
+    assert.ok(rawArea > 2 * Math.PI, rawFeature.properties.distync_code);
+    assert.ok(normalizedArea > 0 && normalizedArea < 2 * Math.PI, rawFeature.properties.distync_code);
+    assert.ok(Math.abs(rawArea + normalizedArea - 4 * Math.PI) < 1e-10);
+    assert.deepEqual(rawBounds, [[-180, -90], [180, 90]]);
+    assert.ok(normalizedBounds[0][0] > 120 && normalizedBounds[1][0] < 122);
+    assert.ok(normalizedBounds[0][1] > 13 && normalizedBounds[1][1] < 15);
+  }
+});
+
+test("D3 winding normalization immutably handles Polygon holes and MultiPolygon grouping", () => {
+  const exterior = [[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]];
+  const hole = [[1, 1], [1, 2], [2, 2], [2, 1], [1, 1]];
+  const secondExterior = [[10, 0], [14, 0], [14, 4], [10, 4], [10, 0]];
+  const source = {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        id: "polygon-with-hole",
+        properties: { distync_code: "POLYGON" },
+        geometry: { type: "Polygon", coordinates: [exterior, hole] },
+      },
+      {
+        type: "Feature",
+        id: "multipolygon",
+        properties: { distync_code: "MULTIPOLYGON" },
+        geometry: {
+          type: "MultiPolygon",
+          coordinates: [[exterior, hole], [secondExterior]],
+        },
+      },
+    ],
+  };
+  const sourceSnapshot = structuredClone(source);
+  const normalized = normalizeGeoJsonWindingForD3(source);
+
+  assert.deepEqual(source, sourceSnapshot);
+  assert.notEqual(normalized, source);
+  assert.equal(normalized.features[0].geometry.coordinates.length, 2);
+  assert.ok(signedRingArea(normalized.features[0].geometry.coordinates[0]) < 0);
+  assert.ok(signedRingArea(normalized.features[0].geometry.coordinates[1]) > 0);
+  assert.deepEqual(
+    normalized.features[0].geometry.coordinates[0],
+    [...exterior].reverse(),
+  );
+  assert.deepEqual(
+    normalized.features[0].geometry.coordinates[1],
+    [...hole].reverse(),
+  );
+  assert.equal(normalized.features[1].geometry.coordinates.length, 2);
+  assert.equal(normalized.features[1].geometry.coordinates[0].length, 2);
+  assert.equal(normalized.features[1].geometry.coordinates[1].length, 1);
+  assert.ok(signedRingArea(normalized.features[1].geometry.coordinates[0][0]) < 0);
+  assert.ok(signedRingArea(normalized.features[1].geometry.coordinates[0][1]) > 0);
+  assert.ok(signedRingArea(normalized.features[1].geometry.coordinates[1][0]) < 0);
+});
+
+test("normalized Malvar geometry produces 15 finite, localized paths inside the fitted viewBox", () => {
+  const geometry = createBarangayHeatmapGeometry(geoJson);
+  const { width, height, padding } = BARANGAY_HEATMAP_VIEWBOX;
+  const [[left, top], [right, bottom]] = geometry.pathGenerator.bounds(
+    geometry.geoJson,
+  );
+  const paths = [...geometry.pathByFeature.values()];
+  const featureBounds = geometry.geoJson.features.map((feature) =>
+    geometry.pathGenerator.bounds(feature),
+  );
+  const largestFeatureWidth = Math.max(
+    ...featureBounds.map(([[featureLeft], [featureRight]]) => featureRight - featureLeft),
+  );
+  const largestFeatureHeight = Math.max(
+    ...featureBounds.map(([[, featureTop], [, featureBottom]]) => featureBottom - featureTop),
+  );
+
+  assert.equal(geometry.geoJson.features.length, 15);
+  assert.equal(geometry.pathByFeature.size, 15);
+  assert.ok(right - left > width * 0.5);
+  assert.ok(bottom - top > height * 0.5);
+  assert.ok(largestFeatureWidth < (width - 2 * padding) * 0.5);
+  assert.ok(largestFeatureHeight < (height - 2 * padding) * 0.5);
+  assert.ok(left >= padding - 0.001 && top >= padding - 0.001);
+  assert.ok(right <= width - padding + 0.001);
+  assert.ok(bottom <= height - padding + 0.001);
+  assert.ok(paths.every((path) => typeof path === "string" && path.length > 0));
+  assert.ok(paths.every((path) => !/(?:NaN|Infinity)/.test(path)));
+});
+
 test("the bundled Malvar GeoJSON has 15 unique code crosswalks to the API rows", () => {
   const rows = makeRows();
-  const model = buildBarangayHeatmapModel(geoJson.features, rows);
+  const normalized = createBarangayHeatmapGeometry(geoJson).geoJson;
+  const model = buildBarangayHeatmapModel(normalized.features, rows);
 
   assert.equal(geoJson.type, "FeatureCollection");
-  assert.equal(geoJson.features.length, 15);
-  const codes = geoJson.features.map((feature) => feature.properties.distync_code);
+  assert.equal(normalized.features.length, 15);
+  const codes = normalized.features.map((feature) => feature.properties.distync_code);
   assert.equal(new Set(codes).size, 15);
+  assert.deepEqual(
+    normalized.features.map((feature) => feature.properties),
+    geoJson.features.map((feature) => feature.properties),
+  );
   assert.deepEqual(
     model.rows.map((row) => row.apiRow?.barangay_code),
     codes,
@@ -63,8 +183,26 @@ test("the bundled Malvar GeoJSON has 15 unique code crosswalks to the API rows",
     "BarangayHeatMap.jsx",
   );
   assert.match(componentSource, /malvar-barangays\.geojson\?raw/);
-  assert.match(componentSource, /JSON\.parse\(malvarBarangaysRaw\)/);
+  assert.match(componentSource, /createBarangayHeatmapGeometry\(JSON\.parse\(malvarBarangaysRaw\)\)/);
   assert.doesNotMatch(componentSource, /fetch\s*\(|https?:\/\//);
+});
+
+test("the San Pioquinto boundary joins to and selects the San Pioquinto API row", () => {
+  const normalized = createBarangayHeatmapGeometry(geoJson).geoJson;
+  const model = buildBarangayHeatmapModel(normalized.features, makeRows());
+  const selected = getSelectedBarangayHeatmapRow(model, "SAN_PIOQUINTO");
+
+  assert.equal(selected.name, "San Pioquinto");
+  assert.equal(selected.apiRow.barangay_code, "SAN_PIOQUINTO");
+
+  const selections = [];
+  const handlers = createBarangayHeatmapInteractionHandlers("SAN_PIOQUINTO", (key) =>
+    selections.push(key),
+  );
+  handlers.onClick();
+  handlers.onKeyDown({ key: "Enter", preventDefault() {} });
+  handlers.onKeyDown({ key: " ", preventDefault() {} });
+  assert.deepEqual(selections, ["SAN_PIOQUINTO", "SAN_PIOQUINTO", "SAN_PIOQUINTO"]);
 });
 
 test("unaffected, affected-zero, affected-positive, and unavailable rows use separate states", () => {
@@ -95,6 +233,9 @@ test("unaffected, affected-zero, affected-positive, and unavailable rows use sep
 
 test("the selected metric stays local and recalculates values and range", () => {
   const rows = makeRows();
+  const geometry = createBarangayHeatmapGeometry(geoJson);
+  const pathByFeature = geometry.pathByFeature;
+  const initialPaths = [...pathByFeature.values()];
   const expected = [
     ["registered_households", "Registered Households", 2],
     ["active_evacuees", "Active Evacuees", 3],
@@ -110,12 +251,14 @@ test("the selected metric stays local and recalculates values and range", () => 
   const rowLookup = indexBarangayHeatmapRows(rows);
   for (const [key, label, maxValue] of expected) {
     const model = buildBarangayHeatmapModel(
-      geoJson.features,
+      geometry.geoJson.features,
       rowLookup,
       key,
     );
     assert.equal(model.metric.label, label);
     assert.equal(model.maxValue, maxValue);
+    assert.equal(geometry.pathByFeature, pathByFeature);
+    assert.deepEqual([...geometry.pathByFeature.values()], initialPaths);
   }
 
   const componentSource = readSource(
