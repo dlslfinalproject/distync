@@ -685,12 +685,14 @@ const MswdoStubResultsTable = ({
                         title={
                           !isCurrentlyPresentStubRow(row)
                             ? getStubClaimUnavailableMessage(row)
-                            : "Mark as Claimed"
+                            : "Claim Without Stub — use when the claimant cannot present a usable physical Stub."
                         }
                         aria-label={
                           !isCurrentlyPresentStubRow(row)
                             ? getStubClaimUnavailableMessage(row)
-                            : `Mark relief distribution as claimed for ${row.family_head_name || "this household"}`
+                            : "Claim Without Stub for " +
+                              (row.family_head_name || "this household") +
+                              ". Use when the claimant cannot present a usable physical Stub."
                         }
                         style={{
                           ...tableStyles.statusButton,

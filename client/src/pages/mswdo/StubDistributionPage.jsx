@@ -10,6 +10,7 @@ import {
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import FormModalShell from "../../components/shared/FormModalShell";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
+import { CLAIM_INITIATION_SOURCE } from "../../features/stubs/claimProofWorkflow.js";
 import StubDetailModal from "../../components/stubs/StubDetailModal";
 import MswdoStubResultsTable from "../../components/stubs/MswdoStubResultsTable";
 import StubQrScanErrorModal from "../../components/stubs/StubQrScanErrorModal";
@@ -391,6 +392,7 @@ const StubDistributionPage = () => {
   const [claimErrorDialog, setClaimErrorDialog] = useState(null);
   const [pendingClaimStubId, setPendingClaimStubId] = useState("");
   const [pendingClaimQrReference, setPendingClaimQrReference] = useState("");
+  const [pendingClaimInitiationSource, setPendingClaimInitiationSource] = useState("");
   const [pendingClaimStubDetails, setPendingClaimStubDetails] = useState(null);
   const [isLoadingPendingClaimStubDetails, setIsLoadingPendingClaimStubDetails] =
     useState(false);
@@ -541,6 +543,7 @@ const StubDistributionPage = () => {
 
     setSelectedStubIds([]);
     setPendingClaimStubId("");
+    setPendingClaimInitiationSource("");
     setPendingClaimStubDetails(null);
     setIsBulkClaimConfirmOpen(false);
     setClaimErrorMessage("");
@@ -670,6 +673,7 @@ const StubDistributionPage = () => {
     setClaimErrorMessage("");
     setClaimErrorDialog(null);
     setPendingClaimStubId("");
+    setPendingClaimInitiationSource("");
     setPendingClaimStubDetails(null);
     setIsBulkClaimConfirmOpen(true);
   };
@@ -691,6 +695,7 @@ const StubDistributionPage = () => {
     setClaimErrorDialog(null);
     setPendingClaimStubId(stubId);
     setPendingClaimQrReference("");
+    setPendingClaimInitiationSource(CLAIM_INITIATION_SOURCE.STUB_UNAVAILABLE);
     setPendingClaimStubDetails(null);
     setIsBulkClaimConfirmOpen(false);
   };
@@ -743,6 +748,7 @@ const StubDistributionPage = () => {
     }
 
     setPendingClaimStubId("");
+    setPendingClaimInitiationSource("");
     setPendingClaimQrReference("");
     setPendingClaimStubDetails(null);
     setIsBulkClaimConfirmOpen(false);
@@ -827,6 +833,17 @@ const StubDistributionPage = () => {
       return;
     }
 
+    const expectedProofType =
+      pendingClaimInitiationSource === CLAIM_INITIATION_SOURCE.VERIFIED_QR_SCAN
+        ? "QR"
+        : pendingClaimInitiationSource === CLAIM_INITIATION_SOURCE.STUB_UNAVAILABLE
+          ? "PHOTO"
+          : "";
+    if (!expectedProofType || proof.proofType !== expectedProofType) {
+      setClaimErrorMessage("The claim proof must match how this claim was initiated.");
+      return;
+    }
+
     if (!pendingClaimStubId) {
       return;
     }
@@ -871,10 +888,12 @@ const StubDistributionPage = () => {
       });
       reloadDashboard();
       setPendingClaimStubId("");
+      setPendingClaimInitiationSource("");
       setPendingClaimQrReference("");
       setPendingClaimStubDetails(null);
     } catch (error) {
       setPendingClaimStubId("");
+      setPendingClaimInitiationSource("");
       setPendingClaimQrReference("");
       setPendingClaimStubDetails(null);
       setClaimErrorDialog(getStubClaimErrorDialog(error));
@@ -988,6 +1007,11 @@ const StubDistributionPage = () => {
       return;
     }
 
+    setPendingClaimStubId("");
+    setPendingClaimQrReference("");
+    setPendingClaimInitiationSource("");
+    setPendingClaimStubDetails(null);
+    setIsBulkClaimConfirmOpen(false);
     setIsResolvingScannedQr(true);
     setClaimErrorMessage("");
     setScannerHelperMessage("");
@@ -1044,6 +1068,7 @@ const StubDistributionPage = () => {
 
       setPendingClaimStubId(resolvedStubId);
       setPendingClaimQrReference(qrCodeValue);
+      setPendingClaimInitiationSource(CLAIM_INITIATION_SOURCE.VERIFIED_QR_SCAN);
       setPendingClaimStubDetails(hydratedStubDetails);
       setIsBulkClaimConfirmOpen(false);
       setSelectedStubIds([]);
@@ -1256,6 +1281,8 @@ const StubDistributionPage = () => {
                   className="stub-distribution-scan-button"
                   type="button"
                   onClick={() => setIsQrScanModalOpen(true)}
+                  title="Scan the QR on the claimant's physical Stub."
+                  aria-label="Scan QR on the claimant's physical Stub"
                   disabled={
                     !hasSelectedEvent ||
                     !hasSelectedBarangay ||
@@ -1349,6 +1376,7 @@ const StubDistributionPage = () => {
         selectedCount={isBulkClaimConfirmOpen ? selectedStubIds.length : 1}
         selectedStubs={selectedClaimRows}
         stubDetails={pendingClaimStubDetails}
+        claimInitiationSource={pendingClaimInitiationSource}
         qrReferenceValue={pendingClaimQrReference}
       />
 

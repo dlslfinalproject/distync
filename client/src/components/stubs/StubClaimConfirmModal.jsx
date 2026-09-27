@@ -363,6 +363,7 @@ const StubClaimConfirmModal = ({
   selectedStubs = [],
   selectedCount = 1,
   stubDetails = null,
+  claimInitiationSource = "",
   qrReferenceValue = "",
 }) => {
   const [proofPhotoDataUrl, setProofPhotoDataUrl] = useState("");
@@ -406,6 +407,7 @@ const StubClaimConfirmModal = ({
     selectedCount === 1
       ? resolveClaimProof({
           stubDetails,
+          claimInitiationSource,
           qrReferenceValue,
           isLoadingStubDetails,
         })
@@ -931,28 +933,33 @@ const StubClaimConfirmModal = ({
                 >
                   Photo Proof of Receipt
                 </h4>
-                <p className="claim-proof-subtitle">Fallback proof of receipt</p>
+                <p className="claim-proof-subtitle">
+                  Proof requirements follow the claim path.
+                </p>
               </div>
               <span
                 className={`claim-proof-state-badge claim-proof-state-badge--${proofType || "checking"}`}
                 role="status"
               >
                 {proofType === "QR"
-                  ? "Not Required — QR Available"
+                  ? "Not Required — Stub QR Verified"
                   : proofType === "PHOTO"
                     ? "Required"
-                    : "Checking QR Proof"}
+                    : "Waiting for Claim Verification"}
               </span>
             </div>
             {proofType === "QR" ? (
               <p className="claim-proof-informational">
-                A valid QR proof is available for this Stub. Photo Proof is
-                automatically required when QR proof is unavailable.
+                <strong>Physical Stub QR Verified.</strong> The claimant's
+                physical Stub QR was successfully verified. Photo Proof is
+                required only when the physical Stub is unavailable.
               </p>
             ) : proofType === "PHOTO" ? (
               <div className="claim-proof-required-notice">
-                QR proof is unavailable for this distribution. Capture a
-                photo of the relief handover before confirming.
+                <strong>Physical Stub Unavailable.</strong> The claimant cannot
+                present a usable issued Stub. Verify the registered household
+                details before continuing, then capture a photo of the relief
+                handover before confirming.
               </div>
             ) : (
               <p
@@ -960,7 +967,8 @@ const StubClaimConfirmModal = ({
                 role="status"
                 aria-live="polite"
               >
-                Checking whether this Stub has active QR proof.
+                A verified physical QR scan or an explicit unavailable-Stub
+                claim is required.
               </p>
             )}
             {proofType === "PHOTO" ? (

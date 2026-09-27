@@ -1,35 +1,64 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
-import { resolveClaimProof } from "../src/features/stubs/claimProofWorkflow.js";
+import { CLAIM_INITIATION_SOURCE, resolveClaimProof } from "../src/features/stubs/claimProofWorkflow.js";
 
 const readClientSource = (relativePath) =>
   fs.readFile(new URL(`../${relativePath}`, import.meta.url), "utf8");
 
-test("claim confirmation automatically uses active QR and requires Photo Proof only as fallback", async () => {
+test("claim proof requires a verified scan or explicit unavailable-Stub context", async () => {
   const source = await readClientSource("src/components/stubs/StubClaimConfirmModal.jsx");
-  const [qrProof, photoFallback, inactiveQrFallback, loadingProof] = [
+  const activeQrStub = {
+    id: "stub-1",
+    qr_code_value: "qr-1",
+    qr_status: "ACTIVE",
+  };
+  const [physicalScan, lostStub, implicitRowClaim, mismatchedScan, inactiveScan, scanWithoutReference, loadingProof] = [
     resolveClaimProof({
-      stubDetails: { id: "stub-1", qr_code_value: "qr-1", qr_status: "ACTIVE" },
+      stubDetails: activeQrStub,
+      claimInitiationSource: CLAIM_INITIATION_SOURCE.VERIFIED_QR_SCAN,
+      qrReferenceValue: "qr-1",
     }),
-    resolveClaimProof({ stubDetails: { id: "stub-2", qr_code_value: null } }),
     resolveClaimProof({
-      stubDetails: { id: "stub-3", qr_code_value: "qr-3", qr_status: "INACTIVE" },
+      stubDetails: activeQrStub,
+      claimInitiationSource: CLAIM_INITIATION_SOURCE.STUB_UNAVAILABLE,
+    }),
+    resolveClaimProof({ stubDetails: activeQrStub }),
+    resolveClaimProof({
+      stubDetails: activeQrStub,
+      claimInitiationSource: CLAIM_INITIATION_SOURCE.VERIFIED_QR_SCAN,
+      qrReferenceValue: "different-qr",
+    }),
+    resolveClaimProof({
+      stubDetails: { ...activeQrStub, qr_status: "INACTIVE" },
+      claimInitiationSource: CLAIM_INITIATION_SOURCE.VERIFIED_QR_SCAN,
+      qrReferenceValue: "qr-1",
+    }),
+    resolveClaimProof({
+      stubDetails: activeQrStub,
+      claimInitiationSource: CLAIM_INITIATION_SOURCE.VERIFIED_QR_SCAN,
     }),
     resolveClaimProof({
       stubDetails: null,
+      claimInitiationSource: CLAIM_INITIATION_SOURCE.VERIFIED_QR_SCAN,
       isLoadingStubDetails: true,
     }),
   ];
 
-  assert.equal(qrProof.proofType, "QR");
-  assert.equal(qrProof.qrReferenceValue, "qr-1");
-  assert.equal(photoFallback.proofType, "PHOTO");
-  assert.equal(photoFallback.qrReferenceValue, "");
-  assert.equal(inactiveQrFallback.proofType, "PHOTO");
-  assert.equal(inactiveQrFallback.qrReferenceValue, "");
+  assert.equal(physicalScan.proofType, "QR");
+  assert.equal(physicalScan.qrReferenceValue, "qr-1");
+  assert.equal(lostStub.proofType, "PHOTO");
+  assert.equal(lostStub.qrReferenceValue, "");
+  assert.equal(implicitRowClaim.isResolved, false);
+  assert.equal(implicitRowClaim.proofType, "");
+  assert.equal(mismatchedScan.isResolved, false);
+  assert.equal(mismatchedScan.proofType, "");
+  assert.equal(inactiveScan.isResolved, false);
+  assert.equal(scanWithoutReference.isResolved, false);
   assert.equal(loadingProof.proofType, "");
+
   assert.match(source, /resolveClaimProof\(/);
+  assert.match(source, /claimInitiationSource,/);
   assert.doesNotMatch(source, /allowPhotoProof/);
   assert.match(source, /Photo Proof of Receipt/);
   assert.doesNotMatch(source, /Choose proof method/);
@@ -39,7 +68,7 @@ test("claim confirmation automatically uses active QR and requires Photo Proof o
   assert.match(source, /proofType === "QR" && resolvedQrReferenceValue/);
   assert.match(source, /proofPhotoDataUrl: ""/);
   assert.match(source, /navigator\.mediaDevices\?\.getUserMedia/);
-  assert.match(source, /QR proof is unavailable for this distribution/);
+  assert.match(source, /Physical Stub Unavailable/);
   assert.match(source, /Take Photo/);
   assert.match(source, /Open Camera/);
   assert.match(source, /Capture Photo/);
@@ -62,14 +91,13 @@ test("claim confirmation automatically uses active QR and requires Photo Proof o
   assert.match(source, /disabled=\{isConfirmDisabled\}/);
   assert.doesNotMatch(source, /Use Photo/);
 });
-
 test("single Stub confirmation always shows Photo Proof status below beneficiary details", async () => {
   const source = await readClientSource("src/components/stubs/StubClaimConfirmModal.jsx");
 
   assert.match(source, /Photo Proof of Receipt/);
-  assert.match(source, /Fallback proof of receipt/);
-  assert.match(source, /Not Required — QR Available/);
-  assert.match(source, /A valid QR proof is available for this Stub\.[\s\S]*automatically required when QR proof is unavailable\./);
+  assert.match(source, /Proof requirements follow the claim path/);
+  assert.match(source, /Not Required — Stub QR Verified/);
+  assert.match(source, /Physical Stub QR Verified\.[\s\S]*physical Stub QR was successfully verified\.[\s\S]*Photo Proof is\s*required only when the physical Stub is unavailable\./);
   assert.match(source, /aria-labelledby="claim-proof-section-title"/);
 
   const workflowPosition = source.indexOf("claim-proof-workflow--");
@@ -104,9 +132,61 @@ test("MSWDO row confirmation uses the shared automatic proof workflow", async ()
 
   assert.match(source, /const handleOpenClaimConfirmation = \(stubId\) =>/);
   assert.match(source, /setPendingClaimStubId\(stubId\)/);
+  assert.match(source, /setPendingClaimInitiationSource\(CLAIM_INITIATION_SOURCE\.STUB_UNAVAILABLE\)/);
   assert.match(source, /fetchStubDetails\(pendingClaimStubId\)/);
   assert.match(source, /<StubClaimConfirmModal[\s\S]*?stubDetails=\{pendingClaimStubDetails\}/);
   assert.doesNotMatch(source, /allowPhotoProof|must start with a verified QR scan/);
+});
+
+
+test("Barangay and MSWDO row actions explicitly identify the unavailable-Stub fallback", async () => {
+  const [barangayTable, mswdoTable] = await Promise.all([
+    readClientSource("src/components/stubs/StubResultsTable.jsx"),
+    readClientSource("src/components/stubs/MswdoStubResultsTable.jsx"),
+  ]);
+
+  for (const source of [barangayTable, mswdoTable]) {
+    assert.match(source, /Claim Without Stub/);
+    assert.match(source, /usable physical Stub/);
+    assert.match(source, /aria-label=/);
+    assert.match(source, /title=/);
+  }
+});
+
+test("both role pages keep QR scan and row fallback as separate initiation paths", async () => {
+  const [barangayPage, mswdoPage] = await Promise.all([
+    readClientSource("src/pages/barangay/StubDistributionPage.jsx"),
+    readClientSource("src/pages/mswdo/StubDistributionPage.jsx"),
+  ]);
+
+  for (const source of [barangayPage, mswdoPage]) {
+    assert.match(source, /Scan QR on the claimant's physical Stub/);
+    assert.match(source, /setPendingClaimInitiationSource\(CLAIM_INITIATION_SOURCE\.STUB_UNAVAILABLE\)/);
+    assert.match(source, /setPendingClaimInitiationSource\(CLAIM_INITIATION_SOURCE\.VERIFIED_QR_SCAN\)/);
+    assert.match(source, /claimInitiationSource=\{pendingClaimInitiationSource\}/);
+    assert.match(source, /proof\.proofType !== expectedProofType/);
+    const scanStart = source.indexOf("const handleScannedQr");
+    const scanEnd = source.indexOf("return (", scanStart);
+    const scanHandler = source.slice(scanStart, scanEnd);
+    assert.doesNotMatch(scanHandler, /setPendingClaimInitiationSource\(CLAIM_INITIATION_SOURCE\.STUB_UNAVAILABLE\)/);
+  }
+});
+
+test("standalone Barangay validation distinguishes camera scan from manual lookup", async () => {
+  const [page, verifyPage] = await Promise.all([
+    readClientSource("src/pages/barangay/DistributionTransactionPage.jsx"),
+    readClientSource("src/pages/VerifyStubPage.jsx"),
+  ]);
+
+  assert.match(page, /isPhysicalScan: true/);
+  assert.match(page, /setClaimInitiationSource\(CLAIM_INITIATION_SOURCE\.VERIFIED_QR_SCAN\)/);
+  assert.match(page, /setIsClaimWithoutStubAvailable\(!isPhysicalScan\)/);
+  assert.match(page, /Boolean\(claimInitiationSource\)/);
+  assert.match(page, /Claim Without Stub/);
+  assert.match(page, /claimInitiationSource=\{claimInitiationSource\}/);
+  assert.match(verifyPage, /claimInitiationSource: CLAIM_INITIATION_SOURCE\.VERIFIED_QR_SCAN/);
+  assert.match(verifyPage, /qrReferenceValue: qrValue/);
+  assert.match(verifyPage, /isVerifiedQrClaimable/);
 });
 
 test("camera cancellation and retake discard drafts and stop tracks safely", async () => {

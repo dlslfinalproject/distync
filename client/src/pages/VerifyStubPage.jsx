@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { fetchStubDetails, verifyStub } from "../features/stubs/stubService";
 import { isLocalStubClaimBlocked } from "../features/stubs/stubCache.js";
+import { CLAIM_INITIATION_SOURCE } from "../features/stubs/claimProofWorkflow.js";
 import { ROLE_CODES } from "../utils/roleSession";
 import { extractStubQrValue } from "../utils/stubQr";
 import "./verifyStubPage.css";
@@ -334,6 +335,7 @@ const VerifyStubPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [verificationMessage, setVerificationMessage] = useState("");
+  const [isVerifiedQrClaimable, setIsVerifiedQrClaimable] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -341,6 +343,7 @@ const VerifyStubPage = () => {
     const loadStubVerification = async () => {
       if (!qrValue) {
         setErrorMessage("No QR value was found in this link. Please scan the stub again.");
+        setIsVerifiedQrClaimable(false);
         setIsLoading(false);
         return;
       }
@@ -348,6 +351,7 @@ const VerifyStubPage = () => {
       setIsLoading(true);
       setErrorMessage("");
       setVerificationMessage("");
+      setIsVerifiedQrClaimable(false);
 
       try {
         const verification = await verifyStub({
@@ -367,6 +371,7 @@ const VerifyStubPage = () => {
         }
 
         setStubDetails(details);
+        setIsVerifiedQrClaimable(verification?.data?.is_claimable === true);
         setVerificationMessage(
           verification?.data?.reason ||
             verification?.message ||
@@ -395,6 +400,7 @@ const VerifyStubPage = () => {
     isAuthenticated &&
     (currentRole === ROLE_CODES.BARANGAY || currentRole === ROLE_CODES.MSWDO) &&
     stubDetails?.status === "ISSUED" &&
+    isVerifiedQrClaimable &&
     !isLocalStubClaimBlocked(stubDetails) &&
     !isArchivedHousehold(stubDetails);
 
@@ -654,6 +660,15 @@ const VerifyStubPage = () => {
                 <Link
                   className="verify-stub-page__action-link"
                   to={proceedLink}
+                  state={
+                    currentRole === ROLE_CODES.BARANGAY
+                      ? {
+                          claimInitiationSource: CLAIM_INITIATION_SOURCE.VERIFIED_QR_SCAN,
+                          qrReferenceValue: qrValue,
+                          stubId: stubDetails.id,
+                        }
+                      : undefined
+                  }
                   style={pageStyles.primaryLink}
                 >
                   {currentRole === ROLE_CODES.BARANGAY
@@ -675,7 +690,9 @@ const VerifyStubPage = () => {
             <p style={pageStyles.text}>
               {isArchivedHousehold(stubDetails)
                 ? "This stub cannot proceed to validation because this household is archived and cannot receive a new relief distribution."
-                : (
+                : stubDetails?.status === "ISSUED" && !isVerifiedQrClaimable
+                  ? "This scanned QR did not pass the current claimability checks. Return to the distribution list or scan an eligible physical Stub."
+                  : (
                   <>
                     This stub cannot proceed to validation because its current status is{" "}
                     <strong>{stubDetails?.status || "UNKNOWN"}</strong>.
