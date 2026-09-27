@@ -470,8 +470,25 @@ test("mobile layout stacks the details below a full-width map and keeps focus vi
     /@media \(max-width: 768px\)[\s\S]*?\.barangay-heatmap-layout\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/,
   );
   assert.match(cssSource, /\.barangay-heatmap-polygon:focus-visible/);
+  assert.match(
+    cssSource,
+    /\.barangay-heatmap-polygon:focus\s*\{[^}]*outline:\s*none\s*;/,
+  );
+  const focusVisibleStyles = cssSource.match(
+    /\.barangay-heatmap-polygon:focus-visible\s*\{([^}]*)\}/,
+  )?.[1];
+  assert.ok(focusVisibleStyles);
+  assert.match(focusVisibleStyles, /filter:\s*drop-shadow\([^;]*\)\s*;/);
+  assert.doesNotMatch(focusVisibleStyles, /outline\s*:|stroke(?:-width|-dasharray)?\s*:/);
+  assert.match(
+    cssSource,
+    /\.barangay-heatmap-polygon--selected\s*\{[^}]*stroke:\s*#17324d\s*;/,
+  );
   assert.match(componentSource, /tabIndex=\{0\}/);
   assert.match(componentSource, /aria-pressed=\{isSelected\}/);
+  assert.match(componentSource, /role="button"/);
+  assert.match(componentSource, /stroke=\{\s*isSelected\s*\?\s*"#17324d"/);
+  assert.match(componentSource, /strokeWidth=\{isSelected\s*\?\s*3\s*:\s*1\.25\}/);
 });
 
 test("details exclude household and individual identifying information", () => {
