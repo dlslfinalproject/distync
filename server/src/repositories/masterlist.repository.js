@@ -737,6 +737,50 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
   );
 };
 
+const getMswdoBarangayHeatmapReferenceMetrics = async (disasterEventId) => {
+  const query = `
+    SELECT
+      b.id AS barangay_id,
+      b.code AS barangay_code,
+      b.name AS barangay_name,
+      (deb.barangay_id IS NOT NULL) AS is_affected,
+      COALESCE(stub_metrics.issued_stubs, 0)::int AS issued_stubs,
+      COALESCE(stub_metrics.claimed_stubs, 0)::int AS claimed_stubs,
+      COALESCE(stub_metrics.pending_relief_claims, 0)::int AS pending_relief_claims
+    FROM barangays b
+    LEFT JOIN disaster_event_barangays deb
+      ON deb.disaster_event_id = $1
+      AND deb.barangay_id = b.id
+    LEFT JOIN (
+      SELECT
+        h.barangay_id,
+        COUNT(*) FILTER (
+          WHERE s.status IN ('ISSUED', 'CLAIMED')
+        )::int AS issued_stubs,
+        COUNT(*) FILTER (
+          WHERE s.status = 'CLAIMED'
+        )::int AS claimed_stubs,
+        COUNT(*) FILTER (
+          WHERE s.status = 'ISSUED'
+        )::int AS pending_relief_claims
+      FROM stubs s
+      INNER JOIN households h
+        ON h.id = s.household_id
+        AND h.disaster_event_id = s.disaster_event_id
+      WHERE s.disaster_event_id = $1
+        AND s.status IN ('ISSUED', 'CLAIMED')
+      GROUP BY h.barangay_id
+    ) stub_metrics ON stub_metrics.barangay_id = b.id
+    WHERE b.municipality_name = 'Malvar'
+      AND b.province_name = 'Batangas'
+      AND b.code <> 'NON_RESIDENT_OUTSIDE_MALVAR'
+    ORDER BY b.name ASC, b.code ASC
+  `;
+
+  const result = await pool.query(query, [disasterEventId]);
+  return result.rows;
+};
+
 const getHouseholdsByFilters = async (
   disasterEventId,
   barangayId = null,
@@ -1587,6 +1631,7 @@ module.exports = {
   getBarangayScopedDisasterEventById,
   getBarangayDashboardMetrics,
   getMswdoMasterlistAnalytics,
+  getMswdoBarangayHeatmapReferenceMetrics,
   getHouseholdsByFilters,
   getMswdoMasterlistExportMetadata,
   getStubsByHouseholdIds,
