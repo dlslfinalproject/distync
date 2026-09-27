@@ -156,19 +156,18 @@ test("offline household hydration fallback keeps cached Stub information visible
   assert.match(source, /formatDateTime\(stubRecord\?\.issued_at\)/);
 });
 
-test("shared claim modal hides raw QR text while preserving the canonical payload for Barangay and MSWDO", async () => {
+test("shared claim modal summarizes the verified QR path and preserves its canonical payload", async () => {
   const [claimSource, barangaySource, mswdoSource] = await Promise.all([
     fs.readFile(stubClaimConfirmModalSourcePath, "utf8"),
     fs.readFile(barangayStubDistributionPageSourcePath, "utf8"),
     fs.readFile(mswdoStubDistributionPageSourcePath, "utf8"),
   ]);
 
-  assert.match(
-    claimSource,
-    /<QrCodePanel[\s\S]*?value=\{resolvedQrReferenceValue\}[\s\S]*?showValue=\{false\}[\s\S]*?\/>/,
-  );
-  assert.match(claimSource, /<p style=\{modalStyles\.label\}>Stub Number<\/p>/);
+  assert.doesNotMatch(claimSource, /<QrCodePanel/);
   assert.match(claimSource, /\{getDisplayStubNumber\(stubDetails\)\}/);
+  assert.match(claimSource, /Stub QR Verified/);
+  assert.match(claimSource, /<dt>Proof Method<\/dt>[\s\S]*?QR Code/);
+  assert.match(claimSource, /qrReferenceValue: resolvedQrReferenceValue/);
   assert.match(claimSource, /<dt>Relief Pack<\/dt>/);
   assert.match(claimSource, /Donated:/);
   assert.match(claimSource, /Registered Family Head Photo/);

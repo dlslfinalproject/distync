@@ -64,8 +64,9 @@ test("claim proof requires a verified scan or explicit unavailable-Stub context"
   assert.doesNotMatch(source, /Choose proof method/);
   assert.doesNotMatch(source, /type="radio"/);
   assert.doesNotMatch(source, /setProofType/);
-  assert.match(source, /<QrCodePanel[\s\S]*?value=\{resolvedQrReferenceValue\}/);
   assert.match(source, /proofType === "QR" && resolvedQrReferenceValue/);
+  assert.match(source, /qrReferenceValue: resolvedQrReferenceValue/);
+  assert.match(source, /Stub QR Verified/);
   assert.match(source, /proofPhotoDataUrl: ""/);
   assert.match(source, /navigator\.mediaDevices\?\.getUserMedia/);
   assert.match(source, /Physical Stub Unavailable/);
@@ -73,8 +74,7 @@ test("claim proof requires a verified scan or explicit unavailable-Stub context"
   assert.match(source, /Open Camera/);
   assert.match(source, /Capture Photo/);
   assert.match(source, /Choose from Device/);
-  assert.match(source, /Photo guidelines/);
-  assert.match(source, /showing the recipient and the relief goods being handed over/);
+  assert.match(source, /Include the recipient and relief goods in a clear photo\./);
   assert.match(source, /alt="Claim handoff proof preview"/);
   assert.match(source, /Photo ready/);
   assert.match(source, /Retake Photo/);
@@ -91,13 +91,16 @@ test("claim proof requires a verified scan or explicit unavailable-Stub context"
   assert.match(source, /disabled=\{isConfirmDisabled\}/);
   assert.doesNotMatch(source, /Use Photo/);
 });
-test("single Stub confirmation always shows Photo Proof status below beneficiary details", async () => {
+test("single Stub confirmation keeps Photo Proof status below the claim and household summaries", async () => {
   const source = await readClientSource("src/components/stubs/StubClaimConfirmModal.jsx");
 
   assert.match(source, /Photo Proof of Receipt/);
-  assert.match(source, /Proof requirements follow the claim path/);
+  assert.doesNotMatch(source, /Proof requirements follow the claim path\./);
   assert.match(source, /Not Required — Stub QR Verified/);
-  assert.match(source, /Physical Stub QR Verified\.[\s\S]*physical Stub QR was successfully verified\.[\s\S]*Photo Proof is\s*required only when the physical Stub is unavailable\./);
+  assert.match(source, /The physical Stub QR was verified\./);
+  assert.match(source, /Stub QR Verified/);
+  assert.match(source, /Photo Proof Required/);
+  assert.match(source, /aria-labelledby="claim-household-verification-title"/);
   assert.match(source, /aria-labelledby="claim-proof-section-title"/);
 
   const workflowPosition = source.indexOf("claim-proof-workflow--");
@@ -115,6 +118,46 @@ test("single Stub confirmation always shows Photo Proof status below beneficiary
   assert.match(source, /proofType === "PHOTO" \? \([\s\S]*?claim-proof-capture/);
 });
 
+test("claim summary combines the operational fields and proof path", async () => {
+  const source = await readClientSource("src/components/stubs/StubClaimConfirmModal.jsx");
+
+  assert.match(source, /<h4 id="claim-distribution-summary-title">Claim Summary<\/h4>/);
+  assert.match(source, /\{getDisplayStubNumber\(stubDetails\)\}/);
+  assert.match(source, /<dt>Household \/ Family Head<\/dt>/);
+  assert.match(source, /<dt>Disaster Event<\/dt>/);
+  assert.match(source, /<dt>Relief Pack<\/dt>/);
+  assert.match(source, /<dt>Proof Method<\/dt>/);
+  assert.match(source, /claim-summary-proof-badge/);
+  assert.doesNotMatch(source, /<p style=\{modalStyles\.label\}>Stub Number<\/p>/);
+});
+
+test("household verification keeps members visible and uses a compact empty state", async () => {
+  const source = await readClientSource("src/components/stubs/StubClaimConfirmModal.jsx");
+
+  assert.match(source, /<strong>Family Members:<\/strong> None recorded/);
+  assert.match(source, /className="claim-household-member-list"[\s\S]*?familyMembers\.map/);
+  assert.match(source, /formatFamilyMemberDetails\(member\)/);
+  assert.match(source, /member\?\.age_value \?\? member\?\.age/);
+  assert.doesNotMatch(source, /<div style=\{modalStyles\.infoCard\}>\s*<p style=\{modalStyles\.label\}>Family Members/);
+});
+
+test("modal body scrolls inside a stable footer and adapts width and actions", async () => {
+  const [component, styles] = await Promise.all([
+    readClientSource("src/components/stubs/StubClaimConfirmModal.jsx"),
+    readClientSource("src/index.css"),
+  ]);
+  const bodyPosition = component.indexOf('className="stub-claim-confirm-body"');
+  const footerPosition = component.indexOf('className="stub-claim-confirm-actions"');
+
+  assert.ok(bodyPosition > -1 && footerPosition > bodyPosition);
+  assert.match(component, /<\/div>\s*<div className="stub-claim-confirm-actions"/);
+  assert.match(styles, /\.stub-claim-confirm-modal \{[\s\S]*?max-width: 820px[\s\S]*?display: flex[\s\S]*?flex-direction: column[\s\S]*?overflow: hidden/);
+  assert.match(styles, /\.stub-claim-confirm-body \{[\s\S]*?min-height: 0[\s\S]*?overflow-y: auto/);
+  assert.match(styles, /\.stub-claim-confirm-actions \{[\s\S]*?position: sticky[\s\S]*?bottom: 0[\s\S]*?border-top: 1px solid/);
+  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?grid-template-columns: minmax\(0, 1fr\)[\s\S]*?\.stub-claim-confirm-actions button[\s\S]*?width: 100%/);
+  assert.match(styles, /width: min\(100%, 400px, 80vh\)/);
+});
+
 test("unavailable-Stub copy is concise and shared by Barangay and MSWDO", async () => {
   const [claimSource, barangaySource, mswdoSource] = await Promise.all([
     readClientSource("src/components/stubs/StubClaimConfirmModal.jsx"),
@@ -124,8 +167,9 @@ test("unavailable-Stub copy is concise and shared by Barangay and MSWDO", async 
 
   assert.match(
     claimSource,
-    /<strong>Physical Stub Unavailable\.<\/strong>\s*Verify the household,\s*then capture a photo of the relief handover\./,
+    /<strong>Physical Stub Unavailable<\/strong>\s*<span>\s*Verify the household,\s*then photograph the relief handover\./,
   );
+  assert.match(claimSource, /Include the recipient and relief goods in a clear photo\./);
   assert.doesNotMatch(claimSource, /The claimant cannot present a usable issued Stub/);
   assert.match(barangaySource, /<StubClaimConfirmModal/);
   assert.match(mswdoSource, /<StubClaimConfirmModal/);
@@ -237,8 +281,8 @@ test("claim proof layout removes method cards and keeps 4:3 camera framing respo
   const source = await readClientSource("src/index.css");
 
   assert.doesNotMatch(source, /claim-proof-method-(?:options|option|card)/);
-  assert.match(source, /\.claim-proof-camera-preview,[\s\S]*?width: min\(100%, 480px, 60vh\)[\s\S]*?max-height: 45vh[\s\S]*?aspect-ratio: 4 \/ 3/);
-  assert.match(source, /@supports \(height: 1dvh\)[\s\S]*?60dvh[\s\S]*?45dvh/);
+  assert.match(source, /\.claim-proof-camera-preview,[\s\S]*?width: min\(100%, 400px, 80vh\)[\s\S]*?max-height: 60vh[\s\S]*?aspect-ratio: 4 \/ 3/);
+  assert.match(source, /@supports \(height: 1dvh\)[\s\S]*?80dvh[\s\S]*?60dvh/);
   assert.match(source, /\.claim-proof-photo-preview[\s\S]*object-fit: contain/);
   assert.match(source, /@media \(max-height: 620px\)[\s\S]*\.stub-claim-confirm-modal[\s\S]*max-height: calc\(100dvh - 16px\)/);
   assert.match(source, /@media \(max-width: 520px\)[\s\S]*\.claim-proof-capture-actions[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);

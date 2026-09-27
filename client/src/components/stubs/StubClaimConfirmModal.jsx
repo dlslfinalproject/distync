@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
-import { shellStyles } from "../layout/BarangayLayout";
 import { RELATIONSHIP_OPTIONS } from "../../utils/registrationOptions";
 import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
 import { resolveClaimProof } from "../../features/stubs/claimProofWorkflow";
@@ -8,7 +7,6 @@ import {
   normalizeImageDrawableToDataUrl,
   normalizeImageFileToDataUrl,
 } from "../../utils/imageProcessing.js";
-import QrCodePanel from "./QrCodePanel";
 import { FiCamera, FiCheckCircle, FiImage, FiRotateCcw } from "react-icons/fi";
 
 const modalStyles = {
@@ -19,17 +17,20 @@ const modalStyles = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: "18px",
+    padding:
+      "max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px))",
     zIndex: 1200,
   },
   modal: {
     width: "100%",
-    maxWidth: "520px",
+    maxWidth: "820px",
     maxHeight: "calc(100vh - 36px)",
-    overflowY: "auto",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
     backgroundColor: "#ffffff",
     borderRadius: "20px",
-    padding: "24px",
+    padding: 0,
     boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
     boxSizing: "border-box",
   },
@@ -48,14 +49,8 @@ const modalStyles = {
     display: "flex",
     justifyContent: "flex-end",
     gap: "12px",
-    marginTop: "18px",
+    marginTop: 0,
     flexWrap: "wrap",
-  },
-  photoSection: {
-    marginTop: "16px",
-    display: "grid",
-    gap: "12px",
-    justifyItems: "center",
   },
   infoCard: {
     width: "100%",
@@ -81,51 +76,12 @@ const modalStyles = {
     fontWeight: 800,
     lineHeight: 1.4,
   },
-  centeredValue: {
-    margin: "6px 0 0",
-    color: "#17324d",
-    fontSize: "15px",
-    fontWeight: 800,
-    lineHeight: 1.4,
-    textAlign: "center",
-    width: "100%",
-  },
-  qrCard: {
-    width: "100%",
-    padding: "14px",
-    borderRadius: "16px",
-    border: "1px solid #e1eaf3",
-    backgroundColor: "#f8fbfe",
-    boxSizing: "border-box",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: "10px",
-  },
-  qrPanel: {
-    width: "100%",
-    alignItems: "center",
-  },
-  qrImage: {
-    width: "160px",
-    maxWidth: "160px",
-  },
-  qrValue: {
-    width: "100%",
-    maxWidth: "420px",
-    margin: "0 auto",
-    textAlign: "center",
-    overflowWrap: "anywhere",
-  },
   familyHeadCard: {
     width: "100%",
     display: "flex",
     alignItems: "center",
-    gap: "14px",
-    padding: "12px",
-    borderRadius: "16px",
-    border: "1px solid #d7e2ef",
-    backgroundColor: "#f8fbfe",
+    gap: "12px",
+    padding: 0,
     boxSizing: "border-box",
     textAlign: "left",
   },
@@ -155,15 +111,6 @@ const modalStyles = {
     boxSizing: "border-box",
     flex: "0 0 auto",
   },
-  membersList: {
-    width: "100%",
-    margin: 0,
-    paddingLeft: "18px",
-    color: "#21405f",
-    fontSize: "14px",
-    lineHeight: 1.7,
-    textAlign: "left",
-  },
   capturedText: {
     margin: "6px 0 0",
     color: "#60738a",
@@ -175,9 +122,7 @@ const modalStyles = {
     marginTop: "16px",
     display: "grid",
     gap: "10px",
-    maxHeight: "320px",
-    overflowY: "auto",
-    paddingRight: "4px",
+    paddingRight: 0,
     boxSizing: "border-box",
   },
   bulkItem: {
@@ -233,6 +178,25 @@ const formatRelationship = (value) => {
   );
 
   return relationshipOption?.label || value || "";
+};
+
+const formatFamilyMemberDetails = (member) => {
+  const details = [member?.full_name || "Unnamed member"];
+  const relationship = formatRelationship(member?.relationship_to_head);
+  const ageValue = member?.age_value ?? member?.age;
+
+  if (relationship) {
+    details.push(relationship);
+  }
+  if (ageValue !== null && ageValue !== undefined && ageValue !== "") {
+    const ageText =
+      member?.age_value !== null && member?.age_value !== undefined
+        ? `${ageValue}${member?.age_unit ? ` ${member.age_unit}` : ""}`
+        : String(ageValue);
+    details.push(ageText);
+  }
+
+  return details.join(" — ");
 };
 
 const getReliefPackDisplay = (value) => {
@@ -682,7 +646,7 @@ const StubClaimConfirmModal = ({
   const distributionMessage =
     selectedCount > 1
       ? "Review the selected stubs and confirm after the relief handover."
-      : "Review the distribution details, then confirm after the relief handover.";
+      : "Review the details before confirming the handover.";
   const handleDialogKeyDown = (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -726,70 +690,45 @@ const StubClaimConfirmModal = ({
         tabIndex={-1}
         onKeyDown={handleDialogKeyDown}
       >
-        <h3
-          id="claim-distribution-title"
-          ref={dialogHeadingRef}
-          tabIndex={-1}
-          style={modalStyles.title}
-        >
-          Confirm Relief Distribution
-        </h3>
-        <p id="claim-distribution-message" style={modalStyles.message}>
-          {distributionMessage}
-        </p>
-        {selectedCount === 1 ? (
-          <div style={{ ...modalStyles.infoCard, marginTop: "16px" }}>
-            <p style={modalStyles.label}>Stub Number</p>
-            <p style={modalStyles.value}>{getDisplayStubNumber(stubDetails)}</p>
-          </div>
-        ) : null}
-        {stubDetails?.offline_household_details_unavailable ? (
-          <p style={modalStyles.message}>
-            Complete household details are not available in the current offline data.
-          </p>
-        ) : null}
-
-        {selectedCount === 1 ? (
-          <div
-            className="stub-claim-confirm-content"
-            style={modalStyles.photoSection}
+        <header className="stub-claim-confirm-header">
+          <h3
+            id="claim-distribution-title"
+            ref={dialogHeadingRef}
+            tabIndex={-1}
+            style={modalStyles.title}
           >
-            {proofType === "QR" ? (
-              <div style={modalStyles.qrCard}>
-                <p style={modalStyles.label}>QR Code</p>
-                <QrCodePanel
-                  value={resolvedQrReferenceValue}
-                  showValue={false}
-                  containerStyle={modalStyles.qrPanel}
-                  imageStyle={modalStyles.qrImage}
-                  valueStyle={modalStyles.qrValue}
-                />
-                <p style={modalStyles.label}>Standard Relief</p>
-                <p style={modalStyles.centeredValue}>{reliefPackDisplay}</p>
-                {reliefPackParts.multiplierText ? (
-                  <p style={{ ...modalStyles.capturedText, textAlign: "center" }}>
-                    {reliefPackParts.multiplierText}
-                  </p>
-                ) : null}
-                {hasDonatedRelief ? (
-                  <>
-                    <p style={{ ...modalStyles.label, marginTop: "8px" }}>
-                      Donated Relief
-                    </p>
-                    <p style={modalStyles.centeredValue}>
-                      {donatedReliefPackNames.join(", ").toUpperCase()}
-                    </p>
-                  </>
-                ) : null}
-              </div>
-            ) : null}
+            Confirm Relief Distribution
+          </h3>
+          <p id="claim-distribution-message" style={modalStyles.message}>
+            {distributionMessage}
+          </p>
+        </header>
+        <div className="stub-claim-confirm-body">
+          {selectedCount === 1 ? (
             <section
               className="claim-distribution-summary"
               aria-labelledby="claim-distribution-summary-title"
             >
-              <h4 id="claim-distribution-summary-title">
-                Distribution summary
-              </h4>
+              <div className="claim-summary-heading">
+                <div>
+                  <h4 id="claim-distribution-summary-title">Claim Summary</h4>
+                  <p className="claim-summary-stub-number">
+                    {getDisplayStubNumber(stubDetails)}
+                  </p>
+                </div>
+                <span
+                  className={`claim-proof-state-badge claim-proof-state-badge--${proofType || "checking"} claim-summary-proof-badge`}
+                  role="status"
+                >
+                  {proofType === "QR"
+                    ? "Stub QR Verified"
+                    : proofType === "PHOTO"
+                      ? isProofPhotoReady
+                        ? "Photo Proof Ready"
+                        : "Photo Proof Required"
+                      : "Waiting for Claim Verification"}
+                </span>
+              </div>
               <dl className="claim-distribution-summary-grid">
                 <div>
                   <dt>Household / Family Head</dt>
@@ -807,9 +746,16 @@ const StubClaimConfirmModal = ({
                   <dt>Relief Pack</dt>
                   <dd>
                     {reliefPackDisplay}
-                    {hasDonatedRelief
-                      ? [" · Donated: ", donatedReliefPackNames.join(", ").toUpperCase()].join("")
-                      : ""}
+                    {reliefPackParts.multiplierText ? (
+                      <small className="claim-summary-supporting-text">
+                        {reliefPackParts.multiplierText}
+                      </small>
+                    ) : null}
+                    {hasDonatedRelief ? (
+                      <small className="claim-summary-supporting-text">
+                        Donated: {donatedReliefPackNames.join(", ").toUpperCase()}
+                      </small>
+                    ) : null}
                   </dd>
                 </div>
                 {proofType ? (
@@ -818,107 +764,118 @@ const StubClaimConfirmModal = ({
                     <dd>{proofType === "QR" ? "QR Code" : "Photo Proof"}</dd>
                   </div>
                 ) : null}
-                {proofType === "PHOTO" ? (
-                  <div>
-                    <dt>Proof Photo</dt>
-                    <dd>{isProofPhotoReady ? "Attached" : "Required"}</dd>
-                  </div>
-                ) : null}
               </dl>
             </section>
+          ) : null}
+          {stubDetails?.offline_household_details_unavailable ? (
+            <p className="claim-offline-details-note">
+              Complete household details are not available in the current offline data.
+            </p>
+          ) : null}
 
-            <div
-              className="stub-claim-confirm-family-head"
-              style={modalStyles.familyHeadCard}
+          {selectedCount === 1 ? (
+            <section
+              className="stub-claim-confirm-content"
+              aria-labelledby="claim-household-verification-title"
             >
-              {isLoadingStubDetails ? (
-                <div style={modalStyles.photoPlaceholder}>Loading registered photo...</div>
-              ) : familyHeadPhotoUrl ? (
-                <img
-                  src={familyHeadPhotoUrl}
-                  alt="Registered family head photo for manual identity verification"
-                  style={modalStyles.photoPreview}
-                />
-              ) : (
-                <div style={modalStyles.photoPlaceholder}>No registered photo available</div>
-              )}
+              <h4
+                id="claim-household-verification-title"
+                className="claim-household-title"
+              >
+                Household Verification
+              </h4>
 
-              <div>
-                <p style={modalStyles.label}>Registered Family Head Photo</p>
-                <p style={modalStyles.value}>
-                  {stubDetails?.household?.family_head_name ||
-                    stubDetails?.family_head_name ||
-                    "--"}
-                </p>
-                <p style={modalStyles.capturedText}>
-                  For manual identity verification only.
-                </p>
-                {stubDetails?.household?.photo_captured_at ? (
-                  <p style={modalStyles.capturedText}>
-                    Captured:{" "}
-                    {formatPhotoCapturedAt(stubDetails.household.photo_captured_at)}
+              <div
+                className="stub-claim-confirm-family-head"
+                style={modalStyles.familyHeadCard}
+              >
+                {isLoadingStubDetails ? (
+                  <div style={modalStyles.photoPlaceholder}>Loading registered photo...</div>
+                ) : familyHeadPhotoUrl ? (
+                  <img
+                    src={familyHeadPhotoUrl}
+                    alt="Registered family head photo for manual identity verification"
+                    style={modalStyles.photoPreview}
+                  />
+                ) : (
+                  <div style={modalStyles.photoPlaceholder}>No registered photo available</div>
+                )}
+
+                <div>
+                  <p style={modalStyles.label}>Registered Family Head Photo</p>
+                  <p style={modalStyles.value}>
+                    {stubDetails?.household?.family_head_name ||
+                      stubDetails?.family_head_name ||
+                      "--"}
                   </p>
-                ) : null}
+                  <p style={modalStyles.capturedText}>
+                    For manual identity verification only.
+                  </p>
+                  {stubDetails?.household?.photo_captured_at ? (
+                    <p style={modalStyles.capturedText}>
+                      Captured:{" "}
+                      {formatPhotoCapturedAt(stubDetails.household.photo_captured_at)}
+                    </p>
+                  ) : null}
+                </div>
               </div>
-            </div>
 
-            <div style={modalStyles.infoCard}>
-              <p style={modalStyles.label}>Family Members</p>
-              {familyMembers.length > 0 ? (
-                <ul style={modalStyles.membersList}>
-                  {familyMembers.map((member) => (
-                    <li key={member.evacuee_id || member.full_name}>
-                      {member.full_name || "Unnamed member"}
-                      {member.relationship_to_head
-                        ? ` - ${formatRelationship(member.relationship_to_head)}`
-                        : ""}
-                    </li>
-                  ))}
-                </ul>
+              <div className="claim-household-members">
+                {familyMembers.length > 0 ? (
+                  <>
+                    <p className="claim-household-members-label">Family Members</p>
+                    <ul className="claim-household-member-list">
+                      {familyMembers.map((member) => (
+                        <li key={member.evacuee_id || member.full_name}>
+                          {formatFamilyMemberDetails(member)}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p className="claim-household-empty">
+                    <strong>Family Members:</strong> None recorded
+                  </p>
+                )}
+              </div>
+            </section>
+          ) : (
+            <div className="stub-claim-confirm-bulk-list" style={modalStyles.bulkList}>
+              {selectedStubSummaries.length > 0 ? (
+                selectedStubSummaries.map((stub, index) => (
+                  <div key={stub.id || `${stub.stubNumber}-${index}`} style={modalStyles.bulkItem}>
+                    <div>
+                      <p style={modalStyles.bulkName}>{stub.familyHeadName}</p>
+                      <p style={modalStyles.bulkMeta}>
+                        Stub Number: {stub.stubNumber}
+                      </p>
+                      <p style={modalStyles.bulkMeta}>
+                        Standard Relief: {stub.reliefPackDisplay}
+                      </p>
+                      {stub.reliefPackMultiplierText ? (
+                        <p style={modalStyles.bulkMeta}>
+                          {stub.reliefPackMultiplierText}
+                        </p>
+                      ) : null}
+                      {stub.donatedReliefPackDisplay ? (
+                        <p style={modalStyles.bulkMeta}>
+                          Donated Relief: {stub.donatedReliefPackDisplay}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <p style={modalStyles.label}>Household Size</p>
+                      <p style={modalStyles.value}>{stub.householdSize}</p>
+                    </div>
+                  </div>
+                ))
               ) : (
-                <p style={{ ...shellStyles.mutedText, margin: "8px 0 0" }}>
-                  No additional family members recorded.
-                </p>
+                <div style={modalStyles.infoCard}>
+                  <p style={modalStyles.value}>{selectedCount} selected stubs</p>
+                </div>
               )}
             </div>
-          </div>
-        ) : (
-          <div className="stub-claim-confirm-bulk-list" style={modalStyles.bulkList}>
-            {selectedStubSummaries.length > 0 ? (
-              selectedStubSummaries.map((stub, index) => (
-                <div key={stub.id || `${stub.stubNumber}-${index}`} style={modalStyles.bulkItem}>
-                  <div>
-                    <p style={modalStyles.bulkName}>{stub.familyHeadName}</p>
-                    <p style={modalStyles.bulkMeta}>
-                      Stub Number: {stub.stubNumber}
-                    </p>
-                    <p style={modalStyles.bulkMeta}>
-                      Standard Relief: {stub.reliefPackDisplay}
-                    </p>
-                    {stub.reliefPackMultiplierText ? (
-                      <p style={modalStyles.bulkMeta}>
-                        {stub.reliefPackMultiplierText}
-                      </p>
-                    ) : null}
-                    {stub.donatedReliefPackDisplay ? (
-                      <p style={modalStyles.bulkMeta}>
-                        Donated Relief: {stub.donatedReliefPackDisplay}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div style={{ textAlign: "center" }}>
-                    <p style={modalStyles.label}>Household Size</p>
-                    <p style={modalStyles.value}>{stub.householdSize}</p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div style={modalStyles.infoCard}>
-                <p style={modalStyles.value}>{selectedCount} selected stubs</p>
-              </div>
-            )}
-          </div>
-        )}
+          )}
 
         {selectedCount === 1 ? (
           <section
@@ -933,9 +890,6 @@ const StubClaimConfirmModal = ({
                 >
                   Photo Proof of Receipt
                 </h4>
-                <p className="claim-proof-subtitle">
-                  Proof requirements follow the claim path.
-                </p>
               </div>
               <span
                 className={`claim-proof-state-badge claim-proof-state-badge--${proofType || "checking"}`}
@@ -950,14 +904,14 @@ const StubClaimConfirmModal = ({
             </div>
             {proofType === "QR" ? (
               <p className="claim-proof-informational">
-                <strong>Physical Stub QR Verified.</strong> The claimant's
-                physical Stub QR was successfully verified. Photo Proof is
-                required only when the physical Stub is unavailable.
+                The physical Stub QR was verified.
               </p>
             ) : proofType === "PHOTO" ? (
               <div className="claim-proof-required-notice">
-                <strong>Physical Stub Unavailable.</strong> Verify the household,
-                then capture a photo of the relief handover.
+                <strong>Physical Stub Unavailable</strong>
+                <span>
+                  Verify the household, then photograph the relief handover.
+                </span>
               </div>
             ) : (
               <p
@@ -974,12 +928,8 @@ const StubClaimConfirmModal = ({
                 className="claim-proof-capture"
                 aria-labelledby="claim-proof-photo-title"
               >
-                <h5 id="claim-proof-photo-title" className="claim-proof-capture-title">
-                  Photo guidelines
-                </h5>
-                <p className="claim-proof-guidance">
-                  Capture a clear photo showing the recipient and the relief goods being handed over.
-                  Make sure the image is visible and not blurred.
+                <p id="claim-proof-photo-title" className="claim-proof-guidance">
+                  Include the recipient and relief goods in a clear photo.
                 </p>
                 <input
                   ref={photoFileInputRef}
@@ -1099,6 +1049,16 @@ const StubClaimConfirmModal = ({
             ) : null}
           </section>
         ) : null}
+          {isSubmitting ? (
+            <p className="claim-distribution-processing" role="status" aria-live="polite">
+              {selectedCount > 1
+                ? "Recording the selected relief distributions."
+                : proofType === "PHOTO"
+                  ? "Recording the claim and securing the photo proof."
+                  : "Recording the relief distribution."}
+            </p>
+          ) : null}
+        </div>
         <div className="stub-claim-confirm-actions" style={modalStyles.actions}>
           <button
             type="button"
@@ -1137,15 +1097,6 @@ const StubClaimConfirmModal = ({
                 : "Confirm Distribution"}
           </button>
         </div>
-        {isSubmitting ? (
-          <p className="claim-distribution-processing" role="status" aria-live="polite">
-            {selectedCount > 1
-              ? "Recording the selected relief distributions."
-              : proofType === "PHOTO"
-                ? "Recording the claim and securing the photo proof."
-                : "Recording the relief distribution."}
-          </p>
-        ) : null}
       </div>
     </div>
   );
