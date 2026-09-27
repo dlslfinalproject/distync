@@ -1,4 +1,5 @@
 import { buildSyncDescriptor } from "../../offline/syncStatus.js";
+import { isAuthoritativelyClaimedStubRow } from "./stubPresentation.js";
 
 const normalizeAttendanceStatus = (value) =>
   String(value || "").trim().toUpperCase();
@@ -30,6 +31,10 @@ const CLAIM_BLOCKING_SYNC_STATUSES = new Set([
 ]);
 
 export const getStubClaimRowSyncStatus = (row, matchingEntry = null) => {
+  if (isAuthoritativelyClaimedStubRow(row)) {
+    return "";
+  }
+
   if (row?.is_local_only) {
     return row.sync_status || "";
   }
@@ -50,6 +55,7 @@ export const isSelectableClaimStubRow = (row) => {
     .toUpperCase();
 
   return (
+    !isAuthoritativelyClaimedStubRow(row) &&
     row?.status === "ISSUED" &&
     (!presentationStatus || presentationStatus === "FOR_CLAIM") &&
     !row?.is_local_only &&

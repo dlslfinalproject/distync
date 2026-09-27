@@ -42,6 +42,16 @@ let isSyncInFlight = false;
 
 const getIsoNow = () => new Date().toISOString();
 
+const isAlreadyClaimedStubConflict = (entry, result) =>
+  entry?.actionKey === "STUB_CLAIM" &&
+  [
+    result?.error_code,
+    result?.conflict?.conflict_type,
+    result?.conflict?.conflictType,
+  ]
+    .map((value) => String(value || "").trim().toUpperCase())
+    .includes("STUB_ALREADY_CLAIMED");
+
 const getSyncResultEntityServerId = (result, fallback = null) =>
   result?.data?.id ||
   result?.data?.inventory_item?.id ||
@@ -331,6 +341,7 @@ const flushSelectedSyncEntries = async (
         result,
         entry.entityServerId,
       );
+      const isResolvedClaimConflict = isAlreadyClaimedStubConflict(entry, result);
 
       if (
         entry.actionKey === "INVENTORY_ITEM_CREATE" &&
@@ -360,12 +371,20 @@ const flushSelectedSyncEntries = async (
         lastError:
           resultStatus === LOCAL_SYNC_STATUS.FAILED
             ? result.message || SYNC_PRESENTATION_MESSAGES.SERVER
-            : null,
+            : isResolvedClaimConflict
+              ? entry.lastError || null
+              : null,
         serverMessage: result.message || null,
-        lastErrorCode: result.error_code || null,
-        lastErrorStatusCode: result.status_code || null,
+        lastErrorCode:
+          result.error_code ||
+          (isResolvedClaimConflict ? entry.lastErrorCode : null),
+        lastErrorStatusCode:
+          result.status_code ||
+          (isResolvedClaimConflict ? entry.lastErrorStatusCode : null),
         conflict: result.conflict || null,
-        resolutionStatus: result.resolution_status || null,
+        resolutionStatus:
+          result.resolution_status ||
+          (isResolvedClaimConflict ? "RESOLVED_AUTOMATICALLY" : null),
         processingOwner: null,
         processingUntil: null,
       });

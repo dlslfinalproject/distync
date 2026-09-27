@@ -10,7 +10,10 @@ import {
   isCurrentlyPresentStubRow,
   isSelectableClaimStubRow,
 } from "../../features/stubs/stubEligibility";
-import { STUB_PRESENTATION_STATUSES } from "../../features/stubs/stubPresentation.js";
+import {
+  isStubClaimSyncBlockingRow,
+  STUB_PRESENTATION_STATUSES,
+} from "../../features/stubs/stubPresentation.js";
 import TablePagination from "../shared/TablePagination";
 import {
   DEFAULT_TABLE_PAGE_SIZE,
@@ -268,11 +271,7 @@ const getStatusLabel = (status) => {
   return status || "-";
 };
 
-const isRowBlockedByClaimSync = (row) =>
-  row?.is_claim_pending ||
-  ["PENDING", "FAILED", "CONFLICT"].includes(
-    String(row?.sync_status || "").toUpperCase(),
-  );
+const isRowBlockedByClaimSync = (row) => isStubClaimSyncBlockingRow(row);
 
 const getClaimSyncStatusLabel = (status) => {
   if (status === "FAILED") return "Sync Failed";

@@ -3,10 +3,12 @@ import {
   getSyncQueueActorContext,
   getVisibleStubClaimSyncEntriesForStub,
   getVisibleSyncQueueEntriesForBarangay,
+  updateSyncEntryStatus,
 } from "../../offline/syncQueue.js";
 import { ROLE_CODES } from "../../utils/roleSession.js";
 import { extractStubQrValue } from "../../utils/stubQr.js";
 import { getStubRowSectorCodes } from "./stubSectorFilters.js";
+import { isAuthoritativelyClaimedStubRow } from "./stubPresentation.js";
 
 export const normalizeOfflineStubQrKey = (value) => extractStubQrValue(value).trim();
 
@@ -24,6 +26,11 @@ const claimBlockingStatuses = new Set([
 const claimPendingStatuses = new Set([
   LOCAL_SYNC_STATUS.PENDING,
   LOCAL_SYNC_STATUS.FAILED,
+]);
+const claimReconciliationStatuses = new Set([
+  LOCAL_SYNC_STATUS.PENDING,
+  LOCAL_SYNC_STATUS.FAILED,
+  LOCAL_SYNC_STATUS.CONFLICT,
 ]);
 
 const trimValue = (value) => String(value || "").trim();
@@ -194,6 +201,7 @@ export const toOfflineStubSnapshot = (
       : [],
     sector_codes: getStubRowSectorCodes(serverRow),
     status: trimValue(serverRow.status) || "ISSUED",
+    claimed_at: serverRow.claimed_at || null,
     latest_attendance_status: trimValue(
       getFirstValue(
         serverRow.latest_attendance_status,
@@ -219,6 +227,7 @@ export const toStubRowFromOfflineSnapshot = (snapshot, syncEntry = null) => {
 
   const syncStatus = syncEntry?.status || null;
   const isLocallyPendingClaim = claimPendingStatuses.has(syncStatus);
+  const isAuthoritativelyClaimed = isAuthoritativelyClaimedStubRow(snapshot);
 
   return {
     id: snapshot.stubId,
@@ -253,14 +262,15 @@ export const toStubRowFromOfflineSnapshot = (snapshot, syncEntry = null) => {
       ? snapshot.sector_codes
       : [],
     status:
-      syncStatus === LOCAL_SYNC_STATUS.SYNCED
+      isAuthoritativelyClaimed || syncStatus === LOCAL_SYNC_STATUS.SYNCED
         ? "CLAIMED"
         : snapshot.status || "ISSUED",
+    claimed_at: snapshot.claimed_at || null,
     latest_attendance_status: snapshot.latest_attendance_status || "",
     latest_attendance_time_out: snapshot.latest_attendance_time_out || null,
-    sync_status: syncStatus,
+    sync_status: isAuthoritativelyClaimed ? "" : syncStatus,
     is_cached_offline: true,
-    is_claim_pending: isLocallyPendingClaim,
+    is_claim_pending: isAuthoritativelyClaimed ? false : isLocallyPendingClaim,
     cached_at: snapshot.cached_at,
     disaster_event: {
       id: snapshot.disaster_event_id,
@@ -316,13 +326,13 @@ const matchesClaimScope = (entry, { disasterEventId = "", barangayId = "" } = {}
   );
 };
 
-export const getClaimSyncEntryForStub = (
+export const getClaimSyncEntriesForStub = (
   syncEntries = [],
   stubId,
   scope = {},
 ) => {
   if (!stubId) {
-    return null;
+    return [];
   }
 
   return syncEntries
@@ -338,11 +348,84 @@ export const getClaimSyncEntryForStub = (
       (left, right) =>
         (claimStatusPriority[right.status] || 0) -
         (claimStatusPriority[left.status] || 0),
-    )[0] || null;
+    );
+};
+
+export const getClaimSyncEntryForStub = (syncEntries = [], stubId, scope = {}) =>
+  getClaimSyncEntriesForStub(syncEntries, stubId, scope)[0] || null;
+
+export const getStubClaimEntriesToAutoResolve = (rows = [], syncEntries = []) => {
+  const entriesToResolve = new Map();
+
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    if (!isAuthoritativelyClaimedStubRow(row)) {
+      return;
+    }
+
+    const matches = getClaimSyncEntriesForStub(
+      syncEntries,
+      row?.id || row?.stub_id,
+      {
+        disasterEventId:
+          row?.disaster_event?.id || row?.disaster_event_id || "",
+        barangayId: row?.barangay?.id || row?.barangay_id || "",
+      },
+    );
+
+    matches.forEach((entry) => {
+      const resolutionStatus = String(entry?.resolutionStatus || "").toUpperCase();
+      if (
+        claimReconciliationStatuses.has(entry.status) &&
+        !["RESOLVED", "RESOLVED_AUTOMATICALLY"].includes(resolutionStatus)
+      ) {
+        entriesToResolve.set(entry.id, entry);
+      }
+    });
+  });
+
+  return Array.from(entriesToResolve.values());
+};
+
+export const reconcileAuthoritativeStubClaimQueueEntries = async (
+  rows = [],
+  syncEntries = [],
+) => {
+  const entries = getStubClaimEntriesToAutoResolve(rows, syncEntries);
+  let resolvedCount = 0;
+
+  for (const entry of entries) {
+    try {
+      await updateSyncEntryStatus(entry.id, {
+        resolutionStatus: "RESOLVED_AUTOMATICALLY",
+        processingOwner: null,
+        processingUntil: null,
+      });
+      resolvedCount += 1;
+    } catch (_error) {
+      // The authoritative row still controls presentation if local bookkeeping
+      // is temporarily unavailable; server idempotency protects any later retry.
+    }
+  }
+
+  return resolvedCount;
 };
 
 export const applyLocalStubClaimSyncState = (row, syncEntry = null) => {
-  if (!row || !syncEntry || !claimBlockingStatuses.has(syncEntry.status)) {
+  if (!row) {
+    return row;
+  }
+
+  if (isAuthoritativelyClaimedStubRow(row)) {
+    return {
+      ...row,
+      status: "CLAIMED",
+      presentation_status: "CLAIMED",
+      sync_status: "",
+      is_claim_pending: false,
+    };
+  }
+
+  if (!syncEntry || !claimBlockingStatuses.has(syncEntry.status)) {
     return row;
   }
 
@@ -367,8 +450,9 @@ export const applyLocalStubClaimSyncStates = (rows = [], syncEntries = []) =>
 
 export const isLocalStubClaimBlocked = (row) =>
   Boolean(
-    row?.is_claim_pending ||
-      claimBlockingStatuses.has(String(row?.sync_status || "").toUpperCase()),
+    !isAuthoritativelyClaimedStubRow(row) &&
+      (row?.is_claim_pending ||
+        claimBlockingStatuses.has(String(row?.sync_status || "").toUpperCase())),
   );
 
 export const getCachedStubClaimSyncEntry = async (stubId, scope = {}) => {
@@ -467,6 +551,10 @@ export const getCachedStubRowsForScope = async ({
     getCachedStubSnapshotsForScope({ disasterEventId, currentBarangayId }),
     getVisibleSyncQueueEntriesForBarangay(currentBarangayId),
   ]);
+  const cachedRows = snapshots
+    .map((snapshot) => toStubRowFromOfflineSnapshot(snapshot))
+    .filter(Boolean);
+  await reconcileAuthoritativeStubClaimQueueEntries(cachedRows, syncEntries);
 
   return snapshots
     .map((snapshot) =>
@@ -504,6 +592,10 @@ export const getCachedStubDetailsById = async (stubId, { currentBarangayId }) =>
     disasterEventId: snapshot?.disaster_event_id,
     barangayId: snapshot?.barangay_id || currentBarangayId,
   });
+  await reconcileAuthoritativeStubClaimQueueEntries(
+    [toStubRowFromOfflineSnapshot(snapshot)].filter(Boolean),
+    syncEntry ? [syncEntry] : [],
+  );
   return toStubDetailsFromOfflineSnapshot(snapshot, syncEntry);
 };
 
@@ -538,6 +630,10 @@ export const getCachedStubDetailsByQrValue = async (
     disasterEventId: cachedRow.disaster_event_id,
     barangayId: cachedRow.barangay_id || currentBarangayId,
   });
+  await reconcileAuthoritativeStubClaimQueueEntries(
+    [toStubRowFromOfflineSnapshot(cachedRow)].filter(Boolean),
+    syncEntry ? [syncEntry] : [],
+  );
   const details = toStubDetailsFromOfflineSnapshot(cachedRow, syncEntry);
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-offline-lookup-diagnostic", { detail: { kind: "stub", found: Boolean(details), reason: details ? "OFFLINE_QR_READ_BACK_FOUND" : "OFFLINE_QR_SNAPSHOT_INVALID" } }));
   return details;

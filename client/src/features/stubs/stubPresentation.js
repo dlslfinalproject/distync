@@ -14,6 +14,20 @@ export const STUB_STATUS_PRIORITY = Object.freeze({
 
 const normalize = (value) => String(value || "").trim().toUpperCase();
 
+export const isAuthoritativelyClaimedStubRow = (row) =>
+  normalize(row?.status) === "CLAIMED" || Boolean(row?.claimed_at);
+
+const CLAIM_BLOCKING_SYNC_STATUSES = new Set([
+  LOCAL_SYNC_STATUS.PENDING,
+  LOCAL_SYNC_STATUS.FAILED,
+  LOCAL_SYNC_STATUS.CONFLICT,
+]);
+
+export const isStubClaimSyncBlockingRow = (row) =>
+  !isAuthoritativelyClaimedStubRow(row) &&
+  (Boolean(row?.is_claim_pending) ||
+    CLAIM_BLOCKING_SYNC_STATUSES.has(normalize(row?.sync_status)));
+
 const rowHouseholdIds = (row) =>
   [row?.household_id, row?.household?.id, row?.household_occurrence_id]
     .filter(Boolean)
@@ -66,7 +80,7 @@ export const isEffectivelyNotPresentStubRow = (row, syncEntries = [], scope = {}
 };
 
 export const resolveStubPresentationStatus = (row, syncEntries = [], scope = {}) => {
-  if (normalize(row?.status) === "CLAIMED") {
+  if (isAuthoritativelyClaimedStubRow(row)) {
     return STUB_PRESENTATION_STATUSES.CLAIMED;
   }
   if (isEffectivelyNotPresentStubRow(row, syncEntries, scope)) {
@@ -77,6 +91,7 @@ export const resolveStubPresentationStatus = (row, syncEntries = [], scope = {})
 
 export const withStubPresentationStatus = (row, syncEntries = [], scope = {}) => ({
   ...row,
+  status: isAuthoritativelyClaimedStubRow(row) ? "CLAIMED" : row?.status,
   presentation_status: resolveStubPresentationStatus(row, syncEntries, scope),
 });
 

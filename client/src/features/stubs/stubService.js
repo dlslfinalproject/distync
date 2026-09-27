@@ -13,6 +13,7 @@ import {
   getCachedStubDetailsByQrValue,
   isLocalStubClaimBlocked,
   markCachedStubClaimTerminal,
+  reconcileAuthoritativeStubClaimQueueEntries,
   upsertOfflineStubSnapshots,
 } from "./stubCache.js";
 import { resolveStubSectorIdsForApi } from "./stubSectorFilters.js";
@@ -339,6 +340,7 @@ export const fetchBarangayStubDashboard = async ({
     barangayId ||
     "";
   const syncEntries = await getVisibleSyncQueueEntriesForBarangay(scopedBarangayId);
+  await reconcileAuthoritativeStubClaimQueueEntries(responseData?.data || [], syncEntries);
   responseData.data = applyLocalStubClaimSyncStates(responseData?.data || [], syncEntries);
 
   return responseData;
@@ -417,6 +419,7 @@ export const fetchMunicipalStubDashboard = async ({
   }
 
   const syncEntries = await getVisibleSyncQueueEntries();
+  await reconcileAuthoritativeStubClaimQueueEntries(responseData.data, syncEntries);
   responseData.data = applyLocalStubClaimSyncStates(responseData.data, syncEntries);
 
   return responseData;
@@ -429,7 +432,9 @@ export const searchStubs = async ({ query, disasterEventId, barangayId }) => {
 
   const responseData = await handleJsonResponse(response, "Failed to search stubs");
   if (Array.isArray(responseData?.data)) {
+    await upsertOfflineStubSnapshots(responseData.data);
     const syncEntries = await getVisibleSyncQueueEntriesForBarangay(barangayId);
+    await reconcileAuthoritativeStubClaimQueueEntries(responseData.data, syncEntries);
     responseData.data = applyLocalStubClaimSyncStates(responseData.data, syncEntries);
   }
   return responseData;
@@ -452,7 +457,9 @@ export const verifyStub = async ({ stubNo, serialNo, qrCodeValue, currentBaranga
     const stub = responseData?.data?.stub;
     const stubId = stub?.id || stub?.stub_id;
     if (stubId) {
+      await upsertOfflineStubSnapshots([stub]);
       const syncEntries = await getVisibleStubClaimSyncEntriesForStub(stubId);
+      await reconcileAuthoritativeStubClaimQueueEntries([stub], syncEntries);
       const syncEntry = getClaimSyncEntryForStub(syncEntries, stubId, {
         disasterEventId: stub?.disaster_event?.id || stub?.disaster_event_id || "",
         barangayId: stub?.barangay?.id || stub?.barangay_id || currentBarangayId,
@@ -497,6 +504,7 @@ export const fetchStubDetails = async (stubId, { currentBarangayId = "" } = {}) 
 
     await upsertOfflineStubSnapshots(responseData ? [responseData] : []);
     const syncEntries = await getVisibleStubClaimSyncEntriesForStub(stubId);
+    await reconcileAuthoritativeStubClaimQueueEntries([responseData], syncEntries);
     const syncEntry = getClaimSyncEntryForStub(syncEntries, stubId, {
       disasterEventId:
         responseData?.disaster_event?.id || responseData?.disaster_event_id || "",

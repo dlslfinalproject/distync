@@ -6,8 +6,14 @@ import { findBlockingStubClaimEntry } from "../src/offline/syncQueue.js";
 import {
   applyLocalStubClaimSyncState,
   getClaimSyncEntryForStub,
+  getStubClaimEntriesToAutoResolve,
   isLocalStubClaimBlocked,
 } from "../src/features/stubs/stubCache.js";
+import {
+  getStubClaimRowSyncStatus,
+  isSelectableClaimStubRow,
+} from "../src/features/stubs/stubEligibility.js";
+import { isStubClaimSyncBlockingRow } from "../src/features/stubs/stubPresentation.js";
 
 const readSource = async (relativePath) =>
   fs.readFile(new URL(relativePath, import.meta.url), "utf8");
@@ -101,6 +107,76 @@ test("pending and retryable failed queue rows block local claims without asserti
   }
 });
 
+test("authoritative Claimed rows override local claim sync state for both role projections", () => {
+  const claimedRow = {
+    id: "stub-1",
+    status: "CLAIMED",
+    claimed_at: "2026-09-26T11:04:00.000Z",
+    presentation_status: "CLAIMED",
+    disaster_event_id: "event-1",
+    barangay_id: "barangay-1",
+  };
+
+  for (const status of ["PENDING", "FAILED", "CONFLICT"]) {
+    const entry = claimEntry({ status });
+    const projected = applyLocalStubClaimSyncState(claimedRow, entry);
+
+    assert.equal(projected.status, "CLAIMED");
+    assert.equal(projected.presentation_status, "CLAIMED");
+    assert.equal(projected.sync_status, "");
+    assert.equal(projected.is_claim_pending, false);
+    assert.equal(isLocalStubClaimBlocked(projected), false);
+    assert.equal(isStubClaimSyncBlockingRow(projected), false);
+    assert.equal(getStubClaimRowSyncStatus(claimedRow, entry), "");
+    assert.equal(isSelectableClaimStubRow(projected), false);
+  }
+});
+
+test("a retryable failed unclaimed Stub remains visibly failed and safely blocked", () => {
+  const unclaimedRow = {
+    id: "stub-1",
+    status: "ISSUED",
+    presentation_status: "FOR_CLAIM",
+    is_active: true,
+    household: { is_active: true },
+    latest_attendance_status: "PRESENT",
+    latest_attendance_time_out: null,
+    disaster_event_id: "event-1",
+    barangay_id: "barangay-1",
+  };
+  const entry = claimEntry({ status: "FAILED" });
+  const projected = applyLocalStubClaimSyncState(unclaimedRow, entry);
+
+  assert.equal(projected.status, "ISSUED");
+  assert.equal(projected.sync_status, "FAILED");
+  assert.equal(projected.is_claim_pending, true);
+  assert.equal(isStubClaimSyncBlockingRow(projected), true);
+  assert.equal(getStubClaimRowSyncStatus(unclaimedRow, entry), "FAILED");
+  assert.equal(isSelectableClaimStubRow(projected), false);
+});
+
+test("only matching canonical Stub claim operations auto-resolve on authoritative Claimed rows", () => {
+  const claimedRow = {
+    id: "stub-1",
+    status: "CLAIMED",
+    disaster_event_id: "event-1",
+    barangay_id: "barangay-1",
+  };
+  const matchingFailed = claimEntry({ status: "FAILED" });
+  const otherStub = claimEntry({ stubId: "stub-2", status: "FAILED" });
+  const otherEvent = {
+    ...claimEntry({ status: "PENDING" }),
+    id: "other-event",
+    payload: { ...claimEntry().payload, disaster_event_id: "event-2" },
+  };
+  const resolved = getStubClaimEntriesToAutoResolve(
+    [claimedRow],
+    [matchingFailed, otherStub, otherEvent],
+  );
+
+  assert.deepEqual(resolved.map((entry) => entry.id), ["claim-stub-1"]);
+});
+
 test("conflict stays blocked and synced state projects as centrally claimed", () => {
   const baseRow = { id: "stub-1", status: "ISSUED" };
   const conflict = applyLocalStubClaimSyncState(
@@ -182,7 +258,17 @@ test("failed claims remain blocked in both Barangay and MSWDO distribution table
   assert.match(barangayTable, /getClaimSyncStatusLabel\(row\.sync_status\)/);
   assert.match(mswdoTable, /isSelectableClaimStubRow\(row\)/);
   assert.match(mswdoPage, /getStubClaimRowSyncStatus\(row, matchingEntry\)/);
+  assert.match(barangayTable, /isStubClaimSyncBlockingRow/);
+  assert.match(mswdoTable, /isStubClaimSyncBlockingRow/);
   assert.match(eligibilitySource, /"PENDING",\s*"FAILED",\s*"CONFLICT",\s*"SYNCED"/);
+});
+
+test("a retry response for an already claimed Stub resolves locally without erasing its prior failure", async () => {
+  const source = await readSource("../src/offline/syncService.js");
+
+  assert.match(source, /isAlreadyClaimedStubConflict/);
+  assert.match(source, /isResolvedClaimConflict \? "RESOLVED_AUTOMATICALLY"/);
+  assert.match(source, /isResolvedClaimConflict\s*\?\s*entry\.lastError/);
 });
 
 test("server-confirmed claims reconcile the cache before releasing the local lock", async () => {

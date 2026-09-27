@@ -11,6 +11,7 @@ import {
   isCurrentlyPresentStubRow,
   isSelectableClaimStubRow,
 } from "../../features/stubs/stubEligibility";
+import { isStubClaimSyncBlockingRow } from "../../features/stubs/stubPresentation.js";
 import { shouldShowSyncStatusIcon } from "../../offline/syncStatus";
 
 const tableStyles = {
@@ -280,11 +281,7 @@ const getPresentationStatus = (row) =>
     : row?.household?.is_active === false || !isCurrentlyPresentStubRow(row)
       ? "NOT_PRESENT"
       : "FOR_CLAIM");
-const isRowBlockedByClaimSync = (row) =>
-  row?.is_claim_pending ||
-  row?.sync_status === "PENDING" ||
-  row?.sync_status === "FAILED" ||
-  row?.sync_status === "CONFLICT";
+const isRowBlockedByClaimSync = (row) => isStubClaimSyncBlockingRow(row);
 
 const getClaimSyncStatusLabel = (status) => {
   if (status === "FAILED") return "Sync Failed";
