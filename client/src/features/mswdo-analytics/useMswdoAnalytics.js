@@ -491,6 +491,11 @@ export const useMswdoAnalytics = () => {
     selectedBarangayId,
     selectedDisasterEvent,
     summaryMetrics,
+    barangayHeatmap:
+      operationalPayload.disaster_event?.id === selectedDisasterEventId &&
+      Array.isArray(operationalPayload.barangay_heatmap)
+        ? operationalPayload.barangay_heatmap
+        : null,
     evacueesPerBarangay,
     familiesPerBarangay,
     sexDistribution,
