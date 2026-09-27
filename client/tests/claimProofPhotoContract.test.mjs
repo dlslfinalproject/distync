@@ -31,7 +31,7 @@ test("claim confirmation automatically uses active QR and requires Photo Proof o
   assert.equal(loadingProof.proofType, "");
   assert.match(source, /resolveClaimProof\(/);
   assert.doesNotMatch(source, /allowPhotoProof/);
-  assert.match(source, /Photo Proof Required/);
+  assert.match(source, /Photo Proof of Receipt/);
   assert.doesNotMatch(source, /Choose proof method/);
   assert.doesNotMatch(source, /type="radio"/);
   assert.doesNotMatch(source, /setProofType/);
@@ -61,6 +61,42 @@ test("claim confirmation automatically uses active QR and requires Photo Proof o
   assert.match(source, /const isConfirmDisabled =/);
   assert.match(source, /disabled=\{isConfirmDisabled\}/);
   assert.doesNotMatch(source, /Use Photo/);
+});
+
+test("single Stub confirmation always shows Photo Proof status below beneficiary details", async () => {
+  const source = await readClientSource("src/components/stubs/StubClaimConfirmModal.jsx");
+
+  assert.match(source, /Photo Proof of Receipt/);
+  assert.match(source, /Fallback proof of receipt/);
+  assert.match(source, /Not Required — QR Available/);
+  assert.match(source, /A valid QR proof is available for this Stub\.[\s\S]*automatically required when QR proof is unavailable\./);
+  assert.match(source, /aria-labelledby="claim-proof-section-title"/);
+
+  const workflowPosition = source.indexOf("claim-proof-workflow--");
+  const beneficiaryPosition = source.indexOf('className="stub-claim-confirm-content"');
+  const footerPosition = source.indexOf('className="stub-claim-confirm-actions"');
+  assert.ok(workflowPosition > beneficiaryPosition);
+  assert.ok(workflowPosition < footerPosition);
+
+  const qrStateStart = source.indexOf('{proofType === "QR" ? (', workflowPosition);
+  const photoStateStart = source.indexOf(': proofType === "PHOTO" ? (', qrStateStart);
+  assert.ok(qrStateStart > workflowPosition);
+  assert.ok(photoStateStart > qrStateStart);
+  const qrStateMarkup = source.slice(qrStateStart, photoStateStart);
+  assert.doesNotMatch(qrStateMarkup, /Capture Photo|Take Photo|Choose from Device|claim-proof-file-input|<video/);
+  assert.match(source, /proofType === "PHOTO" \? \([\s\S]*?claim-proof-capture/);
+});
+
+test("Barangay confirmation uses the shared automatic proof workflow", async () => {
+  const [stubPage, transactionPage] = await Promise.all([
+    readClientSource("src/pages/barangay/StubDistributionPage.jsx"),
+    readClientSource("src/pages/barangay/DistributionTransactionPage.jsx"),
+  ]);
+
+  for (const source of [stubPage, transactionPage]) {
+    assert.match(source, /import StubClaimConfirmModal/);
+    assert.match(source, /<StubClaimConfirmModal[\s\S]*?onConfirm=/);
+  }
 });
 
 test("MSWDO row confirmation uses the shared automatic proof workflow", async () => {

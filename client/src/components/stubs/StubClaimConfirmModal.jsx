@@ -741,145 +741,6 @@ const StubClaimConfirmModal = ({
             <p style={modalStyles.value}>{getDisplayStubNumber(stubDetails)}</p>
           </div>
         ) : null}
-        {selectedCount === 1 && proofType === "PHOTO" ? (
-          <section
-            className="claim-proof-workflow"
-            aria-labelledby="claim-proof-section-title"
-          >
-            <div className="claim-proof-required-notice" role="status">
-              <strong id="claim-proof-section-title">Photo Proof Required</strong>
-              <span>
-                QR proof is unavailable for this distribution. Capture a photo of the relief handover before confirming.
-              </span>
-            </div>
-            <section
-              className="claim-proof-capture"
-              aria-labelledby="claim-proof-photo-title"
-            >
-                <h5 id="claim-proof-photo-title" className="claim-proof-capture-title">
-                  Photo guidelines
-                </h5>
-                <p className="claim-proof-guidance">
-                  Capture a clear photo showing the recipient and the relief goods being handed over.
-                  Make sure the image is visible and not blurred.
-                </p>
-                <input
-                  ref={photoFileInputRef}
-                  className="claim-proof-file-input"
-                  type="file"
-                  accept="image/*"
-                  aria-label="Choose a claim proof photo from this device"
-                  tabIndex={-1}
-                  onChange={handleProofPhotoFileChange}
-                />
-                {isCameraOpen ? (
-                  <>
-                    <video
-                      ref={cameraVideoRef}
-                      autoPlay
-                      muted
-                      playsInline
-                      aria-label="Live claim proof camera preview"
-                      className="claim-proof-camera-preview"
-                    />
-                    <div className="claim-proof-capture-actions">
-                      <button
-                        type="button"
-                        onClick={captureProofPhoto}
-                        disabled={!isCameraReady || isPreparingPhoto || isSubmitting}
-                        className="claim-proof-take-photo"
-                      >
-                        <FiCamera aria-hidden="true" size={18} />
-                        {isPreparingPhoto ? "Preparing photo…" : "Capture Photo"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={openDevicePhotoPicker}
-                        disabled={isPreparingPhoto || isSubmitting}
-                        style={pageHeaderStyles.secondaryButton}
-                      >
-                        <FiImage aria-hidden="true" size={17} />
-                        Choose from Device
-                      </button>
-                    </div>
-                    {!isCameraReady && !isPreparingPhoto ? (
-                      <p className="claim-proof-preparing" role="status" aria-live="polite">
-                        Opening camera…
-                      </p>
-                    ) : null}
-                  </>
-                ) : proofPhotoDataUrl ? (
-                  <>
-                    <div className="claim-proof-photo-frame">
-                      <img
-                        src={proofPhotoDataUrl}
-                        alt="Claim handoff proof preview"
-                        className="claim-proof-photo-preview"
-                      />
-                    </div>
-                    <p className="claim-proof-photo-ready" role="status" aria-live="polite">
-                      <FiCheckCircle aria-hidden="true" size={17} />
-                      Photo ready
-                    </p>
-                    <p className="claim-proof-captured-at">
-                      Captured {formatPhotoCapturedAt(proofPhotoCapturedAt)}
-                    </p>
-                    <div className="claim-proof-capture-actions">
-                      <button
-                        type="button"
-                        onClick={() => startCameraCapture({ replacePhoto: true })}
-                        disabled={isSubmitting || isPreparingPhoto}
-                        style={pageHeaderStyles.secondaryButton}
-                      >
-                        <FiRotateCcw aria-hidden="true" size={17} />
-                        Retake Photo
-                      </button>
-                      <button
-                        type="button"
-                        onClick={openDevicePhotoPicker}
-                        disabled={isSubmitting || isPreparingPhoto}
-                        style={pageHeaderStyles.secondaryButton}
-                      >
-                        <FiImage aria-hidden="true" size={17} />
-                        Choose Another Photo
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="claim-proof-capture-actions">
-                    <button
-                      type="button"
-                      onClick={() => startCameraCapture()}
-                      disabled={isSubmitting || isPreparingPhoto}
-                      className="claim-proof-take-photo"
-                    >
-                      <FiCamera aria-hidden="true" size={18} />
-                      {cameraError ? "Open Camera" : "Take Photo"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={openDevicePhotoPicker}
-                      disabled={isSubmitting || isPreparingPhoto}
-                      style={pageHeaderStyles.secondaryButton}
-                    >
-                      <FiImage aria-hidden="true" size={17} />
-                      Choose from Device
-                    </button>
-                  </div>
-                )}
-                {isPreparingPhoto ? (
-                  <p className="claim-proof-preparing" role="status" aria-live="polite">
-                    Preparing photo…
-                  </p>
-                ) : null}
-                {cameraError ? (
-                  <p className="claim-proof-error" role="alert">
-                    {cameraError}
-                  </p>
-                ) : null}
-              </section>
-          </section>
-        ) : null}
         {stubDetails?.offline_household_details_unavailable ? (
           <p style={modalStyles.message}>
             Complete household details are not available in the current offline data.
@@ -1057,6 +918,181 @@ const StubClaimConfirmModal = ({
           </div>
         )}
 
+        {selectedCount === 1 ? (
+          <section
+            className={`claim-proof-workflow claim-proof-workflow--${proofType || "checking"}`}
+            aria-labelledby="claim-proof-section-title"
+          >
+            <div className="claim-proof-heading">
+              <div>
+                <h4
+                  id="claim-proof-section-title"
+                  className="claim-proof-section-title"
+                >
+                  Photo Proof of Receipt
+                </h4>
+                <p className="claim-proof-subtitle">Fallback proof of receipt</p>
+              </div>
+              <span
+                className={`claim-proof-state-badge claim-proof-state-badge--${proofType || "checking"}`}
+                role="status"
+              >
+                {proofType === "QR"
+                  ? "Not Required — QR Available"
+                  : proofType === "PHOTO"
+                    ? "Required"
+                    : "Checking QR Proof"}
+              </span>
+            </div>
+            {proofType === "QR" ? (
+              <p className="claim-proof-informational">
+                A valid QR proof is available for this Stub. Photo Proof is
+                automatically required when QR proof is unavailable.
+              </p>
+            ) : proofType === "PHOTO" ? (
+              <div className="claim-proof-required-notice">
+                QR proof is unavailable for this distribution. Capture a
+                photo of the relief handover before confirming.
+              </div>
+            ) : (
+              <p
+                className="claim-proof-informational"
+                role="status"
+                aria-live="polite"
+              >
+                Checking whether this Stub has active QR proof.
+              </p>
+            )}
+            {proofType === "PHOTO" ? (
+              <section
+                className="claim-proof-capture"
+                aria-labelledby="claim-proof-photo-title"
+              >
+                <h5 id="claim-proof-photo-title" className="claim-proof-capture-title">
+                  Photo guidelines
+                </h5>
+                <p className="claim-proof-guidance">
+                  Capture a clear photo showing the recipient and the relief goods being handed over.
+                  Make sure the image is visible and not blurred.
+                </p>
+                <input
+                  ref={photoFileInputRef}
+                  className="claim-proof-file-input"
+                  type="file"
+                  accept="image/*"
+                  aria-label="Choose a claim proof photo from this device"
+                  tabIndex={-1}
+                  onChange={handleProofPhotoFileChange}
+                />
+                {isCameraOpen ? (
+                  <>
+                    <video
+                      ref={cameraVideoRef}
+                      autoPlay
+                      muted
+                      playsInline
+                      aria-label="Live claim proof camera preview"
+                      className="claim-proof-camera-preview"
+                    />
+                    <div className="claim-proof-capture-actions">
+                      <button
+                        type="button"
+                        onClick={captureProofPhoto}
+                        disabled={!isCameraReady || isPreparingPhoto || isSubmitting}
+                        className="claim-proof-take-photo"
+                      >
+                        <FiCamera aria-hidden="true" size={18} />
+                        {isPreparingPhoto ? "Preparing photo…" : "Capture Photo"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openDevicePhotoPicker}
+                        disabled={isPreparingPhoto || isSubmitting}
+                        style={pageHeaderStyles.secondaryButton}
+                      >
+                        <FiImage aria-hidden="true" size={17} />
+                        Choose from Device
+                      </button>
+                    </div>
+                    {!isCameraReady && !isPreparingPhoto ? (
+                      <p className="claim-proof-preparing" role="status" aria-live="polite">
+                        Opening camera…
+                      </p>
+                    ) : null}
+                  </>
+                ) : proofPhotoDataUrl ? (
+                  <>
+                    <div className="claim-proof-photo-frame">
+                      <img
+                        src={proofPhotoDataUrl}
+                        alt="Claim handoff proof preview"
+                        className="claim-proof-photo-preview"
+                      />
+                    </div>
+                    <p className="claim-proof-photo-ready" role="status" aria-live="polite">
+                      <FiCheckCircle aria-hidden="true" size={17} />
+                      Photo ready
+                    </p>
+                    <p className="claim-proof-captured-at">
+                      Captured {formatPhotoCapturedAt(proofPhotoCapturedAt)}
+                    </p>
+                    <div className="claim-proof-capture-actions">
+                      <button
+                        type="button"
+                        onClick={() => startCameraCapture({ replacePhoto: true })}
+                        disabled={isSubmitting || isPreparingPhoto}
+                        style={pageHeaderStyles.secondaryButton}
+                      >
+                        <FiRotateCcw aria-hidden="true" size={17} />
+                        Retake Photo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openDevicePhotoPicker}
+                        disabled={isSubmitting || isPreparingPhoto}
+                        style={pageHeaderStyles.secondaryButton}
+                      >
+                        <FiImage aria-hidden="true" size={17} />
+                        Choose Another Photo
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="claim-proof-capture-actions">
+                    <button
+                      type="button"
+                      onClick={() => startCameraCapture()}
+                      disabled={isSubmitting || isPreparingPhoto}
+                      className="claim-proof-take-photo"
+                    >
+                      <FiCamera aria-hidden="true" size={18} />
+                      {cameraError ? "Open Camera" : "Take Photo"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openDevicePhotoPicker}
+                      disabled={isSubmitting || isPreparingPhoto}
+                      style={pageHeaderStyles.secondaryButton}
+                    >
+                      <FiImage aria-hidden="true" size={17} />
+                      Choose from Device
+                    </button>
+                  </div>
+                )}
+                {isPreparingPhoto ? (
+                  <p className="claim-proof-preparing" role="status" aria-live="polite">
+                    Preparing photo…
+                  </p>
+                ) : null}
+                {cameraError ? (
+                  <p className="claim-proof-error" role="alert">
+                    {cameraError}
+                  </p>
+                ) : null}
+              </section>
+            ) : null}
+          </section>
+        ) : null}
         <div className="stub-claim-confirm-actions" style={modalStyles.actions}>
           <button
             type="button"

@@ -4266,6 +4266,72 @@ img {
   border-radius: 4px;
 }
 
+.claim-proof-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.claim-proof-section-title {
+  margin: 0;
+  color: #17324d;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.claim-proof-subtitle {
+  margin: 4px 0 0;
+  color: #60738a;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.claim-proof-state-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 5px 10px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.claim-proof-state-badge--QR {
+  border-color: #b7d6c2;
+  background: #f1faf4;
+  color: #28633f;
+}
+
+.claim-proof-state-badge--PHOTO {
+  border-color: #e6cc92;
+  background: #fff9e9;
+  color: #5f4a20;
+}
+
+.claim-proof-state-badge--checking {
+  border-color: #c8d8e6;
+  background: #f1f6fa;
+  color: #4c657d;
+}
+
+.claim-proof-informational {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid #c8d8e6;
+  border-radius: 12px;
+  background: #f1f6fa;
+  color: #36536d;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .claim-proof-required-notice {
   display: grid;
   gap: 5px;
