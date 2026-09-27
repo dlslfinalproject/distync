@@ -1,3 +1,5 @@
+import { geoMercator, geoPath } from "d3-geo";
+
 export const BARANGAY_HEATMAP_METRICS = Object.freeze([
   { key: "registered_households", label: "Registered Households" },
   { key: "active_evacuees", label: "Active Evacuees" },
@@ -15,6 +17,120 @@ export const BARANGAY_HEATMAP_COLORS = Object.freeze([
 ]);
 
 export const BARANGAY_HEATMAP_UNAFFECTED_COLOR = "#dce3e9";
+
+export const BARANGAY_HEATMAP_VIEWBOX = Object.freeze({
+  width: 760,
+  height: 540,
+  padding: 24,
+});
+
+const getPlanarRingSignedArea = (ring) => {
+  if (!Array.isArray(ring) || ring.length < 4) return 0;
+
+  let twiceArea = 0;
+  for (let index = 0; index < ring.length; index += 1) {
+    const current = ring[index];
+    const next = ring[(index + 1) % ring.length];
+    if (
+      !Array.isArray(current) ||
+      !Array.isArray(next) ||
+      !Number.isFinite(current[0]) ||
+      !Number.isFinite(current[1]) ||
+      !Number.isFinite(next[0]) ||
+      !Number.isFinite(next[1])
+    ) {
+      return Number.NaN;
+    }
+
+    twiceArea += current[0] * next[1] - next[0] * current[1];
+  }
+
+  return twiceArea / 2;
+};
+
+const normalizeRingWindingForD3 = (ring, isExteriorRing) => {
+  if (!Array.isArray(ring)) return ring;
+
+  const signedArea = getPlanarRingSignedArea(ring);
+  const copiedRing = ring.map((position) =>
+    Array.isArray(position) ? [...position] : position,
+  );
+
+  // D3's spherical polygon convention uses clockwise exteriors and
+  // counter-clockwise holes. Keep degenerate or malformed rings unchanged.
+  if (!Number.isFinite(signedArea) || signedArea === 0) return copiedRing;
+
+  const isClockwise = signedArea < 0;
+  return isClockwise === isExteriorRing ? copiedRing : copiedRing.reverse();
+};
+
+const normalizePolygonRingsForD3 = (rings) =>
+  Array.isArray(rings)
+    ? rings.map((ring, index) => normalizeRingWindingForD3(ring, index === 0))
+    : rings;
+
+const normalizeGeometryWindingForD3 = (geometry) => {
+  if (!geometry || typeof geometry !== "object") return geometry;
+
+  if (geometry.type === "Polygon") {
+    return {
+      ...geometry,
+      coordinates: normalizePolygonRingsForD3(geometry.coordinates),
+    };
+  }
+
+  if (geometry.type === "MultiPolygon") {
+    return {
+      ...geometry,
+      coordinates: Array.isArray(geometry.coordinates)
+        ? geometry.coordinates.map(normalizePolygonRingsForD3)
+        : geometry.coordinates,
+    };
+  }
+
+  return geometry;
+};
+
+export const normalizeGeoJsonWindingForD3 = (geoJson) => {
+  if (!geoJson || typeof geoJson !== "object") return geoJson;
+
+  if (geoJson.type === "FeatureCollection") {
+    return {
+      ...geoJson,
+      features: Array.isArray(geoJson.features)
+        ? geoJson.features.map(normalizeGeoJsonWindingForD3)
+        : geoJson.features,
+    };
+  }
+
+  if (geoJson.type === "Feature") {
+    return {
+      ...geoJson,
+      geometry: normalizeGeometryWindingForD3(geoJson.geometry),
+    };
+  }
+
+  return normalizeGeometryWindingForD3(geoJson);
+};
+
+export const createBarangayHeatmapGeometry = (sourceGeoJson) => {
+  const geoJson = normalizeGeoJsonWindingForD3(sourceGeoJson);
+  const { width, height, padding } = BARANGAY_HEATMAP_VIEWBOX;
+  const projection = geoMercator().fitExtent(
+    [
+      [padding, padding],
+      [width - padding, height - padding],
+    ],
+    geoJson,
+  );
+  const pathGenerator = geoPath(projection);
+  const features = Array.isArray(geoJson?.features) ? geoJson.features : [];
+  const pathByFeature = new Map(
+    features.map((feature) => [feature, pathGenerator(feature)]),
+  );
+
+  return { geoJson, projection, pathGenerator, pathByFeature };
+};
 
 const getMetric = (metricKey) =>
   BARANGAY_HEATMAP_METRICS.find((metric) => metric.key === metricKey) ||
