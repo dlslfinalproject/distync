@@ -16,6 +16,10 @@ import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
 import { exportMasterlistOperationalAnalytics } from "../../features/mswdo-analytics/mswdoAnalyticsService";
 import { downloadExportFile } from "../../utils/exportHelpers";
 
+const BarangayHeatMap = React.lazy(
+  () => import("../../components/mswdo-analytics/BarangayHeatMap"),
+);
+
 const filterStyles = {
   field: {
     width: "100%",
@@ -117,6 +121,7 @@ const AnalyticsDashboardPage = () => {
     disasterEvents,
     barangays,
     allBarangays,
+    barangayHeatmap,
     selectedDisasterEventId,
     selectedBarangayId,
     summaryMetrics,
@@ -347,6 +352,24 @@ const AnalyticsDashboardPage = () => {
           Export
         </button>
       </div>
+
+      {hasSelectedEvent &&
+      !baseIsInitialLoadingFilters &&
+      !baseIsInitialLoadingDashboard &&
+      !errorMessage ? (
+        <React.Suspense
+          fallback={
+            <section style={shellStyles.card} role="status">
+              Preparing map boundaries...
+            </section>
+          }
+        >
+          <BarangayHeatMap
+            key={selectedDisasterEventId}
+            barangays={barangayHeatmap}
+          />
+        </React.Suspense>
+      ) : null}
 
       {!hasSelectedEvent ? (
         <section style={shellStyles.card}>

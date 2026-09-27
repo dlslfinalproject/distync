@@ -1,0 +1,319 @@
+.barangay-heatmap-card {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 20px;
+  padding: clamp(16px, 2vw, 24px);
+  color: #17324d;
+  background: #ffffff;
+  border: 1px solid #d2e0ec;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(23, 50, 77, 0.08);
+}
+
+.barangay-heatmap-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.barangay-heatmap-heading {
+  min-width: 0;
+}
+
+.barangay-heatmap-heading h2 {
+  margin: 0;
+  color: #17324d;
+  font-size: 20px;
+  line-height: 1.3;
+}
+
+.barangay-heatmap-heading p {
+  margin: 7px 0 0;
+  color: #5f7892;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.barangay-heatmap-control {
+  flex: 0 1 280px;
+  min-width: 210px;
+}
+
+.barangay-heatmap-control label {
+  display: block;
+  margin-bottom: 7px;
+  color: #47637f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.barangay-heatmap-control select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  color: #17324d;
+  background: #f8fbfe;
+  border: 1px solid #c6d8e8;
+  border-radius: 10px;
+  font: inherit;
+}
+
+.barangay-heatmap-control select:focus-visible {
+  outline: 3px solid #6a9ac1;
+  outline-offset: 2px;
+}
+
+.barangay-heatmap-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(240px, 0.65fr);
+  align-items: start;
+  gap: 20px;
+  min-width: 0;
+}
+
+.barangay-heatmap-map-column {
+  min-width: 0;
+}
+
+.barangay-heatmap-map {
+  min-width: 0;
+  padding: 8px;
+  overflow: hidden;
+  background: #fbfdff;
+  border: 1px solid #d9e4ed;
+  border-radius: 12px;
+}
+
+.barangay-heatmap-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.barangay-heatmap-polygon {
+  cursor: pointer;
+}
+
+.barangay-heatmap-polygon:hover {
+  stroke: #17324d;
+  stroke-width: 2.25px;
+}
+
+.barangay-heatmap-polygon:focus-visible {
+  outline: none;
+  stroke: #102a43;
+  stroke-width: 3.5px;
+  stroke-dasharray: 5 3;
+}
+
+.barangay-heatmap-polygon--selected {
+  stroke: #17324d;
+}
+
+.barangay-heatmap-details {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 18px;
+  color: #17324d;
+  background: #f4f8fb;
+  border: 1px solid #d6e3ed;
+  border-radius: 12px;
+}
+
+.barangay-heatmap-details h3 {
+  margin: 0;
+  color: #294e70;
+  font-size: 15px;
+}
+
+.barangay-heatmap-details h4 {
+  margin: 14px 0 8px;
+  color: #17324d;
+  font-size: 18px;
+}
+
+.barangay-heatmap-details p {
+  margin: 10px 0 0;
+  color: #526d86;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.barangay-heatmap-details .barangay-heatmap-affected {
+  margin-top: 8px;
+}
+
+.barangay-heatmap-details dl {
+  display: grid;
+  gap: 0;
+  margin: 14px 0 0;
+}
+
+.barangay-heatmap-details dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid #dce6ee;
+}
+
+.barangay-heatmap-details dt {
+  color: #526d86;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.barangay-heatmap-details dd {
+  flex: 0 0 auto;
+  margin: 0;
+  color: #17324d;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.barangay-heatmap-legend {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: #f8fbfe;
+  border: 1px solid #dce7ef;
+  border-radius: 10px;
+}
+
+.barangay-heatmap-legend-heading,
+.barangay-heatmap-scale-range {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.barangay-heatmap-legend-heading {
+  color: #294e70;
+  font-size: 13px;
+}
+
+.barangay-heatmap-legend-heading span {
+  color: #5f7892;
+}
+
+.barangay-heatmap-color-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.barangay-heatmap-color-step {
+  display: block;
+  min-width: 0;
+  height: 13px;
+  border: 1px solid rgba(41, 78, 112, 0.22);
+  border-radius: 4px;
+}
+
+.barangay-heatmap-scale-range {
+  flex-wrap: wrap;
+  margin-top: 5px;
+  color: #5f7892;
+  font-size: 11px;
+}
+
+.barangay-heatmap-state-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px 16px;
+  margin-top: 12px;
+  color: #405c76;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.barangay-heatmap-state-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.barangay-heatmap-swatch {
+  display: inline-block;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  border: 1px solid #8797a6;
+  border-radius: 3px;
+}
+
+.barangay-heatmap-swatch--unaffected {
+  background: #dce3e9;
+}
+
+.barangay-heatmap-swatch--zero {
+  background: #e9f3fa;
+  border-color: #6f97b5;
+}
+
+.barangay-heatmap-swatch--unavailable {
+  background:
+    repeating-linear-gradient(
+      135deg,
+      #f7f5ee 0,
+      #f7f5ee 4px,
+      #657789 4px,
+      #657789 6px
+    );
+}
+
+.barangay-heatmap-empty,
+.barangay-heatmap-note,
+.barangay-heatmap-warning {
+  padding: 12px 14px;
+  color: #405c76;
+  background: #f5f9fc;
+  border: 1px solid #dce7ef;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.barangay-heatmap-empty {
+  margin: 0;
+}
+
+.barangay-heatmap-note,
+.barangay-heatmap-warning {
+  margin: 14px 0 0;
+}
+
+.barangay-heatmap-warning {
+  color: #4b5563;
+  background: #f8f6ef;
+  border-color: #d9d2b9;
+}
+
+@media (max-width: 768px) {
+  .barangay-heatmap-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .barangay-heatmap-control {
+    flex: 0 1 auto;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .barangay-heatmap-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .barangay-heatmap-details {
+    width: 100%;
+  }
+}

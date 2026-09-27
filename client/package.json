@@ -13,6 +13,7 @@
     "@supabase/supabase-js": "^2.100.1",
     "@zxing/browser": "^0.2.0",
     "axios": "^1.13.6",
+    "d3-geo": "^3.1.1",
     "dexie": "^4.4.1",
     "dexie-react-hooks": "^4.4.0",
     "html5-qrcode": "^2.3.8",
