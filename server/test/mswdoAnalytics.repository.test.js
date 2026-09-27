@@ -13,7 +13,7 @@ const disasterEventRepositoryPath = path.resolve(
 );
 
 const readAnalyticsSource = () => {
-  const source = fs.readFileSync(repositoryPath, "utf8");
+  const source = fs.readFileSync(repositoryPath, "utf8").replace(/\r\n/g, "\n");
   const analyticsSource = source.match(
     /const getMswdoMasterlistAnalytics = async \([\s\S]*?const getHouseholdsByFilters/,
   )?.[0];
@@ -87,9 +87,39 @@ test("MSWDO analytics keeps cumulative event records while separating current pr
 
   assert.ok(filteredEvacueesSource, "cumulative evacuee source is present");
   assert.doesNotMatch(filteredEvacueesSource, /WHERE e\.is_active = TRUE/);
-  assert.match(source, /currently_admitted_evacuees[\s\S]*status = 'PRESENT'/);
+  assert.match(
+    source,
+    /currently_admitted_evacuees[\s\S]*dse\.current_stay_type = 'EVAC_CENTER'[\s\S]*dse\.status = 'PRESENT'[\s\S]*dse\.time_out IS NULL/,
+  );
   assert.match(source, /total_departed_evacuees[\s\S]*status = 'LEFT'/);
+  assert.match(
+    source,
+    /latest_logs AS \([\s\S]*?SELECT DISTINCT ON \(el\.evacuee_id\)[\s\S]*?el\.disaster_event_id = \$1[\s\S]*?ORDER BY\s+el\.evacuee_id,/,
+  );
   assert.match(source, /Analytics is cumulative for the selected disaster event/);
+});
+
+test("barangay heatmap stub/reference query is event-wide and fixed-count", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+  const heatmapSource = source.match(
+    /const getMswdoBarangayHeatmapReferenceMetrics = async \([\s\S]*?const getHouseholdsByFilters/,
+  )?.[0];
+
+  assert.ok(heatmapSource, "heatmap reference query is present");
+  assert.match(heatmapSource, /FROM barangays b/);
+  assert.match(heatmapSource, /b\.municipality_name = 'Malvar'/);
+  assert.match(heatmapSource, /b\.province_name = 'Batangas'/);
+  assert.match(heatmapSource, /b\.code <> 'NON_RESIDENT_OUTSIDE_MALVAR'/);
+  assert.match(heatmapSource, /LEFT JOIN disaster_event_barangays deb/);
+  assert.match(heatmapSource, /deb\.disaster_event_id = \$1/);
+  assert.match(heatmapSource, /h\.id = s\.household_id[\s\S]*h\.disaster_event_id = s\.disaster_event_id/);
+  assert.match(heatmapSource, /GROUP BY h\.barangay_id/);
+  assert.match(heatmapSource, /ORDER BY b\.name ASC, b\.code ASC/);
+  assert.match(heatmapSource, /s\.status IN \('ISSUED', 'CLAIMED'\)/);
+  assert.match(heatmapSource, /s\.status = 'CLAIMED'/);
+  assert.match(heatmapSource, /s\.status = 'ISSUED'/);
+  assert.doesNotMatch(heatmapSource, /CANCELLED|VOID|evacuation_logs|current_stay_type|is_active/);
+  assert.equal((heatmapSource.match(/pool\.query\(/g) || []).length, 1);
 });
 
 test("re-admission lineage migration backfills only explicit audited links", () => {

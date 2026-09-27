@@ -339,10 +339,46 @@ const getMswdoMasterlistDashboard = async (filters) => {
     filters.disaster_event_id,
     filters.barangay_id,
   );
+  const eventWideMetrics = filters.barangay_id
+    ? await masterlistRepository.getMswdoMasterlistAnalytics(
+        filters.disaster_event_id,
+        null,
+      )
+    : metrics;
+  const heatmapReferenceRows =
+    await masterlistRepository.getMswdoBarangayHeatmapReferenceMetrics(
+      filters.disaster_event_id,
+    );
 
   const perBarangayChartDataset = Array.isArray(metrics.per_barangay_chart_dataset)
     ? metrics.per_barangay_chart_dataset
     : [];
+  const eventWidePerBarangayRows = Array.isArray(
+    eventWideMetrics.per_barangay_chart_dataset,
+  )
+    ? eventWideMetrics.per_barangay_chart_dataset
+    : [];
+  const eventWidePerBarangayById = new Map(
+    eventWidePerBarangayRows.map((item) => [item.barangay_id, item]),
+  );
+  const barangayHeatmap = (Array.isArray(heatmapReferenceRows)
+    ? heatmapReferenceRows
+    : []
+  ).map((barangay) => {
+    const analytics = eventWidePerBarangayById.get(barangay.barangay_id) || {};
+
+    return {
+      barangay_id: barangay.barangay_id,
+      barangay_code: barangay.barangay_code,
+      barangay_name: barangay.barangay_name,
+      is_affected: Boolean(barangay.is_affected),
+      registered_households: Number(analytics.families_count || 0),
+      active_evacuees: Number(analytics.admitted_evacuees_count || 0),
+      issued_stubs: Number(barangay.issued_stubs || 0),
+      claimed_stubs: Number(barangay.claimed_stubs || 0),
+      pending_relief_claims: Number(barangay.pending_relief_claims || 0),
+    };
+  });
 
   return {
     disaster_event: {
@@ -356,6 +392,7 @@ const getMswdoMasterlistDashboard = async (filters) => {
       disaster_event_id: filters.disaster_event_id,
       barangay_id: filters.barangay_id,
     },
+    barangay_heatmap: barangayHeatmap,
     summary_metrics: {
       total_number_of_evacuees_individuals: Number(
         metrics.total_number_of_evacuees_individuals || 0,
