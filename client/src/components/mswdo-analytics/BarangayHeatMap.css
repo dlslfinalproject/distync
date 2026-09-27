@@ -103,11 +103,12 @@
   stroke-width: 2.25px;
 }
 
-.barangay-heatmap-polygon:focus-visible {
+.barangay-heatmap-polygon:focus {
   outline: none;
-  stroke: #102a43;
-  stroke-width: 3.5px;
-  stroke-dasharray: 5 3;
+}
+
+.barangay-heatmap-polygon:focus-visible {
+  filter: drop-shadow(0 0 1px #ffffff) drop-shadow(0 0 2px #102a43);
 }
 
 .barangay-heatmap-polygon--selected {
