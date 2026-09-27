@@ -626,7 +626,14 @@ const StubResultsTable = ({
                             ? "Archived households cannot receive a new relief distribution"
                             : !isCurrentlyPresentStubRow(row)
                               ? "Only households currently present in the evacuation center can receive a relief distribution"
-                            : "Mark as Claimed"
+                            : "Claim Without Stub — use when the claimant cannot present a usable physical Stub."
+                        }
+                        aria-label={
+                          isArchivedRow
+                            ? "Claim unavailable. This household is archived."
+                            : !isCurrentlyPresentStubRow(row)
+                              ? getStubClaimUnavailableMessage(row)
+                              : "Claim Without Stub. Use when the claimant cannot present a usable physical Stub."
                         }
                         style={{
                           ...tableStyles.statusButton,

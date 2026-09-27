@@ -5,6 +5,7 @@ import qrScannerWorkerPath from "qr-scanner/qr-scanner-worker.min.js?url";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import StubSummaryCard from "../../components/distribution/StubSummaryCard";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
+import { CLAIM_INITIATION_SOURCE } from "../../features/stubs/claimProofWorkflow.js";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import { useAuth } from "../../context/AuthContext";
 import {
@@ -13,6 +14,7 @@ import {
   verifyStub,
 } from "../../features/stubs/stubService";
 import { isLocalStubClaimBlocked } from "../../features/stubs/stubCache.js";
+import { isSelectableClaimStubRow } from "../../features/stubs/stubEligibility.js";
 import { extractStubQrValue } from "../../utils/stubQr";
 import {
   UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE,
@@ -153,6 +155,11 @@ const DistributionTransactionPage = () => {
   const [successMessage, setSuccessMessage] = useState("");
   const [isLoadingStubDetails, setIsLoadingStubDetails] = useState(false);
   const [qrLookupValue, setQrLookupValue] = useState("");
+  const [claimInitiationSource, setClaimInitiationSource] = useState("");
+  const [claimQrReferenceValue, setClaimQrReferenceValue] = useState("");
+  const [isClaimWithoutStubAvailable, setIsClaimWithoutStubAvailable] =
+    useState(false);
+  const initialVerifiedScanHandledRef = useRef(false);
   const [isResolvingQrLookup, setIsResolvingQrLookup] = useState(false);
   const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
   const [qrScannerMessage, setQrScannerMessage] = useState("");
@@ -244,7 +251,7 @@ const DistributionTransactionPage = () => {
 
         setQrLookupValue(scannedValue);
         setIsQrScannerOpen(false);
-        void resolveStubFromQrLookup(scannedValue);
+        void resolveStubFromQrLookup(scannedValue, { isPhysicalScan: true });
       },
       {
         returnDetailedScanResult: true,
@@ -277,7 +284,10 @@ const DistributionTransactionPage = () => {
     setIsQrScannerOpen(false);
   };
 
-  const resolveStubFromQrLookup = async (lookupValue) => {
+  const resolveStubFromQrLookup = async (
+    lookupValue,
+    { isPhysicalScan = false, expectedStubId = "" } = {},
+  ) => {
     const normalizedValue = extractStubQrValue(lookupValue);
 
     if (!normalizedValue) {
@@ -287,6 +297,11 @@ const DistributionTransactionPage = () => {
       return;
     }
 
+    setClaimInitiationSource("");
+    setClaimQrReferenceValue("");
+    setIsClaimWithoutStubAvailable(false);
+    setVerifiedStubDetails(null);
+    setStubContext(null);
     setIsResolvingQrLookup(true);
     setErrorMessage("");
     setSuccessMessage("");
@@ -302,30 +317,81 @@ const DistributionTransactionPage = () => {
         throw new Error("QR lookup did not return a valid stub record.");
       }
 
-      const stubDetails = await fetchStubDetails(resolvedStubId);
-      const nextStubContext = buildStubContextFromDetails(stubDetails);
-
-      setVerifiedStubDetails(stubDetails);
-      setStubContext(nextStubContext);
-      setQrLookupValue(normalizedValue);
-
-      if (verification?.data?.is_claimable) {
-        setSuccessMessage("QR verified successfully. You can now record distribution.");
-      } else {
-        setErrorMessage(
+      if (expectedStubId && String(resolvedStubId) !== String(expectedStubId)) {
+        throw new Error("The scanned QR does not match the selected Stub.");
+      }
+      if (verification?.data?.is_claimable !== true) {
+        throw new Error(
           verification?.data?.reason ||
             verification?.message ||
             "This QR-linked stub is not claimable.",
         );
       }
+
+      const stubDetails = await fetchStubDetails(resolvedStubId);
+      if (
+        stubDetails?.status !== "ISSUED" ||
+        !isSelectableClaimStubRow(stubDetails)
+      ) {
+        throw new Error(
+          "This Stub is not currently eligible for relief distribution.",
+        );
+      }
+      const nextStubContext = buildStubContextFromDetails(stubDetails);
+
+      setVerifiedStubDetails(stubDetails);
+      setStubContext(nextStubContext);
+      setQrLookupValue(normalizedValue);
+      setIsClaimWithoutStubAvailable(!isPhysicalScan);
+      if (isPhysicalScan) {
+        setClaimInitiationSource(CLAIM_INITIATION_SOURCE.VERIFIED_QR_SCAN);
+        setClaimQrReferenceValue(normalizedValue);
+      }
+      setSuccessMessage(
+        isPhysicalScan
+          ? "Physical Stub QR verified successfully. Confirm relief distribution."
+          : "QR reference verified. Use Claim Without Stub if the claimant cannot present a usable physical Stub.",
+      );
     } catch (error) {
+      setVerifiedStubDetails(null);
+      setStubContext(null);
+      setClaimInitiationSource("");
+      setClaimQrReferenceValue("");
+      setIsClaimWithoutStubAvailable(false);
       setErrorMessage(error.message || "Failed to resolve the QR reference.");
     } finally {
       setIsResolvingQrLookup(false);
     }
   };
 
+  useEffect(() => {
+    const scanContext = location.state;
+    if (
+      initialVerifiedScanHandledRef.current ||
+      scanContext?.claimInitiationSource !== CLAIM_INITIATION_SOURCE.VERIFIED_QR_SCAN
+    ) {
+      return;
+    }
+
+    initialVerifiedScanHandledRef.current = true;
+    void resolveStubFromQrLookup(scanContext.qrReferenceValue, {
+      isPhysicalScan: true,
+      expectedStubId: scanContext.stubId || "",
+    });
+  }, [location.state]);
+
   const handleConfirmDistribution = async (proof = {}) => {
+    const expectedProofType =
+      claimInitiationSource === CLAIM_INITIATION_SOURCE.VERIFIED_QR_SCAN
+        ? "QR"
+        : claimInitiationSource === CLAIM_INITIATION_SOURCE.STUB_UNAVAILABLE
+          ? "PHOTO"
+          : "";
+    if (!expectedProofType || proof.proofType !== expectedProofType) {
+      setErrorMessage("The claim proof must match how this claim was initiated.");
+      setSuccessMessage("");
+      return;
+    }
     if (!isServerVerifiedDistributionTarget(stubContext)) {
       setErrorMessage(UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE);
       setSuccessMessage("");
@@ -523,6 +589,25 @@ const DistributionTransactionPage = () => {
         isLoadingStubDetails={isLoadingStubDetails}
       />
 
+      {isClaimWithoutStubAvailable && !claimInitiationSource ? (
+        <section style={shellStyles.card} aria-labelledby="claim-without-stub-title">
+          <p id="claim-without-stub-title" style={shellStyles.mutedText}>
+            Physical Stub Unavailable. Use this path only when the claimant cannot present a usable issued Stub. Photo Proof of the relief handover is required.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setClaimInitiationSource(CLAIM_INITIATION_SOURCE.STUB_UNAVAILABLE);
+              setClaimQrReferenceValue("");
+            }}
+            title="Use when the claimant cannot present a usable physical Stub."
+            style={pageHeaderStyles.primaryButton}
+          >
+            Claim Without Stub
+          </button>
+        </section>
+      ) : null}
+
       {errorMessage ? (
         <section style={shellStyles.card}>
           <p style={{ ...shellStyles.mutedText, color: "#a14d58", margin: 0 }}>
@@ -540,17 +625,19 @@ const DistributionTransactionPage = () => {
       ) : null}
 
       <StubClaimConfirmModal
-        isOpen={
-          hasTrustedStubContext &&
-          verifiedStubDetails?.status === "ISSUED" &&
-          !isLocalStubClaimBlocked(verifiedStubDetails)
-        }
         isSubmitting={isSubmitting}
         isLoadingStubDetails={isLoadingStubDetails}
         onCancel={() => navigate("/barangay/stub-distribution")}
         onConfirm={handleConfirmDistribution}
         stubDetails={verifiedStubDetails}
-        qrReferenceValue={qrLookupValue}
+        isOpen={
+          Boolean(claimInitiationSource) &&
+          hasTrustedStubContext &&
+          verifiedStubDetails?.status === "ISSUED" &&
+          !isLocalStubClaimBlocked(verifiedStubDetails)
+        }
+        claimInitiationSource={claimInitiationSource}
+        qrReferenceValue={claimQrReferenceValue}
       />
     </>
   );
