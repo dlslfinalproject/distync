@@ -23,6 +23,7 @@ import FeedbackToast from "../components/shared/FeedbackToast";
 import LoadingState from "../components/shared/LoadingState";
 import StubDetailModal from "../components/stubs/StubDetailModal";
 import ClaimProofPhotoModal from "../components/distribution/ClaimProofPhotoModal.jsx";
+import { mapDistributionHistoryDetailForModal } from "../features/stubs/stubDetailMapping.mjs";
 import TablePagination from "../components/shared/TablePagination";
 import { FiEye, FiFileText, FiSearch } from "react-icons/fi";
 import {
@@ -545,7 +546,9 @@ const DistributionHistoryPage = () => {
 
     try {
       const response = await fetchInventoryDistributionDetail(row.stub_id);
-      setSelectedStubDetails(response?.data || response);
+      setSelectedStubDetails(
+        mapDistributionHistoryDetailForModal(response?.data || response, row),
+      );
     } catch (error) {
       setStubDetailsErrorMessage(
         error.message || "Failed to load household details.",

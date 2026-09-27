@@ -10,20 +10,12 @@ import {
 } from "../../utils/registrationOptions";
 import { formatStayTypeLabel } from "../../utils/stayType";
 import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
+import {
+  getCanonicalStubRecord,
+  getDisplayStubNumber,
+} from "../../features/stubs/stubDetailMapping.mjs";
 import QrCodePanel from "./QrCodePanel";
 import ClaimProofPhotoModal from "../distribution/ClaimProofPhotoModal.jsx";
-
-const getDisplayStubNumber = (stubDetails) => {
-  if (stubDetails?.display_stub_no) {
-    return stubDetails.display_stub_no;
-  }
-
-  const sequenceNo = Number(
-    stubDetails?.stub_sequence_no || stubDetails?.stub_number || 0,
-  );
-
-  return sequenceNo > 0 ? `STUB#${sequenceNo}` : "-";
-};
 
 const modalStyles = {
   backdrop: {
@@ -335,6 +327,7 @@ const StubDetailModal = ({
   }
 
   const household = stubDetails?.household || {};
+  const stubRecord = getCanonicalStubRecord(stubDetails);
   const barangay = stubDetails?.barangay || {};
   const disasterEvent = stubDetails?.disaster_event || {};
   const latestAttendance = stubDetails?.latest_attendance || null;
@@ -350,10 +343,7 @@ const StubDetailModal = ({
     : [];
   const sectorsText = buildSectorsText([...memberSectors, ...householdSectors]);
   const stayTypeLabel = formatStayTypeLabel(household.current_stay_type);
-  const reliefPackNames = getReliefPackDisplayNames(
-    stubDetails,
-    distributionTransaction,
-  );
+  const reliefPackNames = getReliefPackDisplayNames(stubRecord, distributionTransaction);
   const reliefPackName =
     reliefPackNames.join(";\n") ||
     distributionTransaction?.released_items_summary ||
@@ -390,14 +380,15 @@ const StubDetailModal = ({
               {errorMessage}
             </p>
           </section>
-        ) : stubDetails?.offline_household_details_unavailable ? (
-          <section style={modalStyles.section}>
-            <p style={{ ...shellStyles.mutedText, margin: 0 }}>
-              Complete household details are not available in the current offline data.
-            </p>
-          </section>
         ) : (
           <div className="stub-detail-modal-content" style={{ display: "grid", gap: "18px" }}>
+            {stubDetails?.offline_household_details_unavailable ? (
+              <section style={modalStyles.section} role="status">
+                <p style={{ ...shellStyles.mutedText, margin: 0 }}>
+                  Complete household details are not available in the current offline data. Cached Stub information is shown where available.
+                </p>
+              </section>
+            ) : null}
             <section style={modalStyles.section}>
               <div className="stub-detail-modal-grid" style={modalStyles.grid}>
                 <div>
@@ -507,7 +498,7 @@ const StubDetailModal = ({
                     style={{ marginTop: "12px", maxWidth: "280px" }}
                   >
                     <QrCodePanel
-                      value={stubDetails?.qr_code_value || ""}
+                      value={stubRecord?.qr_code_value || ""}
                       emptyLabel="No QR available"
                       showValue={false}
                       valueStyle={{ overflowWrap: "anywhere" }}
@@ -522,28 +513,28 @@ const StubDetailModal = ({
                   <div>
                     <p style={modalStyles.label}>Stub Number</p>
                     <p style={modalStyles.value}>
-                      {getDisplayStubNumber(stubDetails)}
+                      {getDisplayStubNumber(stubRecord)}
                     </p>
                   </div>
 
                   <div>
                     <p style={modalStyles.label}>Stub Status</p>
                     <p style={modalStyles.value}>
-                      {formatStatus(stubDetails?.status)}
+                      {formatStatus(stubRecord?.status)}
                     </p>
                   </div>
 
                   <div>
                     <p style={modalStyles.label}>Issued At</p>
                     <p style={modalStyles.value}>
-                      {formatDateTime(stubDetails?.issued_at)}
+                      {formatDateTime(stubRecord?.issued_at)}
                     </p>
                   </div>
 
                   <div>
                     <p style={modalStyles.label}>Claimed At</p>
                     <p style={modalStyles.value}>
-                      {formatDateTime(stubDetails?.claimed_at)}
+                      {formatDateTime(stubRecord?.claimed_at)}
                     </p>
                   </div>
 
@@ -575,7 +566,7 @@ const StubDetailModal = ({
                     ) : (
                       <p style={modalStyles.value}>
                         {distributionTransaction?.proof_type === "QR"
-                          ? "Verified Stub QR"
+                          ? "Verified QR"
                           : "Not recorded"}
                       </p>
                     )}
@@ -627,7 +618,7 @@ const StubDetailModal = ({
         transactionId={distributionTransaction?.id}
         context={{
           familyHeadName: household.family_head_name,
-          stubNo: getDisplayStubNumber(stubDetails),
+          stubNo: getDisplayStubNumber(stubRecord),
         }}
         onClose={() => setIsProofPhotoOpen(false)}
       />

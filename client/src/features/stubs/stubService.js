@@ -622,7 +622,11 @@ export const claimStub = async ({
       : null,
     reconcileBeforeQueueCleanup: async (responseData) => {
       if (responseData?.sync_status === "SYNCED" || responseData?.sync_status === "CONFLICT") {
-        await markCachedStubClaimTerminal(stubId, responseData.sync_status);
+        await markCachedStubClaimTerminal(
+          stubId,
+          responseData.sync_status,
+          responseData,
+        );
       }
     },
     request: async ({ clientSyncId, clientTimestamp }) => {

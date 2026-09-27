@@ -121,7 +121,10 @@ test("DEPLOY-BRG-RGD-02 offline queued claims remain separate from domain reject
 
   assert.match(serviceSource, /buildOfflineQueuedResponse/);
   assert.match(serviceSource, /Stub claim saved offline\. Pending sync once connection is restored\./);
-  assert.match(serviceSource, /await markCachedStubClaimTerminal\(stubId, responseData\.sync_status\)/);
+  assert.match(
+    serviceSource,
+    /await markCachedStubClaimTerminal\(\s*stubId,\s*responseData\.sync_status,\s*responseData,\s*\)/,
+  );
   assert.doesNotMatch(serviceSource, /NO_ASSIGNED_RELIEF_PACK_MESSAGE/);
   assert.match(pageSource, /navigator\.onLine === false/);
 });

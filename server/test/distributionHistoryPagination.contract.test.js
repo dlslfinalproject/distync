@@ -241,6 +241,32 @@ test("distribution history repository applies search before count and LIMIT/OFFS
   assert.match(source, /CONCAT\(\s*'STUB#'[\s\S]*?sequence_stubs\.id <= s\.id/);
 });
 
+test("history detail Stub number comes from the canonical server Stub sequence", async () => {
+  const [historyRepository, stubRepository] = await Promise.all([
+    readSource(["repositories", "distributionTransaction.repository.js"]),
+    readSource(["repositories", "stub.repository.js"]),
+  ]);
+  const historyDetailQuery = historyRepository.match(
+    /WITH history_base AS \([\s\S]*?AS stub_sequence_no,[\s\S]*?AS members_count/,
+  )?.[0];
+
+  assert.ok(historyDetailQuery);
+  assert.match(
+    historyDetailQuery,
+    /SELECT COUNT\(\*\)::int[\s\S]*?FROM stubs sequence_stubs/,
+  );
+  assert.match(historyDetailQuery, /sequence_stubs\.issued_at/);
+  assert.match(historyDetailQuery, /sequence_stubs\.id <= history_base\.stub_id/);
+  assert.doesNotMatch(
+    historyDetailQuery,
+    /ROW_NUMBER\s*\(/i,
+  );
+  assert.match(
+    stubRepository,
+    /const stubSequenceExpression = `[\s\S]*?SELECT COUNT\(\*\)::int[\s\S]*?FROM stubs sequence_stubs[\s\S]*?sequence_stubs\.id <= s\.id[\s\S]*?`;/,
+  );
+});
+
 test("distribution history detail search fields match release client predicate", async () => {
   const repositorySource = await readSource([
     "repositories",

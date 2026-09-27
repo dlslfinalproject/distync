@@ -30,6 +30,10 @@ const stubPrintSheetModalSourcePath = new URL(
   "../src/components/stubs/StubPrintSheetModal.jsx",
   import.meta.url,
 );
+const distributionHistoryPageSourcePath = new URL(
+  "../src/pages/DistributionHistoryPage.jsx",
+  import.meta.url,
+);
 
 test("stub detail modal shows receipt number and authorized by from the selected stub distribution transaction", async () => {
   const source = await fs.readFile(stubDetailModalSourcePath, "utf8");
@@ -114,12 +118,42 @@ test("stub detail modal hides raw QR text without changing the encoded value", a
 
   assert.match(
     detailSource,
-    /<QrCodePanel[\s\S]*?value=\{stubDetails\?\.qr_code_value \|\| ""\}[\s\S]*?showValue=\{false\}[\s\S]*?\/>/,
+    /<QrCodePanel[\s\S]*?value=\{stubRecord\?\.qr_code_value \|\| ""\}[\s\S]*?showValue=\{false\}[\s\S]*?\/>/,
   );
+  assert.match(detailSource, /const stubRecord = getCanonicalStubRecord\(stubDetails\);/);
   assert.match(detailSource, /<p style=\{modalStyles\.label\}>Stub Number<\/p>/);
-  assert.match(detailSource, /\{getDisplayStubNumber\(stubDetails\)\}/);
+  assert.match(detailSource, /\{getDisplayStubNumber\(stubRecord\)\}/);
+  assert.match(detailSource, /formatStatus\(stubRecord\?\.status\)/);
+  assert.match(detailSource, /formatDateTime\(stubRecord\?\.issued_at\)/);
+  assert.match(detailSource, /formatDateTime\(stubRecord\?\.claimed_at\)/);
+  assert.match(detailSource, /distributionTransaction\?\.proof_type === "PHOTO"/);
+  assert.match(detailSource, /\? "Verified QR"/);
   assert.match(qrPanelSource, /const qrCodeValue = String\(value \|\| ""\)\.trim\(\);/);
   assert.match(qrPanelSource, /const qrPayloadUrl = buildStubQrUrl\(qrCodeValue\);/);
+});
+
+test("distribution history maps the response Stub through the canonical row stub_id", async () => {
+  const source = await fs.readFile(distributionHistoryPageSourcePath, "utf8");
+
+  assert.match(source, /fetchInventoryDistributionDetail\(row\.stub_id\)/);
+  assert.match(
+    source,
+    /mapDistributionHistoryDetailForModal\(response\?\.data \|\| response, row\)/,
+  );
+  assert.match(source, /import \{ mapDistributionHistoryDetailForModal \} from/);
+});
+
+test("offline household hydration fallback keeps cached Stub information visible", async () => {
+  const source = await fs.readFile(stubDetailModalSourcePath, "utf8");
+
+  assert.match(source, /offline_household_details_unavailable/);
+  assert.match(source, /Cached Stub information is shown where available/);
+  assert.doesNotMatch(
+    source,
+    /:\s*stubDetails\?\.offline_household_details_unavailable\s*\?/,
+  );
+  assert.match(source, /value=\{stubRecord\?\.qr_code_value \|\| ""\}/);
+  assert.match(source, /formatDateTime\(stubRecord\?\.issued_at\)/);
 });
 
 test("shared claim modal hides raw QR text while preserving the canonical payload for Barangay and MSWDO", async () => {

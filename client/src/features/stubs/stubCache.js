@@ -7,6 +7,7 @@ import {
 } from "../../offline/syncQueue.js";
 import { ROLE_CODES } from "../../utils/roleSession.js";
 import { extractStubQrValue } from "../../utils/stubQr.js";
+import { buildCachedStubClaimTerminalPatch } from "./stubClaimCacheReconciliation.mjs";
 import { getStubRowSectorCodes } from "./stubSectorFilters.js";
 import { isAuthoritativelyClaimedStubRow } from "./stubPresentation.js";
 
@@ -183,6 +184,7 @@ export const toOfflineStubSnapshot = (
     serial_no: trimValue(serverRow.serial_no),
     qr_code_value: qrCodeValue,
     qr_status: trimValue(serverRow.qr_status),
+    issued_at: serverRow.issued_at || null,
     relief_pack_name: trimValue(
       getFirstValue(
         serverRow.relief_pack_name,
@@ -249,6 +251,7 @@ export const toStubRowFromOfflineSnapshot = (snapshot, syncEntry = null) => {
     serial_no: snapshot.serial_no,
     qr_code_value: snapshot.qr_code_value,
     qr_status: snapshot.qr_status,
+    issued_at: snapshot.issued_at || null,
     relief_pack_name: snapshot.relief_pack_name,
     assigned_relief_packs: snapshot.assigned_relief_packs || [],
     assigned_donated_relief_packs: snapshot.assigned_donated_relief_packs || [],
@@ -642,6 +645,7 @@ export const getCachedStubDetailsByQrValue = async (
 export const markCachedStubClaimTerminal = async (
   stubId,
   terminalStatus = LOCAL_SYNC_STATUS.SYNCED,
+  claimResult = null,
 ) => {
   const ownerContext = getSyncQueueActorContext();
 
@@ -658,11 +662,14 @@ export const markCachedStubClaimTerminal = async (
     return;
   }
 
-  await db.offlineStubCache.update(cachedRow.id, {
-    status: "CLAIMED",
-    last_terminal_sync_status: terminalStatus,
-    updated_at: getIsoNow(),
-  });
+  await db.offlineStubCache.update(
+    cachedRow.id,
+    buildCachedStubClaimTerminalPatch(
+      claimResult,
+      terminalStatus,
+      getIsoNow(),
+    ),
+  );
 };
 
 export const reconcileOfflineStubCacheForSyncResult = async (entry, result) => {
@@ -673,5 +680,9 @@ export const reconcileOfflineStubCacheForSyncResult = async (entry, result) => {
     return;
   }
 
-  await markCachedStubClaimTerminal(entry.entityServerId, result.sync_status);
+  await markCachedStubClaimTerminal(
+    entry.entityServerId,
+    result.sync_status,
+    result,
+  );
 };

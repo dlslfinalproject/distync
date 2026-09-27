@@ -106,6 +106,7 @@ const serverStub = {
   sector_ids: ["11111111-1111-4111-8111-111111111111"],
   sector_codes: ["SENIOR_CITIZEN"],
   status: "ISSUED",
+  issued_at: "2026-08-08T01:00:00.000Z",
   latest_attendance_status: "PRESENT",
   latest_attendance_time_out: null,
   updated_at: "2026-08-09T01:00:00.000Z",
@@ -126,6 +127,7 @@ test("BRG-SC-07-M01 TEST A snapshot sanitizer uses an allowlist and owner stamp"
   assert.equal(snapshot.userId, "user-1");
   assert.equal(snapshot.roleCode, "BARANGAY");
   assert.equal(snapshot.qr_code_value, "QR-AUTH-1");
+  assert.equal(snapshot.issued_at, "2026-08-08T01:00:00.000Z");
   assert.equal(snapshot.cached_at, "2026-08-09T02:00:00.000Z");
   assert.equal(snapshot.family_head_name, "Juan Dela Cruz");
   assert.equal(snapshot.household_is_active, true);
@@ -255,6 +257,26 @@ test("BRG-SC-07-M01 TEST D cached row and details preserve claim UI fields witho
   assert.equal(details.household.members.length, 0);
   assert.equal(details.household.family_head_photo_url, "");
   assert.equal(details.qr_code_value, "QR-AUTH-1");
+  assert.equal(details.issued_at, "2026-08-08T01:00:00.000Z");
+});
+
+test("cached PHOTO claim reconciliation updates claimed_at without replacing Stub identity fields", async () => {
+  const snapshot = toOfflineStubSnapshot(
+    {
+      ...serverStub,
+      status: "CLAIMED",
+      claimed_at: "2026-08-09T02:00:00.000Z",
+    },
+    ownerContext,
+  );
+  const details = toStubDetailsFromOfflineSnapshot(snapshot);
+
+  assert.equal(details.status, "CLAIMED");
+  assert.equal(details.claimed_at, "2026-08-09T02:00:00.000Z");
+  assert.equal(details.issued_at, "2026-08-08T01:00:00.000Z");
+  assert.equal(details.serial_no, "SER-1");
+  assert.equal(details.qr_code_value, "QR-AUTH-1");
+  assert.equal(details.qr_status, "ACTIVE");
 });
 
 test("BRG-SC-07-M01 TEST E cache fallback is network/offline only, not auth or validation denial", () => {

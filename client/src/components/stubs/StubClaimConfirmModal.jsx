@@ -956,10 +956,8 @@ const StubClaimConfirmModal = ({
               </p>
             ) : proofType === "PHOTO" ? (
               <div className="claim-proof-required-notice">
-                <strong>Physical Stub Unavailable.</strong> The claimant cannot
-                present a usable issued Stub. Verify the registered household
-                details before continuing, then capture a photo of the relief
-                handover before confirming.
+                <strong>Physical Stub Unavailable.</strong> Verify the household,
+                then capture a photo of the relief handover.
               </div>
             ) : (
               <p

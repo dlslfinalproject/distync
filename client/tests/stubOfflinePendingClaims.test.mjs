@@ -278,7 +278,10 @@ test("server-confirmed claims reconcile the cache before releasing the local loc
   const queueTerminalAt = syncSource.indexOf("await updateSyncEntryStatus(entry.id, {", reconcileAt);
 
   assert.ok(reconcileAt >= 0 && queueTerminalAt >= 0 && reconcileAt < queueTerminalAt);
-  assert.match(claimSource, /reconcileBeforeQueueCleanup: async \(responseData\)[\s\S]*markCachedStubClaimTerminal\(stubId, responseData\.sync_status\)/);
+  assert.match(
+    claimSource,
+    /reconcileBeforeQueueCleanup: async \(responseData\)[\s\S]*markCachedStubClaimTerminal\(\s*stubId,\s*responseData\.sync_status,\s*responseData,\s*\)/,
+  );
 });
 
 test("direct terminal conflicts reconcile cached claimed state before queue cleanup", async () => {

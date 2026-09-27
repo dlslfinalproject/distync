@@ -115,6 +115,34 @@ test("single Stub confirmation always shows Photo Proof status below beneficiary
   assert.match(source, /proofType === "PHOTO" \? \([\s\S]*?claim-proof-capture/);
 });
 
+test("unavailable-Stub copy is concise and shared by Barangay and MSWDO", async () => {
+  const [claimSource, barangaySource, mswdoSource] = await Promise.all([
+    readClientSource("src/components/stubs/StubClaimConfirmModal.jsx"),
+    readClientSource("src/pages/barangay/StubDistributionPage.jsx"),
+    readClientSource("src/pages/mswdo/StubDistributionPage.jsx"),
+  ]);
+
+  assert.match(
+    claimSource,
+    /<strong>Physical Stub Unavailable\.<\/strong>\s*Verify the household,\s*then capture a photo of the relief handover\./,
+  );
+  assert.doesNotMatch(claimSource, /The claimant cannot present a usable issued Stub/);
+  assert.match(barangaySource, /<StubClaimConfirmModal/);
+  assert.match(mswdoSource, /<StubClaimConfirmModal/);
+});
+
+test("Claim Receipt Proof viewer uses an accessible X close control", async () => {
+  const source = await readClientSource("src/components/distribution/ClaimProofPhotoModal.jsx");
+
+  assert.match(source, /import \{ FiX \} from "react-icons\/fi"/);
+  assert.match(source, /aria-label="Close claim receipt proof"/);
+  assert.match(source, /title="Close"/);
+  assert.match(source, /width: "44px"/);
+  assert.match(source, /height: "44px"/);
+  assert.match(source, /<FiX size=\{20\} aria-hidden="true" \/>/);
+  assert.doesNotMatch(source, /aria-label="Close claim receipt proof">\s*Close\s*<\/button>/);
+});
+
 test("Barangay confirmation uses the shared automatic proof workflow", async () => {
   const [stubPage, transactionPage] = await Promise.all([
     readClientSource("src/pages/barangay/StubDistributionPage.jsx"),

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { FiX } from "react-icons/fi";
 import { fetchClaimProofPhoto } from "../../features/distribution/distributionService.js";
 
 const ClaimProofPhotoModal = ({
@@ -83,7 +84,7 @@ const ClaimProofPhotoModal = ({
           boxShadow: "0 24px 48px rgba(20, 48, 78, 0.24)",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "16px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
           <div>
             <h2 style={{ margin: 0, color: "#17324d", fontSize: "22px" }}>
               Claim Receipt Proof
@@ -94,8 +95,28 @@ const ClaimProofPhotoModal = ({
               </p>
             ) : null}
           </div>
-          <button type="button" onClick={onClose} aria-label="Close proof photo">
-            Close
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close claim receipt proof"
+            title="Close"
+            style={{
+              flex: "0 0 44px",
+              width: "44px",
+              minWidth: "44px",
+              height: "44px",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 0,
+              border: "1px solid #c4d6e8",
+              borderRadius: "12px",
+              background: "#ffffff",
+              color: "#2a4c6f",
+              cursor: "pointer",
+            }}
+          >
+            <FiX size={20} aria-hidden="true" />
           </button>
         </div>
         {isLoading ? (
