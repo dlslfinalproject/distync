@@ -1,6 +1,6 @@
 from datetime import date, timedelta
-from math import ceil
-from typing import Iterable, List, Tuple
+from math import ceil, isfinite, sqrt
+from typing import Iterable, Iterator, List, Sequence, Tuple
 
 from .schemas import InventoryForecastItemInput, InventoryForecastResult
 
@@ -10,6 +10,7 @@ FORECAST_MODELS = {
     "EXPONENTIAL_SMOOTHING",
     "TREND_PROJECTION",
 }
+_MINIMUM_MODEL_TRAINING_POINTS = 1
 
 
 def _round_two(value: float) -> float:
@@ -150,6 +151,331 @@ def _get_forecast_values(
         return _trend_projection(series, horizon_days)
 
     return _moving_average(series, moving_average_window, horizon_days)
+
+
+def _sanitize_historical_series(values: Iterable[float]) -> List[float]:
+    """Convert a chronological observed-quantity series without changing its length.
+
+    This deliberately does not use ``_normalize_series``: backtest prefixes
+    must not be padded or truncated to the operational lookback. Values follow
+    the existing model layer's nonnegative convention, and real zero periods
+    remain in place.
+    """
+    normalized: List[float] = []
+
+    try:
+        iterator = iter(values)
+    except TypeError as error:
+        raise ValueError("historical_series must be an iterable of numbers") from error
+
+    for value in iterator:
+        try:
+            numeric_value = float(value or 0.0)
+        except (TypeError, ValueError) as error:
+            raise ValueError("historical_series values must be numeric") from error
+
+        if not isfinite(numeric_value):
+            raise ValueError("historical_series values must be finite")
+
+        normalized.append(max(0.0, numeric_value))
+
+    return normalized
+
+
+def _rolling_origin_folds(
+    series: Sequence[float],
+    initial_training_points: int,
+) -> Iterator[Tuple[List[float], float]]:
+    """Yield chronological expanding prefixes and their next observed value."""
+    if initial_training_points < 1:
+        raise ValueError("initial_training_points must be at least 1")
+
+    for origin in range(initial_training_points, len(series)):
+        yield list(series[:origin]), series[origin]
+
+
+def _validated_metric_pairs(
+    actual_values: Sequence[float],
+    predictions: Sequence[float],
+) -> List[Tuple[float, float]]:
+    if len(actual_values) != len(predictions):
+        raise ValueError("actual_values and predictions must have the same length")
+    if not actual_values:
+        raise ValueError("metrics require at least one actual/predicted pair")
+
+    pairs: List[Tuple[float, float]] = []
+    for actual, predicted in zip(actual_values, predictions):
+        try:
+            numeric_actual = float(actual)
+            numeric_prediction = float(predicted)
+        except (TypeError, ValueError) as error:
+            raise ValueError("metric values must be numeric") from error
+
+        if not isfinite(numeric_actual) or not isfinite(numeric_prediction):
+            raise ValueError("metric values must be finite")
+
+        pairs.append((numeric_actual, numeric_prediction))
+
+    return pairs
+
+
+def _mean_absolute_error(
+    actual_values: Sequence[float],
+    predictions: Sequence[float],
+) -> float:
+    """Return raw, unrounded MAE for matching actual and predicted periods."""
+    pairs = _validated_metric_pairs(actual_values, predictions)
+    metric = sum(abs(actual - predicted) for actual, predicted in pairs) / len(pairs)
+    if not isfinite(metric):
+        raise ValueError("MAE must be finite")
+    return metric
+
+
+def _root_mean_squared_error(
+    actual_values: Sequence[float],
+    predictions: Sequence[float],
+) -> float:
+    """Return raw, unrounded RMSE for matching actual and predicted periods."""
+    pairs = _validated_metric_pairs(actual_values, predictions)
+    metric = sqrt(
+        sum((actual - predicted) ** 2 for actual, predicted in pairs) / len(pairs)
+    )
+    if not isfinite(metric):
+        raise ValueError("RMSE must be finite")
+    return metric
+
+
+def _select_recommended_model(
+    candidates: dict,
+) -> Tuple[str | None, str]:
+    """Select by unrounded MAE, then unrounded RMSE, with no arbitrary tie-break.
+
+    Exact Python floating-point equality is used. No display rounding or
+    tolerance is applied. A three-model comparison is not valid if any
+    candidate is unavailable.
+    """
+    if any(
+        candidates.get(model_name, {}).get("status") != "EVALUATED"
+        for model_name in FORECAST_MODELS
+    ):
+        return None, "CANDIDATE_UNAVAILABLE"
+
+    lowest_mae = min(candidates[model_name]["mae"] for model_name in FORECAST_MODELS)
+    mae_winners = [
+        model_name
+        for model_name in FORECAST_MODELS
+        if candidates[model_name]["mae"] == lowest_mae
+    ]
+    if len(mae_winners) == 1:
+        return mae_winners[0], "UNIQUE_LOWEST_MAE"
+
+    lowest_rmse = min(candidates[model_name]["rmse"] for model_name in mae_winners)
+    rmse_winners = [
+        model_name
+        for model_name in mae_winners
+        if candidates[model_name]["rmse"] == lowest_rmse
+    ]
+    if len(rmse_winners) == 1:
+        return rmse_winners[0], "LOWEST_RMSE_AFTER_MAE_TIE"
+
+    return None, "METRIC_TIE"
+
+
+def _unavailable_candidate(
+    *,
+    backtest_point_count: int,
+    exception: Exception,
+    mae: float | None = None,
+    rmse: float | None = None,
+) -> dict:
+    return {
+        "status": "UNAVAILABLE",
+        "mae": mae,
+        "rmse": rmse,
+        "backtest_point_count": backtest_point_count,
+        "current_forecast": None,
+        "failure_reason": "MATHEMATICAL_EVALUATION_ERROR",
+        "failure_exception": type(exception).__name__,
+    }
+
+
+def _evaluate_candidate_model(
+    model_name: str,
+    eligible_series: List[float],
+    *,
+    initial_training_points: int,
+    moving_average_window: int,
+    exponential_smoothing_alpha: float,
+    forecast_horizon_days: int,
+) -> dict:
+    actual_values: List[float] = []
+    predictions: List[float] = []
+
+    try:
+        for training_series, actual in _rolling_origin_folds(
+            eligible_series,
+            initial_training_points,
+        ):
+            daily_forecast, _ = _get_forecast_values(
+                model_name,
+                training_series,
+                1,
+                moving_average_window,
+                exponential_smoothing_alpha,
+            )
+            actual_values.append(actual)
+            predictions.append(daily_forecast)
+
+        mae = _mean_absolute_error(actual_values, predictions)
+        rmse = _root_mean_squared_error(actual_values, predictions)
+    except (ValueError, ArithmeticError) as error:
+        return _unavailable_candidate(
+            backtest_point_count=len(predictions),
+            exception=error,
+        )
+
+    try:
+        daily_forecast, forecasted_usage = _get_forecast_values(
+            model_name,
+            eligible_series,
+            forecast_horizon_days,
+            moving_average_window,
+            exponential_smoothing_alpha,
+        )
+        if not isfinite(daily_forecast) or not isfinite(forecasted_usage):
+            raise ValueError("full-history forecast values must be finite")
+    except (ValueError, ArithmeticError) as error:
+        return _unavailable_candidate(
+            backtest_point_count=len(predictions),
+            exception=error,
+            mae=mae,
+            rmse=rmse,
+        )
+
+    return {
+        "status": "EVALUATED",
+        "mae": mae,
+        "rmse": rmse,
+        "backtest_point_count": len(predictions),
+        "current_forecast": {
+            "daily_forecast": daily_forecast,
+            "forecasted_usage": forecasted_usage,
+        },
+        "failure_reason": None,
+        "failure_exception": None,
+    }
+
+
+def evaluate_forecast_models(
+    historical_series: Iterable[float],
+    *,
+    forecast_horizon_days: int,
+    moving_average_window: int,
+    exponential_smoothing_alpha: float,
+) -> dict:
+    """Backtest the existing models on complete chronological observed history.
+
+    ``historical_series`` must already contain only eligible, complete periods
+    in chronological order. This function performs no date filtering,
+    persistence, or operational lookback padding. It requires a minimum of
+    ``initial_training_points`` scored one-step folds in addition to the same
+    number of initial training observations before issuing a recommendation.
+    """
+    if not isinstance(moving_average_window, int) or moving_average_window < 1:
+        raise ValueError("moving_average_window must be a positive integer")
+    if not isinstance(forecast_horizon_days, int) or forecast_horizon_days < 1:
+        raise ValueError("forecast_horizon_days must be a positive integer")
+
+    try:
+        alpha = float(exponential_smoothing_alpha)
+    except (TypeError, ValueError) as error:
+        raise ValueError("exponential_smoothing_alpha must be between 0 and 1") from error
+    if not isfinite(alpha) or not 0 < alpha < 1:
+        raise ValueError("exponential_smoothing_alpha must be between 0 and 1")
+
+    eligible_series = _sanitize_historical_series(historical_series)
+
+    # Both existing exponential smoothing and trend projection need one real
+    # observation; the active moving-average window sets the common minimum.
+    initial_training_points = max(
+        moving_average_window,
+        _MINIMUM_MODEL_TRAINING_POINTS,
+    )
+    minimum_backtest_points = initial_training_points
+    required_observations = initial_training_points + minimum_backtest_points
+    available_backtest_points = max(0, len(eligible_series) - initial_training_points)
+    insufficient_history = len(eligible_series) < required_observations
+
+    candidates = {
+        model_name: {
+            "status": "NOT_EVALUATED",
+            "mae": None,
+            "rmse": None,
+            "backtest_point_count": 0,
+            "current_forecast": None,
+            "failure_reason": "INSUFFICIENT_HISTORY",
+            "failure_exception": None,
+        }
+        for model_name in sorted(FORECAST_MODELS)
+    }
+
+    if insufficient_history:
+        return {
+            "evaluation_status": "INSUFFICIENT_HISTORY",
+            "evaluation_method": "ROLLING_ORIGIN_ONE_STEP",
+            "initial_training_points": initial_training_points,
+            "minimum_backtest_points": minimum_backtest_points,
+            "available_observations": len(eligible_series),
+            "required_observations": required_observations,
+            "backtest_points": available_backtest_points,
+            "candidates": candidates,
+            "recommended_model": None,
+            "recommendation_status": "NOT_EVALUATED",
+            "recommendation_reason": "INSUFFICIENT_HISTORY",
+            "selected_statistical_forecast": None,
+        }
+
+    for model_name in sorted(FORECAST_MODELS):
+        candidates[model_name] = _evaluate_candidate_model(
+            model_name,
+            eligible_series,
+            initial_training_points=initial_training_points,
+            moving_average_window=moving_average_window,
+            exponential_smoothing_alpha=alpha,
+            forecast_horizon_days=forecast_horizon_days,
+        )
+
+    recommended_model, recommendation_reason = _select_recommended_model(candidates)
+    if (
+        recommendation_reason != "CANDIDATE_UNAVAILABLE"
+        and not any(eligible_series)
+    ):
+        recommended_model = None
+        recommendation_reason = "NO_DISCRIMINATING_SIGNAL"
+
+    selected_forecast = None
+    if recommended_model is not None:
+        selected_forecast = {
+            "model_name": recommended_model,
+            **candidates[recommended_model]["current_forecast"],
+        }
+
+    return {
+        "evaluation_status": "EVALUATED",
+        "evaluation_method": "ROLLING_ORIGIN_ONE_STEP",
+        "initial_training_points": initial_training_points,
+        "minimum_backtest_points": minimum_backtest_points,
+        "available_observations": len(eligible_series),
+        "required_observations": required_observations,
+        "backtest_points": available_backtest_points,
+        "candidates": candidates,
+        "recommended_model": recommended_model,
+        "recommendation_status": (
+            "RECOMMENDED" if recommended_model is not None else "NO_RECOMMENDATION"
+        ),
+        "recommendation_reason": recommendation_reason,
+        "selected_statistical_forecast": selected_forecast,
+    }
 
 
 def run_inventory_forecast(
