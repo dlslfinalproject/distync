@@ -9,7 +9,10 @@ test("automatic dashboard rows inherit the same event and barangay shape as manu
   assert.match(source, /disaster_event_id: row\.disaster_event_id \|\| responseData\.disaster_event\?\.id \|\| disasterEventId/);
   assert.match(source, /disaster_event: row\.disaster_event \|\| responseData\.disaster_event/);
   assert.match(source, /barangay_id: row\.barangay_id \|\| responseData\.assigned_barangay\?\.id/);
-  assert.match(source, /upsertOfflineStubSnapshots\(responseData\?\.data \|\| \[\]\)/);
+  assert.match(
+    source,
+    /upsertOfflineStubSnapshots\(responseData\?\.data \|\| \[\], ownerContext\)/,
+  );
 });
 
 test("readiness validates the production QR lookup fields after persistence", async () => {

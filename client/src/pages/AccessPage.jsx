@@ -199,11 +199,15 @@ const AccessPage = () => {
     }
   }, [authError, isDevelopmentMode]);
 
-  const handleDonorAccess = () => {
+  const handleDonorAccess = async () => {
     clearAuthError();
     setPageError("");
-    continueAsDonor();
-    navigate(getDefaultRouteForRole(ROLE_CODES.DONOR));
+    try {
+      await continueAsDonor();
+      navigate(getDefaultRouteForRole(ROLE_CODES.DONOR));
+    } catch (error) {
+      setPageError(error.message || "Please complete the current account's offline work before switching users.");
+    }
   };
 
   if (isDevelopmentMode) {

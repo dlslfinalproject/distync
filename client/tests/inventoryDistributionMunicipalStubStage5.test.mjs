@@ -45,7 +45,7 @@ test("Stage 5 municipal client service uses only disaster_event_id and preserves
   assert.doesNotMatch(municipalSection, /barangay_id=/);
   assert.doesNotMatch(municipalSection, /assigned_barangay\?\.id/);
   assert.match(municipalSection, /row\.barangay_id/);
-  assert.match(municipalSection, /upsertOfflineStubSnapshots\(responseData\.data\)/);
+  assert.match(municipalSection, /upsertOfflineStubSnapshots\(responseData\.data, ownerContext\)/);
 });
 
 test("Stage 5 municipal request has generation guards for event, tab, and selected-vs-All races", async () => {

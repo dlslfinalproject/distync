@@ -404,6 +404,7 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
           }
         })),
       ]);
+      if (!isCurrent()) return null;
       completeStage("FETCHING_MASTERLIST", masterlist.rows.length);
       const referenceResults = registrationReferences;
       const householdDetailsById = await fetchHouseholdDetailsWithBoundedConcurrency(
@@ -473,8 +474,17 @@ export const prepareBarangayOfflineData = ({ eventId, barangayId, userId, contex
             ? { ...row, family_head_photo_data_url: photoDataUrl }
             : row;
       });
-      const persistedStubs = await upsertOfflineStubSnapshots(preparedStubRows);
-      await cacheMasterlistRows({ rows: preparedMasterlistRows, disasterEventId: eventId, barangayId });
+      if (!isCurrent()) return null;
+      const persistedStubs = await upsertOfflineStubSnapshots(
+        preparedStubRows,
+        scope.owner,
+      );
+      await cacheMasterlistRows({
+        rows: preparedMasterlistRows,
+        disasterEventId: eventId,
+        barangayId,
+        ownerContext: scope.owner,
+      });
       completeStage("PERSISTING_MASTERLIST", preparedMasterlistRows.length);
       completeStage("PERSISTING_STUBS", persistedStubs.length);
       const [stubRowsAfterWrite, masterlistRowsAfterWrite] = await Promise.all([

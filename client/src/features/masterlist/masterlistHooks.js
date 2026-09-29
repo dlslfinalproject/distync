@@ -5,6 +5,18 @@ import {
   sortMasterlistRows,
 } from "./masterlistService";
 import { getCachedMasterlistRows } from "../../offline/masterlistCache.js";
+import {
+  getSyncQueueActorContext,
+  isSyncQueueActorContextCurrent,
+} from "../../offline/syncQueue.js";
+import {
+  activateMasterlistMemoryOwner,
+  buildMasterlistRequestKey,
+  getMasterlistCacheEntry,
+  isMasterlistMemoryOwnerCurrent,
+  selectMasterlistFallbackData,
+  setMasterlistCacheEntry,
+} from "./masterlistMemoryCache.mjs";
 
 const emptyData = {
   disasterEvent: null,
@@ -17,53 +29,6 @@ const emptyData = {
   pagination: null,
 };
 
-const MASTERLIST_MEMORY_CACHE_LIMIT = 24;
-const masterlistDataCache = new Map();
-
-const buildMasterlistRequestKey = ({
-  disasterEventId,
-  barangayId,
-  recordStatus,
-  page,
-  pageSize,
-  search,
-  sectorIds,
-  sortOrder,
-}) =>
-  JSON.stringify({
-    role: "barangay",
-    disasterEventId: String(disasterEventId || ""),
-    barangayId: String(barangayId || ""),
-    recordStatus: recordStatus || "",
-    page,
-    pageSize,
-    search: search || "",
-    sectorIds: Array.isArray(sectorIds) ? sectorIds : [],
-    sortOrder: sortOrder || "",
-  });
-
-const getMasterlistCacheEntry = (requestKey) => {
-  const entry = masterlistDataCache.get(requestKey);
-
-  if (!entry) {
-    return null;
-  }
-
-  masterlistDataCache.delete(requestKey);
-  masterlistDataCache.set(requestKey, entry);
-  return entry;
-};
-
-const setMasterlistCacheEntry = (requestKey, entry) => {
-  masterlistDataCache.delete(requestKey);
-  masterlistDataCache.set(requestKey, entry);
-
-  while (masterlistDataCache.size > MASTERLIST_MEMORY_CACHE_LIMIT) {
-    const oldestRequestKey = masterlistDataCache.keys().next().value;
-    masterlistDataCache.delete(oldestRequestKey);
-  }
-};
-
 export const useMasterlist = ({
   disasterEventId,
   barangayId,
@@ -74,7 +39,10 @@ export const useMasterlist = ({
   sectorIds,
   sortOrder,
 }) => {
+  const actorContext = getSyncQueueActorContext();
+  const ownerKey = activateMasterlistMemoryOwner(actorContext);
   const requestKey = buildMasterlistRequestKey({
+    actorContext,
     disasterEventId,
     barangayId,
     recordStatus,
@@ -108,6 +76,10 @@ export const useMasterlist = ({
 
   useEffect(() => {
     let isMounted = true;
+    const isActiveRequest = () =>
+      isMounted &&
+      isMasterlistMemoryOwnerCurrent(ownerKey) &&
+      isSyncQueueActorContextCurrent(actorContext);
 
     const loadMasterlist = async () => {
       const cacheEntry = getMasterlistCacheEntry(requestKey);
@@ -165,6 +137,8 @@ export const useMasterlist = ({
           sortOrder,
         });
 
+        if (!isActiveRequest()) return;
+
         setMasterlistCacheEntry(requestKey, {
           data: result,
           isAuthoritative: true,
@@ -178,13 +152,14 @@ export const useMasterlist = ({
           setInfoMessage("");
         }
       } catch (error) {
-        if (isMounted) {
+        if (isActiveRequest()) {
           const isOffline =
             typeof navigator !== "undefined" && navigator.onLine === false;
           const cachedMasterlistRows = await getCachedMasterlistRows({
             disasterEventId,
             barangayId,
           });
+          if (!isActiveRequest()) return;
           const cachedData = buildCachedMasterlistResult({
             cachedRows: cachedMasterlistRows,
             disasterEventId,
@@ -201,8 +176,12 @@ export const useMasterlist = ({
               recordStatus,
             });
           }
-          const fallbackData =
-            cachedData || lastSuccessfulDataRef.current || null;
+          const fallbackData = selectMasterlistFallbackData({
+            requestKey,
+            cachedData,
+            lastSuccessfulData: lastSuccessfulDataRef.current,
+            lastSuccessfulRequestKey: lastSuccessfulRequestKeyRef.current,
+          });
 
           if (fallbackData) {
             setMasterlistCacheEntry(requestKey, {
@@ -228,7 +207,7 @@ export const useMasterlist = ({
           }
         }
       } finally {
-        if (isMounted) {
+        if (isActiveRequest()) {
           setIsLoading(false);
           setIsRefreshing(false);
         }
@@ -250,6 +229,7 @@ export const useMasterlist = ({
     requestKey,
     search,
     sortOrder,
+    ownerKey,
   ]);
 
   const cacheEntryForRender = getMasterlistCacheEntry(requestKey);

@@ -23,9 +23,20 @@ import {
   getVisibleSyncQueueEntries,
   getVisibleSyncQueueEntriesForBarangay,
 } from "../../offline/syncQueue.js";
+import {
+  getSyncQueueActorContext,
+  isSyncQueueActorContextCurrent,
+} from "../../offline/syncQueue.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+
+const assertCurrentActor = (actorContext) => {
+  if (isSyncQueueActorContextCurrent(actorContext)) return;
+  const error = new Error("The signed-in account changed while offline records were loading.");
+  error.code = "OFFLINE_ACTOR_CONTEXT_CHANGED";
+  throw error;
+};
 
 const buildSearchUrl = ({ query, disasterEventId, barangayId }) => {
   const searchParams = new URLSearchParams();
@@ -264,6 +275,7 @@ export const fetchBarangayStubDashboard = async ({
   sortOrder,
   skipOfflineCache = false,
 }) => {
+  const ownerContext = getSyncQueueActorContext();
   const searchParams = new URLSearchParams({
     disaster_event_id: disasterEventId,
   });
@@ -317,6 +329,7 @@ export const fetchBarangayStubDashboard = async ({
     response,
     "Failed to fetch stub dashboard",
   );
+  assertCurrentActor(ownerContext);
 
   // Dashboard rows inherit event/barangay context from the response envelope.
   // Copy it onto each cached row so automatic preparation has the same shape
@@ -330,7 +343,8 @@ export const fetchBarangayStubDashboard = async ({
   }));
 
   if (!skipOfflineCache) {
-    await upsertOfflineStubSnapshots(responseData?.data || []);
+    await upsertOfflineStubSnapshots(responseData?.data || [], ownerContext);
+    assertCurrentActor(ownerContext);
   }
 
   const scopedBarangayId =
@@ -357,6 +371,7 @@ export const fetchMunicipalStubDashboard = async ({
   sortOrder,
   skipOfflineCache = false,
 }) => {
+  const ownerContext = getSyncQueueActorContext();
   const searchParams = new URLSearchParams({
     disaster_event_id: disasterEventId,
   });
@@ -397,6 +412,7 @@ export const fetchMunicipalStubDashboard = async ({
     response,
     "Failed to fetch municipal stub dashboard",
   );
+  assertCurrentActor(ownerContext);
 
   responseData.data = (
     Array.isArray(responseData.data) ? responseData.data : []
@@ -415,7 +431,8 @@ export const fetchMunicipalStubDashboard = async ({
   }));
 
   if (!skipOfflineCache) {
-    await upsertOfflineStubSnapshots(responseData.data);
+    await upsertOfflineStubSnapshots(responseData.data, ownerContext);
+    assertCurrentActor(ownerContext);
   }
 
   const syncEntries = await getVisibleSyncQueueEntries();
@@ -426,13 +443,16 @@ export const fetchMunicipalStubDashboard = async ({
 };
 
 export const searchStubs = async ({ query, disasterEventId, barangayId }) => {
+  const ownerContext = getSyncQueueActorContext();
   const response = await fetch(
     buildSearchUrl({ query, disasterEventId, barangayId }),
   );
 
   const responseData = await handleJsonResponse(response, "Failed to search stubs");
+  assertCurrentActor(ownerContext);
   if (Array.isArray(responseData?.data)) {
-    await upsertOfflineStubSnapshots(responseData.data);
+    await upsertOfflineStubSnapshots(responseData.data, ownerContext);
+    assertCurrentActor(ownerContext);
     const syncEntries = await getVisibleSyncQueueEntriesForBarangay(barangayId);
     await reconcileAuthoritativeStubClaimQueueEntries(responseData.data, syncEntries);
     responseData.data = applyLocalStubClaimSyncStates(responseData.data, syncEntries);
@@ -441,6 +461,7 @@ export const searchStubs = async ({ query, disasterEventId, barangayId }) => {
 };
 
 export const verifyStub = async ({ stubNo, serialNo, qrCodeValue, currentBarangayId = "" }) => {
+  const ownerContext = getSyncQueueActorContext();
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/stubs/verify`, {
       method: "POST",
@@ -454,10 +475,12 @@ export const verifyStub = async ({ stubNo, serialNo, qrCodeValue, currentBaranga
       }),
     });
     const responseData = await handleJsonResponse(response, "Failed to verify stub");
+    assertCurrentActor(ownerContext);
     const stub = responseData?.data?.stub;
     const stubId = stub?.id || stub?.stub_id;
     if (stubId) {
-      await upsertOfflineStubSnapshots([stub]);
+      await upsertOfflineStubSnapshots([stub], ownerContext);
+      assertCurrentActor(ownerContext);
       const syncEntries = await getVisibleStubClaimSyncEntriesForStub(stubId);
       await reconcileAuthoritativeStubClaimQueueEntries([stub], syncEntries);
       const syncEntry = getClaimSyncEntryForStub(syncEntries, stubId, {
@@ -498,11 +521,14 @@ export const verifyStub = async ({ stubNo, serialNo, qrCodeValue, currentBaranga
 };
 
 export const fetchStubDetails = async (stubId, { currentBarangayId = "" } = {}) => {
+  const ownerContext = getSyncQueueActorContext();
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/stubs/${stubId}`);
     const responseData = await handleJsonResponse(response, "Failed to fetch stub details");
+    assertCurrentActor(ownerContext);
 
-    await upsertOfflineStubSnapshots(responseData ? [responseData] : []);
+    await upsertOfflineStubSnapshots(responseData ? [responseData] : [], ownerContext);
+    assertCurrentActor(ownerContext);
     const syncEntries = await getVisibleStubClaimSyncEntriesForStub(stubId);
     await reconcileAuthoritativeStubClaimQueueEntries([responseData], syncEntries);
     const syncEntry = getClaimSyncEntryForStub(syncEntries, stubId, {

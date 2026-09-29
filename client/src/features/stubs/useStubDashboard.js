@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchBarangayStubDashboard } from "./stubService";
 import { getPendingLocalStubRows } from "./stubOfflineRows";
-import { getVisibleSyncQueueEntries } from "../../offline/syncQueue.js";
+import {
+  getSyncQueueActorContext,
+  isSyncQueueActorContextCurrent,
+  getVisibleSyncQueueEntries,
+} from "../../offline/syncQueue.js";
 import {
   sortPresentedStubRows,
   withStubPresentationStatus,
@@ -17,6 +21,13 @@ import {
 import { deriveStubDashboardMetrics } from "./stubDashboardOfflineMetrics.js";
 import { matchesStubSectorFilter } from "./stubSectorFilters.js";
 import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
+import {
+  activateStubDashboardMemoryOwner,
+  buildStubDashboardRequestKey,
+  getStubDashboardCacheEntry,
+  isStubDashboardMemoryOwnerCurrent,
+  setStubDashboardCacheEntry,
+} from "./stubDashboardMemoryCache.mjs";
 
 const emptyMetrics = {
   total_issued_stubs: 0,
@@ -36,61 +47,6 @@ const emptyDashboard = {
   pagination: null,
 };
 
-const STUB_DASHBOARD_MEMORY_CACHE_LIMIT = 24;
-const stubDashboardDataCache = new Map();
-
-const buildStubDashboardRequestKey = ({
-  userId,
-  disasterEventId,
-  overrideBarangayId,
-  allowFallback,
-  assignedBarangayId,
-  page,
-  pageSize,
-  search,
-  status,
-  selectedSectorIds,
-  sortOrder,
-}) =>
-  JSON.stringify({
-    role: "barangay",
-    userId: String(userId || ""),
-    disasterEventId: String(disasterEventId || ""),
-    overrideBarangayId: String(overrideBarangayId || ""),
-    allowFallback: Boolean(allowFallback),
-    assignedBarangayId: String(assignedBarangayId || ""),
-    page,
-    pageSize,
-    search: search || "",
-    status: status || "all",
-    selectedSectorIds: Array.isArray(selectedSectorIds)
-      ? selectedSectorIds
-      : [],
-    sortOrder: sortOrder || "",
-  });
-
-const getStubDashboardCacheEntry = (requestKey) => {
-  const entry = stubDashboardDataCache.get(requestKey);
-
-  if (!entry) {
-    return null;
-  }
-
-  stubDashboardDataCache.delete(requestKey);
-  stubDashboardDataCache.set(requestKey, entry);
-  return entry;
-};
-
-const setStubDashboardCacheEntry = (requestKey, entry) => {
-  stubDashboardDataCache.delete(requestKey);
-  stubDashboardDataCache.set(requestKey, entry);
-
-  while (stubDashboardDataCache.size > STUB_DASHBOARD_MEMORY_CACHE_LIMIT) {
-    const oldestRequestKey = stubDashboardDataCache.keys().next().value;
-    stubDashboardDataCache.delete(oldestRequestKey);
-  }
-};
-
 const getSectorOptionsKey = (sectorOptions) =>
   JSON.stringify(Array.isArray(sectorOptions) ? sectorOptions : []);
 
@@ -106,10 +62,15 @@ const createDefaultPagination = (page = 1, pageSize = 25) => ({
 const offlineStubCacheWarmRequests = new Map();
 
 const buildOfflineStubCacheWarmKey = ({
+  accessMode,
+  roleCode,
   userId,
   disasterEventId,
   barangayId,
-}) => [userId, disasterEventId, barangayId].filter(Boolean).join("|");
+}) =>
+  [accessMode, roleCode, userId, disasterEventId, barangayId]
+    .filter(Boolean)
+    .join("|");
 
 const getFriendlyStubDashboardErrorMessage = (error) => {
   if (error?.code === "NO_ASSIGNED_BARANGAY") {
@@ -168,7 +129,10 @@ export const useStubDashboard = ({
   selectedSectorIds = [],
   sortOrder = "oldest",
 }) => {
+  const actorContext = getSyncQueueActorContext();
+  const ownerKey = activateStubDashboardMemoryOwner(actorContext);
   const requestKey = buildStubDashboardRequestKey({
+    actorContext,
     userId,
     disasterEventId,
     overrideBarangayId,
@@ -225,6 +189,11 @@ export const useStubDashboard = ({
   );
 
   useEffect(() => {
+    let isMounted = true;
+    const isActiveRequest = () =>
+      isMounted &&
+      isStubDashboardMemoryOwnerCurrent(ownerKey) &&
+      isSyncQueueActorContextCurrent(actorContext);
     const hasScopedBarangayContext = Boolean(userId || overrideBarangayId);
     const cacheEntry = getStubDashboardCacheEntry(requestKey);
     const isNewRequestContext =
@@ -264,8 +233,6 @@ export const useStubDashboard = ({
       setErrorMessage("");
       return;
     }
-
-    let isMounted = true;
 
     const loadDashboard = async () => {
       if (!preserveExistingData) {
@@ -314,6 +281,8 @@ export const useStubDashboard = ({
           ),
         });
 
+        if (!isActiveRequest()) return;
+
         const nextDashboard = {
           assigned_barangay: response.assigned_barangay || null,
           assigned_barangay_id: response.assigned_barangay_id || null,
@@ -338,7 +307,7 @@ export const useStubDashboard = ({
           pendingLocalRows: nextPendingLocalRows,
         });
 
-        if (isMounted) {
+        if (isActiveRequest()) {
           setDashboard({
             ...nextDashboard,
             data: serverRows,
@@ -355,6 +324,8 @@ export const useStubDashboard = ({
           assignedBarangayId ||
           null;
         const warmKey = buildOfflineStubCacheWarmKey({
+          accessMode: actorContext.accessMode,
+          roleCode: actorContext.roleCode,
           userId: userId || "anonymous",
           disasterEventId,
           barangayId: scopedBarangayId,
@@ -385,7 +356,7 @@ export const useStubDashboard = ({
           await warmRequest;
         }
       } catch (error) {
-        if (isMounted) {
+        if (isActiveRequest()) {
           if (preserveExistingData) {
             setErrorMessage("");
             return;
@@ -397,13 +368,16 @@ export const useStubDashboard = ({
             barangayId: scopedBarangayId,
             sectorOptions,
           });
+          if (!isActiveRequest()) return;
           const cachedRows = canUseOfflineStubCacheFallback(error)
             ? await getCachedStubRowsForScope({
                 disasterEventId,
                 currentBarangayId: scopedBarangayId,
-              })
+            })
             : [];
+          if (!isActiveRequest()) return;
           const syncQueueEntries = await getVisibleSyncQueueEntries();
+          if (!isActiveRequest()) return;
           const presentedRows = sortPresentedStubRows(
             [...pendingRows, ...cachedRows].map((row) =>
               withStubPresentationStatus(row, syncQueueEntries, {
@@ -452,7 +426,7 @@ export const useStubDashboard = ({
           lastSuccessfulRequestKeyRef.current = requestKey;
         }
       } finally {
-        if (isMounted) {
+        if (isActiveRequest()) {
           setIsLoading(false);
           setIsRefreshing(false);
         }
@@ -473,6 +447,7 @@ export const useStubDashboard = ({
     pageSize,
     reloadKey,
     requestKey,
+    ownerKey,
     sectorOptionsDependencyKey,
     search,
     sortOrder,

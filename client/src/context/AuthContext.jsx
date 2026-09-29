@@ -4,6 +4,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { ACCESS_MODES, getAccessMode } from "../utils/accessMode";
@@ -30,6 +31,17 @@ import {
   clearUserRoleSettingsCaches,
 } from "../features/settings/settingsService";
 import { clearUserOperationalDisasterEventSelections } from "../features/disaster-events/operationalDisasterEventSelection";
+import { clearMasterlistMemoryCache } from "../features/masterlist/masterlistMemoryCache.mjs";
+import { clearStubDashboardMemoryCache } from "../features/stubs/stubDashboardMemoryCache.mjs";
+import {
+  cleanupOfflineDataForActor,
+  getActorLogoutDecisionEntriesFromStore,
+} from "../offline/offlineDataLifecycle.js";
+import { getSyncQueueActorContext } from "../offline/syncQueue.js";
+import {
+  getAuthSessionStorageKey,
+  getSelectedRoleStorageKey,
+} from "../utils/modeStorage.js";
 
 const AuthContext = createContext(null);
 
@@ -46,14 +58,36 @@ const buildAuthState = () => {
   };
 };
 
+const buildAuthIdentityKey = (state = {}) =>
+  JSON.stringify({
+    accessMode: state.accessMode || "",
+    userId: state.authenticatedUser?.id || "",
+    roleCode: state.currentRole || "",
+    barangayId: state.authenticatedUser?.default_barangay_id || "",
+  });
+
+const clearSensitiveOfflineMemoryCaches = () => {
+  clearMasterlistMemoryCache();
+  clearStubDashboardMemoryCache();
+};
+
 export const AuthProvider = ({ children }) => {
   const [authState, setAuthState] = useState(buildAuthState);
+  const authIdentityKeyRef = useRef(buildAuthIdentityKey(authState));
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
   const accessMode = authState.accessMode || getAccessMode();
 
   const syncAuthState = useCallback(() => {
-    setAuthState(buildAuthState());
+    const nextAuthState = buildAuthState();
+    const nextIdentityKey = buildAuthIdentityKey(nextAuthState);
+
+    if (authIdentityKeyRef.current !== nextIdentityKey) {
+      clearSensitiveOfflineMemoryCaches();
+      authIdentityKeyRef.current = nextIdentityKey;
+    }
+
+    setAuthState(nextAuthState);
   }, []);
 
   const clearScopedSettingsCache = useCallback(
@@ -80,6 +114,7 @@ export const AuthProvider = ({ children }) => {
       clearModeCache = false,
       nextAuthError = "",
     } = {}) => {
+      clearSensitiveOfflineMemoryCaches();
       clearScopedSettingsCache({
         mode,
         userId,
@@ -98,8 +133,43 @@ export const AuthProvider = ({ children }) => {
     [accessMode, clearScopedSettingsCache, syncAuthState],
   );
 
+  const prepareOutgoingActorForAccountTransition = useCallback(
+    async ({ nextUserId = "", nextRoleCode = "" } = {}) => {
+      const outgoingActor = getSyncQueueActorContext();
+      if (!outgoingActor.userId) return;
+
+      if (
+        outgoingActor.userId === nextUserId &&
+        outgoingActor.roleCode === nextRoleCode
+      ) {
+        return;
+      }
+
+      const unresolvedEntries = await getActorLogoutDecisionEntriesFromStore(
+        outgoingActor,
+      );
+      if (unresolvedEntries.length > 0) {
+        const error = new Error(
+          "This account has offline records that must be synchronized or explicitly discarded before switching users.",
+        );
+        error.code = "OFFLINE_WORK_REQUIRES_DECISION";
+        throw error;
+      }
+
+      await cleanupOfflineDataForActor({
+        actor: outgoingActor,
+        reason: "logout",
+      });
+      clearSensitiveOfflineMemoryCaches();
+    },
+    [],
+  );
+
   const selectDevelopmentRole = useCallback(async (role) => {
     if (role === ROLE_CODES.DONOR) {
+      await prepareOutgoingActorForAccountTransition({
+        nextRoleCode: ROLE_CODES.DONOR,
+      });
       resetAuthenticatedBrowserState({
         userId: authState.authenticatedUser?.id || "",
       });
@@ -119,6 +189,10 @@ export const AuthProvider = ({ children }) => {
       const previousUserId = authState.authenticatedUser?.id || "";
       const sessionPayload = await authenticateWithDevelopmentRole(role);
       const nextUserId = sessionPayload?.user?.id || "";
+      await prepareOutgoingActorForAccountTransition({
+        nextUserId,
+        nextRoleCode: sessionPayload?.user?.role || role,
+      });
 
       if (previousUserId && previousUserId !== nextUserId) {
         clearScopedSettingsCache({
@@ -138,15 +212,23 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setIsAuthLoading(false);
     }
-  }, [authState.authenticatedUser?.id, clearScopedSettingsCache, resetAuthenticatedBrowserState, syncAuthState]);
+  }, [authState.authenticatedUser?.id, clearScopedSettingsCache, prepareOutgoingActorForAccountTransition, resetAuthenticatedBrowserState, syncAuthState]);
 
-  const continueAsDonor = useCallback(() => {
+  const continueAsDonor = useCallback(async () => {
+    await prepareOutgoingActorForAccountTransition({
+      nextRoleCode: ROLE_CODES.DONOR,
+    });
     resetAuthenticatedBrowserState({
       userId: authState.authenticatedUser?.id || "",
     });
     setCurrentRole(ROLE_CODES.DONOR);
     syncAuthState();
-  }, [authState.authenticatedUser?.id, resetAuthenticatedBrowserState, syncAuthState]);
+  }, [
+    authState.authenticatedUser?.id,
+    prepareOutgoingActorForAccountTransition,
+    resetAuthenticatedBrowserState,
+    syncAuthState,
+  ]);
 
   const signInWithGoogleCredential = useCallback(async (credential) => {
     setIsAuthLoading(true);
@@ -156,6 +238,10 @@ export const AuthProvider = ({ children }) => {
       const previousUserId = authState.authenticatedUser?.id || "";
       const sessionPayload = await authenticateWithGoogleIdToken(credential);
       const nextUserId = sessionPayload?.user?.id || "";
+      await prepareOutgoingActorForAccountTransition({
+        nextUserId,
+        nextRoleCode: sessionPayload?.user?.role || "",
+      });
 
       if (previousUserId && previousUserId !== nextUserId) {
         clearScopedSettingsCache({
@@ -177,7 +263,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setIsAuthLoading(false);
     }
-  }, [accessMode, authState.authenticatedUser?.id, clearScopedSettingsCache, syncAuthState]);
+  }, [accessMode, authState.authenticatedUser?.id, clearScopedSettingsCache, prepareOutgoingActorForAccountTransition, syncAuthState]);
 
   const clearSession = useCallback(() => {
     resetAuthenticatedBrowserState({
@@ -218,6 +304,29 @@ export const AuthProvider = ({ children }) => {
       );
     };
   }, [accessMode, authState.authenticatedUser?.id, resetAuthenticatedBrowserState]);
+
+  useEffect(() => {
+    const authStorageKeys = new Set([
+      getAuthSessionStorageKey(accessMode),
+      getSelectedRoleStorageKey(accessMode),
+    ]);
+    const handleStorageChange = (event) => {
+      if (
+        event.storageArea &&
+        typeof window !== "undefined" &&
+        event.storageArea !== window.localStorage
+      ) {
+        return;
+      }
+
+      if (event.key === null || authStorageKeys.has(event.key)) {
+        syncAuthState();
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, [accessMode, syncAuthState]);
 
   useEffect(() => {
     const session = getAuthenticatedSession();

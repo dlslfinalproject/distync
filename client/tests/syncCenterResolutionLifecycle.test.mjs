@@ -59,7 +59,8 @@ test("completed local queue rows are removed while server history is retained", 
   assert.match(pageSource, /void clearSyncedEntries\(\)\.catch/);
   assert.match(pageSource, /onClose=\{handleCloseConflictDetail\}/);
   assert.match(pageSource, /const handleCloseConflictDetail = useCallback\(/);
-  assert.match(queueSource, /resolutionStatus === "RESOLVED"/);
+  assert.match(queueSource, /isOfflineQueueEntryOwnedByActor\(entry, actorContext\)/);
+  assert.match(queueSource, /isTerminalOfflineQueueEntry\(entry\)/);
   assert.match(queueSource, /db\.syncQueue\.bulkDelete/);
 });
 

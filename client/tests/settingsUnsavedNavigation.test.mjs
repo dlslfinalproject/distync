@@ -252,7 +252,7 @@ test("settings voluntary logout guard defers auth clearing until dirty settings 
 
   assert.match(layoutSource, /SettingsUnsavedChangesProvider/);
   assert.match(menuSource, /requestVoluntaryLogout\(\{/);
-  assert.match(menuSource, /onConfirm: completeLogout/);
+  assert.match(menuSource, /onConfirm: beginLogout/);
   assert.match(menuSource, /if \(wasSettingsLogoutIntercepted\) \{\s*return;/);
   assert.match(settingsSource, /registerVoluntaryLogoutGuard/);
   assert.match(settingsSource, /hasUnsavedChangesRef\.current/);

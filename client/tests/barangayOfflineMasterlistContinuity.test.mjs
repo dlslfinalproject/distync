@@ -12,7 +12,10 @@ test("Barangay Masterlist cache helper is imported and writes successful results
   const source = await readSource("src", "features", "masterlist", "masterlistService.js");
 
   assert.match(source, /import \{[\s\S]*cacheMasterlistRows[\s\S]*getCachedMasterlistRows[\s\S]*\} from .*offline\/masterlistCache\.js/);
-  assert.match(source, /await cacheMasterlistRows\(\{ rows, disasterEventId, barangayId \}\)/);
+  assert.match(
+    source,
+    /await cacheMasterlistRows\(\{\s*rows,\s*disasterEventId,\s*barangayId,\s*ownerContext,\s*\}\)/,
+  );
   assert.match(source, /export const getCachedMasterlistResult = async/);
 });
 

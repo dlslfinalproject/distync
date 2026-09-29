@@ -1,6 +1,7 @@
 import db, { LOCAL_SYNC_STATUS } from "../../offline/db.js";
 import {
   getSyncQueueActorContext,
+  isSyncQueueActorContextCurrent,
   getVisibleStubClaimSyncEntriesForStub,
   getVisibleSyncQueueEntriesForBarangay,
   updateSyncEntryStatus,
@@ -480,10 +481,15 @@ export const canUseOfflineStubCacheFallback = (error) => {
   return /Failed to fetch|NetworkError|Load failed/i.test(message);
 };
 
-export const upsertOfflineStubSnapshots = async (serverRows = []) => {
-  const ownerContext = getSyncQueueActorContext();
+export const upsertOfflineStubSnapshots = async (
+  serverRows = [],
+  ownerContext = getSyncQueueActorContext(),
+) => {
 
-  if (!hasCompleteOfflineStubOwnerContext(ownerContext)) {
+  if (
+    !hasCompleteOfflineStubOwnerContext(ownerContext) ||
+    !isSyncQueueActorContextCurrent(ownerContext)
+  ) {
     return [];
   }
 
