@@ -29,7 +29,8 @@ test("BRG-OFFLINE-AUDIT-QUEUE queue rows are durable, scoped, and safely claimab
   assert.match(source, /export const claimSyncEntries/);
   assert.match(source, /SYNC_ERROR_CODES\.LOCAL_STORAGE_FAILURE/);
   assert.match(source, /isMalformedSyncEntry/);
-  assert.match(source, /!entry\.userId|!actorContext\.userId/);
+  assert.match(source, /isOfflineQueueEntryOwnedByActor\(entry, actorContext\)/);
+  assert.match(source, /isSyncQueueActorContextCurrent/);
 });
 
 test("BRG-OFFLINE-AUDIT-RECOVERY transient HTTP failures remain eligible for idempotent replay", async () => {

@@ -10,6 +10,10 @@ import {
   SYNC_PRESENTATION_MESSAGES,
 } from "./syncStatus.js";
 import { getOfflineDeviceId } from "./deviceIdentity.js";
+import {
+  isOfflineQueueEntryOwnedByActor,
+  isTerminalOfflineQueueEntry,
+} from "./offlineDataLifecycleCore.mjs";
 
 const unsupportedOfflineActionKeys = new Set([
   "DONATION_NEED_CREATE",
@@ -112,6 +116,15 @@ export const getSyncQueueActorContext = () => {
   };
 };
 
+export const isSyncQueueActorContextCurrent = (expectedContext = {}) => {
+  const currentContext = getSyncQueueActorContext();
+  return ["accessMode", "userId", "roleCode", "deviceId", "barangayId"].every(
+    (key) =>
+      normalizeScopeValue(expectedContext[key]) ===
+      normalizeScopeValue(currentContext[key]),
+  );
+};
+
 export const buildStoredSyncEntry = (
   entry,
   actorContext = getSyncQueueActorContext(),
@@ -134,34 +147,7 @@ export const isSyncEntryVisibleForContext = (
   entry,
   actorContext = getSyncQueueActorContext(),
 ) => {
-  if (!entry || entry.accessMode !== actorContext.accessMode) {
-    return false;
-  }
-
-  if (!entry.userId || !actorContext.userId || entry.userId !== actorContext.userId) {
-    return false;
-  }
-
-  if (!entry.roleCode || !actorContext.roleCode || entry.roleCode !== actorContext.roleCode) {
-    return false;
-  }
-
-  // IndexedDB is device-local, but retain the device identity on every new
-  // row so copied profiles and future shared-storage adapters cannot surface
-  // another device's work. Legacy rows without a device id remain visible.
-  if (
-    entry.deviceId &&
-    actorContext.deviceId &&
-    entry.deviceId !== actorContext.deviceId
-  ) {
-    return false;
-  }
-
-  if (
-    entry.barangayId &&
-    actorContext.roleCode === "BARANGAY" &&
-    (!actorContext.barangayId || entry.barangayId !== actorContext.barangayId)
-  ) {
+  if (!entry || !isOfflineQueueEntryOwnedByActor(entry, actorContext)) {
     return false;
   }
 
@@ -545,18 +531,14 @@ export const claimSyncEntries = async (
 };
 
 export const clearSyncedEntries = async () => {
+  const actorContext = getSyncQueueActorContext();
   const syncedEntries = await db.syncQueue
     .orderBy("updatedAt")
     .filter(
       (entry) => {
-        const resolutionStatus = String(entry.resolutionStatus || "").toUpperCase();
-        const isResolved =
-          resolutionStatus === "RESOLVED" ||
-          resolutionStatus === "RESOLVED_AUTOMATICALLY";
-
         return (
-          (isSyncEntryVisibleForContext(entry) || isResolved) &&
-          (entry.status === LOCAL_SYNC_STATUS.SYNCED || isResolved)
+          isOfflineQueueEntryOwnedByActor(entry, actorContext) &&
+          isTerminalOfflineQueueEntry(entry)
         );
       },
     )
@@ -598,6 +580,7 @@ const getResolvedSyncTransactionIds = (resolvedConflicts = []) =>
   );
 
 export const reconcileResolvedSyncEntries = async (resolvedConflicts = []) => {
+  const actorContext = getSyncQueueActorContext();
   const resolvedTransactionIds = getResolvedSyncTransactionIds(resolvedConflicts);
 
   if (resolvedTransactionIds.size === 0) {
@@ -616,10 +599,12 @@ export const reconcileResolvedSyncEntries = async (resolvedConflicts = []) => {
   }
 
   const staleEntryIds = queueEntries
-    .filter((entry) =>
-      resolvedTransactionIds.has(
-        String(entry.syncTransactionId || entry.sync_transaction_id || "").trim(),
-      ),
+    .filter(
+      (entry) =>
+        isOfflineQueueEntryOwnedByActor(entry, actorContext) &&
+        resolvedTransactionIds.has(
+          String(entry.syncTransactionId || entry.sync_transaction_id || "").trim(),
+        ),
     )
     .map((entry) => entry.id)
     .filter(Boolean);

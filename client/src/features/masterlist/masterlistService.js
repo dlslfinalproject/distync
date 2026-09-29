@@ -12,6 +12,10 @@ import {
   cacheMasterlistRows,
   getCachedMasterlistRows,
 } from "../../offline/masterlistCache.js";
+import {
+  getSyncQueueActorContext,
+  isSyncQueueActorContextCurrent,
+} from "../../offline/syncQueue.js";
 import { sortMasterlistRows } from "./masterlistSort.js";
 import { buildHouseholdDetailsSnapshot } from "./barangayMasterlistUi.js";
 
@@ -302,6 +306,8 @@ export const fetchMasterlist = async ({
   sectorIds = [],
   sortOrder = "newest",
 }) => {
+  const ownerContext = getSyncQueueActorContext();
+
   if (!disasterEventId) {
     return {
       disasterEvent: null,
@@ -351,6 +357,11 @@ export const fetchMasterlist = async ({
     `${API_BASE_URL}/api/v1/masterlist?${searchParams.toString()}`,
   );
   const payload = await parseJsonResponse(response, "Failed to fetch masterlist");
+  if (!isSyncQueueActorContextCurrent(ownerContext)) {
+    const error = new Error("The signed-in account changed while the Masterlist was loading.");
+    error.code = "OFFLINE_ACTOR_CONTEXT_CHANGED";
+    throw error;
+  }
   const allHouseholds = payload.data || [];
 
   const households =
@@ -366,7 +377,14 @@ export const fetchMasterlist = async ({
     mapMasterlistRow(household, allHouseholds, { disasterEventId }),
   );
   try {
-    await cacheMasterlistRows({ rows, disasterEventId, barangayId });
+    if (isSyncQueueActorContextCurrent(ownerContext)) {
+      await cacheMasterlistRows({
+        rows,
+        disasterEventId,
+        barangayId,
+        ownerContext,
+      });
+    }
   } catch (_error) {
     // Keep the online result usable, while the preparation workflow performs
     // its own read-back verification and reports persistence failures.

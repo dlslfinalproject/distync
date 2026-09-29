@@ -1,6 +1,9 @@
 import db from "../../offline/db.js";
 import { getAccessMode } from "../../utils/accessMode.js";
-import { getSyncQueueActorContext } from "../../offline/syncQueue.js";
+import {
+  getSyncQueueActorContext,
+  isSyncQueueActorContextCurrent,
+} from "../../offline/syncQueue.js";
 import { ROLE_CODES } from "../../utils/roleSession.js";
 import {
   fetchConsolidatedMasterlist,
@@ -278,8 +281,16 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
     const photoByHousehold = await hydratePhotos(stubRows);
     const preparedMasterlistRows = masterlistRows.map((row) => applyPhotoData(row, photoByHousehold));
     const preparedStubRows = stubRows.map((row) => applyPhotoData(row, photoByHousehold));
-    if (!isCurrentPreparationGeneration(id, currentGeneration)) return preparing;
-    const persistedStubs = await runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.DISTRIBUTION_PERSIST, () => upsertOfflineStubSnapshots(preparedStubRows));
+    if (
+      !isCurrentPreparationGeneration(id, currentGeneration) ||
+      !isSyncQueueActorContextCurrent(owner)
+    ) {
+      return preparing;
+    }
+    const persistedStubs = await runPreparationStage(
+      MSWDO_PREPARATION_FAILURE_STAGES.DISTRIBUTION_PERSIST,
+      () => upsertOfflineStubSnapshots(preparedStubRows, owner),
+    );
     const storedRows = await runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.READ_BACK, () => db.offlineStubCache.toArray());
     const scopedStubRows = storedRows.filter((row) =>
       row.accessMode === owner.accessMode &&
@@ -329,7 +340,12 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
       masterlist_count: preparedMasterlistRows.length,
       updated_at: new Date().toISOString(),
     };
-    if (!isCurrentPreparationGeneration(id, currentGeneration)) return snapshot;
+    if (
+      !isCurrentPreparationGeneration(id, currentGeneration) ||
+      !isSyncQueueActorContextCurrent(owner)
+    ) {
+      return snapshot;
+    }
     await runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.PREPARATION_METADATA, () => db.offlinePreparation.put(snapshot));
     const readBack = await runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.READ_BACK, () => db.offlinePreparation.get(id));
     // Preserve the Stage 2 contract wording while exposing READ_BACK safely.
@@ -338,6 +354,7 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
     return readBack;
   } catch (error) {
     if (!isCurrentPreparationGeneration(id, currentGeneration)) throw error;
+    if (!isSyncQueueActorContextCurrent(owner)) throw error;
     const failure = error instanceof MswdoOfflinePreparationError
       ? error
       : toPreparationError(error, MSWDO_PREPARATION_FAILURE_STAGES.PREPARATION_METADATA);

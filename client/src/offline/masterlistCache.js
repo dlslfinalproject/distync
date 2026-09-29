@@ -1,11 +1,18 @@
 import db from "./db.js";
-import { getSyncQueueActorContext } from "./syncQueue.js";
+import {
+  getSyncQueueActorContext,
+  isSyncQueueActorContextCurrent,
+} from "./syncQueue.js";
 import { ROLE_CODES } from "../utils/roleSession.js";
 
 const value = (item) => String(item || "").trim();
 
-const getScope = ({ disasterEventId, barangayId }) => {
-  const owner = getSyncQueueActorContext();
+const getScope = ({
+  disasterEventId,
+  barangayId,
+  ownerContext = getSyncQueueActorContext(),
+}) => {
+  const owner = ownerContext;
   if (!owner.accessMode || !owner.userId || !owner.roleCode || !disasterEventId || !barangayId) {
     return null;
   }
@@ -13,9 +20,14 @@ const getScope = ({ disasterEventId, barangayId }) => {
   return { ...owner, disasterEventId: value(disasterEventId), barangayId: value(barangayId) };
 };
 
-export const cacheMasterlistRows = async ({ rows = [], disasterEventId, barangayId }) => {
-  const scope = getScope({ disasterEventId, barangayId });
-  if (!scope) return [];
+export const cacheMasterlistRows = async ({
+  rows = [],
+  disasterEventId,
+  barangayId,
+  ownerContext = getSyncQueueActorContext(),
+}) => {
+  const scope = getScope({ disasterEventId, barangayId, ownerContext });
+  if (!scope || !isSyncQueueActorContextCurrent(ownerContext)) return [];
   const cachedAt = new Date().toISOString();
   const entries = (Array.isArray(rows) ? rows : []).filter(Boolean).map((row) => ({
     id: [scope.accessMode, scope.userId, scope.roleCode, scope.disasterEventId, scope.barangayId, row.household_id].join("|"),

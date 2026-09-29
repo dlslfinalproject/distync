@@ -51,7 +51,10 @@ test("missing photo rows retain the existing non-blocking policy", async () => {
 
 test("distribution and photo persistence failures are not hidden by generic errors", async () => {
   const source = await read("features/offline/mswdoOfflinePreparation.js");
-  assert.match(source, /runPreparationStage\(MSWDO_PREPARATION_FAILURE_STAGES\.DISTRIBUTION_PERSIST, \(\) => upsertOfflineStubSnapshots/);
+  assert.match(
+    source,
+    /runPreparationStage\([\s\S]*?MSWDO_PREPARATION_FAILURE_STAGES\.DISTRIBUTION_PERSIST,[\s\S]*?\(\) => upsertOfflineStubSnapshots\(preparedStubRows, owner\)/,
+  );
   assert.match(source, /runPreparationStage\(MSWDO_PREPARATION_FAILURE_STAGES\.READ_BACK, \(\) => db\.offlineStubCache\.toArray/);
   assert.match(source, /MswdoOfflinePreparationError\(MSWDO_PREPARATION_FAILURE_STAGES\.READ_BACK/);
 });
@@ -61,7 +64,10 @@ test("retry cycles use generation guards for terminal metadata and events", asyn
   const hook = await read("features/offline/useMswdoOfflinePreparation.js");
   assert.match(preparation, /preparationGenerations/);
   assert.match(preparation, /isCurrentPreparationGeneration\(id, currentGeneration\)/);
-  assert.match(preparation, /if \(!isCurrentPreparationGeneration\(id, currentGeneration\)\) return snapshot/);
+  assert.match(
+    preparation,
+    /if \(\s*!isCurrentPreparationGeneration\(id, currentGeneration\)\s*\|\|\s*!isSyncQueueActorContextCurrent\(owner\)\s*\)\s*\{\s*return snapshot/,
+  );
   assert.match(hook, /const generation = \+\+generationRef\.current/);
   assert.match(hook, /generationRef\.current === event\.detail\?\.generation/);
 });

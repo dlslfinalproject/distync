@@ -33,7 +33,7 @@ test("Masterlist keeps the initial loader but preserves rows during automatic re
     hookSource,
     /if \(!preserveExistingData\) \{\s*setIsLoading\(true\);[\s\S]*setIsRefreshing\(preserveExistingData\);[\s\S]*try \{/,
   );
-  assert.match(hookSource, /page,[\s\S]*search,[\s\S]*sectorIds:/);
+  assert.match(hookSource, /page,[\s\S]*search,[\s\S]*sectorIds,/);
   assert.match(syncSource, /REMOTE_MASTERLIST_REVALIDATION_INTERVAL_MS = 60 \* 1000/);
   assert.match(syncSource, /reloadMasterlist\(\{ background: true \}\)/);
   assert.match(pageSource, /<MasterlistTable[\s\S]*isLoading=\{isInitialLoading\}/);
@@ -72,32 +72,37 @@ test("Sync History keeps its initial loader while retaining the current table du
 });
 
 test("Masterlist return visits hydrate a bounded context-safe memory cache", async () => {
-  const source = await readSource("../src/features/masterlist/masterlistHooks.js");
+  const [hookSource, cacheSource] = await Promise.all([
+    readSource("../src/features/masterlist/masterlistHooks.js"),
+    readSource("../src/features/masterlist/masterlistMemoryCache.mjs"),
+  ]);
 
-  assert.match(source, /const MASTERLIST_MEMORY_CACHE_LIMIT = 24/);
-  assert.match(source, /const masterlistDataCache = new Map\(\)/);
-  assert.match(source, /const buildMasterlistRequestKey =/);
-  assert.match(source, /role: "barangay"/);
-  assert.match(source, /disasterEventId: String\(disasterEventId \|\| ""\)/);
-  assert.match(source, /barangayId: String\(barangayId \|\| ""\)/);
-  assert.match(source, /initialCacheEntry\?\.data/);
-  assert.match(source, /const isNewRequestContext =/);
-  assert.match(source, /setMasterlistCacheEntry\(requestKey, \{\s*data: result/);
-  assert.match(source, /isInitialLoading: visibleIsLoading && !visibleIsRefreshing/);
+  assert.match(cacheSource, /MASTERLIST_MEMORY_CACHE_LIMIT = 24/);
+  assert.match(cacheSource, /masterlistDataCache = new Map\(\)/);
+  assert.match(cacheSource, /buildMasterlistRequestKey/);
+  assert.match(cacheSource, /role: "barangay"/);
+  assert.match(cacheSource, /disasterEventId: String\(disasterEventId \|\| ""\)/);
+  assert.match(cacheSource, /barangayId: String\(barangayId \|\| ""\)/);
+  assert.match(hookSource, /initialCacheEntry\?\.data/);
+  assert.match(hookSource, /const isNewRequestContext =/);
+  assert.match(hookSource, /setMasterlistCacheEntry\(requestKey, \{\s*data: result/);
+  assert.match(hookSource, /isInitialLoading: visibleIsLoading && !visibleIsRefreshing/);
 });
 
 test("Relief Distribution return visits hydrate a context-safe memory cache without caching route components", async () => {
-  const [hookSource, routesSource] = await Promise.all([
+  const [hookSource, cacheSource, routesSource] = await Promise.all([
     readSource("../src/features/stubs/useStubDashboard.js"),
+    readSource("../src/features/stubs/stubDashboardMemoryCache.mjs"),
     readSource("../src/routes/AppRoutes.jsx"),
   ]);
 
-  assert.match(hookSource, /const STUB_DASHBOARD_MEMORY_CACHE_LIMIT = 24/);
-  assert.match(hookSource, /const stubDashboardDataCache = new Map\(\)/);
-  assert.match(hookSource, /const buildStubDashboardRequestKey =/);
-  assert.match(hookSource, /userId: String\(userId \|\| ""\)/);
-  assert.match(hookSource, /disasterEventId: String\(disasterEventId \|\| ""\)/);
-  assert.match(hookSource, /overrideBarangayId: String\(overrideBarangayId \|\| ""\)/);
+  assert.match(cacheSource, /STUB_DASHBOARD_MEMORY_CACHE_LIMIT = 24/);
+  assert.match(cacheSource, /stubDashboardDataCache = new Map\(\)/);
+  assert.match(cacheSource, /buildStubDashboardRequestKey/);
+  assert.match(cacheSource, /userId: String\(userId \|\| ""\)/);
+  assert.match(cacheSource, /disasterEventId: String\(disasterEventId \|\| ""\)/);
+  assert.match(cacheSource, /overrideBarangayId: String\(overrideBarangayId \|\| ""\)/);
+  assert.match(hookSource, /activateStubDashboardMemoryOwner\(actorContext\)/);
   assert.match(hookSource, /initialCacheEntry\?\.dashboard/);
   assert.match(hookSource, /setStubDashboardCacheEntry\(requestKey, \{\s*dashboard: nextDashboard/);
   assert.match(hookSource, /isInitialLoading: visibleIsLoading && !visibleIsRefreshing/);

@@ -20,6 +20,10 @@ test("sidebar account menu uses the shared identity, settings, and logout patter
   assert.match(source, /bottom: "calc\(100% \+ 10px\)"/);
   assert.match(source, /ConfirmationModal/);
   assert.match(source, /accessMode === ACCESS_MODES\.DEVELOPMENT/);
+  assert.match(source, /Unsynchronized Offline Data/);
+  assert.match(source, /Sync and Logout/);
+  assert.match(source, /Discard Offline Data and Logout/);
+  assert.match(source, /Connect to the internet and synchronize them before logging out/);
 });
 
 test("authenticated shell keeps role controls out and exposes the shared header settings shortcut", async () => {

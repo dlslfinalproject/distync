@@ -430,9 +430,15 @@ test("BRG-SC-07-M01 TEST J dashboard and detail fetches populate cache only afte
   const source = await readSource("../src/features/stubs/stubService.js");
 
   assert.match(source, /handleJsonResponse\([\s\S]*Failed to fetch stub dashboard/);
-  assert.match(source, /await upsertOfflineStubSnapshots\(responseData\?\.data \|\| \[\]\)/);
+  assert.match(
+    source,
+    /await upsertOfflineStubSnapshots\(responseData\?\.data \|\| \[\], ownerContext\)/,
+  );
   assert.match(source, /handleJsonResponse\(response,\s*"Failed to fetch stub details"\)/);
-  assert.match(source, /await upsertOfflineStubSnapshots\(responseData \? \[responseData\] : \[\]\)/);
+  assert.match(
+    source,
+    /await upsertOfflineStubSnapshots\(responseData \? \[responseData\] : \[\], ownerContext\)/,
+  );
 });
 
 test("BRG-SC-07-M01 TEST K failed, 401, and 403 responses cannot populate cached claim targets", async () => {
