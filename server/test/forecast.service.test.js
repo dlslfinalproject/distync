@@ -175,6 +175,8 @@ const withAutoForecastFixture = async (
       { inventory_item_id: "item-water", projected_household_demand: "80" },
       { inventory_item_id: "item-canned", projected_household_demand: "4" },
     ],
+    persist = false,
+    failResultInsertAt = null,
     responseFactory = (payload) => buildAutoAnalyticsResponse(payload),
   } = {},
   runTest,
@@ -190,6 +192,20 @@ const withAutoForecastFixture = async (
     connectCount: 0,
     forecastRunInserts: 0,
     forecastResultInserts: 0,
+    transactionCommands: [],
+    runInsertPayloads: [],
+    resultInsertPayloads: [],
+    repositoryClients: [],
+    releaseCount: 0,
+  };
+  const transactionClient = {
+    query: async (sql) => {
+      calls.transactionCommands.push(sql);
+      return { rows: [] };
+    },
+    release: () => {
+      calls.releaseCount += 1;
+    },
   };
   const originalFetch = global.fetch;
   global.fetch = async (_url, options) => {
@@ -208,7 +224,10 @@ const withAutoForecastFixture = async (
         [dbPath]: {
           connect: async () => {
             calls.connectCount += 1;
-            throw new Error("AUTO_BACKTEST must not connect for persistence");
+            if (!persist) {
+              throw new Error("AUTO_BACKTEST must not connect for evaluation");
+            }
+            return transactionClient;
           },
         },
         [systemLogPath]: { logErrorSafely: async () => {} },
@@ -233,6 +252,18 @@ const withAutoForecastFixture = async (
               start_date: eventStartDate,
               end_date: null,
               ended_at: null,
+              household_count: 7,
+              evacuee_count: 10,
+              attendance_record_count: 12,
+              present_evacuee_count: 8,
+              eligible_household_count: 6,
+              eligible_evacuee_count: 9,
+              claimed_household_count: 2,
+              unclaimed_eligible_household_count: 4,
+              distribution_transaction_count: 3,
+              total_released_quantity: 18,
+              inventory_item_count: 30,
+              active_standard_pack_count: 5,
             };
           },
           getReliefPackDemandByEvent: async (eventId) => {
@@ -249,13 +280,33 @@ const withAutoForecastFixture = async (
           getInventoryUsageTrend: async () => {
             throw new Error("AUTO_BACKTEST does not request the legacy trend");
           },
-          insertForecastRun: async () => {
+          insertForecastRun: async (payload, dbClient) => {
             calls.forecastRunInserts += 1;
-            throw new Error("AUTO_BACKTEST must not insert forecast runs");
+            if (!persist) {
+              throw new Error("AUTO_BACKTEST must not insert forecast runs");
+            }
+            calls.runInsertPayloads.push(payload);
+            calls.repositoryClients.push(dbClient);
+            return {
+              id: "forecast-run-auto",
+              ...payload,
+              run_type: payload.run_type,
+              run_at: "2026-09-30T00:00:00.000Z",
+            };
           },
-          insertForecastResult: async () => {
+          insertForecastResult: async (payload, dbClient) => {
             calls.forecastResultInserts += 1;
-            throw new Error("AUTO_BACKTEST must not insert forecast results");
+            if (!persist) {
+              throw new Error("AUTO_BACKTEST must not insert forecast results");
+            }
+            calls.resultInsertPayloads.push(payload);
+            calls.repositoryClients.push(dbClient);
+            if (calls.forecastResultInserts === failResultInsertAt) {
+              throw new Error("simulated result persistence failure");
+            }
+            return {
+              id: `forecast-result-${calls.forecastResultInserts}`,
+            };
           },
         },
       },
@@ -627,8 +678,11 @@ test("getLatestInventoryForecastOverall maps the newest forecast run without req
       const latestForecast = await getLatestInventoryForecastOverall();
 
       assert.equal(latestForecast.forecast_run.id, "forecast-run-1");
+      assert.equal(latestForecast.forecast_run.selection_mode, "FIXED_MODEL");
       assert.equal(latestForecast.results.length, 1);
       assert.equal(latestForecast.results[0].item_name, "Rice");
+      assert.equal(latestForecast.results[0].selected_model_name, "MOVING_AVERAGE");
+      assert.equal(latestForecast.results[0].selected_model, "MOVING_AVERAGE");
       assert.equal(latestForecast.results[0].risk_level, "HIGH");
       assert.equal(latestForecast.dashboard.summary.inventory_item_count, 39);
       assert.equal(
@@ -819,6 +873,7 @@ test("runInventoryForecast sends eligible LGU and donated stock to analytics and
   assert.equal(calls.forecastItemEventId, "event-1");
   assert.equal(calls.analyticsPayload.model_name, "MOVING_AVERAGE");
   assert.equal(calls.analyticsPayload.selection_mode, undefined);
+  assert.equal(calls.runPayload.selection_mode, "FIXED_MODEL");
   assert.equal(calls.analyticsPayload.items[0].current_available_stock, 25);
   assert.equal(
     calls.runPayload.parameters_json.event_context.inventory_item_count,
@@ -843,4 +898,267 @@ test("runInventoryForecast sends eligible LGU and donated stock to analytics and
   const confidenceNotes = JSON.parse(calls.resultPayload.confidence_notes);
   assert.equal(confidenceNotes.current_lgu_available_stock, 15);
   assert.equal(confidenceNotes.current_donated_available_stock, 10);
+});
+
+test("AUTO_BACKTEST persistence writes one mixed-model run with bounded evidence and raw forecasts", async () => {
+  await withAutoForecastFixture(
+    { persist: true },
+    async ({ runAndPersistAutoInventoryForecast }, calls) => {
+      const persistedForecast = await runAndPersistAutoInventoryForecast({
+        disaster_event_id: "event-1",
+        run_by: "user-1",
+        referenceInstant: AUTO_REFERENCE_INSTANT,
+      });
+
+      assert.equal(persistedForecast.forecast_run.selection_mode, "AUTO_BACKTEST");
+      assert.equal(persistedForecast.forecast_run.model_name, null);
+      assert.equal(calls.analyticsCallCount, 1);
+      assert.equal(calls.historyQueries.length, 1);
+      assert.equal(calls.forecastRunInserts, 1);
+      assert.equal(calls.forecastResultInserts, 3);
+      assert.deepEqual(calls.transactionCommands, ["BEGIN", "COMMIT"]);
+      assert.equal(calls.releaseCount, 1);
+      assert.equal(calls.repositoryClients.length, 4);
+      assert.ok(calls.repositoryClients.every((client) => client === calls.repositoryClients[0]));
+
+      const runInsert = calls.runInsertPayloads[0];
+      assert.equal(runInsert.selection_mode, "AUTO_BACKTEST");
+      assert.equal(runInsert.model_name, null);
+      assert.equal(runInsert.parameters_json.selection_mode, "AUTO_BACKTEST");
+      assert.equal(runInsert.parameters_json.forecast_horizon_days, 14);
+      assert.equal(runInsert.parameters_json.lookback_days, 30);
+      assert.equal(runInsert.parameters_json.moving_average_window, 7);
+      assert.equal(runInsert.parameters_json.exponential_smoothing_alpha, 0.4);
+      assert.equal(runInsert.parameters_json.evaluation_method, "ROLLING_ORIGIN_ONE_STEP");
+      assert.equal(runInsert.parameters_json.initial_training_points, 7);
+      assert.equal(runInsert.parameters_json.minimum_backtest_points, 7);
+      assert.equal(runInsert.parameters_json.minimum_history_points, 14);
+      assert.equal(runInsert.parameters_json.timezone, "Asia/Manila");
+      assert.equal(runInsert.parameters_json.current_incomplete_day_excluded, true);
+      assert.equal(runInsert.parameters_json.event_context.household_count, 7);
+      assert.equal(runInsert.parameters_json.event_context.inventory_item_count, 30);
+      assert.equal(
+        runInsert.parameters_json.event_context.active_inventory_item_count,
+        30,
+      );
+      assert.equal(
+        runInsert.parameters_json.event_context.active_standard_pack_count,
+        5,
+      );
+
+      const resultModels = calls.resultInsertPayloads.map(
+        (payload) => payload.selected_model_name,
+      );
+      assert.deepEqual(resultModels, [
+        "EXPONENTIAL_SMOOTHING",
+        "MOVING_AVERAGE",
+        "TREND_PROJECTION",
+      ]);
+      assert.deepEqual(
+        persistedForecast.results.map((result) => result.selected_model_name),
+        resultModels,
+      );
+
+      const riceInsert = calls.resultInsertPayloads.find(
+        (payload) => payload.inventory_item_id === "item-rice",
+      );
+      assert.equal(riceInsert.predicted_quantity_needed, 80);
+      assert.equal(riceInsert.selected_model_name, "EXPONENTIAL_SMOOTHING");
+      assert.equal(riceInsert.model_evaluation.recommended_model, "EXPONENTIAL_SMOOTHING");
+      assert.equal(riceInsert.model_evaluation.selected_model, "EXPONENTIAL_SMOOTHING");
+      assert.equal(riceInsert.model_evaluation.raw_statistical_forecast.forecasted_usage, 50);
+      assert.equal(riceInsert.model_evaluation.version, 1);
+      assert.equal(riceInsert.model_evaluation.evaluation_method, "ROLLING_ORIGIN_ONE_STEP");
+      assert.equal(riceInsert.model_evaluation.eligible_start_date, "2026-08-31");
+      assert.equal(riceInsert.model_evaluation.eligible_end_date, "2026-09-29");
+      assert.deepEqual(
+        riceInsert.model_evaluation.candidates.map((candidate) => candidate.model_name),
+        ["MOVING_AVERAGE", "EXPONENTIAL_SMOOTHING", "TREND_PROJECTION"],
+      );
+      assert.equal(riceInsert.model_evaluation.candidates.length, 3);
+      assert.equal(riceInsert.model_evaluation.candidates[1].mae, 0.5);
+      assert.equal(riceInsert.model_evaluation.candidates[1].rmse, 1);
+      assert.equal(riceInsert.model_evaluation.candidates[1].backtest_points, 23);
+      assert.equal(riceInsert.model_evaluation.candidates[1].forecasted_usage, 50);
+
+      const serializedEvaluation = JSON.stringify(riceInsert.model_evaluation);
+      assert.ok(serializedEvaluation.length < 2500);
+      assert.doesNotMatch(
+        serializedEvaluation,
+        /folds|training_prefixes|targets|per_fold_predictions|usage_series|household_id|member_name|address|phone/i,
+      );
+      assert.equal(persistedForecast.results[0].model_evaluation.version, 1);
+    },
+  );
+});
+
+test("AUTO_BACKTEST persistence keeps the Moving Average operational fallback distinct from recommendation", async () => {
+  await withAutoForecastFixture(
+    {
+      persist: true,
+      eventStartDate: "2026-09-17",
+      forecastItems: createAutoForecastItems().slice(0, 1),
+      usageRows: [],
+      demandRows: [
+        { inventory_item_id: "item-rice", projected_household_demand: "80" },
+      ],
+    },
+    async ({ runAndPersistAutoInventoryForecast }, calls) => {
+      const persistedForecast = await runAndPersistAutoInventoryForecast({
+        disaster_event_id: "event-1",
+        run_by: "user-1",
+        referenceInstant: AUTO_REFERENCE_INSTANT,
+      });
+      const result = persistedForecast.results[0];
+      const modelEvaluation = calls.resultInsertPayloads[0].model_evaluation;
+
+      assert.equal(calls.analyticsCallCount, 1);
+      assert.equal(calls.forecastRunInserts, 1);
+      assert.equal(calls.forecastResultInserts, 1);
+      assert.equal(result.selected_model_name, "MOVING_AVERAGE");
+      assert.equal(modelEvaluation.recommended_model, null);
+      assert.equal(modelEvaluation.selected_model, "MOVING_AVERAGE");
+      assert.equal(modelEvaluation.recommendation_status, "NOT_EVALUATED");
+      assert.equal(modelEvaluation.recommendation_reason, "INSUFFICIENT_HISTORY");
+      assert.equal(modelEvaluation.selection_reason, "OPERATIONAL_FALLBACK");
+      assert.equal(modelEvaluation.evaluation_status, "INSUFFICIENT_HISTORY");
+      assert.equal(modelEvaluation.available_observations, 13);
+      assert.equal(modelEvaluation.backtest_points, 6);
+    },
+  );
+});
+
+test("AUTO_BACKTEST persistence rolls back the run and earlier item inserts on failure", async () => {
+  await withAutoForecastFixture(
+    { persist: true, failResultInsertAt: 2 },
+    async ({ runAndPersistAutoInventoryForecast }, calls) => {
+      await assert.rejects(
+        runAndPersistAutoInventoryForecast({
+          disaster_event_id: "event-1",
+          run_by: "user-1",
+          referenceInstant: AUTO_REFERENCE_INSTANT,
+        }),
+        /simulated result persistence failure/,
+      );
+
+      assert.equal(calls.analyticsCallCount, 1);
+      assert.equal(calls.historyQueries.length, 1);
+      assert.equal(calls.forecastRunInserts, 1);
+      assert.equal(calls.forecastResultInserts, 2);
+      assert.deepEqual(calls.transactionCommands, ["BEGIN", "ROLLBACK"]);
+      assert.equal(calls.releaseCount, 1);
+    },
+  );
+});
+
+test("AUTO_BACKTEST invalid non-finite evidence is rejected before opening a transaction", async () => {
+  await withAutoForecastFixture(
+    {
+      persist: true,
+      responseFactory: (payload) => {
+        const response = buildAutoAnalyticsResponse(payload);
+        response.results[0].candidate_evaluations[0].mae = Number.NaN;
+        return response;
+      },
+    },
+    async ({ runAndPersistAutoInventoryForecast }, calls) => {
+      await assert.rejects(
+        runAndPersistAutoInventoryForecast({
+          disaster_event_id: "event-1",
+          run_by: "user-1",
+          referenceInstant: AUTO_REFERENCE_INSTANT,
+        }),
+        (error) => error.code === "INVALID_FORECAST_RESPONSE",
+      );
+      assert.equal(calls.analyticsCallCount, 1);
+      assert.equal(calls.connectCount, 0);
+      assert.equal(calls.forecastRunInserts, 0);
+      assert.equal(calls.forecastResultInserts, 0);
+    },
+  );
+});
+
+test("AUTO stored reads preserve item evidence, suppress run-wide models, and tolerate malformed rows", async () => {
+  const modelEvaluation = {
+    version: 1,
+    evaluation_method: "ROLLING_ORIGIN_ONE_STEP",
+    recommended_model: "EXPONENTIAL_SMOOTHING",
+    selected_model: "EXPONENTIAL_SMOOTHING",
+    candidates: [
+      { model_name: "MOVING_AVERAGE", status: "EVALUATED", mae: 1, rmse: 2 },
+      { model_name: "EXPONENTIAL_SMOOTHING", status: "EVALUATED", mae: 0.5, rmse: 1 },
+      { model_name: "TREND_PROJECTION", status: "EVALUATED", mae: 3, rmse: 4 },
+    ],
+  };
+  const autoRun = {
+    id: "forecast-run-auto",
+    disaster_event_id: "event-1",
+    event_code: "DE-001",
+    disaster_event_title: "Flood Response",
+    run_type: "INVENTORY_DEMAND",
+    run_by: "user-1",
+    run_at: "2026-09-30T00:00:00.000Z",
+    selection_mode: "AUTO_BACKTEST",
+    model_name: "TREND_PROJECTION",
+    parameters_json: {},
+  };
+  let resultRows = [
+    {
+      inventory_item_id: "item-1",
+      item_name: "Rice",
+      item_code: "RICE",
+      category: "Food",
+      unit_of_measure: "packs",
+      predicted_quantity_needed: 80,
+      predicted_depletion_date: "2026-10-04",
+      recommended_reorder_quantity: 57,
+      confidence_notes: JSON.stringify({ risk_level: "HIGH" }),
+      selected_model_name: "EXPONENTIAL_SMOOTHING",
+      model_evaluation: JSON.stringify(modelEvaluation),
+    },
+  ];
+
+  await withStubbedForecastService(
+    {
+      [dbPath]: {},
+      [systemLogPath]: { logErrorSafely: async () => {} },
+      [repositoryPath]: {
+        getLatestForecastRun: async () => autoRun,
+        getForecastRunHistory: async () => [
+          { ...autoRun, model_name: "MOVING_AVERAGE" },
+        ],
+        getForecastRunById: async () => autoRun,
+        getForecastResultsByRunId: async () => resultRows,
+      },
+    },
+    async ({
+      getLatestInventoryForecastOverall,
+      getInventoryForecastHistory,
+      getInventoryForecastRunDetails,
+    }) => {
+      const latest = await getLatestInventoryForecastOverall();
+      assert.equal(latest.forecast_run.selection_mode, "AUTO_BACKTEST");
+      assert.equal(latest.forecast_run.model_name, null);
+      assert.equal(latest.results[0].selected_model_name, "EXPONENTIAL_SMOOTHING");
+      assert.equal(latest.results[0].selected_model, "EXPONENTIAL_SMOOTHING");
+      assert.deepEqual(latest.results[0].model_evaluation, modelEvaluation);
+      assert.equal(latest.results[0].forecasted_usage, 80);
+
+      const history = await getInventoryForecastHistory();
+      assert.equal(history[0].selection_mode, "AUTO_BACKTEST");
+      assert.equal(history[0].model_name, null);
+
+      const detail = await getInventoryForecastRunDetails("forecast-run-auto");
+      assert.equal(detail.forecast_run.selection_mode, "AUTO_BACKTEST");
+      assert.equal(detail.forecast_run.model_name, null);
+      assert.equal(detail.results[0].selected_model_name, "EXPONENTIAL_SMOOTHING");
+      assert.deepEqual(detail.results[0].model_evaluation, modelEvaluation);
+
+      resultRows = [{ ...resultRows[0], selected_model_name: null }];
+      const malformed = await getLatestInventoryForecastOverall();
+      assert.equal(malformed.forecast_run.model_name, null);
+      assert.equal(malformed.results[0].selected_model_name, null);
+      assert.equal(malformed.results[0].selected_model, null);
+    },
+  );
 });

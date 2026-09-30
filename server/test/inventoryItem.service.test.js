@@ -462,3 +462,65 @@ test("buildInventoryTrackingMap preserves the batch-derived nearest expiry and s
     },
   );
 });
+
+test("inventory item forecast summary uses the AUTO item model and fixed legacy fallback", async () => {
+  const runDetail = async (latestForecast) => {
+    const { stubs } = buildServiceStubs();
+    stubs[inventoryItemRepositoryPath].getInventoryItemById = async () => ({
+      id: "item-1",
+      item_name: "Rice",
+      reorder_level: 3,
+    });
+    stubs[inventoryBatchRepositoryPath].getInventoryBatches = async () => [];
+    stubs[inventoryTransactionRepositoryPath].getInventoryTransactions =
+      async () => [];
+    stubs[systemLogRepositoryPath].getAuditLogsByEntity = async () => [];
+    stubs[forecastRepositoryPath].getLatestForecastResultByInventoryItem =
+      async () => latestForecast;
+
+    let detail;
+    await withStubbedInventoryItemService(stubs, async ({ getInventoryItemDetail }) => {
+      detail = await getInventoryItemDetail("item-1");
+    });
+    return detail;
+  };
+
+  const autoDetail = await runDetail({
+    forecast_run_id: "run-auto",
+    disaster_event_id: "event-1",
+    disaster_event_title: "Flood Response",
+    event_code: "DE-001",
+    selection_mode: "AUTO_BACKTEST",
+    model_name: null,
+    selected_model_name: "EXPONENTIAL_SMOOTHING",
+    predicted_quantity_needed: 80,
+    predicted_depletion_date: "2026-10-04",
+    recommended_reorder_quantity: 57,
+    confidence_notes: JSON.stringify({ average_daily_usage: 5 }),
+    run_at: "2026-09-30T00:00:00.000Z",
+  });
+  assert.equal(autoDetail.forecast_summary.selection_mode, "AUTO_BACKTEST");
+  assert.equal(
+    autoDetail.forecast_summary.selected_model_name,
+    "EXPONENTIAL_SMOOTHING",
+  );
+  assert.equal(autoDetail.forecast_summary.model_name, "EXPONENTIAL_SMOOTHING");
+  assert.equal(autoDetail.forecast_summary.forecasted_usage, 80);
+
+  const legacyDetail = await runDetail({
+    forecast_run_id: "run-fixed",
+    disaster_event_id: "event-1",
+    disaster_event_title: "Flood Response",
+    event_code: "DE-001",
+    model_name: "MOVING_AVERAGE",
+    selected_model_name: null,
+    predicted_quantity_needed: 12,
+    predicted_depletion_date: null,
+    recommended_reorder_quantity: 0,
+    confidence_notes: null,
+    run_at: "2026-09-29T00:00:00.000Z",
+  });
+  assert.equal(legacyDetail.forecast_summary.selection_mode, "FIXED_MODEL");
+  assert.equal(legacyDetail.forecast_summary.selected_model_name, "MOVING_AVERAGE");
+  assert.equal(legacyDetail.forecast_summary.model_name, "MOVING_AVERAGE");
+});

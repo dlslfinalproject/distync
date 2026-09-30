@@ -496,6 +496,7 @@ const insertForecastRun = async (payload, dbClient = pool) => {
   const result = await dbClient.query(
     `
       INSERT INTO forecast_runs (
+        selection_mode,
         disaster_event_id,
         run_type,
         run_by,
@@ -503,10 +504,11 @@ const insertForecastRun = async (payload, dbClient = pool) => {
         model_name,
         parameters_json
       )
-      VALUES ($1, $2, $3, NOW(), $4, $5)
-      RETURNING id, disaster_event_id, run_type, run_by, run_at, model_name, parameters_json
+      VALUES ($1, $2, $3, $4, NOW(), $5, $6)
+      RETURNING id, disaster_event_id, run_type, selection_mode, run_by, run_at, model_name, parameters_json
     `,
     [
+      payload.selection_mode ?? "FIXED_MODEL",
       payload.disaster_event_id,
       payload.run_type,
       payload.run_by,
@@ -528,9 +530,11 @@ const insertForecastResult = async (payload, dbClient = pool) => {
         predicted_depletion_date,
         recommended_reorder_quantity,
         confidence_notes,
+        selected_model_name,
+        model_evaluation,
         created_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
       RETURNING id
     `,
     [
@@ -540,6 +544,8 @@ const insertForecastResult = async (payload, dbClient = pool) => {
       payload.predicted_depletion_date,
       payload.recommended_reorder_quantity,
       payload.confidence_notes,
+      payload.selected_model_name ?? null,
+      payload.model_evaluation ?? null,
     ],
   );
 
@@ -556,6 +562,7 @@ const getLatestForecastRunByDisasterEvent = async (
         fr.id,
         fr.disaster_event_id,
         fr.run_type,
+        fr.selection_mode,
         fr.run_by,
         fr.run_at,
         fr.model_name,
@@ -581,6 +588,7 @@ const getLatestForecastRun = async (dbClient = pool) => {
         fr.id,
         fr.disaster_event_id,
         fr.run_type,
+        fr.selection_mode,
         fr.run_by,
         fr.run_at,
         fr.model_name,
@@ -608,6 +616,8 @@ const getForecastResultsByRunId = async (forecastRunId, dbClient = pool) => {
         fr.predicted_depletion_date,
         fr.recommended_reorder_quantity,
         fr.confidence_notes,
+        fr.selected_model_name,
+        fr.model_evaluation,
         fr.created_at,
         ii.item_code,
         ii.item_name,
@@ -631,6 +641,7 @@ const getForecastRunById = async (forecastRunId, dbClient = pool) => {
         fr.id,
         fr.disaster_event_id,
         fr.run_type,
+        fr.selection_mode,
         fr.run_by,
         fr.run_at,
         fr.model_name,
@@ -676,6 +687,7 @@ const getForecastRunHistory = async (
         fr.id,
         fr.disaster_event_id,
         fr.run_type,
+        fr.selection_mode,
         fr.run_by,
         fr.run_at,
         fr.model_name,
@@ -712,7 +724,10 @@ const getLatestForecastResultByInventoryItem = async (
         fr.predicted_depletion_date,
         fr.recommended_reorder_quantity,
         fr.confidence_notes,
+        fr.selected_model_name,
+        fr.model_evaluation,
         fr.created_at,
+        run.selection_mode,
         run.model_name,
         run.run_at,
         run.disaster_event_id,

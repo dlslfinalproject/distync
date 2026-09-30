@@ -192,8 +192,134 @@ test("getLatestForecastRun returns the newest forecast without disaster event fi
   const { sql, values } = dbClient.calls[0];
 
   assert.match(sql, /FROM forecast_runs fr/);
+  assert.match(sql, /fr\.selection_mode/);
   assert.match(sql, /INNER JOIN disaster_events de ON de\.id = fr\.disaster_event_id/);
   assert.match(sql, /ORDER BY fr\.run_at DESC, fr\.id DESC/);
   assert.doesNotMatch(sql, /WHERE fr\.disaster_event_id = \$1/);
   assert.equal(values, undefined);
+});
+
+test("insertForecastRun stores AUTO mode with a null run model and defaults old callers to fixed", async () => {
+  const parametersJson = {
+    selection_mode: "AUTO_BACKTEST",
+    evaluation_method: "ROLLING_ORIGIN_ONE_STEP",
+  };
+  const autoDb = createCapturingDbClient([{ id: "run-auto" }]);
+
+  await forecastRepository.insertForecastRun(
+    {
+      disaster_event_id: "event-1",
+      run_type: "INVENTORY_DEMAND",
+      run_by: "user-1",
+      selection_mode: "AUTO_BACKTEST",
+      model_name: null,
+      parameters_json: parametersJson,
+    },
+    autoDb,
+  );
+
+  assert.equal(autoDb.calls.length, 1);
+  assert.match(autoDb.calls[0].sql, /selection_mode/);
+  assert.deepEqual(autoDb.calls[0].values, [
+    "AUTO_BACKTEST",
+    "event-1",
+    "INVENTORY_DEMAND",
+    "user-1",
+    null,
+    parametersJson,
+  ]);
+
+  const fixedDb = createCapturingDbClient([{ id: "run-fixed" }]);
+  await forecastRepository.insertForecastRun(
+    {
+      disaster_event_id: "event-1",
+      run_type: "INVENTORY_DEMAND",
+      run_by: "user-1",
+      model_name: "MOVING_AVERAGE",
+      parameters_json: { model_name: "MOVING_AVERAGE" },
+    },
+    fixedDb,
+  );
+  assert.equal(fixedDb.calls[0].values[0], "FIXED_MODEL");
+  assert.equal(fixedDb.calls[0].values[4], "MOVING_AVERAGE");
+});
+
+test("insertForecastResult stores item selection and JSONB while old callers retain nulls", async () => {
+  const modelEvaluation = {
+    version: 1,
+    recommended_model: "TREND_PROJECTION",
+    selected_model: "TREND_PROJECTION",
+    candidates: [
+      { model_name: "MOVING_AVERAGE", mae: 1, rmse: 2 },
+      { model_name: "EXPONENTIAL_SMOOTHING", mae: 2, rmse: 3 },
+      { model_name: "TREND_PROJECTION", mae: 0.5, rmse: 1 },
+    ],
+  };
+  const autoDb = createCapturingDbClient([{ id: "result-auto" }]);
+  await forecastRepository.insertForecastResult(
+    {
+      forecast_run_id: "run-auto",
+      inventory_item_id: "item-1",
+      predicted_quantity_needed: 80,
+      predicted_depletion_date: "2026-10-04",
+      recommended_reorder_quantity: 57,
+      confidence_notes: "{\"risk_level\":\"HIGH\"}",
+      selected_model_name: "TREND_PROJECTION",
+      model_evaluation: modelEvaluation,
+    },
+    autoDb,
+  );
+
+  assert.match(autoDb.calls[0].sql, /selected_model_name/);
+  assert.match(autoDb.calls[0].sql, /model_evaluation/);
+  assert.equal(autoDb.calls[0].values[2], 80);
+  assert.equal(autoDb.calls[0].values[6], "TREND_PROJECTION");
+  assert.deepEqual(autoDb.calls[0].values[7], modelEvaluation);
+
+  const legacyDb = createCapturingDbClient([{ id: "result-fixed" }]);
+  await forecastRepository.insertForecastResult(
+    {
+      forecast_run_id: "run-fixed",
+      inventory_item_id: "item-1",
+      predicted_quantity_needed: 10,
+      predicted_depletion_date: null,
+      recommended_reorder_quantity: 0,
+      confidence_notes: null,
+    },
+    legacyDb,
+  );
+  assert.equal(legacyDb.calls[0].values[6], null);
+  assert.equal(legacyDb.calls[0].values[7], null);
+});
+
+test("stored forecast queries select mode and item evaluation without changing filters", async () => {
+  const dbClient = createCapturingDbClient([
+    { id: "run-auto", selection_mode: "AUTO_BACKTEST", model_name: null },
+  ]);
+
+  await forecastRepository.getLatestForecastRunByDisasterEvent("event-1", dbClient);
+  assert.match(dbClient.calls[0].sql, /fr\.selection_mode/);
+
+  await forecastRepository.getForecastRunById("run-auto", dbClient);
+  assert.match(dbClient.calls[1].sql, /fr\.selection_mode/);
+
+  await forecastRepository.getForecastRunHistory(
+    { disasterEventId: "event-1", limit: 5 },
+    dbClient,
+  );
+  assert.match(dbClient.calls[2].sql, /fr\.selection_mode/);
+  assert.match(dbClient.calls[2].sql, /WHERE fr\.disaster_event_id = \$1/);
+  assert.match(dbClient.calls[2].sql, /LIMIT \$2/);
+  assert.deepEqual(dbClient.calls[2].values, ["event-1", 5]);
+
+  await forecastRepository.getForecastResultsByRunId("run-auto", dbClient);
+  assert.match(dbClient.calls[3].sql, /fr\.selected_model_name/);
+  assert.match(dbClient.calls[3].sql, /fr\.model_evaluation/);
+  assert.match(dbClient.calls[3].sql, /ORDER BY ii\.item_name ASC/);
+
+  await forecastRepository.getLatestForecastResultByInventoryItem("item-1", dbClient);
+  assert.match(dbClient.calls[4].sql, /fr\.selected_model_name/);
+  assert.match(dbClient.calls[4].sql, /fr\.model_evaluation/);
+  assert.match(dbClient.calls[4].sql, /run\.selection_mode/);
+  assert.match(dbClient.calls[4].sql, /ORDER BY run\.run_at DESC, fr\.created_at DESC/);
 });
