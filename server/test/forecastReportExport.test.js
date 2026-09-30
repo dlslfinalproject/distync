@@ -75,3 +75,17 @@ test("forecast export builds a PDF report with the selected forecast content", (
   assert.match(pdfSource, /Emergency Water/);
   assert.match(pdfSource, /Exponential Smoothing/);
 });
+
+test("AUTO_BACKTEST report uses a selection method label without a false global model", () => {
+  const payload = buildForecastPayload();
+  payload.forecast_run.selection_mode = "AUTO_BACKTEST";
+  payload.forecast_run.model_name = null;
+  const file = buildExportFile(payload);
+  const pdfSource = file.buffer.toString("latin1");
+
+  assert.match(pdfSource, /Selection Method/);
+  assert.match(pdfSource, /Historical Model Evaluation/);
+  assert.doesNotMatch(pdfSource, /Forecast Model/);
+  assert.doesNotMatch(pdfSource, /Moving Average/);
+  assert.doesNotMatch(file.filename, /null|undefined/i);
+});

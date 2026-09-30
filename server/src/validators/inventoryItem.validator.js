@@ -486,13 +486,42 @@ const validateInventoryItemPayload = (req, res, next) => {
 
 const validateForecastRunPayload = (req, res, next) => {
   try {
-    const { disaster_event_id, model_name, model_type } = req.body;
+    const {
+      disaster_event_id,
+      model_name,
+      model_type,
+      selection_mode,
+    } = req.body || {};
     const resolvedModelName = model_name || model_type || "MOVING_AVERAGE";
+    const resolvedSelectionMode = selection_mode || "FIXED_MODEL";
 
     if (!isValidUuid(disaster_event_id)) {
       return res.status(400).json({
         message: "disaster_event_id must be a valid UUID",
       });
+    }
+
+    if (!["FIXED_MODEL", "AUTO_BACKTEST"].includes(resolvedSelectionMode)) {
+      return res.status(400).json({
+        message: "selection_mode must be FIXED_MODEL or AUTO_BACKTEST",
+      });
+    }
+
+    if (
+      resolvedSelectionMode === "AUTO_BACKTEST" &&
+      (model_name !== undefined || model_type !== undefined)
+    ) {
+      return res.status(400).json({
+        message: "model_name and model_type must be omitted for AUTO_BACKTEST",
+      });
+    }
+
+    if (resolvedSelectionMode === "AUTO_BACKTEST") {
+      req.validatedBody = {
+        disaster_event_id,
+        selection_mode: resolvedSelectionMode,
+      };
+      return next();
     }
 
     if (!allowedForecastModels.includes(resolvedModelName)) {
@@ -504,6 +533,7 @@ const validateForecastRunPayload = (req, res, next) => {
 
     req.validatedBody = {
       disaster_event_id,
+      selection_mode: resolvedSelectionMode,
       model_name: resolvedModelName,
     };
 
@@ -511,6 +541,26 @@ const validateForecastRunPayload = (req, res, next) => {
   } catch (error) {
     return res.status(500).json({
       message: "Failed to validate forecast run payload",
+      error: error.message,
+    });
+  }
+};
+
+const validateForecastExportPayload = (req, res, next) => {
+  try {
+    const { forecast_run_id } = req.body || {};
+
+    if (!isValidUuid(forecast_run_id)) {
+      return res.status(400).json({
+        message: "forecast_run_id must be a valid UUID",
+      });
+    }
+
+    req.validatedBody = { forecast_run_id };
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate forecast export payload",
       error: error.message,
     });
   }
@@ -606,6 +656,7 @@ module.exports = {
   validateGetInventoryItems,
   validateInventoryItemPayload,
   validateForecastRunPayload,
+  validateForecastExportPayload,
   validateForecastLatestQuery,
   validateForecastHistoryQuery,
   validateForecastRunIdParam,

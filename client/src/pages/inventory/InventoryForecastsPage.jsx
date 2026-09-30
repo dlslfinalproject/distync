@@ -7,19 +7,15 @@ import { useInventoryForecast } from "../../features/inventory-items/useInventor
 import { exportInventoryForecast } from "../../features/inventory-items/inventoryItemService";
 import { downloadExportFile } from "../../utils/exportHelpers";
 import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
-import {
-  forecastModelOptions,
-  getForecastModelLabel,
-} from "../../features/inventory-items/inventoryItemExportOptions";
 
 const InventoryForecastsPage = () => {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportErrorMessage, setExportErrorMessage] = useState("");
+  const [forecastToExport, setForecastToExport] = useState(null);
   const {
     forecastEvents,
     selectedForecastEventId,
-    selectedForecastModel,
     forecastContext,
     forecastRunData,
     forecastHistory,
@@ -33,7 +29,6 @@ const InventoryForecastsPage = () => {
     forecastErrorMessage,
     forecastSuccessMessage,
     handleForecastEventChange,
-    handleForecastModelChange,
     handleRunForecast,
     handleSelectForecastHistoryRun,
   } = useInventoryForecast();
@@ -56,7 +51,12 @@ const InventoryForecastsPage = () => {
   const isForecastHistoryLoading =
     baseIsForecastHistoryLoading && shouldShowInitialLoading;
 
-  const handleOpenExportModal = () => {
+  const handleOpenExportModal = (forecast) => {
+    if (!forecast?.forecast_run?.id) {
+      return;
+    }
+
+    setForecastToExport(forecast);
     setExportErrorMessage("");
     setIsExportModalOpen(true);
   };
@@ -68,11 +68,12 @@ const InventoryForecastsPage = () => {
 
     setExportErrorMessage("");
     setIsExportModalOpen(false);
+    setForecastToExport(null);
   };
 
-  const handleExportForecast = async ({ disasterEventId }) => {
-    if (!disasterEventId) {
-      setExportErrorMessage("Disaster event is required.");
+  const handleExportForecast = async (forecastRunId) => {
+    if (!forecastRunId) {
+      setExportErrorMessage("A persisted forecast run is required.");
       return;
     }
 
@@ -80,13 +81,11 @@ const InventoryForecastsPage = () => {
     setExportErrorMessage("");
 
     try {
-      const file = await exportInventoryForecast({
-        disaster_event_id: disasterEventId,
-        model_name: selectedForecastModel,
-      });
+      const file = await exportInventoryForecast(forecastRunId);
       downloadExportFile(file);
 
       setIsExportModalOpen(false);
+      setForecastToExport(null);
     } catch (error) {
       setExportErrorMessage(
         error.message || "Failed to export inventory forecasting report.",
@@ -105,8 +104,6 @@ const InventoryForecastsPage = () => {
       <ForecastingPanel
         forecastEvents={forecastEvents}
         selectedForecastEventId={selectedForecastEventId}
-        selectedForecastModel={selectedForecastModel}
-        forecastModelOptions={forecastModelOptions}
         forecastContext={forecastContext}
         forecastRunData={forecastRunData}
         forecastHistory={forecastHistory}
@@ -119,10 +116,8 @@ const InventoryForecastsPage = () => {
         isRunningForecast={isRunningForecast}
         isForecastHistoryLoading={isForecastHistoryLoading}
         isForecastHistoryDetailLoading={isForecastHistoryDetailLoading}
-        getForecastModelLabel={getForecastModelLabel}
         onOpenExportModal={handleOpenExportModal}
         onForecastEventChange={handleForecastEventChange}
-        onForecastModelChange={handleForecastModelChange}
         onRunForecast={handleRunForecast}
         onSelectForecastHistoryRun={handleSelectForecastHistoryRun}
       />
@@ -130,8 +125,7 @@ const InventoryForecastsPage = () => {
       <InventoryForecastExportModal
         isOpen={isExportModalOpen}
         isSubmitting={isExporting}
-        disasterEvents={forecastEvents}
-        selectedDisasterEventId={selectedForecastEventId}
+        forecast={forecastToExport}
         errorMessage={exportErrorMessage}
         onClose={handleCloseExportModal}
         onSubmit={handleExportForecast}
