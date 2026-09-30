@@ -20,6 +20,7 @@ const MOVING_AVERAGE_WINDOW = 7;
 const EXPONENTIAL_SMOOTHING_ALPHA = 0.4;
 const FORECAST_ELIGIBLE_SOURCE_TYPES = Object.freeze(["LGU", "DONATED"]);
 const FORECAST_NEAR_EXPIRY_EXCLUSION_DAYS = 30;
+const FORECAST_HISTORY_TIME_ZONE = "Asia/Manila";
 const LEGACY_FORECAST_INVENTORY_ITEM_COUNT_KEY = "active_inventory_item_count";
 const ANALYTICS_SERVICE_URL =
   process.env.ANALYTICS_SERVICE_URL || "http://localhost:8000";
@@ -83,6 +84,120 @@ const normalizeAnalyticsServiceUrl = (value) => {
   } catch (_error) {
     return normalizedValue;
   }
+};
+
+const normalizeDateOnlyKey = (value, label = "date") => {
+  const dateKey =
+    value instanceof Date
+      ? value.toISOString().slice(0, 10)
+      : String(value || "");
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+
+  if (!match) {
+    throw new TypeError(`${label} must be a YYYY-MM-DD date`);
+  }
+
+  const parsed = new Date(`${dateKey}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== dateKey) {
+    throw new TypeError(`${label} must be a valid YYYY-MM-DD date`);
+  }
+
+  return dateKey;
+};
+
+const addCalendarDays = (dateKey, dayOffset) => {
+  const parsed = new Date(`${normalizeDateOnlyKey(dateKey)}T00:00:00.000Z`);
+  parsed.setUTCDate(parsed.getUTCDate() + dayOffset);
+  return parsed.toISOString().slice(0, 10);
+};
+
+const getManilaDateKey = (instant = new Date()) => {
+  const parsedInstant = instant instanceof Date ? instant : new Date(instant);
+  if (Number.isNaN(parsedInstant.getTime())) {
+    throw new TypeError("reference instant must be a valid date");
+  }
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: FORECAST_HISTORY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(parsedInstant);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+
+  return `${values.year}-${values.month}-${values.day}`;
+};
+
+const buildEligibleHistoryWindow = ({
+  eventStartDate,
+  lookbackDays = LOOKBACK_DAYS,
+  referenceInstant = new Date(),
+}) => {
+  if (!Number.isInteger(lookbackDays) || lookbackDays < 1) {
+    throw new TypeError("lookbackDays must be a positive integer");
+  }
+
+  const normalizedEventStartDate = normalizeDateOnlyKey(
+    eventStartDate,
+    "eventStartDate",
+  );
+  const currentManilaDate = getManilaDateKey(referenceInstant);
+  const eligibleEndDate = addCalendarDays(currentManilaDate, -1);
+  const lookbackStartDate = addCalendarDays(
+    eligibleEndDate,
+    -(lookbackDays - 1),
+  );
+  const eligibleStartDate =
+    normalizedEventStartDate > lookbackStartDate
+      ? normalizedEventStartDate
+      : lookbackStartDate;
+  const dayKeys = [];
+
+  for (
+    let dateKey = eligibleStartDate;
+    dateKey <= eligibleEndDate;
+    dateKey = addCalendarDays(dateKey, 1)
+  ) {
+    dayKeys.push(dateKey);
+  }
+
+  return {
+    time_zone: FORECAST_HISTORY_TIME_ZONE,
+    current_manila_date: currentManilaDate,
+    eligible_start_date: eligibleStartDate,
+    eligible_end_date: eligibleEndDate,
+    lookback_start_date: lookbackStartDate,
+    configured_lookback_days: lookbackDays,
+    eligible_day_count: dayKeys.length,
+    current_incomplete_day_excluded: true,
+    day_keys: dayKeys,
+  };
+};
+
+const buildEligibleHistoricalSeries = (usageRows, itemIds, dayKeys) => {
+  const dayIndexByKey = new Map(dayKeys.map((dayKey, index) => [dayKey, index]));
+  const usageSeriesByItemId = new Map(
+    itemIds.map((itemId) => [itemId, new Array(dayKeys.length).fill(0)]),
+  );
+
+  (usageRows || []).forEach((row) => {
+    const targetSeries = usageSeriesByItemId.get(row.inventory_item_id);
+    const usageDateKey = normalizeDateOnlyKey(row.usage_date, "usage_date");
+    const targetIndex = dayIndexByKey.get(usageDateKey);
+
+    if (!targetSeries || targetIndex === undefined) {
+      return;
+    }
+
+    const quantity = Number(row.total_quantity || 0);
+    if (!Number.isFinite(quantity) || quantity < 0) {
+      throw new TypeError("historical usage quantity must be finite and nonnegative");
+    }
+
+    targetSeries[targetIndex] += quantity;
+  });
+
+  return usageSeriesByItemId;
 };
 
 const buildUsageSeries = (usageRows, itemIds) => {
@@ -784,6 +899,28 @@ const buildAnalyticsPayload = ({ forecastItems, usageSeriesMap, modelName }) => 
   };
 };
 
+const buildAutoBacktestAnalyticsPayload = ({
+  forecastItems,
+  usageSeriesMap,
+}) => ({
+  selection_mode: "AUTO_BACKTEST",
+  model_name: DEFAULT_FORECAST_MODEL,
+  forecast_horizon_days: FORECAST_HORIZON_DAYS,
+  lookback_days: LOOKBACK_DAYS,
+  moving_average_window: MOVING_AVERAGE_WINDOW,
+  exponential_smoothing_alpha: EXPONENTIAL_SMOOTHING_ALPHA,
+  items: forecastItems.map((item) => ({
+    inventory_item_id: item.id,
+    item_name: item.item_name,
+    item_code: item.item_code,
+    category: item.category,
+    unit_of_measure: item.unit_of_measure,
+    current_available_stock: Number(item.current_available_stock || 0),
+    reorder_level: Number(item.reorder_level || 0),
+    usage_series: usageSeriesMap.get(item.id) || [],
+  })),
+});
+
 const buildAnalyticsUnavailableError = (message) => {
   const error = new Error(message);
   error.statusCode = 503;
@@ -913,6 +1050,301 @@ const callAnalyticsInventoryForecast = async (payload, actor = null) => {
   } finally {
     clearTimeout(timeoutId);
   }
+};
+
+const buildInvalidAutoForecastResponseError = () => {
+  const error = new Error(
+    "Analytics service returned an invalid AUTO_BACKTEST forecast response.",
+  );
+  error.statusCode = 502;
+  error.code = "INVALID_FORECAST_RESPONSE";
+  return error;
+};
+
+const isFiniteNonnegativeNumber = (value) =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+const isNonnegativeInteger = (value) =>
+  Number.isInteger(value) && value >= 0;
+
+const validateAutoBacktestAnalyticsResponse = (
+  response,
+  forecastItems,
+  usageSeriesMap,
+) => {
+  const fail = () => {
+    throw buildInvalidAutoForecastResponseError();
+  };
+  const expectedItemIds = new Set(forecastItems.map((item) => item.id));
+  const expectedModels = Object.keys(FORECAST_MODELS);
+
+  if (
+    expectedItemIds.size !== forecastItems.length ||
+    !response ||
+    response.forecast_horizon_days !== FORECAST_HORIZON_DAYS ||
+    response.lookback_days !== LOOKBACK_DAYS ||
+    !Array.isArray(response.results) ||
+    response.results.length !== forecastItems.length
+  ) {
+    fail();
+  }
+
+  const resultsByItemId = new Map();
+  response.results.forEach((result) => {
+    if (
+      !result ||
+      typeof result.inventory_item_id !== "string" ||
+      !expectedItemIds.has(result.inventory_item_id) ||
+      resultsByItemId.has(result.inventory_item_id) ||
+      !FORECAST_MODELS[result.selected_model] ||
+      !(result.recommended_model === null || FORECAST_MODELS[result.recommended_model]) ||
+      !["EVALUATED", "INSUFFICIENT_HISTORY"].includes(result.evaluation_status) ||
+      typeof result.evaluation_method !== "string" ||
+      !result.evaluation_method ||
+      !isNonnegativeInteger(result.initial_training_points) ||
+      !isNonnegativeInteger(result.available_observations) ||
+      result.available_observations !==
+        (usageSeriesMap.get(result.inventory_item_id) || []).length ||
+      !isNonnegativeInteger(result.backtest_points) ||
+      result.backtest_points !==
+        Math.max(0, result.available_observations - result.initial_training_points) ||
+      !isFiniteNonnegativeNumber(result.current_available_stock) ||
+      !isFiniteNonnegativeNumber(result.reorder_level) ||
+      !isFiniteNonnegativeNumber(result.average_daily_usage) ||
+      !isFiniteNonnegativeNumber(result.forecasted_usage) ||
+      !isFiniteNonnegativeNumber(result.daily_forecast) ||
+      !isNonnegativeInteger(result.recommended_reorder_quantity) ||
+      (result.projected_depletion_date !== null &&
+        (typeof result.projected_depletion_date !== "string" ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(result.projected_depletion_date))) ||
+      !["CRITICAL", "HIGH", "MEDIUM", "LOW"].includes(result.risk_level) ||
+      !["RECOMMENDED", "NO_RECOMMENDATION", "NOT_EVALUATED"].includes(
+        result.recommendation_status,
+      ) ||
+      typeof result.recommendation_reason !== "string" ||
+      !result.recommendation_reason
+    ) {
+      fail();
+    }
+
+    if (result.recommended_model !== null) {
+      if (
+        result.selected_model !== result.recommended_model ||
+        result.recommendation_status !== "RECOMMENDED" ||
+        result.selection_reason !== "HISTORICALLY_RECOMMENDED"
+      ) {
+        fail();
+      }
+    } else if (
+      result.selected_model !== DEFAULT_FORECAST_MODEL ||
+      result.recommendation_status === "RECOMMENDED" ||
+      result.selection_reason !== "OPERATIONAL_FALLBACK"
+    ) {
+      fail();
+    }
+
+    const hasEnoughHistory =
+      result.available_observations >= 2 * result.initial_training_points;
+    if (
+      (result.evaluation_status === "INSUFFICIENT_HISTORY" && hasEnoughHistory) ||
+      (result.evaluation_status === "EVALUATED" && !hasEnoughHistory) ||
+      (result.evaluation_status === "INSUFFICIENT_HISTORY" &&
+        result.recommendation_status !== "NOT_EVALUATED") ||
+      (result.evaluation_status === "EVALUATED" &&
+        result.recommendation_status === "NOT_EVALUATED")
+    ) {
+      fail();
+    }
+
+    if (
+      !Array.isArray(result.candidate_evaluations) ||
+      result.candidate_evaluations.length !== expectedModels.length
+    ) {
+      fail();
+    }
+
+    const candidatesByModel = new Map();
+    result.candidate_evaluations.forEach((candidate) => {
+      if (
+        !candidate ||
+        !FORECAST_MODELS[candidate.model_name] ||
+        candidatesByModel.has(candidate.model_name) ||
+        !["EVALUATED", "NOT_EVALUATED", "UNAVAILABLE"].includes(candidate.status) ||
+        !isNonnegativeInteger(candidate.backtest_point_count)
+      ) {
+        fail();
+      }
+
+      if (
+        (candidate.mae !== null && !isFiniteNonnegativeNumber(candidate.mae)) ||
+        (candidate.rmse !== null && !isFiniteNonnegativeNumber(candidate.rmse))
+      ) {
+        fail();
+      }
+
+      if (candidate.status === "EVALUATED") {
+        if (
+          !isFiniteNonnegativeNumber(candidate.mae) ||
+          !isFiniteNonnegativeNumber(candidate.rmse) ||
+          candidate.backtest_point_count < 1 ||
+          candidate.backtest_point_count !== result.backtest_points
+        ) {
+          fail();
+        }
+      }
+
+      if (candidate.current_forecast !== null) {
+        if (
+          !candidate.current_forecast ||
+          candidate.current_forecast.model_name !== candidate.model_name ||
+          !isFiniteNonnegativeNumber(candidate.current_forecast.daily_forecast) ||
+          !isFiniteNonnegativeNumber(candidate.current_forecast.forecasted_usage)
+        ) {
+          fail();
+        }
+      }
+
+      candidatesByModel.set(candidate.model_name, candidate);
+    });
+
+    if (expectedModels.some((modelName) => !candidatesByModel.has(modelName))) {
+      fail();
+    }
+
+    if (
+      result.recommended_model !== null &&
+      expectedModels.some(
+        (modelName) => candidatesByModel.get(modelName).status !== "EVALUATED",
+      )
+    ) {
+      fail();
+    }
+
+    const selectedCandidate = candidatesByModel.get(result.selected_model);
+    const rawForecast = result.raw_statistical_forecast;
+    if (
+      !selectedCandidate?.current_forecast ||
+      !rawForecast ||
+      rawForecast.model_name !== result.selected_model ||
+      !isFiniteNonnegativeNumber(rawForecast.daily_forecast) ||
+      !isFiniteNonnegativeNumber(rawForecast.forecasted_usage) ||
+      rawForecast.daily_forecast !==
+        selectedCandidate.current_forecast.daily_forecast ||
+      rawForecast.forecasted_usage !==
+        selectedCandidate.current_forecast.forecasted_usage
+    ) {
+      fail();
+    }
+
+    resultsByItemId.set(result.inventory_item_id, result);
+  });
+
+  if (resultsByItemId.size !== expectedItemIds.size) {
+    fail();
+  }
+
+  return resultsByItemId;
+};
+
+const evaluateInventoryForecastModels = async ({
+  disaster_event_id,
+  run_by,
+  referenceInstant = new Date(),
+}) => {
+  const disasterEvent = await ensureForecastableDisasterEvent(disaster_event_id);
+  const forecastItems = await forecastRepository.getInventoryForecastItems(
+    disaster_event_id,
+  );
+  const eventContext = await forecastRepository.getForecastEventContext(
+    disaster_event_id,
+  );
+  if (!eventContext?.start_date) {
+    throw new Error(
+      "Disaster event start_date is required for automatic historical evaluation.",
+    );
+  }
+
+  const historyWindow = buildEligibleHistoryWindow({
+    eventStartDate: eventContext.start_date,
+    lookbackDays: LOOKBACK_DAYS,
+    referenceInstant,
+  });
+  const demandRows = await forecastRepository.getReliefPackDemandByEvent(
+    disaster_event_id,
+  );
+  const usageRows = historyWindow.day_keys.length
+    ? await forecastRepository.getEligibleInventoryUsageSeries(
+        disaster_event_id,
+        historyWindow.eligible_start_date,
+        historyWindow.eligible_end_date,
+      )
+    : [];
+  const usageSeriesMap = buildEligibleHistoricalSeries(
+    usageRows,
+    forecastItems.map((item) => item.id),
+    historyWindow.day_keys,
+  );
+  const demandMap = buildDemandMap(demandRows);
+  const stockByItemId = new Map(
+    forecastItems.map((item) => [item.id, item]),
+  );
+  const analyticsPayload = buildAutoBacktestAnalyticsPayload({
+    forecastItems,
+    usageSeriesMap,
+  });
+  const analyticsForecast = await callAnalyticsInventoryForecast(
+    analyticsPayload,
+    {
+      userId: run_by,
+      roleCode: "MAYOR",
+    },
+  );
+  const analyticsResultsByItemId = validateAutoBacktestAnalyticsResponse(
+    analyticsForecast,
+    forecastItems,
+    usageSeriesMap,
+  );
+  const enrichedResults = forecastItems.map((item) => {
+    const analyticsResult = analyticsResultsByItemId.get(item.id);
+    const stockContext = stockByItemId.get(item.id);
+    const rawStatisticalForecast = analyticsResult.raw_statistical_forecast;
+    const resultForEnrichment = {
+      ...analyticsResult,
+      current_available_stock: Number(stockContext.current_available_stock || 0),
+      reorder_level: Number(stockContext.reorder_level || 0),
+      forecasted_usage: rawStatisticalForecast.forecasted_usage,
+      daily_forecast: rawStatisticalForecast.daily_forecast,
+      raw_statistical_forecast: { ...rawStatisticalForecast },
+    };
+
+    const enrichedResult = enrichForecastResult({
+      result: resultForEnrichment,
+      demandContext: demandMap.get(item.id),
+      stockContext,
+      forecastHorizonDays: analyticsForecast.forecast_horizon_days,
+      fallbackModelName: DEFAULT_FORECAST_MODEL,
+    });
+
+    return {
+      ...enrichedResult,
+      resolved_operational_usage: enrichedResult.forecasted_usage,
+    };
+  });
+
+  return {
+    selection_mode: "AUTO_BACKTEST",
+    disaster_event_id,
+    event: {
+      id: disasterEvent.id,
+      event_code: disasterEvent.event_code,
+      title: disasterEvent.title,
+      status: disasterEvent.status,
+      start_date: eventContext.start_date,
+    },
+    historical_window: historyWindow,
+    forecast_horizon_days: FORECAST_HORIZON_DAYS,
+    results: enrichedResults,
+  };
 };
 
 const getAnalyticsServiceHealth = async () => {
@@ -1350,6 +1782,11 @@ module.exports = {
   DEFAULT_FORECAST_MODEL,
   FORECAST_HORIZON_DAYS,
   LOOKBACK_DAYS,
+  FORECAST_HISTORY_TIME_ZONE,
+  getManilaDateKey,
+  buildEligibleHistoryWindow,
+  buildEligibleHistoricalSeries,
+  evaluateInventoryForecastModels,
   runInventoryForecast,
   exportInventoryForecast,
   getLatestInventoryForecast,

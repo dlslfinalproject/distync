@@ -1,7 +1,31 @@
 from datetime import date
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+
+ForecastModelName = Literal[
+    "MOVING_AVERAGE",
+    "EXPONENTIAL_SMOOTHING",
+    "TREND_PROJECTION",
+]
+ForecastSelectionMode = Literal["FIXED_MODEL", "AUTO_BACKTEST"]
+
+
+class StatisticalForecast(BaseModel):
+    model_name: ForecastModelName
+    daily_forecast: float
+    forecasted_usage: float
+
+
+class ForecastCandidateEvaluation(BaseModel):
+    model_name: ForecastModelName
+    status: Literal["EVALUATED", "NOT_EVALUATED", "UNAVAILABLE"]
+    mae: Optional[float] = None
+    rmse: Optional[float] = None
+    backtest_point_count: int = Field(default=0, ge=0)
+    current_forecast: Optional[StatisticalForecast] = None
+    failure_reason: Optional[str] = None
 
 
 class InventoryForecastItemInput(BaseModel):
@@ -17,6 +41,7 @@ class InventoryForecastItemInput(BaseModel):
 
 class InventoryForecastRequest(BaseModel):
     model_name: str = "MOVING_AVERAGE"
+    selection_mode: ForecastSelectionMode = "FIXED_MODEL"
     forecast_horizon_days: int = Field(default=14, ge=1, le=90)
     lookback_days: int = Field(default=30, ge=1, le=365)
     moving_average_window: int = Field(default=7, ge=1, le=90)
@@ -39,6 +64,17 @@ class InventoryForecastResult(BaseModel):
     risk_level: str
     selected_model: str
     daily_forecast: float
+    recommended_model: Optional[ForecastModelName] = None
+    recommendation_status: Optional[str] = None
+    recommendation_reason: Optional[str] = None
+    selection_reason: Optional[str] = None
+    evaluation_status: Optional[str] = None
+    evaluation_method: Optional[str] = None
+    initial_training_points: Optional[int] = None
+    available_observations: Optional[int] = None
+    backtest_points: Optional[int] = None
+    candidate_evaluations: Optional[List[ForecastCandidateEvaluation]] = None
+    raw_statistical_forecast: Optional[StatisticalForecast] = None
 
 
 class InventoryForecastResponse(BaseModel):

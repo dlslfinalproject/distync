@@ -10,6 +10,11 @@ FORECAST_MODELS = {
     "EXPONENTIAL_SMOOTHING",
     "TREND_PROJECTION",
 }
+FORECAST_MODEL_ORDER = (
+    "MOVING_AVERAGE",
+    "EXPONENTIAL_SMOOTHING",
+    "TREND_PROJECTION",
+)
 _MINIMUM_MODEL_TRAINING_POINTS = 1
 
 
@@ -476,6 +481,146 @@ def evaluate_forecast_models(
         "recommendation_reason": recommendation_reason,
         "selected_statistical_forecast": selected_forecast,
     }
+
+
+def run_auto_backtest_inventory_forecast(
+    *,
+    items: List[InventoryForecastItemInput],
+    forecast_horizon_days: int,
+    moving_average_window: int,
+    exponential_smoothing_alpha: float,
+) -> List[InventoryForecastResult]:
+    """Evaluate each item's observed history and forecast from that same history.
+
+    The Stage 1 evaluator remains the source of evaluation metrics and
+    recommendations. When history is too short for evaluation, current
+    candidate forecasts are still calculated from the real supplied prefix so
+    the operational Moving Average fallback has an output without padding.
+    """
+    results: List[InventoryForecastResult] = []
+
+    for item in items:
+        historical_series = _sanitize_historical_series(item.usage_series)
+        evaluation = evaluate_forecast_models(
+            historical_series,
+            forecast_horizon_days=forecast_horizon_days,
+            moving_average_window=moving_average_window,
+            exponential_smoothing_alpha=exponential_smoothing_alpha,
+        )
+
+        candidate_results = {}
+        candidate_evaluations = []
+        for model_name in FORECAST_MODEL_ORDER:
+            candidate = dict(evaluation["candidates"][model_name])
+            current_forecast = candidate.get("current_forecast")
+
+            if current_forecast is None and candidate["status"] == "NOT_EVALUATED":
+                try:
+                    daily_forecast, forecasted_usage = _get_forecast_values(
+                        model_name,
+                        historical_series,
+                        forecast_horizon_days,
+                        moving_average_window,
+                        exponential_smoothing_alpha,
+                    )
+                    if not isfinite(daily_forecast) or not isfinite(forecasted_usage):
+                        raise ValueError("full-history forecast values must be finite")
+                    current_forecast = {
+                        "daily_forecast": daily_forecast,
+                        "forecasted_usage": forecasted_usage,
+                    }
+                except (ValueError, ArithmeticError) as error:
+                    candidate["status"] = "UNAVAILABLE"
+                    candidate["failure_reason"] = "FULL_HISTORY_FORECAST_ERROR"
+                    candidate["failure_exception"] = type(error).__name__
+
+            candidate_results[model_name] = {
+                **candidate,
+                "current_forecast": current_forecast,
+            }
+            candidate_evaluations.append(
+                {
+                    "model_name": model_name,
+                    "status": candidate["status"],
+                    "mae": candidate.get("mae"),
+                    "rmse": candidate.get("rmse"),
+                    "backtest_point_count": candidate.get(
+                        "backtest_point_count", 0
+                    ),
+                    "current_forecast": (
+                        {
+                            "model_name": model_name,
+                            **current_forecast,
+                        }
+                        if current_forecast is not None
+                        else None
+                    ),
+                    "failure_reason": candidate.get("failure_reason"),
+                }
+            )
+
+        recommended_model = evaluation["recommended_model"]
+        selected_model = recommended_model or "MOVING_AVERAGE"
+        selected_candidate = candidate_results[selected_model]
+        selected_forecast = selected_candidate["current_forecast"]
+        if selected_forecast is None:
+            raise RuntimeError(
+                f"No operational forecast is available for {selected_model}"
+            )
+
+        daily_forecast = selected_forecast["daily_forecast"]
+        forecasted_usage = selected_forecast["forecasted_usage"]
+        current_stock = max(0.0, float(item.current_available_stock or 0))
+        reorder_level = max(0.0, float(item.reorder_level or 0))
+        average_daily_usage = _average_daily_usage(historical_series)
+        raw_statistical_forecast = {
+            "model_name": selected_model,
+            "daily_forecast": daily_forecast,
+            "forecasted_usage": forecasted_usage,
+        }
+
+        results.append(
+            InventoryForecastResult(
+                inventory_item_id=item.inventory_item_id,
+                item_name=item.item_name,
+                item_code=item.item_code,
+                category=item.category,
+                unit_of_measure=item.unit_of_measure,
+                current_available_stock=_round_two(current_stock),
+                reorder_level=_round_two(reorder_level),
+                average_daily_usage=_round_two(average_daily_usage),
+                forecasted_usage=_round_two(forecasted_usage),
+                projected_depletion_date=_calculate_projected_depletion_date(
+                    current_stock,
+                    daily_forecast,
+                ),
+                recommended_reorder_quantity=_calculate_recommended_reorder_quantity(
+                    current_stock,
+                    forecasted_usage,
+                    reorder_level,
+                ),
+                risk_level=_calculate_risk_level(current_stock, daily_forecast),
+                selected_model=selected_model,
+                daily_forecast=_round_two(daily_forecast),
+                recommended_model=recommended_model,
+                recommendation_status=evaluation["recommendation_status"],
+                recommendation_reason=evaluation["recommendation_reason"],
+                selection_reason=(
+                    "HISTORICALLY_RECOMMENDED"
+                    if recommended_model is not None
+                    else "OPERATIONAL_FALLBACK"
+                ),
+                evaluation_status=evaluation["evaluation_status"],
+                evaluation_method=evaluation["evaluation_method"],
+                initial_training_points=evaluation["initial_training_points"],
+                available_observations=evaluation["available_observations"],
+                backtest_points=evaluation["backtest_points"],
+                candidate_evaluations=candidate_evaluations,
+                raw_statistical_forecast=raw_statistical_forecast,
+            )
+        )
+
+    return results
 
 
 def run_inventory_forecast(
