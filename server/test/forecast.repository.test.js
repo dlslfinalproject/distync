@@ -61,6 +61,49 @@ test("getInventoryForecastItems totals only eligible LGU stock and event-scoped 
   assert.deepEqual(values, ["event-1"]);
 });
 
+test("getEligibleInventoryUsageSeries uses explicit event-scoped Manila day bounds", async () => {
+  const dbClient = createCapturingDbClient([
+    {
+      inventory_item_id: "item-1",
+      usage_date: "2026-09-30",
+      total_quantity: "5",
+    },
+  ]);
+
+  const rows = await forecastRepository.getEligibleInventoryUsageSeries(
+    "event-1",
+    "2026-09-20",
+    "2026-09-29",
+    dbClient,
+  );
+
+  assert.equal(rows.length, 1);
+  assert.equal(dbClient.calls.length, 1);
+
+  const { sql, values } = dbClient.calls[0];
+  assert.match(sql, /it\.disaster_event_id = \$1/);
+  assert.match(sql, /it\.transaction_type = 'OUTFLOW'/);
+  assert.match(sql, /it\.reference_type = 'DISTRIBUTION'/);
+  assert.match(
+    sql,
+    /\(it\.performed_at AT TIME ZONE 'Asia\/Manila'\)::date AS usage_date/,
+  );
+  assert.match(
+    sql,
+    /it\.performed_at >= \(\(\$2::date\)::timestamp AT TIME ZONE 'Asia\/Manila'\)/,
+  );
+  assert.match(
+    sql,
+    /it\.performed_at < \(\(\(\$3::date \+ 1\)::timestamp\) AT TIME ZONE 'Asia\/Manila'\)/,
+  );
+  assert.match(
+    sql,
+    /GROUP BY ii\.id, \(it\.performed_at AT TIME ZONE 'Asia\/Manila'\)::date/,
+  );
+  assert.doesNotMatch(sql, /CURRENT_DATE|DATE\(it\.performed_at\)/);
+  assert.deepEqual(values, ["event-1", "2026-09-20", "2026-09-29"]);
+});
+
 test("getReliefPackDemandByEvent forecasts only present unclaimed evacuation-center households with assigned packs", async () => {
   const dbClient = createCapturingDbClient([
     {

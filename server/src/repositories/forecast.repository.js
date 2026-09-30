@@ -166,6 +166,35 @@ const getInventoryUsageSeries = async (
   return result.rows;
 };
 
+const getEligibleInventoryUsageSeries = async (
+  disasterEventId,
+  eligibleStartDate,
+  eligibleEndDate,
+  dbClient = pool,
+) => {
+  const result = await dbClient.query(
+    `
+      SELECT
+        ii.id AS inventory_item_id,
+        (it.performed_at AT TIME ZONE 'Asia/Manila')::date AS usage_date,
+        SUM(it.quantity)::numeric AS total_quantity
+      FROM inventory_transactions it
+      INNER JOIN inventory_batches ib ON ib.id = it.inventory_batch_id
+      INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+      WHERE it.disaster_event_id = $1
+        AND it.transaction_type = 'OUTFLOW'
+        AND it.reference_type = 'DISTRIBUTION'
+        AND it.performed_at >= (($2::date)::timestamp AT TIME ZONE 'Asia/Manila')
+        AND it.performed_at < ((($3::date + 1)::timestamp) AT TIME ZONE 'Asia/Manila')
+      GROUP BY ii.id, (it.performed_at AT TIME ZONE 'Asia/Manila')::date
+      ORDER BY ii.id ASC, usage_date ASC
+    `,
+    [disasterEventId, eligibleStartDate, eligibleEndDate],
+  );
+
+  return result.rows;
+};
+
 const getForecastEventContext = async (disasterEventId, dbClient = pool) => {
   const result = await dbClient.query(
     `
@@ -706,6 +735,7 @@ module.exports = {
   getDisasterEventById,
   getInventoryForecastItems,
   getInventoryUsageSeries,
+  getEligibleInventoryUsageSeries,
   getForecastEventContext,
   getReliefPackDemandByEvent,
   getInventoryUsageTrend,
