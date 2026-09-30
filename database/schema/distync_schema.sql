@@ -1070,11 +1070,13 @@ CREATE TABLE public.forecast_runs (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   disaster_event_id uuid NOT NULL,
   run_type character varying NOT NULL CHECK (run_type::text = ANY (ARRAY['INVENTORY_DEMAND'::character varying, 'STOCK_DEPLETION'::character varying, 'REPLENISHMENT'::character varying]::text[])),
+  selection_mode character varying NOT NULL DEFAULT 'FIXED_MODEL',
   run_by uuid,
   run_at timestamp with time zone NOT NULL DEFAULT now(),
-  model_name character varying NOT NULL,
+  model_name character varying,
   parameters_json jsonb,
   CONSTRAINT forecast_runs_pkey PRIMARY KEY (id),
+  CONSTRAINT forecast_runs_selection_mode_check CHECK (selection_mode IN ('FIXED_MODEL', 'AUTO_BACKTEST')),
   CONSTRAINT forecast_runs_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
   CONSTRAINT forecast_runs_run_by_fkey FOREIGN KEY (run_by) REFERENCES public.users(id)
 );
@@ -1087,10 +1089,20 @@ CREATE TABLE public.forecast_results (
   predicted_depletion_date date,
   recommended_reorder_quantity numeric,
   confidence_notes text,
+  selected_model_name character varying,
+  model_evaluation jsonb,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT forecast_results_pkey PRIMARY KEY (id),
   CONSTRAINT forecast_results_forecast_run_id_fkey FOREIGN KEY (forecast_run_id) REFERENCES public.forecast_runs(id),
-  CONSTRAINT forecast_results_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id)
+  CONSTRAINT forecast_results_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
+  CONSTRAINT forecast_results_selected_model_name_check CHECK (
+    selected_model_name IS NULL
+    OR selected_model_name IN (
+      'MOVING_AVERAGE',
+      'EXPONENTIAL_SMOOTHING',
+      'TREND_PROJECTION'
+    )
+  )
 );
 
 -- =========================================================

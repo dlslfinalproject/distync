@@ -5,6 +5,10 @@ const inventoryBatchRepository = require("../repositories/inventoryBatch.reposit
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
 const forecastRepository = require("../repositories/forecast.repository");
+const {
+  getEffectiveSelectedModel,
+  getForecastSelectionMode,
+} = require("../utils/forecastModelSelection");
 const systemLogRepository = require("../repositories/systemLog.repository");
 const inventoryItemExport = require("../utils/inventoryItemExport");
 const { createInventoryStateBasis } = require("../utils/inventoryStateBasis");
@@ -1460,6 +1464,15 @@ const getInventoryItemDetail = async (id) => {
       parsedNotes = {};
     }
 
+    const forecastRun = {
+      selection_mode: latestForecast.selection_mode,
+      model_name: latestForecast.model_name,
+    };
+    const selectedModelName = getEffectiveSelectedModel(
+      forecastRun,
+      latestForecast,
+    );
+
     forecastSummary = {
       forecast_run_id: latestForecast.forecast_run_id,
       disaster_event_id: latestForecast.disaster_event_id,
@@ -1467,7 +1480,9 @@ const getInventoryItemDetail = async (id) => {
         event_code: latestForecast.event_code,
         title: latestForecast.disaster_event_title,
       },
-      model_name: latestForecast.model_name,
+      selection_mode: getForecastSelectionMode(forecastRun),
+      selected_model_name: selectedModelName,
+      model_name: selectedModelName,
       run_at: latestForecast.run_at,
       average_daily_usage: Number(parsedNotes.average_daily_usage || 0),
       forecasted_usage: Number(latestForecast.predicted_quantity_needed || 0),

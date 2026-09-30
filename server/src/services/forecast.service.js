@@ -5,6 +5,12 @@ require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 const pool = require("../config/db");
 const forecastRepository = require("../repositories/forecast.repository");
 const forecastReportExport = require("../utils/forecastReportExport");
+const {
+  AUTO_BACKTEST,
+  FIXED_MODEL,
+  getEffectiveSelectedModel,
+  getForecastSelectionMode,
+} = require("../utils/forecastModelSelection");
 const { logErrorSafely } = require("../utils/systemLog");
 
 const FORECAST_MODELS = {
@@ -21,6 +27,7 @@ const EXPONENTIAL_SMOOTHING_ALPHA = 0.4;
 const FORECAST_ELIGIBLE_SOURCE_TYPES = Object.freeze(["LGU", "DONATED"]);
 const FORECAST_NEAR_EXPIRY_EXCLUSION_DAYS = 30;
 const FORECAST_HISTORY_TIME_ZONE = "Asia/Manila";
+const FORECAST_EVALUATION_METHOD = "ROLLING_ORIGIN_ONE_STEP";
 const LEGACY_FORECAST_INVENTORY_ITEM_COUNT_KEY = "active_inventory_item_count";
 const ANALYTICS_SERVICE_URL =
   process.env.ANALYTICS_SERVICE_URL || "http://localhost:8000";
@@ -661,6 +668,7 @@ const buildPublicForecastSuggestions = (storedForecast) => {
 };
 
 const mapStoredForecastRun = (forecastRun, resultRows) => {
+  const selectionMode = getForecastSelectionMode(forecastRun);
   const mappedResults = resultRows.map((row) => {
     let parsedNotes = {};
 
@@ -669,6 +677,8 @@ const mapStoredForecastRun = (forecastRun, resultRows) => {
     } catch (_error) {
       parsedNotes = {};
     }
+
+    const selectedModelName = getEffectiveSelectedModel(forecastRun, row);
 
     return {
       inventory_item_id: row.inventory_item_id,
@@ -704,7 +714,9 @@ const mapStoredForecastRun = (forecastRun, resultRows) => {
         parsedNotes.shortage_within_seven_days || false,
       ),
       risk_level: parsedNotes.risk_level || "LOW",
-      selected_model: parsedNotes.model_name || forecastRun.model_name,
+      selected_model_name: selectedModelName,
+      model_evaluation: normalizeStoredModelEvaluation(row.model_evaluation),
+      selected_model: selectedModelName,
       daily_forecast: Number(parsedNotes.daily_forecast || 0),
     };
   });
@@ -719,9 +731,11 @@ const mapStoredForecastRun = (forecastRun, resultRows) => {
         title: forecastRun.disaster_event_title,
       },
       run_type: forecastRun.run_type,
+      selection_mode: selectionMode,
       run_by: forecastRun.run_by,
       run_at: forecastRun.run_at,
-      model_name: forecastRun.model_name,
+      model_name:
+        selectionMode === AUTO_BACKTEST ? null : forecastRun.model_name,
       parameters_json: forecastRun.parameters_json || {},
     },
     dashboard: {
@@ -847,6 +861,28 @@ const mapStoredForecastRun = (forecastRun, resultRows) => {
   };
 };
 
+const normalizeStoredModelEvaluation = (value) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  let parsedValue = value;
+
+  if (typeof value === "string") {
+    try {
+      parsedValue = JSON.parse(value);
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  return parsedValue &&
+    typeof parsedValue === "object" &&
+    !Array.isArray(parsedValue)
+    ? parsedValue
+    : null;
+};
+
 const ensureDisasterEvent = async (disasterEventId, dbClient = pool) => {
   const disasterEvent = await forecastRepository.getDisasterEventById(
     disasterEventId,
@@ -903,7 +939,7 @@ const buildAutoBacktestAnalyticsPayload = ({
   forecastItems,
   usageSeriesMap,
 }) => ({
-  selection_mode: "AUTO_BACKTEST",
+  selection_mode: AUTO_BACKTEST,
   model_name: DEFAULT_FORECAST_MODEL,
   forecast_horizon_days: FORECAST_HORIZON_DAYS,
   lookback_days: LOOKBACK_DAYS,
@@ -921,31 +957,63 @@ const buildAutoBacktestAnalyticsPayload = ({
   })),
 });
 
+const buildForecastEventContextSummary = (eventContext) => ({
+  household_count: Number(eventContext?.household_count || 0),
+  evacuee_count: Number(eventContext?.evacuee_count || 0),
+  attendance_record_count: Number(eventContext?.attendance_record_count || 0),
+  present_evacuee_count: Number(eventContext?.present_evacuee_count || 0),
+  eligible_household_count: Number(
+    eventContext?.eligible_household_count || 0,
+  ),
+  eligible_evacuee_count: Number(eventContext?.eligible_evacuee_count || 0),
+  claimed_household_count: Number(eventContext?.claimed_household_count || 0),
+  unclaimed_eligible_household_count: Number(
+    eventContext?.unclaimed_eligible_household_count || 0,
+  ),
+  distribution_transaction_count: Number(
+    eventContext?.distribution_transaction_count || 0,
+  ),
+  total_released_quantity: Number(eventContext?.total_released_quantity || 0),
+  ...buildInventoryItemCountCompatibility(eventContext),
+  active_standard_pack_count: Number(
+    eventContext?.active_standard_pack_count || 0,
+  ),
+});
+
 const buildAnalyticsUnavailableError = (message) => {
   const error = new Error(message);
   error.statusCode = 503;
   return error;
 };
 
-const mapForecastRunSummary = (forecastRun) => ({
-  id: forecastRun.id,
-  disaster_event_id: forecastRun.disaster_event_id,
-  disaster_event: {
-    event_code: forecastRun.event_code,
-    title: forecastRun.disaster_event_title,
-  },
-  run_type: forecastRun.run_type,
-  run_by: forecastRun.run_by,
-  generated_by:
-    [forecastRun.run_by_first_name, forecastRun.run_by_last_name]
-      .filter(Boolean)
-      .join(" ")
-      .trim() || forecastRun.run_by_email || forecastRun.run_by || "Unknown User",
-  run_at: forecastRun.run_at,
-  model_name: forecastRun.model_name,
-  status: "COMPLETED",
-  parameters_json: forecastRun.parameters_json || {},
-});
+const mapForecastRunSummary = (forecastRun) => {
+  const selectionMode = getForecastSelectionMode(forecastRun);
+
+  return {
+    id: forecastRun.id,
+    disaster_event_id: forecastRun.disaster_event_id,
+    disaster_event: {
+      event_code: forecastRun.event_code,
+      title: forecastRun.disaster_event_title,
+    },
+    run_type: forecastRun.run_type,
+    run_by: forecastRun.run_by,
+    generated_by:
+      [forecastRun.run_by_first_name, forecastRun.run_by_last_name]
+        .filter(Boolean)
+        .join(" ")
+        .trim() ||
+      forecastRun.run_by_email ||
+      forecastRun.run_by ||
+      "Unknown User",
+    run_at: forecastRun.run_at,
+    model_name:
+      selectionMode === AUTO_BACKTEST ? null : forecastRun.model_name,
+    selection_mode: selectionMode,
+    status: "COMPLETED",
+    parameters_json: forecastRun.parameters_json || {},
+  };
+};
 
 const callAnalyticsInventoryForecast = async (payload, actor = null) => {
   const controller = new AbortController();
@@ -1332,7 +1400,7 @@ const evaluateInventoryForecastModels = async ({
   });
 
   return {
-    selection_mode: "AUTO_BACKTEST",
+    selection_mode: AUTO_BACKTEST,
     disaster_event_id,
     event: {
       id: disasterEvent.id,
@@ -1341,10 +1409,377 @@ const evaluateInventoryForecastModels = async ({
       status: disasterEvent.status,
       start_date: eventContext.start_date,
     },
+    event_context: buildForecastEventContextSummary(eventContext),
     historical_window: historyWindow,
     forecast_horizon_days: FORECAST_HORIZON_DAYS,
     results: enrichedResults,
   };
+};
+
+const buildInvalidAutoForecastPersistenceInputError = () => {
+  const error = new Error(
+    "AUTO_BACKTEST evaluation is invalid and cannot be persisted.",
+  );
+  error.statusCode = 502;
+  error.code = "INVALID_FORECAST_RESPONSE";
+  return error;
+};
+
+const assertJsonSerializable = (value) => {
+  const visited = new Set();
+
+  const visit = (current) => {
+    if (current === undefined || typeof current === "function" ||
+        typeof current === "symbol" || typeof current === "bigint") {
+      throw buildInvalidAutoForecastPersistenceInputError();
+    }
+
+    if (typeof current === "number") {
+      if (!Number.isFinite(current)) {
+        throw buildInvalidAutoForecastPersistenceInputError();
+      }
+      return;
+    }
+
+    if (current === null || typeof current !== "object") {
+      return;
+    }
+
+    if (visited.has(current)) {
+      throw buildInvalidAutoForecastPersistenceInputError();
+    }
+    visited.add(current);
+
+    if (Array.isArray(current)) {
+      current.forEach(visit);
+    } else {
+      const prototype = Object.getPrototypeOf(current);
+      if (prototype !== Object.prototype && prototype !== null) {
+        throw buildInvalidAutoForecastPersistenceInputError();
+      }
+      Object.entries(current).forEach(([, nestedValue]) => visit(nestedValue));
+    }
+
+    visited.delete(current);
+  };
+
+  visit(value);
+  try {
+    JSON.stringify(value);
+  } catch (_error) {
+    throw buildInvalidAutoForecastPersistenceInputError();
+  }
+};
+
+const buildPersistedModelEvaluation = (result, historicalWindow) => {
+  const fail = () => {
+    throw buildInvalidAutoForecastPersistenceInputError();
+  };
+  const selectedModelName = result?.selected_model;
+  const recommendedModelName = result?.recommended_model;
+
+  if (
+    !result ||
+    !FORECAST_MODELS[selectedModelName] ||
+    !(recommendedModelName === null || FORECAST_MODELS[recommendedModelName]) ||
+    !["RECOMMENDED", "NO_RECOMMENDATION", "NOT_EVALUATED"].includes(
+      result.recommendation_status,
+    ) ||
+    typeof result.recommendation_reason !== "string" ||
+    !result.recommendation_reason ||
+    typeof result.selection_reason !== "string" ||
+    !["EVALUATED", "INSUFFICIENT_HISTORY"].includes(result.evaluation_status) ||
+    result.evaluation_method !== FORECAST_EVALUATION_METHOD ||
+    !Number.isInteger(result.initial_training_points) ||
+    result.initial_training_points < 1 ||
+    !Number.isInteger(result.available_observations) ||
+    result.available_observations < 0 ||
+    !Number.isInteger(result.backtest_points) ||
+    result.backtest_points < 0 ||
+    !result.raw_statistical_forecast ||
+    result.raw_statistical_forecast.model_name !== selectedModelName ||
+    !isFiniteNonnegativeNumber(result.raw_statistical_forecast.daily_forecast) ||
+    !isFiniteNonnegativeNumber(result.raw_statistical_forecast.forecasted_usage) ||
+    !historicalWindow ||
+    historicalWindow.time_zone !== FORECAST_HISTORY_TIME_ZONE ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(historicalWindow.eligible_start_date || "") ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(historicalWindow.eligible_end_date || "")
+  ) {
+    fail();
+  }
+
+  if (recommendedModelName === null) {
+    if (
+      selectedModelName !== DEFAULT_FORECAST_MODEL ||
+      result.selection_reason !== "OPERATIONAL_FALLBACK"
+    ) {
+      fail();
+    }
+  } else if (
+    selectedModelName !== recommendedModelName ||
+    result.recommendation_status !== "RECOMMENDED" ||
+    result.selection_reason !== "HISTORICALLY_RECOMMENDED"
+  ) {
+    fail();
+  }
+
+  if (
+    !isFiniteNonnegativeNumber(result.resolved_operational_usage) ||
+    !isFiniteNonnegativeNumber(result.daily_forecast) ||
+    !Number.isInteger(result.recommended_reorder_quantity) ||
+    result.recommended_reorder_quantity < 0
+  ) {
+    fail();
+  }
+
+  const candidatesByModel = new Map();
+  if (
+    !Array.isArray(result.candidate_evaluations) ||
+    result.candidate_evaluations.length !== Object.keys(FORECAST_MODELS).length
+  ) {
+    fail();
+  }
+
+  result.candidate_evaluations.forEach((candidate) => {
+    if (
+      !candidate ||
+      !FORECAST_MODELS[candidate.model_name] ||
+      candidatesByModel.has(candidate.model_name) ||
+      !["EVALUATED", "NOT_EVALUATED", "UNAVAILABLE"].includes(candidate.status) ||
+      !Number.isInteger(candidate.backtest_point_count) ||
+      candidate.backtest_point_count < 0 ||
+      (candidate.mae !== null &&
+        !isFiniteNonnegativeNumber(candidate.mae)) ||
+      (candidate.rmse !== null &&
+        !isFiniteNonnegativeNumber(candidate.rmse)) ||
+      (candidate.failure_reason !== null &&
+        typeof candidate.failure_reason !== "string")
+    ) {
+      fail();
+    }
+
+    if (
+      candidate.status === "EVALUATED" &&
+      (!isFiniteNonnegativeNumber(candidate.mae) ||
+        !isFiniteNonnegativeNumber(candidate.rmse) ||
+        candidate.backtest_point_count < 1)
+    ) {
+      fail();
+    }
+
+    if (candidate.current_forecast !== null) {
+      if (
+        !candidate.current_forecast ||
+        !isFiniteNonnegativeNumber(candidate.current_forecast.daily_forecast) ||
+        !isFiniteNonnegativeNumber(candidate.current_forecast.forecasted_usage)
+      ) {
+        fail();
+      }
+    }
+
+    candidatesByModel.set(candidate.model_name, candidate);
+  });
+
+  const expectedModelNames = Object.keys(FORECAST_MODELS);
+  if (expectedModelNames.some((modelName) => !candidatesByModel.has(modelName))) {
+    fail();
+  }
+
+  const modelEvaluation = {
+    version: 1,
+    evaluation_method: result.evaluation_method,
+    timezone: historicalWindow.time_zone,
+    eligible_start_date: historicalWindow.eligible_start_date,
+    eligible_end_date: historicalWindow.eligible_end_date,
+    evaluation_status: result.evaluation_status,
+    available_observations: result.available_observations,
+    initial_training_points: result.initial_training_points,
+    backtest_points: result.backtest_points,
+    recommendation_status: result.recommendation_status,
+    recommendation_reason: result.recommendation_reason,
+    recommended_model: recommendedModelName,
+    selected_model: selectedModelName,
+    selection_reason: result.selection_reason,
+    raw_statistical_forecast: {
+      model_name: result.raw_statistical_forecast.model_name,
+      daily_forecast: result.raw_statistical_forecast.daily_forecast,
+      forecasted_usage: result.raw_statistical_forecast.forecasted_usage,
+    },
+    candidates: expectedModelNames.map((modelName) => {
+      const candidate = candidatesByModel.get(modelName);
+      return {
+        model_name: candidate.model_name,
+        status: candidate.status,
+        mae: candidate.mae,
+        rmse: candidate.rmse,
+        backtest_points: candidate.backtest_point_count,
+        daily_forecast: candidate.current_forecast?.daily_forecast ?? null,
+        forecasted_usage:
+          candidate.current_forecast?.forecasted_usage ?? null,
+        failure_reason: candidate.failure_reason ?? null,
+      };
+    }),
+  };
+
+  assertJsonSerializable(modelEvaluation);
+  return modelEvaluation;
+};
+
+const buildAutoForecastRunParameters = (evaluation) => {
+  const firstResult = evaluation.results[0] || null;
+  const initialTrainingPoints =
+    firstResult?.initial_training_points ?? MOVING_AVERAGE_WINDOW;
+  if (
+    evaluation.selection_mode !== AUTO_BACKTEST ||
+    evaluation.forecast_horizon_days !== FORECAST_HORIZON_DAYS ||
+    !evaluation.historical_window ||
+    (firstResult &&
+      evaluation.results.some(
+        (result) =>
+          result.initial_training_points !== initialTrainingPoints ||
+          result.evaluation_method !== firstResult.evaluation_method,
+      ))
+  ) {
+    throw buildInvalidAutoForecastPersistenceInputError();
+  }
+
+  return {
+    selection_mode: AUTO_BACKTEST,
+    forecast_horizon_days: evaluation.forecast_horizon_days,
+    lookback_days: LOOKBACK_DAYS,
+    moving_average_window: MOVING_AVERAGE_WINDOW,
+    exponential_smoothing_alpha: EXPONENTIAL_SMOOTHING_ALPHA,
+    evaluation_method:
+      firstResult?.evaluation_method || FORECAST_EVALUATION_METHOD,
+    initial_training_points: initialTrainingPoints,
+    minimum_backtest_points: initialTrainingPoints,
+    minimum_history_points: initialTrainingPoints * 2,
+    timezone: evaluation.historical_window.time_zone,
+    completed_day_policy: "COMPLETED_EVENT_DAYS",
+    current_day_exclusion_policy: "EXCLUDE_CURRENT_MANILA_DAY",
+    current_incomplete_day_excluded:
+      evaluation.historical_window.current_incomplete_day_excluded === true,
+    event_context: evaluation.event_context,
+  };
+};
+
+const runAndPersistAutoInventoryForecast = async ({
+  disaster_event_id,
+  run_by,
+  referenceInstant = new Date(),
+}) => {
+  const evaluation = await evaluateInventoryForecastModels({
+    disaster_event_id,
+    run_by,
+    referenceInstant,
+  });
+  const parametersJson = buildAutoForecastRunParameters(evaluation);
+  const resultInserts = evaluation.results.map((result) => {
+    const modelEvaluation = buildPersistedModelEvaluation(
+      result,
+      evaluation.historical_window,
+    );
+    return {
+      item: result,
+      selected_model_name: result.selected_model,
+      model_evaluation: modelEvaluation,
+      predicted_quantity_needed: result.resolved_operational_usage,
+      predicted_depletion_date: result.projected_depletion_date,
+      recommended_reorder_quantity: result.recommended_reorder_quantity,
+      confidence_notes: buildResultConfidenceNotes({
+        analyticsResult: result,
+        forecastHorizonDays: evaluation.forecast_horizon_days,
+        lookbackDays: parametersJson.lookback_days,
+      }),
+    };
+  });
+
+  const client = await pool.connect();
+  let createdForecastRun;
+  const persistedRows = [];
+
+  try {
+    await client.query("BEGIN");
+    createdForecastRun = await forecastRepository.insertForecastRun(
+      {
+        disaster_event_id,
+        run_type: "INVENTORY_DEMAND",
+        selection_mode: AUTO_BACKTEST,
+        run_by,
+        model_name: null,
+        parameters_json: parametersJson,
+      },
+      client,
+    );
+
+    if (!createdForecastRun?.id) {
+      throw new Error("Failed to persist AUTO_BACKTEST forecast run.");
+    }
+
+    for (const resultInsert of resultInserts) {
+      const item = resultInsert.item;
+      const createdResult = await forecastRepository.insertForecastResult(
+        {
+          forecast_run_id: createdForecastRun.id,
+          inventory_item_id: item.inventory_item_id,
+          predicted_quantity_needed:
+            resultInsert.predicted_quantity_needed,
+          predicted_depletion_date: resultInsert.predicted_depletion_date,
+          recommended_reorder_quantity:
+            resultInsert.recommended_reorder_quantity,
+          confidence_notes: resultInsert.confidence_notes,
+          selected_model_name: resultInsert.selected_model_name,
+          model_evaluation: resultInsert.model_evaluation,
+        },
+        client,
+      );
+
+      if (!createdResult?.id) {
+        throw new Error("Failed to persist AUTO_BACKTEST forecast result.");
+      }
+
+      persistedRows.push({
+        id: createdResult.id,
+        forecast_run_id: createdForecastRun.id,
+        inventory_item_id: item.inventory_item_id,
+        predicted_quantity_needed: resultInsert.predicted_quantity_needed,
+        predicted_depletion_date: resultInsert.predicted_depletion_date,
+        recommended_reorder_quantity:
+          resultInsert.recommended_reorder_quantity,
+        confidence_notes: resultInsert.confidence_notes,
+        selected_model_name: resultInsert.selected_model_name,
+        model_evaluation: resultInsert.model_evaluation,
+        item_name: item.item_name,
+        item_code: item.item_code,
+        category: item.category,
+        unit_of_measure: item.unit_of_measure,
+      });
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      error.rollbackError = rollbackError;
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  return mapStoredForecastRun(
+    {
+      ...createdForecastRun,
+      disaster_event_id,
+      event_code: evaluation.event.event_code,
+      disaster_event_title: evaluation.event.title,
+      selection_mode: AUTO_BACKTEST,
+      model_name: null,
+      parameters_json: parametersJson,
+    },
+    persistedRows,
+  );
 };
 
 const getAnalyticsServiceHealth = async () => {
@@ -1543,6 +1978,7 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
       {
         disaster_event_id,
         run_type: "INVENTORY_DEMAND",
+        selection_mode: FIXED_MODEL,
         run_by,
         model_name: resolvedModelName,
         parameters_json: {
@@ -1787,6 +2223,7 @@ module.exports = {
   buildEligibleHistoryWindow,
   buildEligibleHistoricalSeries,
   evaluateInventoryForecastModels,
+  runAndPersistAutoInventoryForecast,
   runInventoryForecast,
   exportInventoryForecast,
   getLatestInventoryForecast,
