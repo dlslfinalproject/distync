@@ -9,6 +9,7 @@ const {
   validateForecastHistoryQuery,
   validateForecastLatestQuery,
   validateForecastRunIdParam,
+  validateForecastExportPayload,
   validateForecastRunPayload,
   validateInventoryItemId,
   validateGetInventoryItems,
@@ -123,13 +124,12 @@ router.get(
 router.post(
   "/forecast/export",
   requireRoles(ROLE_CODES.MAYOR),
-  validateForecastRunPayload,
+  validateForecastExportPayload,
   async (req, res) => {
     try {
-      const file = await forecastService.exportInventoryForecast({
-        ...req.validatedBody,
-        run_by: req.auth.userId,
-      });
+      const file = await forecastService.exportPersistedInventoryForecast(
+        req.validatedBody,
+      );
 
       res.setHeader("Content-Type", file.contentType);
       res.setHeader(

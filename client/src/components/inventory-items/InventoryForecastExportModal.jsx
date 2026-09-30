@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React from "react";
 import { FiX } from "react-icons/fi";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
@@ -27,20 +27,6 @@ const modalStyles = {
   minWidth: 0,
 };
 
-const inputStyles = {
-  width: "100%",
-  minHeight: "48px",
-  padding: "12px 14px",
-  borderRadius: "14px",
-  border: "1px solid #cbdbea",
-  boxSizing: "border-box",
-  fontSize: "14px",
-  color: "#17324d",
-  backgroundColor: "#f8fbfe",
-  minWidth: 0,
-  textOverflow: "ellipsis",
-};
-
 const labelStyles = {
   display: "block",
   marginBottom: "8px",
@@ -51,11 +37,12 @@ const labelStyles = {
   textTransform: "uppercase",
 };
 
-const errorTextStyles = {
-  margin: "8px 0 0",
-  color: "#dc2626",
-  fontSize: "12px",
-  lineHeight: 1.4,
+const valueStyles = {
+  margin: 0,
+  color: "#17324d",
+  fontSize: "15px",
+  fontWeight: 700,
+  overflowWrap: "anywhere",
 };
 
 const closeButtonStyles = {
@@ -72,74 +59,41 @@ const closeButtonStyles = {
   flex: "0 0 auto",
 };
 
-const getEventSortValue = (event) => {
-  const sortableDate =
-    event?.ended_at || event?.end_date || event?.start_date || event?.created_at;
-
-  if (!sortableDate) {
-    return 0;
-  }
-
-  const parsedValue = new Date(sortableDate).getTime();
-  return Number.isNaN(parsedValue) ? 0 : parsedValue;
-};
-
-const getEventCodeSortValue = (event) => {
-  const eventCode = String(event?.event_code || "").trim().toUpperCase();
-  const match = eventCode.match(/^DE-(\d{4})-(\d{4})$/);
-
-  if (!match) {
-    return 0;
-  }
-
-  return Number(`${match[1]}${match[2]}`);
-};
-
-const sortDisasterEvents = (events = []) => {
-  return [...events].sort((left, right) => {
-    const codeDifference =
-      getEventCodeSortValue(right) - getEventCodeSortValue(left);
-
-    if (codeDifference !== 0) {
-      return codeDifference;
-    }
-
-    return getEventSortValue(right) - getEventSortValue(left);
-  });
+const errorTextStyles = {
+  margin: "8px 0 0",
+  color: "#dc2626",
+  fontSize: "12px",
+  lineHeight: 1.4,
 };
 
 const InventoryForecastExportModal = ({
   isOpen,
   isSubmitting,
-  disasterEvents,
-  selectedDisasterEventId,
+  forecast,
   errorMessage,
   onClose,
   onSubmit,
 }) => {
-  const [exportDisasterEventId, setExportDisasterEventId] = useState("");
-
-  useEffect(() => {
-    if (isOpen) {
-      setExportDisasterEventId(selectedDisasterEventId || "");
-    }
-  }, [isOpen, selectedDisasterEventId]);
-
-  const sortedDisasterEvents = useMemo(
-    () => sortDisasterEvents(disasterEvents),
-    [disasterEvents],
-  );
-
   if (!isOpen) {
     return null;
   }
 
+  const forecastRun = forecast?.forecast_run;
+  const runId = forecastRun?.id;
+  const eventTitle =
+    forecastRun?.disaster_event?.title || "Selected disaster event";
+  const runAt = forecastRun?.run_at
+    ? new Date(forecastRun.run_at).toLocaleString()
+    : "Unavailable";
+
   const handleSubmit = (event) => {
     event.preventDefault();
-    onSubmit({
-      disasterEventId: exportDisasterEventId,
-    });
+    if (runId) {
+      onSubmit(runId);
+    }
   };
+
+  const isDisabled = isSubmitting || !runId;
 
   return (
     <div style={overlayStyles}>
@@ -187,29 +141,18 @@ const InventoryForecastExportModal = ({
               fontWeight: 800,
             }}
           >
-            Export Details
+            Persisted Forecast Run
           </h4>
-          <div>
-            <label htmlFor="forecast-export-event" style={labelStyles}>
-              Disaster Event
-            </label>
-            <select
-              id="forecast-export-event"
-              value={exportDisasterEventId}
-              onChange={(event) => setExportDisasterEventId(event.target.value)}
-              style={inputStyles}
-              disabled={isSubmitting}
-              required
-            >
-              <option value="">Select disaster event</option>
-              {sortedDisasterEvents.map((event) => (
-                <option key={event.id} value={event.id}>
-                  {event.title || "Untitled disaster event"}
-                </option>
-              ))}
-            </select>
+          <div style={{ display: "grid", gap: "14px" }}>
+            <div>
+              <span style={labelStyles}>Disaster Event</span>
+              <p style={valueStyles}>{eventTitle}</p>
+            </div>
+            <div>
+              <span style={labelStyles}>Forecast Run</span>
+              <p style={valueStyles}>{runAt}</p>
+            </div>
           </div>
-
           {errorMessage ? <p style={errorTextStyles}>{errorMessage}</p> : null}
         </section>
 
@@ -236,16 +179,13 @@ const InventoryForecastExportModal = ({
           </button>
           <button
             type="submit"
-            disabled={isSubmitting || !exportDisasterEventId}
+            disabled={isDisabled}
             style={{
               ...pageHeaderStyles.primaryButton,
               maxWidth: "100%",
               whiteSpace: "normal",
-              opacity: isSubmitting || !exportDisasterEventId ? 0.7 : 1,
-              cursor:
-                isSubmitting || !exportDisasterEventId
-                  ? "not-allowed"
-                  : "pointer",
+              opacity: isDisabled ? 0.7 : 1,
+              cursor: isDisabled ? "not-allowed" : "pointer",
             }}
           >
             {isSubmitting ? "Exporting..." : "Export"}

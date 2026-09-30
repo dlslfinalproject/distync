@@ -5,6 +5,7 @@ const servicePath = require.resolve("../src/services/forecast.service");
 const repositoryPath = require.resolve("../src/repositories/forecast.repository");
 const dbPath = require.resolve("../src/config/db");
 const systemLogPath = require.resolve("../src/utils/systemLog");
+const reportExportPath = require.resolve("../src/utils/forecastReportExport");
 
 const AUTO_REFERENCE_INSTANT = "2026-09-29T16:30:00.000Z";
 const AUTO_FORECAST_MODELS = [
@@ -316,6 +317,28 @@ const withAutoForecastFixture = async (
     global.fetch = originalFetch;
   }
 };
+
+
+test("runInventoryForecast dispatches AUTO_BACKTEST to the persisted Stage 3 workflow", async () => {
+  await withAutoForecastFixture(
+    { persist: true },
+    async ({ runInventoryForecast }, calls) => {
+      const response = await runInventoryForecast({
+        disaster_event_id: "event-1",
+        selection_mode: "AUTO_BACKTEST",
+        run_by: "user-1",
+      });
+
+      assert.equal(response.forecast_run.selection_mode, "AUTO_BACKTEST");
+      assert.equal(response.forecast_run.model_name, null);
+      assert.equal(response.forecast_run.id, "forecast-run-auto");
+      assert.equal(calls.analyticsCallCount, 1);
+      assert.equal(calls.forecastRunInserts, 1);
+      assert.equal(calls.forecastResultInserts, 3);
+      assert.deepEqual(calls.transactionCommands, ["BEGIN", "COMMIT"]);
+    },
+  );
+});
 
 test("eligible history windows use Manila completed days, event start, and a 30-day cap", async () => {
   await withStubbedForecastService(
@@ -857,6 +880,7 @@ test("runInventoryForecast sends eligible LGU and donated stock to analytics and
       async ({ runInventoryForecast }) => {
         const response = await runInventoryForecast({
           disaster_event_id: "event-1",
+          selection_mode: "FIXED_MODEL",
           model_name: "MOVING_AVERAGE",
           run_by: "user-1",
         });
@@ -1160,5 +1184,145 @@ test("AUTO stored reads preserve item evidence, suppress run-wide models, and to
       assert.equal(malformed.results[0].selected_model_name, null);
       assert.equal(malformed.results[0].selected_model, null);
     },
+  );
+});
+
+test("stored-run export reads and reports the requested run without forecast writes or analytics", async () => {
+  const runAId = "123e4567-e89b-42d3-a456-426614174010";
+  const runBId = "123e4567-e89b-42d3-a456-426614174011";
+  const missingRunId = "123e4567-e89b-42d3-a456-426614174012";
+  const calls = {
+    runReads: [],
+    resultReads: [],
+    latestReads: 0,
+    eventReads: 0,
+    runInserts: 0,
+    resultInserts: 0,
+    connects: 0,
+    analytics: 0,
+    reportRunIds: [],
+  };
+  const runs = new Map([
+    [runAId, {
+      id: runAId,
+      disaster_event_id: "event-a",
+      event_code: "DE-A",
+      disaster_event_title: "Run A Event",
+      run_type: "INVENTORY_DEMAND",
+      run_by: "user-1",
+      run_at: "2026-09-20T00:00:00.000Z",
+      selection_mode: "FIXED_MODEL",
+      model_name: "EXPONENTIAL_SMOOTHING",
+      parameters_json: { forecast_horizon_days: 14, lookback_days: 30 },
+    }],
+    [runBId, {
+      id: runBId,
+      disaster_event_id: "event-b",
+      event_code: "DE-B",
+      disaster_event_title: "Newer Run B Event",
+      run_type: "INVENTORY_DEMAND",
+      run_by: "user-1",
+      run_at: "2026-09-30T00:00:00.000Z",
+      selection_mode: "AUTO_BACKTEST",
+      model_name: null,
+      parameters_json: { forecast_horizon_days: 14, lookback_days: 30 },
+    }],
+  ]);
+  const rowsByRun = new Map([
+    [runAId, [{
+      inventory_item_id: "item-a",
+      item_name: "Stored Run A Rice",
+      item_code: "RICE-A",
+      unit_of_measure: "kg",
+      predicted_quantity_needed: 12,
+      recommended_reorder_quantity: 3,
+      confidence_notes: JSON.stringify({ current_available_stock: 20 }),
+    }]],
+    [runBId, [{
+      inventory_item_id: "item-b",
+      item_name: "Run B Item",
+      unit_of_measure: "pc",
+      predicted_quantity_needed: 99,
+      recommended_reorder_quantity: 99,
+      confidence_notes: "{}",
+    }]],
+  ]);
+  const originalFetch = global.fetch;
+  global.fetch = async () => {
+    calls.analytics += 1;
+    throw new Error("stored-run export must not call analytics");
+  };
+
+  try {
+    await withStubbedForecastService(
+      {
+        [dbPath]: {
+          connect: async () => {
+            calls.connects += 1;
+            throw new Error("stored-run export must not open a transaction");
+          },
+        },
+        [systemLogPath]: { logErrorSafely: async () => {} },
+        [repositoryPath]: {
+          getForecastRunById: async (runId) => {
+            calls.runReads.push(runId);
+            return runs.get(runId) || null;
+          },
+          getForecastResultsByRunId: async (runId) => {
+            calls.resultReads.push(runId);
+            return rowsByRun.get(runId) || [];
+          },
+          getLatestForecastRun: async () => {
+            calls.latestReads += 1;
+            return runs.get(runBId);
+          },
+          getDisasterEventById: async () => {
+            calls.eventReads += 1;
+            return { id: "event-a", status: "ACTIVE" };
+          },
+          insertForecastRun: async () => {
+            calls.runInserts += 1;
+          },
+          insertForecastResult: async () => {
+            calls.resultInserts += 1;
+          },
+        },
+        [reportExportPath]: {
+          buildExportFile: (payload) => {
+            calls.reportRunIds.push(payload.forecast_run.id);
+            return { filename: `forecast-${payload.forecast_run.id}.pdf` };
+          },
+        },
+      },
+      async ({ exportPersistedInventoryForecast }) => {
+        const exported = await exportPersistedInventoryForecast({
+          forecast_run_id: runAId,
+        });
+        assert.equal(exported.filename, `forecast-${runAId}.pdf`);
+        await assert.rejects(
+          () => exportPersistedInventoryForecast({ forecast_run_id: missingRunId }),
+          (error) => error.statusCode === 404 && /not found/i.test(error.message),
+        );
+      },
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  assert.deepEqual(calls.runReads, [runAId, missingRunId]);
+  assert.deepEqual(calls.resultReads, [runAId]);
+  assert.deepEqual(calls.reportRunIds, [runAId]);
+  assert.equal(calls.latestReads, 0);
+  assert.equal(calls.eventReads, 0);
+  assert.equal(calls.runInserts, 0);
+  assert.equal(calls.resultInserts, 0);
+  assert.equal(calls.connects, 0);
+  assert.equal(calls.analytics, 0);
+
+  const source = require("fs").readFileSync(servicePath, "utf8");
+  const exportSource = source.match(/const exportPersistedInventoryForecast = async[\s\S]*?forecastReportExport\.buildExportFile\(forecastPayload\);/)[0];
+  assert.doesNotMatch(
+    exportSource,
+    /runInventoryForecast|runAndPersistAutoInventoryForecast|evaluateInventoryForecastModels/,
   );
 });

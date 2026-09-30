@@ -252,6 +252,7 @@ const buildPdfBuffer = (payload = {}) => {
     MODEL_LABELS[forecastRun.model_name] ||
     forecastRun.model_name ||
     "Moving Average";
+  const isAutoBacktest = forecastRun.selection_mode === "AUTO_BACKTEST";
   const pages = [];
   let page = null;
   let cursorY = 0;
@@ -614,7 +615,10 @@ const buildPdfBuffer = (payload = {}) => {
   startPage();
   const metadata = [
     { label: "Disaster Event", value: eventName },
-    { label: "Forecast Model", value: modelLabel },
+    {
+      label: isAutoBacktest ? "Selection Method" : "Forecast Model",
+      value: isAutoBacktest ? "Historical Model Evaluation" : modelLabel,
+    },
     { label: "Generated", value: formatDateTime(new Date()) },
     { label: "Forecast Run", value: formatDateTime(forecastRun.run_at) },
     {

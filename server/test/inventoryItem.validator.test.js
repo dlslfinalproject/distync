@@ -4,6 +4,8 @@ const assert = require("node:assert/strict");
 const {
   validateInventoryItemBarcodeLookup,
   validateInventoryItemPayload,
+  validateForecastRunPayload,
+  validateForecastExportPayload,
 } = require("../src/validators/inventoryItem.validator");
 
 const runValidator = (method, body) => {
@@ -136,4 +138,95 @@ test("barcode lookup accepts an existing six-digit legacy value", () => {
   assert.equal(result.nextCalled, true);
   assert.equal(result.statusCode, null);
   assert.equal(req.validatedParams.barcode, "001234");
+});
+
+const runForecastValidator = (validator, body) => {
+  const req = { body };
+  const result = { nextCalled: false, statusCode: null, responseBody: null };
+  const res = {
+    status(statusCode) {
+      result.statusCode = statusCode;
+      return this;
+    },
+    json(responseBody) {
+      result.responseBody = responseBody;
+      return this;
+    },
+  };
+
+  validator(req, res, () => {
+    result.nextCalled = true;
+  });
+  return { req, result };
+};
+
+const VALID_EVENT_ID = "123e4567-e89b-42d3-a456-426614174000";
+const VALID_RUN_ID = "123e4567-e89b-42d3-a456-426614174001";
+
+test("AUTO_BACKTEST run validation strips fixed-model fields and preserves the explicit mode", () => {
+  const { req, result } = runForecastValidator(validateForecastRunPayload, {
+    disaster_event_id: VALID_EVENT_ID,
+    selection_mode: "AUTO_BACKTEST",
+  });
+
+  assert.equal(result.nextCalled, true);
+  assert.deepEqual(req.validatedBody, {
+    disaster_event_id: VALID_EVENT_ID,
+    selection_mode: "AUTO_BACKTEST",
+  });
+});
+
+test("AUTO_BACKTEST rejects a conflicting model selection", () => {
+  const { result } = runForecastValidator(validateForecastRunPayload, {
+    disaster_event_id: VALID_EVENT_ID,
+    selection_mode: "AUTO_BACKTEST",
+    model_name: "MOVING_AVERAGE",
+  });
+
+  assert.equal(result.nextCalled, false);
+  assert.equal(result.statusCode, 400);
+});
+
+test("fixed and legacy model requests keep FIXED_MODEL semantics", () => {
+  const explicit = runForecastValidator(validateForecastRunPayload, {
+    disaster_event_id: VALID_EVENT_ID,
+    selection_mode: "FIXED_MODEL",
+    model_name: "TREND_PROJECTION",
+  });
+  const legacy = runForecastValidator(validateForecastRunPayload, {
+    disaster_event_id: VALID_EVENT_ID,
+    model_name: "EXPONENTIAL_SMOOTHING",
+  });
+
+  assert.deepEqual(explicit.req.validatedBody, {
+    disaster_event_id: VALID_EVENT_ID,
+    selection_mode: "FIXED_MODEL",
+    model_name: "TREND_PROJECTION",
+  });
+  assert.deepEqual(legacy.req.validatedBody, {
+    disaster_event_id: VALID_EVENT_ID,
+    selection_mode: "FIXED_MODEL",
+    model_name: "EXPONENTIAL_SMOOTHING",
+  });
+});
+
+test("stored-run export validation accepts only the persisted run id", () => {
+  const { req, result } = runForecastValidator(validateForecastExportPayload, {
+    forecast_run_id: VALID_RUN_ID,
+    disaster_event_id: VALID_EVENT_ID,
+    model_name: "TREND_PROJECTION",
+  });
+
+  assert.equal(result.nextCalled, true);
+  assert.deepEqual(req.validatedBody, { forecast_run_id: VALID_RUN_ID });
+});
+
+test("stored-run export validation rejects a malformed run id", () => {
+  const { result } = runForecastValidator(validateForecastExportPayload, {
+    forecast_run_id: "not-a-uuid",
+  });
+
+  assert.equal(result.nextCalled, false);
+  assert.equal(result.statusCode, 400);
+  assert.equal(result.responseBody.message, "forecast_run_id must be a valid UUID");
 });

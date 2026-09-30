@@ -1904,7 +1904,11 @@ const buildResponseResults = (analyticsResults) => {
   }));
 };
 
-const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) => {
+const runAndPersistFixedInventoryForecast = async ({
+  disaster_event_id,
+  model_name,
+  run_by,
+}) => {
   const resolvedModelName = model_name || DEFAULT_FORECAST_MODEL;
   const disasterEvent = await ensureForecastableDisasterEvent(disaster_event_id);
   const forecastItems = await forecastRepository.getInventoryForecastItems(
@@ -2069,6 +2073,7 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
           title: disasterEvent.title,
         },
         run_type: createdForecastRun.run_type,
+        selection_mode: FIXED_MODEL,
         run_by,
         run_at: createdForecastRun.run_at,
         model_name: resolvedModelName,
@@ -2085,8 +2090,19 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
   }
 };
 
-const exportInventoryForecast = async (payload) => {
-  const forecastPayload = await runInventoryForecast(payload);
+const runInventoryForecast = async (payload = {}) => {
+  if (payload.selection_mode === AUTO_BACKTEST) {
+    return runAndPersistAutoInventoryForecast({
+      disaster_event_id: payload.disaster_event_id,
+      run_by: payload.run_by,
+    });
+  }
+
+  return runAndPersistFixedInventoryForecast(payload);
+};
+
+const exportPersistedInventoryForecast = async ({ forecast_run_id }) => {
+  const forecastPayload = await getInventoryForecastRunDetails(forecast_run_id);
   return forecastReportExport.buildExportFile(forecastPayload);
 };
 
@@ -2225,7 +2241,7 @@ module.exports = {
   evaluateInventoryForecastModels,
   runAndPersistAutoInventoryForecast,
   runInventoryForecast,
-  exportInventoryForecast,
+  exportPersistedInventoryForecast,
   getLatestInventoryForecast,
   getLatestInventoryForecastOverall,
   getInventoryForecastContext,

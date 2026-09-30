@@ -235,7 +235,7 @@ export const runInventoryForecast = async (payload) => {
   return handleJsonResponse(response, "Failed to run inventory forecast");
 };
 
-export const exportInventoryForecast = async (payload) => {
+export const exportInventoryForecast = async (forecastRunId) => {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/inventory-items/forecast/export`,
     {
@@ -243,7 +243,7 @@ export const exportInventoryForecast = async (payload) => {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ forecast_run_id: forecastRunId }),
     },
   );
 

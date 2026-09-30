@@ -8,30 +8,37 @@ const sourcePath = (...segments) => path.join(process.cwd(), "src", ...segments)
 const readSource = (relativePath) =>
   fs.readFile(sourcePath(...relativePath), "utf8");
 
-test("Mayor inventory forecasting keeps route, service endpoints, and forecast semantics unchanged", async () => {
-  const [routesSource, pageSource, hookSource, serviceSource, panelSource] =
+test("Mayor forecasting runs AUTO_BACKTEST and exports the exact displayed persisted run", async () => {
+  const [routesSource, pageSource, hookSource, serviceSource, panelSource, modalSource] =
     await Promise.all([
       readSource(["routes", "AppRoutes.jsx"]),
       readSource(["pages", "inventory", "InventoryForecastsPage.jsx"]),
       readSource(["features", "inventory-items", "useInventoryForecast.js"]),
       readSource(["features", "inventory-items", "inventoryItemService.js"]),
       readSource(["components", "inventory-items", "ForecastingPanel.jsx"]),
+      readSource(["components", "inventory-items", "InventoryForecastExportModal.jsx"]),
     ]);
 
   assert.match(routesSource, /path: "forecasts", element: <InventoryForecastsPage \/>/);
   assert.match(pageSource, /title="INVENTORY FORECASTING MANAGEMENT"/);
-  assert.match(hookSource, /selectedForecastModel[\s\S]*useState\("MOVING_AVERAGE"\)/);
-  assert.match(hookSource, /getForecastModelRecommendation/);
-  assert.match(hookSource, /setSelectedForecastModel\(recommendation\.modelName\)/);
+  assert.match(hookSource, /selection_mode: "AUTO_BACKTEST"/);
+  assert.doesNotMatch(hookSource, /selectedForecastModel|model_name|getForecastModelRecommendation|handleForecastModelChange/);
   assert.match(hookSource, /handleForecastEventChange/);
-  assert.match(hookSource, /handleForecastModelChange/);
   assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/run/);
   assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/latest/);
   assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/context/);
   assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/history/);
-  assert.match(pageSource, /exportInventoryForecast/);
+  assert.match(pageSource, /exportInventoryForecast\(forecastRunId\)/);
   assert.match(pageSource, /downloadExportFile\(file\)/);
-  assert.match(serviceSource, /forecast\/export/);
+  assert.match(pageSource, /forecastToExport/);
+  assert.match(serviceSource, /\/forecast\/export/);
+  assert.match(serviceSource, /JSON\.stringify\(\{ forecast_run_id: forecastRunId \}\)/);
+  assert.match(panelSource, /onOpenExportModal\(displayedForecastData\)/);
+  assert.match(panelSource, /!displayedForecastRun\?\.id/);
+  assert.doesNotMatch(panelSource, /id="forecast-model"|onForecastModelChange|getForecastModelRecommendation|Suggested Model/);
+  assert.match(panelSource, /Selection Method: Historical Model Evaluation/);
+  assert.match(modalSource, /onSubmit\(runId\)/);
+  assert.doesNotMatch(modalSource, /forecast-export-event|disasterEvents|selectedDisasterEventId/);
   assert.doesNotMatch(pageSource, /window\.open/);
   assert.doesNotMatch(pageSource, /\.print\(\)/);
   assert.doesNotMatch(pageSource, /text\/html|\.html/);
@@ -48,10 +55,11 @@ test("Mayor inventory forecasting keeps route, service endpoints, and forecast s
 });
 
 test("Mayor inventory forecasting controls, KPIs, charts, and tables expose mobile-safe layout primitives", async () => {
-  const [panelSource, modalSource, cssSource] = await Promise.all([
+  const [panelSource, modalSource, cssSource, validationSource] = await Promise.all([
     readSource(["components", "inventory-items", "ForecastingPanel.jsx"]),
     readSource(["components", "inventory-items", "InventoryForecastExportModal.jsx"]),
     readSource(["index.css"]),
+    readSource(["components", "inventory-items", "ForecastModelValidation.jsx"]),
   ]);
 
   assert.match(panelSource, /gridTemplateColumns: "repeat\(auto-fit, minmax\(min\(100%, 220px\), 1fr\)\)"/);
@@ -115,13 +123,28 @@ test("Mayor inventory forecasting controls, KPIs, charts, and tables expose mobi
     cssSource,
     /@media \(max-width: 768px\)[\s\S]*?\.mayor-inventory-forecast-input-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
   );
-  assert.match(panelSource, /\(Suggested Model\)/);
-  assert.doesNotMatch(panelSource, /Suggested model for this event/);
-  assert.doesNotMatch(panelSource, /How the three models differ/);
+  assert.match(panelSource, /id="forecast-model-validation"/);
+  assert.match(panelSource, /Historical Model Evaluation/);
+  assert.doesNotMatch(panelSource, /Suggested Model|Suggested model for this event|How the three models differ/);
+  assert.match(validationSource, /Candidate Model/);
+  assert.match(validationSource, /MAE/);
+  assert.match(validationSource, /RMSE/);
+  assert.match(validationSource, /Statistical Forecast/);
+  assert.match(validationSource, /Backtest Points/);
+  assert.match(validationSource, /METRIC_TIE/);
+  assert.match(validationSource, /NO_DISCRIMINATING_SIGNAL/);
+  assert.match(validationSource, /INSUFFICIENT_HISTORY/);
+  assert.match(validationSource, /CANDIDATE_UNAVAILABLE/);
+  assert.match(validationSource, /OPERATIONAL_FALLBACK/);
+  assert.match(validationSource, /Historical model evaluation evidence is unavailable for this item/);
+  assert.match(validationSource, /typeof value === "number" && Number\.isFinite\(value\)/);
+  assert.match(validationSource, /candidate\?\.mae/);
 
   assert.match(modalSource, /padding: "clamp\(12px, 4vw, 24px\)"/);
   assert.match(modalSource, /fontSize: "clamp\(21px, 5vw, 26px\)"/);
   assert.match(modalSource, /maxHeight: "min\(90vh, 720px\)"/);
-  assert.match(modalSource, /id="forecast-export-event"/);
+  assert.doesNotMatch(modalSource, /forecast-export-event/);
+  assert.match(modalSource, /forecastRun\?\.id/);
+  assert.match(modalSource, /disabled=\{isDisabled\}/);
 });
 

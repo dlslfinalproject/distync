@@ -10,10 +10,8 @@ import {
   FiPlusCircle,
   FiTrendingUp,
 } from "react-icons/fi";
-import {
-  getForecastModelDescription,
-  getForecastModelRecommendation,
-} from "../../features/inventory-items/inventoryItemExportOptions";
+import { getForecastModelLabel } from "../../features/inventory-items/inventoryItemExportOptions";
+import ForecastModelValidation from "./ForecastModelValidation";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 
@@ -69,14 +67,6 @@ const panelStyles = {
     boxSizing: "border-box",
     minWidth: 0,
     textOverflow: "ellipsis",
-  },
-  modelDescription: {
-    margin: "8px 2px 0",
-    color: "#58708a",
-    fontSize: "12px",
-    fontWeight: 600,
-    lineHeight: 1.45,
-    overflowWrap: "anywhere",
   },
   forecastActionRow: {
     display: "flex",
@@ -604,7 +594,9 @@ const getDashboardFromSources = ({
   forecastHistoryDetails,
 }) => {
   return (
-    forecastHistoryDetails?.dashboard ||
+    (forecastHistoryDetails?.forecast_run?.id
+      ? forecastHistoryDetails.dashboard
+      : null) ||
     forecastRunData?.dashboard || {
       disaster_event: forecastContext?.disaster_event || null,
       summary: forecastContext?.summary || {},
@@ -630,7 +622,7 @@ const resolveInventoryItemCount = (summary = {}) => {
 };
 
 const getResultRowsFromSources = ({ forecastRunData, forecastHistoryDetails }) => {
-  if (forecastHistoryDetails?.results?.length) {
+  if (forecastHistoryDetails?.forecast_run?.id && forecastHistoryDetails?.results?.length) {
     return forecastHistoryDetails.results;
   }
 
@@ -1149,8 +1141,6 @@ const StockLevelChart = ({ rows = [] }) => {
 const ForecastingPanel = ({
   forecastEvents,
   selectedForecastEventId,
-  selectedForecastModel,
-  forecastModelOptions,
   forecastContext,
   forecastRunData,
   forecastHistory,
@@ -1163,10 +1153,8 @@ const ForecastingPanel = ({
   isRunningForecast,
   isForecastHistoryLoading,
   isForecastHistoryDetailLoading,
-  getForecastModelLabel,
   onOpenExportModal,
   onForecastEventChange,
-  onForecastModelChange,
   onRunForecast,
   onSelectForecastHistoryRun,
 }) => {
@@ -1210,14 +1198,6 @@ const ForecastingPanel = ({
     eventStartDate || eventEndDate
       ? `Period: ${formatDate(eventStartDate)} - ${formatDate(eventEndDate)}`
       : null;
-  const suggestedModel = useMemo(
-    () =>
-      getForecastModelRecommendation({
-        event: selectedForecastEvent,
-        forecastContext,
-      }),
-    [forecastContext, selectedForecastEvent],
-  );
   const recommendationRows = activeDashboard?.recommendations || [];
   const usageTrendRows = activeDashboard?.charts?.inventory_usage_trend || [];
   const demandRows = activeDashboard?.charts?.forecasted_demand || [];
@@ -1282,10 +1262,28 @@ const ForecastingPanel = ({
     .slice(0, 6);
   const donorNeedRows = recommendationRows.slice(0, 6);
   const modelHasResults = resultRows.length > 0;
-  const selectedModelLabel = getForecastModelLabel(selectedForecastModel);
-  const selectedModelDescription = getForecastModelDescription(
-    selectedForecastModel,
-  );
+  const displayedForecastData = forecastHistoryDetails?.forecast_run?.id
+    ? forecastHistoryDetails
+    : forecastRunData;
+  const displayedForecastRun = displayedForecastData?.forecast_run || null;
+  const isAutoBacktestRun =
+    displayedForecastRun?.selection_mode === "AUTO_BACKTEST";
+  const displayedRunModelLabel = displayedForecastRun?.model_name
+    ? getForecastModelLabel(displayedForecastRun.model_name)
+    : "No persisted forecast";
+  const runSelectionLabel = isAutoBacktestRun
+    ? "Selection Method"
+    : "Forecast Model";
+  const runSelectionValue = isAutoBacktestRun
+    ? "Historical Model Evaluation"
+    : displayedForecastRun?.model_name
+      ? displayedRunModelLabel
+      : "No persisted forecast";
+  const isExportDisabled =
+    !displayedForecastRun?.id ||
+    isForecastLoading ||
+    isRunningForecast ||
+    isForecastHistoryDetailLoading;
   const totalForecastNeed = resultRows.reduce(
     (total, row) => total + Number(row.forecasted_usage || 0),
     0,
@@ -1455,34 +1453,6 @@ const ForecastingPanel = ({
             </select>
           </div>
 
-          <div>
-            <label
-              htmlFor="forecast-model"
-              style={panelStyles.filterLabel}
-            >
-              Forecast Model
-            </label>
-            <select
-              id="forecast-model"
-              value={selectedForecastModel}
-              onChange={(event) => onForecastModelChange(event.target.value)}
-              style={panelStyles.filterField}
-            >
-              {forecastModelOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                  {selectedForecastEvent &&
-                  !isForecastContextLoading &&
-                  option.value === suggestedModel.modelName
-                    ? " (Suggested Model)"
-                    : ""}
-              </option>
-            ))}
-          </select>
-            <p style={panelStyles.modelDescription}>
-              {selectedModelDescription}
-            </p>
-          </div>
         </div>
 
       </section>
@@ -1513,19 +1483,13 @@ const ForecastingPanel = ({
         <button
           type="button"
           className="mayor-inventory-forecast-export-button"
-          onClick={onOpenExportModal}
-          disabled={!selectedForecastEventId || isForecastLoading || isRunningForecast}
+          onClick={() => onOpenExportModal(displayedForecastData)}
+          disabled={isExportDisabled}
           style={{
             ...pageHeaderStyles.secondaryButton,
             ...actionButtonBaseStyles,
-            cursor:
-              !selectedForecastEventId || isForecastLoading || isRunningForecast
-                ? "not-allowed"
-                : "pointer",
-            opacity:
-              !selectedForecastEventId || isForecastLoading || isRunningForecast
-                ? 0.7
-                : 1,
+            cursor: isExportDisabled ? "not-allowed" : "pointer",
+            opacity: isExportDisabled ? 0.7 : 1,
           }}
         >
           <FiFileText size={16} />
@@ -1608,12 +1572,19 @@ const ForecastingPanel = ({
             <div
               className="mayor-inventory-forecast-model-summary"
               style={panelStyles.modelSummary}
-              aria-label={`Forecast model: ${selectedModelLabel}`}
+              aria-label={`${runSelectionLabel}: ${runSelectionValue}`}
             >
-              <span style={panelStyles.modelIconWrap}>
-                <ForecastModelIcon modelName={selectedForecastModel} />
-              </span>
-              <p style={panelStyles.modelName}>{selectedModelLabel}</p>
+              {!isAutoBacktestRun && displayedForecastRun?.model_name ? (
+                <span style={panelStyles.modelIconWrap}>
+                  <ForecastModelIcon modelName={displayedForecastRun.model_name} />
+                </span>
+              ) : null}
+              <div>
+                <p style={{ ...panelStyles.modelName, fontSize: "11px", marginBottom: "4px" }}>
+                  {runSelectionLabel}
+                </p>
+                <p style={panelStyles.modelName}>{runSelectionValue}</p>
+              </div>
             </div>
           </div>
 
@@ -1984,6 +1955,28 @@ const ForecastingPanel = ({
         </div>
       </div>
 
+      {isAutoBacktestRun ? (
+        <details open id="forecast-model-validation" style={panelStyles.detailsBox}>
+          <summary style={panelStyles.detailsSummary}>Historical Model Evaluation</summary>
+          <div style={{ display: "grid", gap: "14px", marginTop: "14px" }}>
+            <p style={{ ...panelStyles.emptyState, margin: 0 }}>
+              Historical backtest performance does not guarantee future forecast accuracy. These values are the persisted evaluation for this run.
+            </p>
+            {resultRows.length ? (
+              resultRows.map((result) => (
+                <ForecastModelValidation
+                  key={result.inventory_item_id}
+                  result={result}
+                  getForecastModelLabel={getForecastModelLabel}
+                />
+              ))
+            ) : (
+              <p style={panelStyles.emptyState}>No item-level evaluation evidence is available for this run.</p>
+            )}
+          </div>
+        </details>
+      ) : null}
+
       <details id="forecast-detailed-results" style={panelStyles.detailsBox}>
         <summary style={panelStyles.detailsSummary}>Detailed Results by Item</summary>
         <div style={{ ...panelStyles.tableWrap, marginTop: "16px" }}>
@@ -2047,7 +2040,7 @@ const ForecastingPanel = ({
                     >
                       <strong
                         style={panelStyles.itemNameCell}
-                        title={`${result.item_name} (${result.item_code || "--"} | ${getForecastModelLabel(result.selected_model)})`}
+                        title={`${result.item_name} (${result.item_code || "--"} | ${getForecastModelLabel(result.selected_model_name ?? result.selected_model)})`}
                       >
                         {result.item_name}
                       </strong>
@@ -2194,7 +2187,11 @@ const ForecastingPanel = ({
                     fontSize: "12px",
                   }}
                 >
-                  <span>Model: {getForecastModelLabel(run.model_name)}</span>
+                  <span>
+                    {run.selection_mode === "AUTO_BACKTEST"
+                      ? "Selection Method: Historical Model Evaluation"
+                      : `Model: ${getForecastModelLabel(run.model_name)}`}
+                  </span>
                   <span>Generated By: {run.generated_by}</span>
                 </div>
               </button>
