@@ -347,7 +347,11 @@ test("eligible history windows use Manila completed days, event start, and a 30-
       [systemLogPath]: { logErrorSafely: async () => {} },
       [repositoryPath]: {},
     },
-    async ({ buildEligibleHistoryWindow, getManilaDateKey }) => {
+    async ({
+      buildEligibleHistoryWindow,
+      buildEligibleHistoricalSeries,
+      getManilaDateKey,
+    }) => {
       const utcBoundary = new Date("2026-09-29T16:30:00.000Z");
       assert.equal(getManilaDateKey(utcBoundary), "2026-09-30");
 
@@ -375,6 +379,38 @@ test("eligible history windows use Manila completed days, event start, and a 30-
       });
       assert.equal(eventStartingToday.eligible_day_count, 0);
       assert.deepEqual(eventStartingToday.day_keys, []);
+
+      const previousTimezone = process.env.TZ;
+      process.env.TZ = "Asia/Manila";
+      try {
+        const postgresDate = new Date(2026, 8, 12);
+        assert.equal(postgresDate.toISOString(), "2026-09-11T16:00:00.000Z");
+
+        const postgresDateWindow = buildEligibleHistoryWindow({
+          eventStartDate: postgresDate,
+          referenceInstant: utcBoundary,
+        });
+        assert.equal(postgresDateWindow.eligible_start_date, "2026-09-12");
+
+        const dateSeries = buildEligibleHistoricalSeries(
+          [
+            {
+              inventory_item_id: "item-a",
+              usage_date: postgresDate,
+              total_quantity: "5",
+            },
+          ],
+          ["item-a"],
+          ["2026-09-12"],
+        );
+        assert.deepEqual(dateSeries.get("item-a"), [5]);
+      } finally {
+        if (previousTimezone === undefined) {
+          delete process.env.TZ;
+        } else {
+          process.env.TZ = previousTimezone;
+        }
+      }
     },
   );
 });
