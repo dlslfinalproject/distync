@@ -1126,6 +1126,12 @@ test("AUTO stored reads preserve item evidence, suppress run-wide models, and to
     model_name: "TREND_PROJECTION",
     parameters_json: {},
   };
+  const fixedRun = {
+    ...autoRun,
+    id: "forecast-run-fixed",
+    selection_mode: "FIXED_MODEL",
+    model_name: "MOVING_AVERAGE",
+  };
   let resultRows = [
     {
       inventory_item_id: "item-1",
@@ -1147,19 +1153,50 @@ test("AUTO stored reads preserve item evidence, suppress run-wide models, and to
       [dbPath]: {},
       [systemLogPath]: { logErrorSafely: async () => {} },
       [repositoryPath]: {
+        getDisasterEventById: async (eventId) => {
+          assert.equal(eventId, "event-1");
+          return {
+            id: "event-1",
+            event_code: "DE-001",
+            title: "Flood Response",
+            status: "ACTIVE",
+          };
+        },
+        getLatestForecastRunByDisasterEvent: async (eventId) => {
+          assert.equal(eventId, "event-1");
+          return autoRun;
+        },
         getLatestForecastRun: async () => autoRun,
-        getForecastRunHistory: async () => [
-          { ...autoRun, model_name: "MOVING_AVERAGE" },
-        ],
-        getForecastRunById: async () => autoRun,
-        getForecastResultsByRunId: async () => resultRows,
+        getForecastRunHistory: async () => [autoRun, fixedRun],
+        getForecastRunById: async (runId) =>
+          runId === fixedRun.id ? fixedRun : autoRun,
+        getForecastResultsByRunId: async (runId) =>
+          runId === fixedRun.id
+            ? [
+                {
+                  ...resultRows[0],
+                  selected_model_name: null,
+                  model_evaluation: null,
+                },
+              ]
+            : resultRows,
       },
     },
     async ({
+      getLatestInventoryForecast,
       getLatestInventoryForecastOverall,
       getInventoryForecastHistory,
       getInventoryForecastRunDetails,
     }) => {
+      const latestForEvent = await getLatestInventoryForecast("event-1");
+      assert.equal(latestForEvent.forecast_run.selection_mode, "AUTO_BACKTEST");
+      assert.equal(latestForEvent.forecast_run.model_name, null);
+      assert.equal(
+        latestForEvent.results[0].selected_model_name,
+        "EXPONENTIAL_SMOOTHING",
+      );
+      assert.deepEqual(latestForEvent.results[0].model_evaluation, modelEvaluation);
+
       const latest = await getLatestInventoryForecastOverall();
       assert.equal(latest.forecast_run.selection_mode, "AUTO_BACKTEST");
       assert.equal(latest.forecast_run.model_name, null);
@@ -1171,12 +1208,20 @@ test("AUTO stored reads preserve item evidence, suppress run-wide models, and to
       const history = await getInventoryForecastHistory();
       assert.equal(history[0].selection_mode, "AUTO_BACKTEST");
       assert.equal(history[0].model_name, null);
+      assert.equal(history[1].selection_mode, "FIXED_MODEL");
+      assert.equal(history[1].model_name, "MOVING_AVERAGE");
 
       const detail = await getInventoryForecastRunDetails("forecast-run-auto");
       assert.equal(detail.forecast_run.selection_mode, "AUTO_BACKTEST");
       assert.equal(detail.forecast_run.model_name, null);
       assert.equal(detail.results[0].selected_model_name, "EXPONENTIAL_SMOOTHING");
       assert.deepEqual(detail.results[0].model_evaluation, modelEvaluation);
+
+      const fixedDetail = await getInventoryForecastRunDetails("forecast-run-fixed");
+      assert.equal(fixedDetail.forecast_run.selection_mode, "FIXED_MODEL");
+      assert.equal(fixedDetail.forecast_run.model_name, "MOVING_AVERAGE");
+      assert.equal(fixedDetail.results[0].selected_model_name, "MOVING_AVERAGE");
+      assert.equal(fixedDetail.results[0].model_evaluation, null);
 
       resultRows = [{ ...resultRows[0], selected_model_name: null }];
       const malformed = await getLatestInventoryForecastOverall();

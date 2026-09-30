@@ -497,6 +497,7 @@ test("inventory item forecast summary uses the AUTO item model and fixed legacy 
     predicted_depletion_date: "2026-10-04",
     recommended_reorder_quantity: 57,
     confidence_notes: JSON.stringify({ average_daily_usage: 5 }),
+    model_evaluation: null,
     run_at: "2026-09-30T00:00:00.000Z",
   });
   assert.equal(autoDetail.forecast_summary.selection_mode, "AUTO_BACKTEST");
@@ -506,6 +507,11 @@ test("inventory item forecast summary uses the AUTO item model and fixed legacy 
   );
   assert.equal(autoDetail.forecast_summary.model_name, "EXPONENTIAL_SMOOTHING");
   assert.equal(autoDetail.forecast_summary.forecasted_usage, 80);
+  assert.equal(
+    autoDetail.forecast_summary.projected_depletion_date,
+    "2026-10-04",
+  );
+  assert.equal(autoDetail.forecast_summary.recommended_reorder_quantity, 57);
 
   const legacyDetail = await runDetail({
     forecast_run_id: "run-fixed",
