@@ -1,5 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const {
+  buildPublicForecastSuggestions: buildStoredPublicForecastSuggestions,
+} = require("../src/services/forecast.service");
 
 const servicePath = require.resolve("../src/services/donation.service");
 const dbPath = require.resolve("../src/config/db");
@@ -202,6 +205,127 @@ test("public portal uses forecast suggestions before default emergency donation 
       );
     },
   );
+});
+
+test("public portal accepts AUTO operational reorder suggestions without exposing validation evidence", async () => {
+  const autoForecast = {
+    forecast_run: {
+      id: "run-auto",
+      selection_mode: "AUTO_BACKTEST",
+      model_name: null,
+      run_at: "2026-09-30T00:00:00.000Z",
+    },
+    results: [
+      {
+        inventory_item_id: "item-rice",
+        item_name: "Rice",
+        category: "Food",
+        unit_of_measure: "packs",
+        recommended_reorder_quantity: 25,
+        forecasted_usage: 80,
+        risk_level: "HIGH",
+        selected_model_name: "EXPONENTIAL_SMOOTHING",
+        model_evaluation: {
+          recommended_model: "EXPONENTIAL_SMOOTHING",
+          candidates: [{ model_name: "EXPONENTIAL_SMOOTHING" }],
+          backtest_points: 7,
+          mae: 0.5,
+          rmse: 1,
+        },
+      },
+      {
+        inventory_item_id: "item-water",
+        item_name: "Emergency Water",
+        category: "Water",
+        unit_of_measure: "bottles",
+        recommended_reorder_quantity: 7,
+        forecasted_usage: 23,
+        risk_level: "MEDIUM",
+        selected_model_name: "MOVING_AVERAGE",
+        model_evaluation: {
+          recommended_model: null,
+          selection_reason: "OPERATIONAL_FALLBACK",
+          recommendation_reason: "INSUFFICIENT_HISTORY",
+          backtest_points: 6,
+        },
+      },
+      {
+        inventory_item_id: "item-covered",
+        item_name: "Covered Rice",
+        category: "Food",
+        unit_of_measure: "packs",
+        recommended_reorder_quantity: 0,
+        forecasted_usage: 1000,
+        risk_level: "LOW",
+        selected_model_name: "MOVING_AVERAGE",
+        model_evaluation: {
+          candidates: [],
+          mae: 0,
+          rmse: 0,
+        },
+      },
+    ],
+  };
+
+  await withStubbedDonationService(
+    {
+      forecastServiceOverrides: {
+        getLatestInventoryForecast: async () => autoForecast,
+        buildPublicForecastSuggestions: buildStoredPublicForecastSuggestions,
+      },
+    },
+    async ({ getPublicDonationPortal }) => {
+      const payload = await getPublicDonationPortal();
+      const suggestions = payload.needed_items.suggestions;
+
+      assert.equal(payload.needed_items.source_type, "FORECAST");
+      assert.deepEqual(
+        suggestions.map(({ item_name, suggested_quantity }) => [
+          item_name,
+          suggested_quantity,
+        ]),
+        [
+          ["Rice", 25],
+          ["Emergency Water", 7],
+        ],
+      );
+      assert.deepEqual(Object.keys(suggestions[0]).sort(), [
+        "category",
+        "forecasted_at",
+        "item_name",
+        "note",
+        "priority_level",
+        "public_key",
+        "suggested_quantity",
+        "unit_of_measure",
+      ]);
+      assert.doesNotMatch(
+        JSON.stringify(payload),
+        /model_evaluation|backtest_points|candidate|\bMAE\b|\bRMSE\b/i,
+      );
+    },
+  );
+
+  const fixedSuggestions = buildStoredPublicForecastSuggestions({
+    forecast_run: {
+      selection_mode: "FIXED_MODEL",
+      model_name: "MOVING_AVERAGE",
+      run_at: "2026-09-29T00:00:00.000Z",
+    },
+    results: [
+      {
+        inventory_item_id: "item-fixed",
+        item_name: "Fixed Rice",
+        category: "Food",
+        unit_of_measure: "packs",
+        recommended_reorder_quantity: 4,
+        forecasted_usage: 12,
+        risk_level: "LOW",
+        model_evaluation: null,
+      },
+    ],
+  });
+  assert.equal(fixedSuggestions[0].suggested_quantity, 4);
 });
 
 test("public portal reports relief-pack utilization in packs and loose utilization in pieces", async () => {

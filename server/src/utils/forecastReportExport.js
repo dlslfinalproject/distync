@@ -12,6 +12,272 @@ const MODEL_LABELS = {
   TREND_PROJECTION: "Trend Projection",
 };
 
+const MODEL_CANDIDATE_ORDER = [
+  "MOVING_AVERAGE",
+  "EXPONENTIAL_SMOOTHING",
+  "TREND_PROJECTION",
+];
+
+const EVALUATION_STATUSES = new Set(["EVALUATED", "INSUFFICIENT_HISTORY"]);
+const RECOMMENDATION_STATUSES = new Set([
+  "RECOMMENDED",
+  "NO_RECOMMENDATION",
+  "NOT_EVALUATED",
+]);
+const CANDIDATE_STATUSES = new Set([
+  "EVALUATED",
+  "NOT_EVALUATED",
+  "UNAVAILABLE",
+]);
+const RECOMMENDATION_REASONS = new Set([
+  "INSUFFICIENT_HISTORY",
+  "CANDIDATE_UNAVAILABLE",
+  "NO_DISCRIMINATING_SIGNAL",
+  "UNIQUE_LOWEST_MAE",
+  "LOWEST_RMSE_AFTER_MAE_TIE",
+  "METRIC_TIE",
+]);
+
+const formatOptionalNumber = (value) => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return "--";
+  }
+
+  return formatNumber(value);
+};
+
+const formatStatisticalForecast = (value, unitOfMeasure) => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return "--";
+  }
+
+  const normalizedUnit = String(unitOfMeasure || "units").trim() || "units";
+  return formatNumber(value) + " " + normalizedUnit;
+};
+
+const parseStoredDateOnly = (value) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
+};
+
+const formatStoredDateOnly = (value) => {
+  const parsed = parseStoredDateOnly(value);
+
+  return parsed
+    ? new Intl.DateTimeFormat("en-PH", {
+        dateStyle: "medium",
+        timeZone: "UTC",
+      }).format(parsed)
+    : null;
+};
+
+const formatEvaluationPeriod = (evaluation) => {
+  const startDate = formatStoredDateOnly(evaluation?.eligible_start_date);
+  const endDate = formatStoredDateOnly(evaluation?.eligible_end_date);
+
+  if (!startDate || !endDate) {
+    return "--";
+  }
+
+  const timezone =
+    typeof evaluation.timezone === "string" && evaluation.timezone.trim()
+      ? " (" + evaluation.timezone.trim() + ")"
+      : "";
+
+  return startDate + " - " + endDate + timezone;
+};
+
+const parseModelEvaluation = (value) => {
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : null;
+};
+
+const getRecommendationStatusText = (reason, recommendedModel) => {
+  if (recommendedModel) {
+    return "A model was recommended from the historical error results.";
+  }
+
+  return (
+    {
+      INSUFFICIENT_HISTORY:
+        "Insufficient historical data for reliable model comparison.",
+      METRIC_TIE:
+        "No unique recommendation was identified from the historical error results.",
+      NO_DISCRIMINATING_SIGNAL:
+        "The available historical distribution data did not provide enough difference to recommend one model.",
+      CANDIDATE_UNAVAILABLE:
+        "The forecasting methods could not all be evaluated using the same historical periods.",
+    }[reason] || "Model validation information unavailable."
+  );
+};
+
+const buildAutoModelPresentation = (result = {}) => {
+  const evaluation = parseModelEvaluation(result.model_evaluation);
+  const selectedModelName = result.selected_model_name;
+  const selectedModelLabel = MODEL_LABELS[selectedModelName] || "Model unavailable";
+  const unavailable = {
+    available: false,
+    selectedModelLabel,
+    recommendedModelLabel: "Not available",
+    operationalModelLabel: selectedModelLabel,
+    statusText: "Model validation information unavailable.",
+    backtestPoints: "--",
+    evaluationPeriod: "--",
+    candidates: [],
+  };
+
+  if (!evaluation) {
+    return unavailable;
+  }
+
+  if (
+    !EVALUATION_STATUSES.has(evaluation.evaluation_status) ||
+    !RECOMMENDATION_STATUSES.has(evaluation.recommendation_status) ||
+    !RECOMMENDATION_REASONS.has(evaluation.recommendation_reason) ||
+    !Array.isArray(evaluation.candidates) ||
+    evaluation.candidates.length !== MODEL_CANDIDATE_ORDER.length
+  ) {
+    return unavailable;
+  }
+
+  const candidatesByModel = new Map();
+
+  for (const candidate of evaluation.candidates) {
+    if (
+      !candidate ||
+      !MODEL_LABELS[candidate.model_name] ||
+      candidatesByModel.has(candidate.model_name) ||
+      !CANDIDATE_STATUSES.has(candidate.status) ||
+      (candidate.mae !== null &&
+        candidate.mae !== undefined &&
+        (typeof candidate.mae !== "number" ||
+          !Number.isFinite(candidate.mae) ||
+          candidate.mae < 0)) ||
+      (candidate.rmse !== null &&
+        candidate.rmse !== undefined &&
+        (typeof candidate.rmse !== "number" ||
+          !Number.isFinite(candidate.rmse) ||
+          candidate.rmse < 0)) ||
+      (candidate.forecasted_usage !== null &&
+        candidate.forecasted_usage !== undefined &&
+        (typeof candidate.forecasted_usage !== "number" ||
+          !Number.isFinite(candidate.forecasted_usage) ||
+          candidate.forecasted_usage < 0))
+    ) {
+      return unavailable;
+    }
+
+    candidatesByModel.set(candidate.model_name, candidate);
+  }
+
+  if (
+    MODEL_CANDIDATE_ORDER.some((modelName) => !candidatesByModel.has(modelName))
+  ) {
+    return unavailable;
+  }
+
+  const hasRecommendation =
+    evaluation.recommendation_status === "RECOMMENDED" &&
+    MODEL_LABELS[evaluation.recommended_model] &&
+    ["UNIQUE_LOWEST_MAE", "LOWEST_RMSE_AFTER_MAE_TIE"].includes(
+      evaluation.recommendation_reason,
+    );
+  const hasNoRecommendation =
+    evaluation.evaluation_status === "EVALUATED" &&
+    evaluation.recommendation_status === "NO_RECOMMENDATION" &&
+    [
+      "CANDIDATE_UNAVAILABLE",
+      "NO_DISCRIMINATING_SIGNAL",
+      "METRIC_TIE",
+    ].includes(evaluation.recommendation_reason);
+  const hasInsufficientHistory =
+    evaluation.evaluation_status === "INSUFFICIENT_HISTORY" &&
+    evaluation.recommendation_status === "NOT_EVALUATED" &&
+    evaluation.recommendation_reason === "INSUFFICIENT_HISTORY";
+  const recommendedModelName = hasRecommendation
+    ? evaluation.recommended_model
+    : null;
+  const hasConsistentSelection =
+    MODEL_LABELS[selectedModelName] &&
+    evaluation.selected_model === selectedModelName &&
+    (recommendedModelName
+      ? selectedModelName === recommendedModelName &&
+        evaluation.selection_reason === "HISTORICALLY_RECOMMENDED"
+      : selectedModelName === "MOVING_AVERAGE" &&
+        evaluation.selection_reason === "OPERATIONAL_FALLBACK");
+
+  if (
+    (evaluation.recommendation_status === "RECOMMENDED" && !hasRecommendation) ||
+    (evaluation.recommendation_status === "NO_RECOMMENDATION" &&
+      !hasNoRecommendation) ||
+    (evaluation.recommendation_status === "NOT_EVALUATED" &&
+      !hasInsufficientHistory) ||
+    (evaluation.recommendation_status !== "RECOMMENDED" &&
+      evaluation.recommended_model !== null &&
+      evaluation.recommended_model !== undefined) ||
+    !hasConsistentSelection ||
+    (recommendedModelName &&
+      candidatesByModel.get(recommendedModelName)?.status !== "EVALUATED")
+  ) {
+    return unavailable;
+  }
+
+  const isOperationalFallback = !recommendedModelName;
+
+  return {
+    available: true,
+    selectedModelLabel,
+    recommendedModelLabel: recommendedModelName
+      ? MODEL_LABELS[recommendedModelName]
+      : "Not available",
+    operationalModelLabel: isOperationalFallback
+      ? selectedModelLabel + " (fallback)"
+      : selectedModelLabel,
+    statusText: getRecommendationStatusText(
+      evaluation.recommendation_reason,
+      recommendedModelName,
+    ),
+    backtestPoints:
+      Number.isInteger(evaluation.backtest_points) &&
+      evaluation.backtest_points >= 0
+        ? formatNumber(evaluation.backtest_points)
+        : "--",
+    evaluationPeriod: formatEvaluationPeriod(evaluation),
+    candidates: MODEL_CANDIDATE_ORDER.map((modelName) => ({
+      modelName,
+      candidate: candidatesByModel.get(modelName),
+      isRecommended: modelName === recommendedModelName,
+    })),
+  };
+};
+
 const PIECE_UNITS = new Set(["pc", "pcs", "piece", "pieces", "unit", "units"]);
 
 const formatNumber = (value) => {
@@ -651,7 +917,11 @@ const buildPdfBuffer = (payload = {}) => {
     11,
   ) - 14;
   const demandCardHeight = 170;
-  drawSectionCard("Top Forecasted Needs", cursorY, demandCardHeight);
+  drawSectionCard(
+    isAutoBacktest ? "Top Operational Forecast Needs" : "Top Forecasted Needs",
+    cursorY,
+    demandCardHeight,
+  );
   drawDemandChart(demandRows, cursorY - 28);
   finishPage();
 
@@ -710,11 +980,11 @@ const buildPdfBuffer = (payload = {}) => {
       render: (row) => formatQuantity(row.current_available_stock, row.unit_of_measure),
     },
     {
-      label: "Forecast Need",
+      label: isAutoBacktest ? "Operational Forecast Need" : "Forecast Need",
       render: (row) => formatQuantity(row.forecasted_usage, row.unit_of_measure, true),
     },
     {
-      label: "Add Stock",
+      label: isAutoBacktest ? "Operational Reorder" : "Add Stock",
       render: (row) => formatQuantity(row.recommended_reorder_quantity, row.unit_of_measure, true),
     },
     {
@@ -737,14 +1007,17 @@ const buildPdfBuffer = (payload = {}) => {
       render: (row) => formatQuantity(row.projected_household_demand, row.unit_of_measure, true),
     },
     {
-      label: "Forecast Need",
+      label: isAutoBacktest ? "Operational Forecast Need" : "Forecast Need",
       render: (row) => formatQuantity(row.forecasted_usage, row.unit_of_measure, true),
     },
     {
-      label: "Recommended Restock",
+      label: isAutoBacktest ? "Operational Reorder" : "Recommended Restock",
       render: (row) => formatQuantity(row.recommended_reorder_quantity, row.unit_of_measure, true),
     },
-    { label: "Projected Depletion", render: (row) => formatDate(row.projected_depletion_date) },
+    {
+      label: isAutoBacktest ? "Operational Depletion" : "Projected Depletion",
+      render: (row) => formatDate(row.projected_depletion_date),
+    },
     {
       label: "Shortage",
       render: (row) =>
@@ -757,11 +1030,117 @@ const buildPdfBuffer = (payload = {}) => {
     { label: "Risk", render: (row) => row.risk_level || "LOW" },
   ];
   drawTableSection(
-    "Detailed Forecast Results by Item",
+    isAutoBacktest
+      ? "Operational Forecast Results by Item"
+      : "Detailed Forecast Results by Item",
     detailColumns,
     priorityRows,
     [145, 105, 100, 112, 100, 145, 79],
   );
+
+  if (isAutoBacktest) {
+    const itemEvaluations = results.map((result) => ({
+      result,
+      presentation: buildAutoModelPresentation(result),
+    }));
+    const selectionRows = itemEvaluations.map(({ result, presentation }) => ({
+      item_name: result.item_name || "Unknown item",
+      selected_model: presentation.selectedModelLabel,
+      recommended_model: presentation.recommendedModelLabel,
+      operational_model: presentation.operationalModelLabel,
+      backtest_points: presentation.backtestPoints,
+      evaluation_period: presentation.evaluationPeriod,
+      status: presentation.statusText,
+    }));
+    const selectionColumns = [
+      { label: "Inventory Item", render: (row) => row.item_name },
+      {
+        label: "Selected Statistical Model",
+        render: (row) => row.selected_model,
+      },
+      { label: "Recommended Model", render: (row) => row.recommended_model },
+      { label: "Operational Model Used", render: (row) => row.operational_model },
+      {
+        label: "Historical Periods Evaluated",
+        render: (row) => row.backtest_points,
+      },
+      {
+        label: "Historical Evaluation Period",
+        render: (row) => row.evaluation_period,
+      },
+      { label: "Recommendation Status", render: (row) => row.status },
+    ];
+
+    startPage("Historical Model Evaluation");
+    [
+      "Model recommendations are recorded separately for each inventory item.",
+      "Candidate forecasts are statistical forecasts based on historical distribution.",
+      "Operational need, reorder, and depletion remain the stored planning results.",
+      "MAE is average absolute historical forecast error; RMSE gives larger misses more weight.",
+      "Historical performance does not guarantee future forecast accuracy.",
+    ].forEach((line) => {
+      addText(line, MARGIN_X, cursorY, {
+        size: 7,
+        color: reportExport.PDF_COLORS.grayText,
+      });
+      cursorY -= 10;
+    });
+    cursorY -= 5;
+    drawTableSection(
+      "Per-item model selection",
+      selectionColumns,
+      selectionRows,
+      [128, 105, 106, 120, 77, 125, 125],
+      { reuseCurrentPage: true },
+    );
+
+    const candidateRows = itemEvaluations.flatMap(({ result, presentation }) =>
+      presentation.available
+        ? presentation.candidates.map(({ modelName, candidate, isRecommended }) => ({
+            item_name:
+              (result.item_name || "Unknown item") +
+              " (" +
+              (result.unit_of_measure || "units") +
+              ")",
+            model:
+              MODEL_LABELS[modelName] +
+              (isRecommended ? " (Recommended)" : ""),
+            mae: formatOptionalNumber(candidate.mae),
+            rmse: formatOptionalNumber(candidate.rmse),
+            statistical_forecast: formatStatisticalForecast(
+              candidate.forecasted_usage,
+              result.unit_of_measure,
+            ),
+            status:
+              {
+                EVALUATED: "Evaluated",
+                NOT_EVALUATED: "Not evaluated",
+                UNAVAILABLE: "Unavailable",
+              }[candidate.status] || "Unavailable",
+          }))
+        : [],
+    );
+
+    if (candidateRows.length) {
+      const candidateColumns = [
+        { label: "Inventory Item / Unit", render: (row) => row.item_name },
+        { label: "Model", render: (row) => row.model },
+        { label: "MAE", render: (row) => row.mae },
+        { label: "RMSE", render: (row) => row.rmse },
+        {
+          label: "Statistical Forecast",
+          render: (row) => row.statistical_forecast,
+        },
+        { label: "Status", render: (row) => row.status },
+      ];
+      drawTableSection(
+        "Candidate model validation",
+        candidateColumns,
+        candidateRows,
+        [170, 150, 95, 95, 145, 131],
+      );
+    }
+  }
 
   return reportExport.createPdfDocument(pages, reportExport.PDF_IMAGE_REGISTRY);
 };
