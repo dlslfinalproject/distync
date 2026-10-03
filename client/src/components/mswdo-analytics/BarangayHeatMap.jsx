@@ -265,12 +265,11 @@ const BarangayHeatMap = ({ barangays }) => {
                   <>
                     <h4>{selectedRow.name}</h4>
                     <p className="barangay-heatmap-affected">
-                      Affected by selected event:{" "}
                       <strong>
                         {selectedRow.status === "affected"
-                          ? "Yes"
+                          ? "Affected"
                           : selectedRow.status === "unaffected"
-                            ? "No"
+                            ? "Not affected"
                             : "Data unavailable"}
                       </strong>
                     </p>
