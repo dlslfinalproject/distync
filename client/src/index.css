@@ -4576,7 +4576,7 @@ img {
 
 .stub-claim-confirm-modal {
   width: 100%;
-  max-width: 560px;
+  max-width: 640px;
   max-height: calc(100vh - 36px) !important;
   max-height: calc(100dvh - 36px) !important;
   min-height: 0;
@@ -4589,7 +4589,7 @@ img {
 
 .stub-claim-confirm-header {
   flex: 0 0 auto;
-  padding: 16px 18px 11px;
+  padding: 17px 20px 14px;
   border-bottom: 1px solid #e1eaf3;
   background: #ffffff;
 }
@@ -4600,7 +4600,7 @@ img {
 }
 
 .stub-claim-confirm-header p {
-  margin-top: 6px !important;
+  margin-top: 8px !important;
   font-size: 12px !important;
   line-height: 1.45 !important;
 }
@@ -4618,7 +4618,7 @@ img {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  padding: 12px 18px 16px;
+  padding: 14px 20px 24px;
   box-sizing: border-box;
 }
 
@@ -4629,7 +4629,7 @@ img {
   flex: 0 0 auto;
   width: 100%;
   margin: 0 !important;
-  padding: 9px 18px calc(9px + env(safe-area-inset-bottom, 0px));
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid #dce7f1;
   background: #ffffff;
   box-shadow: 0 -8px 18px rgba(20, 48, 78, 0.06);
@@ -4643,8 +4643,8 @@ img {
 
 .claim-distribution-summary {
   width: 100%;
-  margin-top: 8px;
-  padding: 10px 11px;
+  margin-top: 11px;
+  padding: 13px 14px;
   border: 1px solid #dce7f1;
   border-radius: 14px;
   background: #f8fbfe;
@@ -4655,7 +4655,7 @@ img {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -4688,7 +4688,7 @@ img {
 }
 
 .claim-stub-number-card {
-  padding: 11px 14px;
+  padding: 14px 16px;
 }
 
 .claim-card-label {
@@ -4702,7 +4702,7 @@ img {
 }
 
 .claim-stub-number-value {
-  margin: 3px 0 0;
+  margin: 5px 0 0;
   color: #17324d;
   font-size: 18px;
   font-weight: 800;
@@ -4712,16 +4712,16 @@ img {
 .claim-qr-relief-card {
   display: grid;
   justify-items: center;
-  gap: 8px;
-  padding: 12px 14px;
+  gap: 11px;
+  padding: 16px 18px;
 }
 
 .claim-qr-relief-details {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 16px;
+  gap: 12px 20px;
   width: 100%;
-  padding-top: 9px;
+  padding-top: 12px;
   border-top: 1px solid #e1eaf3;
 }
 
@@ -4749,8 +4749,8 @@ img {
 .claim-distribution-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px 12px;
-  margin: 8px 0 0;
+  gap: 10px 18px;
+  margin: 11px 0 0;
 }
 
 .claim-distribution-summary-grid > div {
@@ -4768,7 +4768,7 @@ img {
 .claim-distribution-summary-grid dd {
   margin: 3px 0 0;
   color: #17324d;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -4793,8 +4793,8 @@ img {
 
 .stub-claim-confirm-content {
   width: 100%;
-  margin-top: 8px;
-  padding: 11px;
+  margin-top: 11px;
+  padding: 14px;
   border: 1px solid #e1eaf3;
   border-radius: 14px;
   background: #f8fbfe;
@@ -4812,7 +4812,7 @@ img {
 }
 
 .stub-claim-confirm-family-head {
-  margin-top: 8px;
+  margin-top: 11px;
   padding: 0 !important;
   align-items: center;
 }
@@ -4822,8 +4822,8 @@ img {
 }
 
 .claim-household-members {
-  margin-top: 9px;
-  padding-top: 8px;
+  margin-top: 12px;
+  padding-top: 11px;
   border-top: 1px solid #e1eaf3;
 }
 
@@ -4839,12 +4839,12 @@ img {
 .claim-household-member-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px 18px;
+  gap: 6px 20px;
   margin: 5px 0 0;
   padding-left: 18px;
   color: #17324d;
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .claim-household-empty {
@@ -4855,8 +4855,8 @@ img {
 }
 
 .claim-proof-workflow {
-  margin-top: 8px;
-  padding: 11px;
+  margin-top: 11px;
+  padding: 14px;
   border-radius: 14px;
 }
 
@@ -4867,7 +4867,7 @@ img {
 
 .claim-proof-heading {
   align-items: center;
-  gap: 8px 12px;
+  gap: 10px 16px;
 }
 
 .claim-proof-section-title {
@@ -4882,30 +4882,30 @@ img {
 
 .claim-proof-required-notice {
   gap: 3px;
-  margin-top: 9px;
-  padding: 8px 10px;
+  margin-top: 11px;
+  padding: 10px 12px;
   line-height: 1.4;
 }
 
 .claim-proof-capture {
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 12px;
+  gap: 10px;
+  margin-top: 15px;
+  padding-top: 14px;
 }
 
 .claim-proof-guidance {
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .claim-proof-capture-actions {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
+  gap: 12px;
 }
 
 .claim-proof-capture-actions > button {
   min-width: 0;
-  min-height: 44px;
+  min-height: 46px;
   width: 100%;
   justify-content: center;
   white-space: normal;
@@ -4916,6 +4916,7 @@ img {
   width: min(100%, 340px, 65vh);
   max-height: 45vh;
   aspect-ratio: 4 / 3;
+  margin-top: 4px;
 }
 
 .claim-distribution-processing {
@@ -4944,18 +4945,18 @@ img {
   }
 
   .stub-claim-confirm-header {
-    padding: 14px 14px 10px;
+    padding: 15px 15px 12px;
   }
 
   .stub-claim-confirm-body {
-    padding: 10px 14px 13px;
+    padding: 12px 15px 20px;
   }
 
   .stub-claim-confirm-actions {
     display: grid !important;
     grid-template-columns: minmax(0, 1fr);
     gap: 8px;
-    padding: 8px 14px calc(8px + env(safe-area-inset-bottom, 0px));
+    padding: 10px 15px calc(10px + env(safe-area-inset-bottom, 0px));
   }
 
   .stub-claim-confirm-actions button {
