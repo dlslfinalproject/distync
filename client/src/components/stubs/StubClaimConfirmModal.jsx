@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { RELATIONSHIP_OPTIONS } from "../../utils/registrationOptions";
-import { resolveFamilyHeadPhoto } from "../../features/masterlist/familyHeadPhoto";
 import { resolveClaimProof } from "../../features/stubs/claimProofWorkflow";
 import {
   normalizeImageDrawableToDataUrl,
@@ -639,15 +638,11 @@ const StubClaimConfirmModal = ({
     stubDetails?.disaster_event?.title ||
     stubDetails?.disaster_event?.name ||
     "--";
-  const familyHeadPhotoUrl = resolveFamilyHeadPhoto(stubDetails?.household, {
-    isOffline: stubDetails?.is_cached_offline === true,
-  });
   const selectedStubSummaries = selectedStubs.map(getSelectedStubSummary);
-  const hasDonatedRelief = donatedReliefPackNames.length > 0;
   const distributionMessage =
     selectedCount > 1
-      ? "Review the selected stubs and confirm after the relief handover."
-      : "Review the details before confirming the handover.";
+      ? "Are you sure these relief distributions are correct?"
+      : "Are you sure this relief distribution is correct?";
   const handleDialogKeyDown = (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -713,15 +708,22 @@ const StubClaimConfirmModal = ({
               </p>
             </section>
           ) : null}
-          {selectedCount === 1 && proofType === "QR" ? (
-            <section className="claim-qr-relief-card" aria-label="QR code and relief pack">
-              <p className="claim-card-label">QR Code</p>
-              <QrCodePanel
-                value={resolvedQrReferenceValue}
-                showValue={false}
-                containerStyle={{ width: "100%", alignItems: "center" }}
-                imageStyle={{ width: "148px", maxWidth: "100%" }}
-              />
+          {selectedCount === 1 ? (
+            <section
+              className="claim-qr-relief-card"
+              aria-label={proofType === "QR" ? "QR code and relief pack" : "Relief pack"}
+            >
+              {proofType === "QR" ? (
+                <>
+                  <p className="claim-card-label">QR Code</p>
+                  <QrCodePanel
+                    value={resolvedQrReferenceValue}
+                    showValue={false}
+                    containerStyle={{ width: "100%", alignItems: "center" }}
+                    imageStyle={{ width: "148px", maxWidth: "100%" }}
+                  />
+                </>
+              ) : null}
               <div className="claim-qr-relief-details">
                 <div>
                   <p className="claim-card-label">Relief Pack</p>
@@ -732,57 +734,6 @@ const StubClaimConfirmModal = ({
                   <p className="claim-card-supporting-value">{disasterEventName}</p>
                 </div>
               </div>
-            </section>
-          ) : null}
-          {selectedCount === 1 ? (
-            <section
-              className="claim-distribution-summary"
-              aria-labelledby="claim-distribution-summary-title"
-            >
-              <div className="claim-summary-heading">
-                <div>
-                  <h4 id="claim-distribution-summary-title">Claim Summary</h4>
-                  <p className="claim-summary-stub-number">
-                    {getDisplayStubNumber(stubDetails)}
-                  </p>
-                </div>
-              </div>
-              <dl className="claim-distribution-summary-grid">
-                <div>
-                  <dt>Household / Family Head</dt>
-                  <dd>
-                    {stubDetails?.household?.family_head_name ||
-                      stubDetails?.family_head_name ||
-                      "--"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Disaster Event</dt>
-                  <dd>{disasterEventName}</dd>
-                </div>
-                <div>
-                  <dt>Relief Pack</dt>
-                  <dd>
-                    {reliefPackDisplay}
-                    {reliefPackParts.multiplierText ? (
-                      <small className="claim-summary-supporting-text">
-                        {reliefPackParts.multiplierText}
-                      </small>
-                    ) : null}
-                    {hasDonatedRelief ? (
-                      <small className="claim-summary-supporting-text">
-                        Donated: {donatedReliefPackNames.join(", ").toUpperCase()}
-                      </small>
-                    ) : null}
-                  </dd>
-                </div>
-                {proofType ? (
-                  <div>
-                    <dt>Proof Method</dt>
-                    <dd>{proofType === "QR" ? "QR Code" : "Photo Proof"}</dd>
-                  </div>
-                ) : null}
-              </dl>
             </section>
           ) : null}
           {stubDetails?.offline_household_details_unavailable ? (
@@ -803,22 +754,7 @@ const StubClaimConfirmModal = ({
                 Household Verification
               </h4>
 
-              <div
-                className="stub-claim-confirm-family-head"
-                style={modalStyles.familyHeadCard}
-              >
-                {isLoadingStubDetails ? (
-                  <div style={modalStyles.photoPlaceholder}>Loading registered photo...</div>
-                ) : familyHeadPhotoUrl ? (
-                  <img
-                    src={familyHeadPhotoUrl}
-                    alt="Family head reference photo"
-                    style={modalStyles.photoPreview}
-                  />
-                ) : (
-                  <div style={modalStyles.photoPlaceholder}>No registered photo available</div>
-                )}
-
+              <div className="stub-claim-confirm-family-head">
                 <div>
                   <p style={modalStyles.label}>Household / Family Head</p>
                   <p style={modalStyles.value}>
