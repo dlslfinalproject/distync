@@ -275,6 +275,7 @@ const getBarangayStubDashboardRows = async (
       latest_distribution.received_at,
       latest_distribution.receipt_no,
       latest_distribution.verified_by_name,
+      latest_distribution.relief_pack_template_name,
       CASE
         WHEN
           s.status = 'ISSUED'
@@ -343,9 +344,13 @@ const getBarangayStubDashboardRows = async (
         dt.distribution_date,
         dt.received_at,
         dt.receipt_no,
-        CONCAT_WS(' ', u.first_name, u.middle_name, u.last_name) AS verified_by_name
+        CONCAT_WS(' ', u.first_name, u.middle_name, u.last_name) AS verified_by_name,
+        linked_template_names.names AS relief_pack_template_name
       FROM distribution_transactions dt
       LEFT JOIN users u ON u.id = dt.verified_by
+      LEFT JOIN LATERAL (
+        ${buildLinkedReliefPackTemplateNamesQuery("dt")}
+      ) linked_template_names ON TRUE
       WHERE dt.stub_id = s.id
         AND dt.distribution_status = 'CLAIMED'
       ORDER BY dt.distribution_date DESC, dt.created_at DESC
@@ -543,6 +548,7 @@ const getMunicipalStubDashboardRows = async (
       latest_distribution.received_at,
       latest_distribution.receipt_no,
       latest_distribution.verified_by_name,
+      latest_distribution.relief_pack_template_name,
       CASE
         WHEN
           s.status = 'ISSUED'
@@ -611,9 +617,13 @@ const getMunicipalStubDashboardRows = async (
         dt.distribution_date,
         dt.received_at,
         dt.receipt_no,
-        CONCAT_WS(' ', u.first_name, u.middle_name, u.last_name) AS verified_by_name
+        CONCAT_WS(' ', u.first_name, u.middle_name, u.last_name) AS verified_by_name,
+        linked_template_names.names AS relief_pack_template_name
       FROM distribution_transactions dt
       LEFT JOIN users u ON u.id = dt.verified_by
+      LEFT JOIN LATERAL (
+        ${buildLinkedReliefPackTemplateNamesQuery("dt")}
+      ) linked_template_names ON TRUE
       WHERE dt.stub_id = s.id
         AND dt.distribution_status = 'CLAIMED'
       ORDER BY dt.distribution_date DESC, dt.created_at DESC

@@ -113,6 +113,7 @@ const createBaseStubs = ({
   masterlistOverrides = {},
   disasterEventOverrides = {},
   reliefPackTemplateOverrides = {},
+  reliefPackAssignmentOverrides = {},
   automaticReliefPackClaimOverrides = {},
   donatedReliefPackAssignmentOverrides = {},
   familyHeadPhotoStorageOverrides = {},
@@ -200,6 +201,7 @@ const createBaseStubs = ({
   },
   [reliefPackAssignmentServicePath]: {
     getAssignedReliefPackTemplatesForSectorIds: () => [],
+    ...reliefPackAssignmentOverrides,
   },
   [donatedReliefPackAssignmentServicePath]: {
     ensureDonatedReliefPackAssignmentsForEvent: async () => [],
@@ -1529,6 +1531,89 @@ const buildMunicipalDashboardRow = ({
   unclaimed_queue_position: null,
   members_count: 2,
   stub_sequence_no: 1,
+});
+
+test("stub dashboards prefer the claimed transaction pack while preserving issued assignment display", async () => {
+  const claimedRow = buildMunicipalDashboardRow({
+    id: "stub-claimed-pack",
+    householdId: "household-claimed-pack",
+    barangayId: baseBarangayId,
+    barangayName: "Selected Barangay",
+    status: "CLAIMED",
+  });
+  claimedRow.relief_pack_template_name = "Standard Food Pack 1";
+
+  const issuedRow = buildMunicipalDashboardRow({
+    id: "stub-issued-pack",
+    householdId: "household-issued-pack",
+    barangayId: baseBarangayId,
+    barangayName: "Selected Barangay",
+    status: "ISSUED",
+  });
+  issuedRow.assigned_relief_pack_snapshots = [
+    {
+      relief_pack_template_id: "template-standard",
+      name: "Standard Food Pack 1",
+      is_additional_pack: false,
+    },
+  ];
+
+  const dashboardRows = [claimedRow, issuedRow];
+  const createDashboardStubs = () =>
+    createBaseStubs({
+      disasterEventOverrides: {
+        getAffectedBarangayScopeByDisasterEventId: async () => [
+          {
+            mapped_barangay_id: baseBarangayId,
+            id: baseBarangayId,
+            name: "Selected Barangay",
+            is_active: true,
+          },
+        ],
+      },
+      masterlistOverrides: {
+        getBarangayScopedDisasterEventById: async () => ({
+          id: baseStub.disaster_event_id,
+          disaster_type: "TYPHOON",
+          status: "ACTIVE",
+        }),
+      },
+      stubRepositoryOverrides: {
+        getBarangayStubDashboardRows: async () => dashboardRows,
+        getMunicipalStubDashboardRows: async () => dashboardRows,
+        getHouseholdSectorsByHouseholdIds: async () => [],
+        getMemberSectorsByHouseholdIds: async () => [],
+      },
+      reliefPackAssignmentOverrides: {
+        getAssignedReliefPackTemplatesForSectorIds: () => [
+          {
+            id: "template-standard",
+            name: "Standard Food Pack 1",
+            is_additional_pack: false,
+          },
+        ],
+      },
+    });
+
+  await withStubbedStubService(createDashboardStubs(), async (service) => {
+    const barangayResult = await service.getBarangayStubDashboard({
+      disaster_event_id: baseStub.disaster_event_id,
+      barangay_id: baseBarangayId,
+      user_id: null,
+      override_barangay_id: null,
+    });
+    assert.equal(barangayResult.data[0].relief_pack_name, "Standard Food Pack 1");
+    assert.equal(barangayResult.data[1].relief_pack_name, "Standard Food Pack 1");
+  });
+
+  await withStubbedStubService(createDashboardStubs(), async (service) => {
+    const municipalResult = await service.getMunicipalStubDashboard({
+      disaster_event_id: baseStub.disaster_event_id,
+      requester: { roleCode: "MSWDO", userId: "mswdo-user" },
+    });
+    assert.equal(municipalResult.data[0].relief_pack_name, "Standard Food Pack 1");
+    assert.equal(municipalResult.data[1].relief_pack_name, "Standard Food Pack 1");
+  });
 });
 
 test("Stage 5 municipal service uses one set-wise context and returns the complete municipal contract", async () => {

@@ -662,6 +662,10 @@ const getBarangayStubDashboard = async (filters) => {
         assignedReliefPacks,
         assignedDonatedReliefPacks,
       );
+      const dashboardReliefPackName =
+        row.status === "CLAIMED"
+          ? row.relief_pack_template_name || reliefPackName
+          : reliefPackName;
       const sectors = buildSectors(
         row.household_id,
         householdSectorsByHouseholdId,
@@ -729,7 +733,7 @@ const getBarangayStubDashboard = async (filters) => {
               )
             : [],
         available_donated_loose_items: [],
-        relief_pack_name: reliefPackName || "--",
+        relief_pack_name: dashboardReliefPackName || "--",
       };
     })),
   };
@@ -958,6 +962,10 @@ const getMunicipalStubDashboard = async ({
         assignedReliefPacks,
         assignedDonatedReliefPacks,
       );
+      const dashboardReliefPackName =
+        row.status === "CLAIMED"
+          ? row.relief_pack_template_name || reliefPackName
+          : reliefPackName;
       const sectors = buildSectors(
         row.household_id,
         householdSectorsByHouseholdId,
@@ -1027,7 +1035,7 @@ const getMunicipalStubDashboard = async ({
             )
           : [],
         available_donated_loose_items: [],
-        relief_pack_name: reliefPackName || "--",
+        relief_pack_name: dashboardReliefPackName || "--",
       };
     }),
   );

@@ -83,6 +83,34 @@ test("Stage 5 municipal Stub repository is one set-wise query with per-Barangay 
     capturedQuery,
     /queued_households\.barangay_id\s+IS\s+NOT\s+DISTINCT\s+FROM\s+h\.barangay_id/i,
   );
+  assert.match(capturedQuery, /latest_distribution\.relief_pack_template_name/i);
+  assert.match(
+    capturedQuery,
+    /distribution_transaction_relief_pack_templates\s+linked_template_row/i,
+  );
+});
+
+test("barangay Stub repository resolves claimed relief packs set-wise without changing row cardinality", async () => {
+  let capturedQuery = "";
+
+  pool.query = async (query) => {
+    capturedQuery = query;
+    return { rows: [{ id: "stub-1" }] };
+  };
+
+  const rows = await stubRepository.getBarangayStubDashboardRows(
+    "event-1",
+    "barangay-1",
+  );
+
+  assert.deepEqual(rows, [{ id: "stub-1" }]);
+  assert.match(capturedQuery, /latest_distribution\.relief_pack_template_name/i);
+  assert.match(
+    capturedQuery,
+    /distribution_transaction_relief_pack_templates\s+linked_template_row/i,
+  );
+  assert.match(capturedQuery, /WHERE dt\.stub_id = s\.id/i);
+  assert.match(capturedQuery, /LIMIT 1/i);
 });
 
 test("Stage 5 municipal Stub repository short-circuits an empty authoritative scope", async () => {
