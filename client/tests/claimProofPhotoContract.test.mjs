@@ -129,6 +129,11 @@ test("claim summary combines the operational fields and proof path", async () =>
   assert.match(source, /<dt>Proof Method<\/dt>/);
   assert.match(source, /claim-summary-proof-badge/);
   assert.doesNotMatch(source, /<p style=\{modalStyles\.label\}>Stub Number<\/p>/);
+  const styles = await readClientSource("src/index.css");
+  assert.match(
+    styles,
+    /\.claim-qr-relief-details \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)[\s\S]*?text-align: center;/,
+  );
 });
 
 test("household verification keeps members visible and uses a compact empty state", async () => {
