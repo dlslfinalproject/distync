@@ -12,9 +12,8 @@ import {
   BARANGAY_HEATMAP_UNAFFECTED_COLOR,
   BARANGAY_HEATMAP_VIEWBOX,
   DEFAULT_BARANGAY_HEATMAP_METRIC,
-  BARANGAY_HEATMAP_LABEL_OFFSETS,
   buildBarangayHeatmapModel,
-  getBarangayHeatmapLabelOffset,
+  getBarangayHeatmapInteriorPoint,
   getBarangayHeatmapScaleRanges,
   indexBarangayHeatmapRows,
   createBarangayHeatmapInteractionHandlers,
@@ -22,6 +21,7 @@ import {
   formatBarangayHeatmapAriaLabel,
   formatBarangayHeatmapTooltip,
   getSelectedBarangayHeatmapRow,
+  isPointInsideProjectedPolygon,
   normalizeGeoJsonWindingForD3,
 } from "../src/components/mswdo-analytics/barangayHeatmapModel.mjs";
 
@@ -336,44 +336,49 @@ test("the selected metric stays local and recalculates values and range", () => 
   );
 });
 
-test("label offsets are small, targeted, and relative to geometry centroids", () => {
+test("label points are deterministic, interior-safe, and geometry-derived", () => {
   const geometry = createBarangayHeatmapGeometry(geoJson);
-  const canonicalNames = geometry.geoJson.features.map(
-    (feature) => feature.properties.adm4_name,
-  );
-  const overrideNames = Object.keys(BARANGAY_HEATMAP_LABEL_OFFSETS);
-
-  assert.equal(overrideNames.length, 9);
-  assert.ok(overrideNames.every((name) => canonicalNames.includes(name)));
-
-  for (const [name, expectedOffset] of Object.entries(
-    BARANGAY_HEATMAP_LABEL_OFFSETS,
-  )) {
-    const feature = geometry.geoJson.features.find(
-      (candidate) => candidate.properties.adm4_name === name,
+  for (const feature of geometry.geoJson.features) {
+    const preferredPoint = geometry.pathGenerator.centroid(feature);
+    const firstPoint = getBarangayHeatmapInteriorPoint(
+      feature,
+      geometry.projection,
+      preferredPoint,
     );
-    const centroid = geometry.labelPointByFeature.get(feature);
-    const offset = getBarangayHeatmapLabelOffset(name);
-
-    assert.deepEqual(offset, expectedOffset);
-    assert.deepEqual(
-      [centroid[0] + offset.x, centroid[1] + offset.y],
-      [centroid[0] + expectedOffset.x, centroid[1] + expectedOffset.y],
+    const secondPoint = getBarangayHeatmapInteriorPoint(
+      feature,
+      geometry.projection,
+      preferredPoint,
     );
-  }
+    const projectedRings = feature.geometry.coordinates.map((ring) =>
+      ring.map((position) => geometry.projection(position)),
+    );
 
-  const nonOverriddenNames = canonicalNames.filter(
-    (name) => !Object.hasOwn(BARANGAY_HEATMAP_LABEL_OFFSETS, name),
-  );
-  assert.equal(nonOverriddenNames.length, 6);
-  for (const name of nonOverriddenNames) {
-    assert.deepEqual(getBarangayHeatmapLabelOffset(name), { x: 0, y: 0 });
+    assert.deepEqual(firstPoint, secondPoint);
+    assert.ok(isPointInsideProjectedPolygon(firstPoint, projectedRings));
+    assert.deepEqual(geometry.labelPointByFeature.get(feature), firstPoint);
   }
-  assert.ok(
-    Object.values(BARANGAY_HEATMAP_LABEL_OFFSETS).every(
-      ({ x, y }) => Math.abs(x) <= 4 && Math.abs(y) <= 3,
-    ),
+});
+
+test("interior-point placement selects the largest MultiPolygon component", () => {
+  const feature = {
+    type: "Feature",
+    geometry: {
+      type: "MultiPolygon",
+      coordinates: [
+        [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
+        [[[10, 0], [20, 0], [20, 10], [10, 10], [10, 0]]],
+      ],
+    },
+  };
+  const identityProjection = (position) => position;
+  const point = getBarangayHeatmapInteriorPoint(
+    feature,
+    identityProjection,
+    [0.5, 0.5],
   );
+
+  assert.ok(point[0] > 10);
 });
 
 test("heat-map tooltip labels stay concise and follow the selected metric", () => {
@@ -646,9 +651,7 @@ test("mobile layout stacks the details below a full-width map and keeps focus vi
   assert.match(componentSource, /className="barangay-heatmap-label"/);
   assert.match(componentSource, /aria-hidden="true"/);
   assert.match(componentSource, /labelPointByFeature/);
-  assert.match(componentSource, /getBarangayHeatmapLabelOffset/);
-  assert.match(componentSource, /labelPoint\[0\] \+ labelOffset\.x/);
-  assert.match(componentSource, /labelPoint\[1\] \+ labelOffset\.y/);
+  assert.doesNotMatch(componentSource, /getBarangayHeatmapLabelOffset/);
   assert.match(cssSource, /\.barangay-heatmap-label[\s\S]*?pointer-events:\s*none/);
   assert.match(
     cssSource,

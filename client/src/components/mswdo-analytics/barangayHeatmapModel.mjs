@@ -10,23 +10,6 @@ export const BARANGAY_HEATMAP_METRICS = Object.freeze([
 
 export const DEFAULT_BARANGAY_HEATMAP_METRIC = "registered_households";
 
-export const BARANGAY_HEATMAP_LABEL_OFFSETS = Object.freeze({
-  "Bagong Pook": Object.freeze({ x: -4, y: 2 }),
-  "Luta del Norte": Object.freeze({ x: -2, y: -2 }),
-  "Luta del Sur": Object.freeze({ x: 2, y: 2 }),
-  Poblacion: Object.freeze({ x: 0, y: 2 }),
-  "San Gregorio": Object.freeze({ x: 0, y: -3 }),
-  "San Isidro East": Object.freeze({ x: 3, y: 2 }),
-  "San Pedro I (Eastern)": Object.freeze({ x: 3, y: -2 }),
-  "San Pedro II (Western)": Object.freeze({ x: -3, y: 0 }),
-  "San Pioquinto": Object.freeze({ x: 0, y: 3 }),
-});
-
-const ZERO_LABEL_OFFSET = Object.freeze({ x: 0, y: 0 });
-
-export const getBarangayHeatmapLabelOffset = (barangayName) =>
-  BARANGAY_HEATMAP_LABEL_OFFSETS[barangayName] || ZERO_LABEL_OFFSET;
-
 export const BARANGAY_HEATMAP_COLORS = Object.freeze([
   "#e9f3fa",
   "#d3e4f0",
@@ -132,6 +115,190 @@ export const normalizeGeoJsonWindingForD3 = (geoJson) => {
   return normalizeGeometryWindingForD3(geoJson);
 };
 
+const getProjectedRing = (ring, projection) =>
+  Array.isArray(ring)
+    ? ring
+        .map((position) => projection(position))
+        .filter(
+          (point) =>
+            Array.isArray(point) &&
+            point.length === 2 &&
+            point.every(Number.isFinite),
+        )
+    : [];
+
+const getProjectedPolygonParts = (geometry, projection) => {
+  if (!geometry || !projection) return [];
+  const polygons =
+    geometry.type === "Polygon"
+      ? [geometry.coordinates]
+      : geometry.type === "MultiPolygon"
+        ? geometry.coordinates
+        : [];
+
+  return polygons
+    .map((polygon) =>
+      Array.isArray(polygon)
+        ? polygon.map((ring) => getProjectedRing(ring, projection))
+        : [],
+    )
+    .filter((rings) => rings[0]?.length >= 3);
+};
+
+const getRingArea = (ring) =>
+  ring.reduce((area, point, index) => {
+    const next = ring[(index + 1) % ring.length];
+    return area + point[0] * next[1] - next[0] * point[1];
+  }, 0) / 2;
+
+const getLargestProjectedPolygon = (parts) =>
+  parts.reduce(
+    (largest, rings) =>
+      !largest || Math.abs(getRingArea(rings[0])) > Math.abs(getRingArea(largest[0]))
+        ? rings
+        : largest,
+    null,
+  );
+
+const getRingBounds = (ring) =>
+  ring.reduce(
+    (bounds, [x, y]) => ({
+      left: Math.min(bounds.left, x),
+      right: Math.max(bounds.right, x),
+      top: Math.min(bounds.top, y),
+      bottom: Math.max(bounds.bottom, y),
+    }),
+    {
+      left: Number.POSITIVE_INFINITY,
+      right: Number.NEGATIVE_INFINITY,
+      top: Number.POSITIVE_INFINITY,
+      bottom: Number.NEGATIVE_INFINITY,
+    },
+  );
+
+const isPointInsideRing = ([x, y], ring) => {
+  let inside = false;
+  for (
+    let index = 0, previous = ring.length - 1;
+    index < ring.length;
+    previous = index++
+  ) {
+    const [currentX, currentY] = ring[index];
+    const [previousX, previousY] = ring[previous];
+    const intersects =
+      currentY > y !== previousY > y &&
+      x <
+        ((previousX - currentX) * (y - currentY)) /
+          (previousY - currentY || Number.EPSILON) +
+          currentX;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+};
+
+export const isPointInsideProjectedPolygon = (point, rings) =>
+  Array.isArray(rings) &&
+  rings.length > 0 &&
+  isPointInsideRing(point, rings[0]) &&
+  rings.slice(1).every((hole) => !isPointInsideRing(point, hole));
+
+const distanceToSegmentSquared = (point, start, end) => {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  if (dx === 0 && dy === 0) {
+    return (point[0] - start[0]) ** 2 + (point[1] - start[1]) ** 2;
+  }
+
+  const t = Math.max(
+    0,
+    Math.min(
+      1,
+      ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) /
+        (dx * dx + dy * dy),
+    ),
+  );
+  const projection = [start[0] + t * dx, start[1] + t * dy];
+  return (point[0] - projection[0]) ** 2 + (point[1] - projection[1]) ** 2;
+};
+
+const getPointClearanceSquared = (point, rings) => {
+  let minimum = Number.POSITIVE_INFINITY;
+  for (const ring of rings) {
+    for (let index = 0; index < ring.length; index += 1) {
+      minimum = Math.min(
+        minimum,
+        distanceToSegmentSquared(
+          point,
+          ring[index],
+          ring[(index + 1) % ring.length],
+        ),
+      );
+    }
+  }
+  return minimum;
+};
+
+const findInteriorPoint = (rings, preferredPoint) => {
+  const bounds = getRingBounds(rings[0]);
+  let best =
+    preferredPoint && isPointInsideProjectedPolygon(preferredPoint, rings)
+      ? preferredPoint
+      : null;
+  let searchBounds = bounds;
+
+  for (let iteration = 0; iteration < 5; iteration += 1) {
+    const columns = 16;
+    const rows = 16;
+    const stepX = (searchBounds.right - searchBounds.left) / columns;
+    const stepY = (searchBounds.bottom - searchBounds.top) / rows;
+
+    for (let column = 0; column <= columns; column += 1) {
+      for (let row = 0; row <= rows; row += 1) {
+        const candidate = [
+          searchBounds.left + column * stepX,
+          searchBounds.top + row * stepY,
+        ];
+        if (!isPointInsideProjectedPolygon(candidate, rings)) continue;
+        if (
+          !best ||
+          getPointClearanceSquared(candidate, rings) >
+            getPointClearanceSquared(best, rings)
+        ) {
+          best = candidate;
+        }
+      }
+    }
+
+    if (!best) break;
+    const radiusX = stepX * 2;
+    const radiusY = stepY * 2;
+    searchBounds = {
+      left: Math.max(bounds.left, best[0] - radiusX),
+      right: Math.min(bounds.right, best[0] + radiusX),
+      top: Math.max(bounds.top, best[1] - radiusY),
+      bottom: Math.min(bounds.bottom, best[1] + radiusY),
+    };
+  }
+
+  return (
+    best ||
+    preferredPoint ||
+    [(bounds.left + bounds.right) / 2, (bounds.top + bounds.bottom) / 2]
+  );
+};
+
+export const getBarangayHeatmapInteriorPoint = (
+  feature,
+  projection,
+  preferredPoint,
+) => {
+  const parts = getProjectedPolygonParts(feature?.geometry, projection);
+  const rings = getLargestProjectedPolygon(parts);
+  return rings
+    ? findInteriorPoint(rings, preferredPoint)
+    : preferredPoint || null;
+};
+
 export const createBarangayHeatmapGeometry = (sourceGeoJson) => {
   const geoJson = normalizeGeoJsonWindingForD3(sourceGeoJson);
   const { width, height, padding } = BARANGAY_HEATMAP_VIEWBOX;
@@ -148,7 +315,14 @@ export const createBarangayHeatmapGeometry = (sourceGeoJson) => {
     features.map((feature) => [feature, pathGenerator(feature)]),
   );
   const labelPointByFeature = new Map(
-    features.map((feature) => [feature, pathGenerator.centroid(feature)]),
+    features.map((feature) => [
+      feature,
+      getBarangayHeatmapInteriorPoint(
+        feature,
+        projection,
+        pathGenerator.centroid(feature),
+      ),
+    ]),
   );
 
   return {

@@ -12,7 +12,6 @@ import {
   createBarangayHeatmapGeometry,
   formatBarangayHeatmapAriaLabel,
   formatBarangayHeatmapTooltip,
-  getBarangayHeatmapLabelOffset,
   getSelectedBarangayHeatmapRow,
 } from "./barangayHeatmapModel.mjs";
 import "./BarangayHeatMap.css";
@@ -196,20 +195,19 @@ const BarangayHeatMap = ({ barangays }) => {
                       return null;
                     }
 
-                    const labelOffset = getBarangayHeatmapLabelOffset(row.name);
                     const labelLines = getLabelLines(row.name);
                     return (
                       <text
                         key={row.key + "-label"}
                         className="barangay-heatmap-label"
-                        x={labelPoint[0] + labelOffset.x}
-                        y={labelPoint[1] + labelOffset.y}
+                        x={labelPoint[0]}
+                        y={labelPoint[1]}
                         aria-hidden="true"
                       >
                         {labelLines.map((line, index) => (
                           <tspan
                             key={line + "-" + index}
-                            x={labelPoint[0] + labelOffset.x}
+                            x={labelPoint[0]}
                             dy={
                               index === 0
                                 ? -((labelLines.length - 1) * 5)
