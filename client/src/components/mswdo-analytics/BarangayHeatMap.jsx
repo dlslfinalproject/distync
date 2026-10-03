@@ -55,7 +55,6 @@ const BarangayHeatMap = ({ barangays }) => {
   const reactId = useId().replace(/:/g, "");
   const metricId = "barangay-heatmap-metric-" + reactId;
   const titleId = "barangay-heatmap-title-" + reactId;
-  const svgTitleId = "barangay-heatmap-svg-title-" + reactId;
   const unavailablePatternId = "barangay-heatmap-unavailable-" + reactId;
 
   const barangayRowLookup = useMemo(
@@ -133,11 +132,10 @@ const BarangayHeatMap = ({ barangays }) => {
                     BARANGAY_HEATMAP_VIEWBOX.height
                   }
                   role="group"
-                  aria-labelledby={svgTitleId}
+                  aria-label={
+                    "Malvar barangay map shaded by " + model.metric.label
+                  }
                 >
-                  <title id={svgTitleId}>
-                    {"Malvar barangay map shaded by " + model.metric.label}
-                  </title>
                   <defs>
                     <pattern
                       id={unavailablePatternId}

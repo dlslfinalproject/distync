@@ -409,7 +409,7 @@ test("heat-map tooltip labels stay concise and follow the selected metric", () =
   }
 });
 
-test("the rendered heat-map title uses the active metric without selection text", async () => {
+test("the rendered heat-map description is accessible without a native tooltip", async () => {
   const vite = await createServer({
     root: process.cwd(),
     configFile: false,
@@ -424,6 +424,14 @@ test("the rendered heat-map title uses the active metric without selection text"
     );
     const html = renderToStaticMarkup(
       React.createElement(BarangayHeatMap, { barangays: makeRows() }),
+    );
+    assert.match(
+      html,
+      /aria-label="Malvar barangay map shaded by Registered Households"/,
+    );
+    assert.doesNotMatch(
+      html,
+      /<title[^>]*>Malvar barangay map shaded by Registered Households<\/title>/,
     );
     assert.doesNotMatch(html, /<title>Poblacion\nRegistered Households : 0<\/title>/);
     assert.match(html, /aria-label="Poblacion, Registered Households: 0"/);
@@ -657,6 +665,12 @@ test("mobile layout stacks the details below a full-width map and keeps focus vi
   assert.match(componentSource, /onPointerLeave=/);
   assert.match(componentSource, /onFocus=/);
   assert.match(componentSource, /onBlur=/);
+  assert.match(
+    componentSource,
+    /aria-label=\{\s*"Malvar barangay map shaded by " \+ model\.metric\.label\s*\}/,
+  );
+  assert.doesNotMatch(componentSource, /aria-labelledby=\{svgTitleId\}/);
+  assert.doesNotMatch(componentSource, /<title id=\{svgTitleId\}>/);
   assert.doesNotMatch(componentSource, /<title>\{tooltipLabel\}<\/title>/);
   assert.match(cssSource, /\.barangay-heatmap-tooltip[\s\S]*?pointer-events:\s*none/);
   assert.match(cssSource, /\.barangay-heatmap-label[\s\S]*?pointer-events:\s*none/);
