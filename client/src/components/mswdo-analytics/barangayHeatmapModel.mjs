@@ -3,7 +3,9 @@ import { geoMercator, geoPath } from "d3-geo";
 export const BARANGAY_HEATMAP_METRICS = Object.freeze([
   { key: "registered_households", label: "Registered Households" },
   { key: "active_evacuees", label: "Active Evacuees" },
+  { key: "claimed_stubs", label: "Claimed Relief Stubs" },
   { key: "pending_relief_claims", label: "Pending Relief Claims" },
+  { key: "issued_stubs", label: "Valid Issued Stubs" },
 ]);
 
 export const DEFAULT_BARANGAY_HEATMAP_METRIC = "registered_households";
@@ -135,6 +137,18 @@ export const createBarangayHeatmapGeometry = (sourceGeoJson) => {
 const getMetric = (metricKey) =>
   BARANGAY_HEATMAP_METRICS.find((metric) => metric.key === metricKey) ||
   BARANGAY_HEATMAP_METRICS[0];
+
+export const formatBarangayHeatmapTooltip = ({
+  barangayName,
+  metricLabel,
+  value,
+}) => `${barangayName}\n${metricLabel} : ${value}`;
+
+export const formatBarangayHeatmapAriaLabel = ({
+  barangayName,
+  metricLabel,
+  value,
+}) => `${barangayName}, ${metricLabel}: ${value}`;
 
 const getNumericValue = (value) => {
   if (typeof value === "number") {
