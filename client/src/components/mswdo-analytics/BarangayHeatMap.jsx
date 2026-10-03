@@ -10,6 +10,8 @@ import {
   indexBarangayHeatmapRows,
   createBarangayHeatmapInteractionHandlers,
   createBarangayHeatmapGeometry,
+  formatBarangayHeatmapAriaLabel,
+  formatBarangayHeatmapTooltip,
   getSelectedBarangayHeatmapRow,
 } from "./barangayHeatmapModel.mjs";
 import "./BarangayHeatMap.css";
@@ -23,14 +25,6 @@ const formatCount = (value) => {
     ? new Intl.NumberFormat().format(number)
     : "Unavailable";
 };
-
-const detailFields = [
-  ["Registered Households", "registered_households"],
-  ["Active Evacuees", "active_evacuees"],
-  ["Claimed Relief Stubs", "claimed_stubs"],
-  ["Pending Relief Claims", "pending_relief_claims"],
-  ["Valid Issued Stubs", "issued_stubs"],
-];
 
 const BarangayHeatMap = ({ barangays }) => {
   const [selectedMetric, setSelectedMetric] = useState(
@@ -116,23 +110,18 @@ const BarangayHeatMap = ({ barangays }) => {
                   </defs>
                   {model.rows.map((row) => {
                     const isSelected = row.key === selectedKey;
-                    const affectedLabel =
-                      row.status === "affected"
-                        ? "Affected by selected event"
-                        : row.status === "unaffected"
-                          ? "Not affected by selected event"
-                          : "Data unavailable";
                     const valueLabel =
                       row.value === null ? "Unavailable" : formatCount(row.value);
-                    const accessibleLabel =
-                      row.name +
-                      ". " +
-                      affectedLabel +
-                      ". " +
-                      model.metric.label +
-                      ": " +
-                      valueLabel +
-                      (isSelected ? ". Selected." : ".");
+                    const tooltipLabel = formatBarangayHeatmapTooltip({
+                      barangayName: row.name,
+                      metricLabel: model.metric.label,
+                      value: valueLabel,
+                    });
+                    const accessibleLabel = formatBarangayHeatmapAriaLabel({
+                      barangayName: row.name,
+                      metricLabel: model.metric.label,
+                      value: valueLabel,
+                    });
                     const interactionHandlers =
                       createBarangayHeatmapInteractionHandlers(
                         row.key,
@@ -172,9 +161,9 @@ const BarangayHeatMap = ({ barangays }) => {
                         tabIndex={0}
                         aria-label={accessibleLabel}
                         aria-pressed={isSelected}
-                        {...interactionHandlers}
-                      >
-                        <title>{accessibleLabel}</title>
+                      {...interactionHandlers}
+                    >
+                        <title>{tooltipLabel}</title>
                       </path>
                     );
                   })}
@@ -268,7 +257,7 @@ const BarangayHeatMap = ({ barangays }) => {
                     </p>
                     {selectedRow.apiRow ? (
                       <dl>
-                        {detailFields.map(([label, field]) => (
+                        {BARANGAY_HEATMAP_METRICS.map(({ label, key: field }) => (
                           <div key={field}>
                             <dt>{label}</dt>
                             <dd>{formatCount(selectedRow.apiRow[field])}</dd>

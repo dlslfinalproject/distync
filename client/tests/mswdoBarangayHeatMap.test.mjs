@@ -16,6 +16,8 @@ import {
   indexBarangayHeatmapRows,
   createBarangayHeatmapInteractionHandlers,
   createBarangayHeatmapGeometry,
+  formatBarangayHeatmapAriaLabel,
+  formatBarangayHeatmapTooltip,
   getSelectedBarangayHeatmapRow,
   normalizeGeoJsonWindingForD3,
 } from "../src/components/mswdo-analytics/barangayHeatmapModel.mjs";
@@ -239,7 +241,9 @@ test("the selected metric stays local and recalculates values and range", () => 
   const expected = [
     ["registered_households", "Registered Households", 2],
     ["active_evacuees", "Active Evacuees", 3],
+    ["claimed_stubs", "Claimed Relief Stubs", 2],
     ["pending_relief_claims", "Pending Relief Claims", 3],
+    ["issued_stubs", "Valid Issued Stubs", 5],
   ];
 
   assert.equal(DEFAULT_BARANGAY_HEATMAP_METRIC, "registered_households");
@@ -276,6 +280,59 @@ test("the selected metric stays local and recalculates values and range", () => 
     componentSource,
     /mswdoAnalyticsService|axios|fetch\s*\(/,
   );
+});
+
+test("heat-map tooltip labels stay concise and follow the selected metric", () => {
+  const expected = [
+    ["Registered Households", 4],
+    ["Claimed Relief Stubs", 2],
+    ["Pending Relief Claims", 1],
+    ["Valid Issued Stubs", 3],
+  ];
+
+  for (const [metricLabel, value] of expected) {
+    assert.equal(
+      formatBarangayHeatmapTooltip({
+        barangayName: "Poblacion",
+        metricLabel,
+        value,
+      }),
+      `Poblacion\n${metricLabel} : ${value}`,
+    );
+    assert.equal(
+      formatBarangayHeatmapAriaLabel({
+        barangayName: "Poblacion",
+        metricLabel,
+        value,
+      }),
+      `Poblacion, ${metricLabel}: ${value}`,
+    );
+  }
+});
+
+test("the rendered heat-map title uses the active metric without selection text", async () => {
+  const vite = await createServer({
+    root: process.cwd(),
+    configFile: false,
+    appType: "custom",
+    optimizeDeps: { noDiscovery: true, include: [] },
+    server: { middlewareMode: true, hmr: false },
+  });
+
+  try {
+    const { default: BarangayHeatMap } = await vite.ssrLoadModule(
+      "/src/components/mswdo-analytics/BarangayHeatMap.jsx",
+    );
+    const html = renderToStaticMarkup(
+      React.createElement(BarangayHeatMap, { barangays: makeRows() }),
+    );
+    assert.match(html, /<title>Poblacion\nRegistered Households : 0<\/title>/);
+    assert.match(html, /aria-label="Poblacion, Registered Households: 0"/);
+    assert.doesNotMatch(html, /Affected by selected event.*Registered Households/);
+    assert.doesNotMatch(html, /Selected<\/title>/);
+  } finally {
+    await vite.close();
+  }
 });
 
 test("zero affected values stay at the lightest scale color", () => {
