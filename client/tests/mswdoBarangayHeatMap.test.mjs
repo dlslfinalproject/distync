@@ -148,6 +148,7 @@ test("normalized Malvar geometry produces 15 finite, localized paths inside the 
 
   assert.equal(geometry.geoJson.features.length, 15);
   assert.equal(geometry.pathByFeature.size, 15);
+  assert.equal(geometry.labelPointByFeature.size, 15);
   assert.ok(right - left > width * 0.5);
   assert.ok(bottom - top > height * 0.5);
   assert.ok(largestFeatureWidth < (width - 2 * padding) * 0.5);
@@ -157,6 +158,12 @@ test("normalized Malvar geometry produces 15 finite, localized paths inside the 
   assert.ok(bottom <= height - padding + 0.001);
   assert.ok(paths.every((path) => typeof path === "string" && path.length > 0));
   assert.ok(paths.every((path) => !/(?:NaN|Infinity)/.test(path)));
+  assert.ok(
+    [...geometry.labelPointByFeature.values()].every(
+      (point) =>
+        Array.isArray(point) && point.length === 2 && point.every(Number.isFinite),
+    ),
+  );
 });
 
 test("the bundled Malvar GeoJSON has 15 unique code crosswalks to the API rows", () => {
@@ -481,13 +488,16 @@ test("the component renders all 15 accessible polygons, default metric, and the 
       React.createElement(BarangayHeatMap, { barangays: makeRows() }),
     );
     const pathCount = (html.match(/<path\b/g) || []).length;
+    const labelCount = (html.match(/<text\b/g) || []).length;
     const buttonCount = (html.match(/role="button"/g) || []).length;
 
     assert.equal(pathCount, 15);
+    assert.equal(labelCount, 15);
     assert.equal(buttonCount, 15);
+    assert.match(html, /Poblacion/);
     assert.match(html, /aria-label="Heat map metric"/);
     assert.match(html, /Registered Households/);
-    assert.match(html, /Not affected by selected event/);
+    assert.match(html, /Not Affected/);
     assert.match(html, /Select a barangay to view its summary\./);
     assert.match(html, /aria-label="0"/);
     assert.doesNotMatch(html, /Magnitude step/);
@@ -590,6 +600,10 @@ test("mobile layout stacks the details below a full-width map and keeps focus vi
   assert.match(componentSource, /tabIndex=\{0\}/);
   assert.match(componentSource, /aria-pressed=\{isSelected\}/);
   assert.match(componentSource, /role="button"/);
+  assert.match(componentSource, /className="barangay-heatmap-label"/);
+  assert.match(componentSource, /aria-hidden="true"/);
+  assert.match(componentSource, /labelPointByFeature/);
+  assert.match(cssSource, /\.barangay-heatmap-label[\s\S]*?pointer-events:\s*none/);
   assert.match(componentSource, /stroke=\{\s*isSelected\s*\?\s*"#17324d"/);
   assert.match(componentSource, /strokeWidth=\{isSelected\s*\?\s*3\s*:\s*1\.25\}/);
 });

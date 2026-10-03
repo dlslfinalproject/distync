@@ -130,8 +130,17 @@ export const createBarangayHeatmapGeometry = (sourceGeoJson) => {
   const pathByFeature = new Map(
     features.map((feature) => [feature, pathGenerator(feature)]),
   );
+  const labelPointByFeature = new Map(
+    features.map((feature) => [feature, pathGenerator.centroid(feature)]),
+  );
 
-  return { geoJson, projection, pathGenerator, pathByFeature };
+  return {
+    geoJson,
+    projection,
+    pathGenerator,
+    pathByFeature,
+    labelPointByFeature,
+  };
 };
 
 const getMetric = (metricKey) =>

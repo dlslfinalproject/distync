@@ -114,6 +114,19 @@
   stroke: #17324d;
 }
 
+.barangay-heatmap-label {
+  pointer-events: none;
+  fill: #17324d;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  paint-order: stroke;
+  stroke: #ffffff;
+  stroke-linejoin: round;
+  stroke-width: 3px;
+  text-anchor: middle;
+}
+
 .barangay-heatmap-details {
   box-sizing: border-box;
   min-width: 0;

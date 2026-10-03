@@ -16,7 +16,7 @@ import {
 } from "./barangayHeatmapModel.mjs";
 import "./BarangayHeatMap.css";
 
-const { geoJson: malvarBarangays, pathByFeature } =
+const { geoJson: malvarBarangays, pathByFeature, labelPointByFeature } =
   createBarangayHeatmapGeometry(JSON.parse(malvarBarangaysRaw));
 
 const formatCount = (value) => {
@@ -24,6 +24,25 @@ const formatCount = (value) => {
   return Number.isFinite(number) && number >= 0
     ? new Intl.NumberFormat().format(number)
     : "Unavailable";
+};
+
+const getLabelLines = (name) => {
+  const words = name.split(" ");
+  const lines = [];
+  let currentLine = "";
+
+  for (const word of words) {
+    const candidate = currentLine ? currentLine + " " + word : word;
+    if (currentLine && candidate.length > 16) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = candidate;
+    }
+  }
+
+  if (currentLine) lines.push(currentLine);
+  return lines;
 };
 
 const BarangayHeatMap = ({ barangays }) => {
@@ -165,6 +184,40 @@ const BarangayHeatMap = ({ barangays }) => {
                     >
                         <title>{tooltipLabel}</title>
                       </path>
+                    );
+                  })}
+                  {model.rows.map((row) => {
+                    const labelPoint = labelPointByFeature.get(row.feature);
+                    if (
+                      !Array.isArray(labelPoint) ||
+                      !labelPoint.every(Number.isFinite)
+                    ) {
+                      return null;
+                    }
+
+                    const labelLines = getLabelLines(row.name);
+                    return (
+                      <text
+                        key={row.key + "-label"}
+                        className="barangay-heatmap-label"
+                        x={labelPoint[0]}
+                        y={labelPoint[1]}
+                        aria-hidden="true"
+                      >
+                        {labelLines.map((line, index) => (
+                          <tspan
+                            key={line + "-" + index}
+                            x={labelPoint[0]}
+                            dy={
+                              index === 0
+                                ? -((labelLines.length - 1) * 5)
+                                : 10
+                            }
+                          >
+                            {line}
+                          </tspan>
+                        ))}
+                      </text>
                     );
                   })}
                 </svg>
