@@ -61,6 +61,7 @@ test("claim proof requires a verified scan or explicit unavailable-Stub context"
   assert.match(source, /claimInitiationSource,/);
   assert.doesNotMatch(source, /allowPhotoProof/);
   assert.match(source, /Photo Proof of Receipt/);
+  assert.match(source, /Are you sure you want to confirm this relief distribution\?/);
   assert.doesNotMatch(source, /Choose proof method/);
   assert.doesNotMatch(source, /type="radio"/);
   assert.doesNotMatch(source, /setProofType/);
@@ -115,12 +116,8 @@ test("single Stub confirmation keeps Photo Proof below the claim and household s
   assert.ok(workflowPosition > beneficiaryPosition);
   assert.ok(workflowPosition < footerPosition);
 
-  const qrStateStart = source.indexOf('{proofType === "QR" ? (', workflowPosition);
-  const photoStateStart = source.indexOf(': proofType === "PHOTO" ? (', qrStateStart);
-  assert.ok(qrStateStart > workflowPosition);
-  assert.ok(photoStateStart > qrStateStart);
-  const qrStateMarkup = source.slice(qrStateStart, photoStateStart);
-  assert.doesNotMatch(qrStateMarkup, /Capture Photo|Take Photo|Choose from Device|claim-proof-file-input|<video/);
+  assert.match(source, /selectedCount === 1 && proofType !== "QR"/);
+  assert.match(source, /claim-qr-relief-card--manual/);
   assert.match(source, /proofType === "PHOTO" \? \([\s\S]*?claim-proof-capture/);
 });
 
@@ -130,17 +127,19 @@ test("shared claim layout uses relief metadata without a redundant summary", asy
   assert.doesNotMatch(source, /claim-distribution-summary/);
   assert.doesNotMatch(source, /Claim Summary/);
   assert.doesNotMatch(source, /<dt>Proof Method<\/dt>/);
-  assert.match(source, /className="claim-qr-relief-card"/);
+  assert.match(source, /claim-qr-relief-card/);
   assert.match(source, /<p className="claim-card-label">Relief Pack<\/p>/);
   assert.match(source, /<p className="claim-card-label">Disaster Event<\/p>/);
   assert.match(source, /proofType === "QR" \? \(/);
   assert.match(source, /className="stub-claim-confirm-family-head"/);
   assert.match(source, /Household \/ Family Head/);
+  assert.match(source, /Are you sure you want to confirm this relief distribution\?/);
   const styles = await readClientSource("src/index.css");
   assert.match(
     styles,
     /\.claim-qr-relief-details \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)[\s\S]*?text-align: center;/,
   );
+  assert.match(styles, /\.claim-qr-relief-card--manual \.claim-qr-relief-details \{[\s\S]*?border-top: 0;/);
 });
 
 test("household verification keeps members visible and uses a compact empty state", async () => {

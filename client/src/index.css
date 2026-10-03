@@ -4727,6 +4727,11 @@ img {
   text-align: center;
 }
 
+.claim-qr-relief-card--manual .claim-qr-relief-details {
+  padding-top: 0;
+  border-top: 0;
+}
+
 .claim-card-value,
 .claim-card-supporting-value {
   margin: 3px 0 0;
