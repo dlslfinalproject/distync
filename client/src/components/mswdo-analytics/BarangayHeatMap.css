@@ -79,12 +79,29 @@
 }
 
 .barangay-heatmap-map {
+  position: relative;
   min-width: 0;
   padding: 8px;
   overflow: hidden;
   background: #fbfdff;
   border: 1px solid #d9e4ed;
   border-radius: 12px;
+}
+
+.barangay-heatmap-tooltip {
+  position: absolute;
+  z-index: 2;
+  max-width: 220px;
+  padding: 8px 10px;
+  color: #17324d;
+  background: #ffffff;
+  border: 1px solid #c6d8e8;
+  border-radius: 7px;
+  box-shadow: 0 5px 14px rgba(23, 50, 77, 0.16);
+  font-size: 12px;
+  line-height: 1.35;
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 .barangay-heatmap-svg {

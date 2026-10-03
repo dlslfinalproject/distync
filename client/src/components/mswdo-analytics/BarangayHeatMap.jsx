@@ -1,4 +1,4 @@
-import React, { useId, useMemo, useState } from "react";
+import React, { useId, useMemo, useRef, useState } from "react";
 import malvarBarangaysRaw from "../../assets/malvar-barangays.geojson?raw";
 import {
   BARANGAY_HEATMAP_COLORS,
@@ -50,6 +50,8 @@ const BarangayHeatMap = ({ barangays }) => {
     DEFAULT_BARANGAY_HEATMAP_METRIC,
   );
   const [selectedKey, setSelectedKey] = useState("");
+  const [hoverTooltip, setHoverTooltip] = useState(null);
+  const mapRef = useRef(null);
   const reactId = useId().replace(/:/g, "");
   const metricId = "barangay-heatmap-metric-" + reactId;
   const titleId = "barangay-heatmap-title-" + reactId;
@@ -70,6 +72,34 @@ const BarangayHeatMap = ({ barangays }) => {
     [barangayRowLookup, selectedMetric],
   );
   const selectedRow = getSelectedBarangayHeatmapRow(model, selectedKey);
+  const hoveredRow = hoverTooltip
+    ? model.rows.find((row) => row.key === hoverTooltip.rowKey)
+    : null;
+
+  const getTooltipPosition = (event) => {
+    const mapBounds = mapRef.current?.getBoundingClientRect();
+    if (!mapBounds) return { left: 8, top: 8 };
+
+    const targetBounds = event?.currentTarget?.getBoundingClientRect();
+    const rawLeft = event?.clientX
+      ? event.clientX - mapBounds.left + 12
+      : (targetBounds?.left || mapBounds.left) - mapBounds.left + 12;
+    const rawTop = event?.clientY
+      ? event.clientY - mapBounds.top + 12
+      : (targetBounds?.top || mapBounds.top) - mapBounds.top + 12;
+
+    return {
+      left: Math.min(Math.max(rawLeft, 8), Math.max(8, mapBounds.width - 228)),
+      top: Math.min(Math.max(rawTop, 8), Math.max(8, mapBounds.height - 62)),
+    };
+  };
+
+  const showHoverTooltip = (event, row) => {
+    setHoverTooltip({
+      rowKey: row.key,
+      position: getTooltipPosition(event),
+    });
+  };
 
   return (
     <section
@@ -93,7 +123,7 @@ const BarangayHeatMap = ({ barangays }) => {
         <>
           <div className="barangay-heatmap-layout">
             <div className="barangay-heatmap-map-column">
-              <div className="barangay-heatmap-map">
+              <div className="barangay-heatmap-map" ref={mapRef}>
                 <svg
                   className="barangay-heatmap-svg"
                   viewBox={
@@ -131,11 +161,6 @@ const BarangayHeatMap = ({ barangays }) => {
                     const isSelected = row.key === selectedKey;
                     const valueLabel =
                       row.value === null ? "Unavailable" : formatCount(row.value);
-                    const tooltipLabel = formatBarangayHeatmapTooltip({
-                      barangayName: row.name,
-                      metricLabel: model.metric.label,
-                      value: valueLabel,
-                    });
                     const accessibleLabel = formatBarangayHeatmapAriaLabel({
                       barangayName: row.name,
                       metricLabel: model.metric.label,
@@ -180,9 +205,19 @@ const BarangayHeatMap = ({ barangays }) => {
                         tabIndex={0}
                         aria-label={accessibleLabel}
                         aria-pressed={isSelected}
+                        onPointerEnter={(event) =>
+                          showHoverTooltip(event, row)
+                        }
+                        onPointerMove={(event) =>
+                          showHoverTooltip(event, row)
+                        }
+                        onPointerLeave={() => setHoverTooltip(null)}
+                        onFocus={(event) =>
+                          showHoverTooltip(event, row)
+                        }
+                        onBlur={() => setHoverTooltip(null)}
                       {...interactionHandlers}
                     >
-                        <title>{tooltipLabel}</title>
                       </path>
                     );
                   })}
@@ -221,6 +256,26 @@ const BarangayHeatMap = ({ barangays }) => {
                     );
                   })}
                 </svg>
+                {hoverTooltip && hoveredRow ? (
+                  <div
+                    className="barangay-heatmap-tooltip"
+                    style={hoverTooltip.position}
+                    aria-hidden="true"
+                  >
+                    {formatBarangayHeatmapTooltip({
+                      barangayName: hoveredRow.name,
+                      metricLabel: model.metric.label,
+                      value:
+                        hoveredRow.value === null
+                          ? "Unavailable"
+                          : formatCount(hoveredRow.value),
+                    })
+                      .split("\n")
+                      .map((line, index) => (
+                      <div key={line + index}>{line}</div>
+                      ))}
+                  </div>
+                ) : null}
               </div>
 
               <div

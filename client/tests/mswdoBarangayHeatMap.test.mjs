@@ -425,7 +425,7 @@ test("the rendered heat-map title uses the active metric without selection text"
     const html = renderToStaticMarkup(
       React.createElement(BarangayHeatMap, { barangays: makeRows() }),
     );
-    assert.match(html, /<title>Poblacion\nRegistered Households : 0<\/title>/);
+    assert.doesNotMatch(html, /<title>Poblacion\nRegistered Households : 0<\/title>/);
     assert.match(html, /aria-label="Poblacion, Registered Households: 0"/);
     assert.doesNotMatch(html, /Affected by selected event.*Registered Households/);
     assert.doesNotMatch(html, /Selected<\/title>/);
@@ -652,6 +652,13 @@ test("mobile layout stacks the details below a full-width map and keeps focus vi
   assert.match(componentSource, /aria-hidden="true"/);
   assert.match(componentSource, /labelPointByFeature/);
   assert.doesNotMatch(componentSource, /getBarangayHeatmapLabelOffset/);
+  assert.match(componentSource, /onPointerEnter=/);
+  assert.match(componentSource, /onPointerMove=/);
+  assert.match(componentSource, /onPointerLeave=/);
+  assert.match(componentSource, /onFocus=/);
+  assert.match(componentSource, /onBlur=/);
+  assert.doesNotMatch(componentSource, /<title>\{tooltipLabel\}<\/title>/);
+  assert.match(cssSource, /\.barangay-heatmap-tooltip[\s\S]*?pointer-events:\s*none/);
   assert.match(cssSource, /\.barangay-heatmap-label[\s\S]*?pointer-events:\s*none/);
   assert.match(
     cssSource,
