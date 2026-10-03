@@ -23,7 +23,7 @@ export const BARANGAY_HEATMAP_UNAFFECTED_COLOR = "#dce3e9";
 export const BARANGAY_HEATMAP_VIEWBOX = Object.freeze({
   width: 760,
   height: 540,
-  padding: 24,
+  padding: 12,
 });
 
 const getPlanarRingSignedArea = (ring) => {

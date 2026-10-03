@@ -149,6 +149,7 @@ test("normalized Malvar geometry produces 15 finite, localized paths inside the 
   assert.equal(geometry.geoJson.features.length, 15);
   assert.equal(geometry.pathByFeature.size, 15);
   assert.equal(geometry.labelPointByFeature.size, 15);
+  assert.equal(BARANGAY_HEATMAP_VIEWBOX.padding, 12);
   assert.ok(right - left > width * 0.5);
   assert.ok(bottom - top > height * 0.5);
   assert.ok(largestFeatureWidth < (width - 2 * padding) * 0.5);
@@ -604,6 +605,11 @@ test("mobile layout stacks the details below a full-width map and keeps focus vi
   assert.match(componentSource, /aria-hidden="true"/);
   assert.match(componentSource, /labelPointByFeature/);
   assert.match(cssSource, /\.barangay-heatmap-label[\s\S]*?pointer-events:\s*none/);
+  assert.match(
+    cssSource,
+    /\.barangay-heatmap-layout\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1\.55fr\)\s+minmax\(220px,\s*0\.45fr\)/,
+  );
+  assert.match(cssSource, /\.barangay-heatmap-map\s*\{[\s\S]*?padding:\s*4px/);
   assert.match(componentSource, /stroke=\{\s*isSelected\s*\?\s*"#17324d"/);
   assert.match(componentSource, /strokeWidth=\{isSelected\s*\?\s*3\s*:\s*1\.25\}/);
 });
