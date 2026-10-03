@@ -189,15 +189,21 @@ const BarangayHeatMap = ({ barangays }) => {
                   <strong>{model.metric.label}</strong>
                   <span>Low → High</span>
                 </div>
-                <div className="barangay-heatmap-color-steps" aria-hidden="true">
-                  {BARANGAY_HEATMAP_COLORS.map((color, index) => (
-                    <span
-                      key={color}
-                      className="barangay-heatmap-color-step"
-                      style={{ backgroundColor: color }}
-                      title={"Magnitude step " + (index + 1)}
-                    />
-                  ))}
+                <div className="barangay-heatmap-color-steps">
+                  {BARANGAY_HEATMAP_COLORS.map((color, index) => {
+                    const rangeLabel = model.scaleRanges[index] || "No values";
+
+                    return (
+                      <span
+                        key={color}
+                        className="barangay-heatmap-color-step"
+                        style={{ backgroundColor: color }}
+                        role="img"
+                        aria-label={rangeLabel}
+                        title={rangeLabel}
+                      />
+                    );
+                  })}
                 </div>
                 <div className="barangay-heatmap-scale-range">
                   <span>Low</span>
@@ -205,8 +211,8 @@ const BarangayHeatMap = ({ barangays }) => {
                     {model.affectedCount === 0
                       ? "No affected values"
                       : model.maxValue === 0
-                        ? "Affected values: 0"
-                        : "Affected values: 0–" + formatCount(model.maxValue)}
+                        ? "Range: 0"
+                        : "Range: 0–" + formatCount(model.maxValue)}
                   </span>
                   <span>High</span>
                 </div>

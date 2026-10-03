@@ -13,6 +13,7 @@ import {
   BARANGAY_HEATMAP_VIEWBOX,
   DEFAULT_BARANGAY_HEATMAP_METRIC,
   buildBarangayHeatmapModel,
+  getBarangayHeatmapScaleRanges,
   indexBarangayHeatmapRows,
   createBarangayHeatmapInteractionHandlers,
   createBarangayHeatmapGeometry,
@@ -219,7 +220,7 @@ test("unaffected, affected-zero, affected-positive, and unavailable rows use sep
 
   assert.equal(zero.colorIndex, 0);
   assert.equal(zero.fill, BARANGAY_HEATMAP_COLORS[0]);
-  assert.equal(positive.fill, BARANGAY_HEATMAP_COLORS[2]);
+  assert.equal(positive.fill, BARANGAY_HEATMAP_COLORS[4]);
   assert.equal(unaffected.fill, BARANGAY_HEATMAP_UNAFFECTED_COLOR);
   assert.notEqual(zero.fill, unaffected.fill);
   assert.equal(unavailable.status, "unavailable");
@@ -229,6 +230,49 @@ test("unaffected, affected-zero, affected-positive, and unavailable rows use sep
   assert.equal(model.maxValue, Math.max(...model.rows
     .filter((row) => row.status === "affected")
     .map((row) => row.value)));
+});
+
+test("heatmap colors and labels divide the full affected range into five steps", () => {
+  assert.deepEqual(getBarangayHeatmapScaleRanges(4), [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+  ]);
+  assert.deepEqual(getBarangayHeatmapScaleRanges(100), [
+    "0–19",
+    "20–39",
+    "40–59",
+    "60–79",
+    "80–100",
+  ]);
+  assert.deepEqual(getBarangayHeatmapScaleRanges(3000), [
+    "0–599",
+    "600–1199",
+    "1200–1799",
+    "1800–2399",
+    "2400–3000",
+  ]);
+
+  const rows = makeRows().map((row, index) => ({
+    ...row,
+    is_affected: index < 5,
+    registered_households: index,
+  }));
+  const model = buildBarangayHeatmapModel(
+    geoJson.features,
+    rows,
+    "registered_households",
+  );
+
+  assert.deepEqual(
+    model.rows
+      .filter((row) => row.status === "affected")
+      .map((row) => row.colorIndex),
+    [0, 1, 2, 3, 4],
+  );
+  assert.deepEqual(model.scaleRanges, ["0", "1", "2", "3", "4"]);
 });
 
 test("the selected metric stays local and recalculates values and range", () => {
@@ -388,6 +432,8 @@ test("the component renders all 15 accessible polygons, default metric, and the 
     assert.match(html, /Registered Households/);
     assert.match(html, /Not affected by selected event/);
     assert.match(html, /Select a barangay to view its summary\./);
+    assert.match(html, /aria-label="0"/);
+    assert.doesNotMatch(html, /Magnitude step/);
     assert.match(html, /aria-pressed="false"/);
   } finally {
     await vite.close();

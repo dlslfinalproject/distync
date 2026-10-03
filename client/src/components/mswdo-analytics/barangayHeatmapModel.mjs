@@ -151,6 +151,33 @@ const getNumericValue = (value) => {
   return null;
 };
 
+export const getBarangayHeatmapScaleRanges = (maxValue) => {
+  const normalizedMax =
+    Number.isFinite(maxValue) && maxValue > 0 ? maxValue : 0;
+  const colorCount = BARANGAY_HEATMAP_COLORS.length;
+
+  return BARANGAY_HEATMAP_COLORS.map((_, index) => {
+    if (normalizedMax === 0) {
+      return index === 0 ? "0" : "No values";
+    }
+
+    const lowerBound =
+      index === 0 ? 0 : Math.ceil((index * normalizedMax) / colorCount);
+    const upperBound =
+      index === colorCount - 1
+        ? normalizedMax
+        : Math.ceil(((index + 1) * normalizedMax) / colorCount) - 1;
+
+    if (lowerBound > normalizedMax || upperBound < lowerBound) {
+      return "No values";
+    }
+
+    return lowerBound === upperBound
+      ? String(lowerBound)
+      : lowerBound + "–" + upperBound;
+  });
+};
+
 const getFeatureName = (feature, code, row) =>
   row?.barangay_name ||
   feature?.properties?.adm4_name ||
@@ -234,22 +261,19 @@ export const buildBarangayHeatmapModel = (
     (maximum, value) => Math.max(maximum, value),
     0,
   );
-  const scaleCeiling = Math.max(5, maxValue);
+  const scaleCeiling = maxValue;
+  const scaleRanges = getBarangayHeatmapScaleRanges(scaleCeiling);
 
   const rows = joinedRows.map((row) => {
     if (row.status !== "affected") return row;
 
     const colorIndex =
-      row.value === 0 || maxValue === 0
+      scaleCeiling === 0
         ? 0
-        : Math.max(
-            1,
-            Math.min(
-              BARANGAY_HEATMAP_COLORS.length - 1,
-              Math.round(
-                (row.value / scaleCeiling) *
-                  (BARANGAY_HEATMAP_COLORS.length - 1),
-              ),
+        : Math.min(
+            BARANGAY_HEATMAP_COLORS.length - 1,
+            Math.floor(
+              (row.value / scaleCeiling) * BARANGAY_HEATMAP_COLORS.length,
             ),
           );
 
@@ -274,6 +298,7 @@ export const buildBarangayHeatmapModel = (
     unavailableCount,
     maxValue,
     scaleCeiling,
+    scaleRanges,
     matchedCount: rows.length - unavailableCount,
     hasJoinMismatch:
       hasData &&
