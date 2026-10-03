@@ -639,10 +639,7 @@ const StubClaimConfirmModal = ({
     stubDetails?.disaster_event?.name ||
     "--";
   const selectedStubSummaries = selectedStubs.map(getSelectedStubSummary);
-  const distributionMessage =
-    selectedCount > 1
-      ? "Are you sure these relief distributions are correct?"
-      : "Are you sure this relief distribution is correct?";
+  const distributionMessage = "Are you sure you want to confirm this relief distribution?";
   const handleDialogKeyDown = (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -710,7 +707,7 @@ const StubClaimConfirmModal = ({
           ) : null}
           {selectedCount === 1 ? (
             <section
-              className="claim-qr-relief-card"
+              className={`claim-qr-relief-card${proofType === "PHOTO" ? " claim-qr-relief-card--manual" : ""}`}
               aria-label={proofType === "QR" ? "QR code and relief pack" : "Relief pack"}
             >
               {proofType === "QR" ? (
@@ -828,7 +825,7 @@ const StubClaimConfirmModal = ({
             </div>
           )}
 
-        {selectedCount === 1 ? (
+        {selectedCount === 1 && proofType !== "QR" ? (
           <section
             className={`claim-proof-workflow claim-proof-workflow--${proofType || "checking"}`}
             aria-labelledby="claim-proof-section-title"
