@@ -68,21 +68,6 @@ const BarangayHeatMap = ({ barangays }) => {
         <div className="barangay-heatmap-heading">
           <h2 id={titleId}>Barangay Operational Heat Map</h2>
         </div>
-        <div className="barangay-heatmap-control">
-          <label htmlFor={metricId}>Map metric</label>
-          <select
-            id={metricId}
-            aria-label="Heat map metric"
-            value={selectedMetric}
-            onChange={(event) => setSelectedMetric(event.target.value)}
-          >
-            {BARANGAY_HEATMAP_METRICS.map((metric) => (
-              <option key={metric.key} value={metric.key}>
-                {metric.label}
-              </option>
-            ))}
-          </select>
-        </div>
       </header>
 
       {!model.hasData ? (
@@ -251,42 +236,60 @@ const BarangayHeatMap = ({ barangays }) => {
               </div>
             </div>
 
-            <aside
-              className="barangay-heatmap-details"
-              aria-label="Selected barangay summary"
-              aria-live="polite"
-            >
-              <h3>Barangay Summary</h3>
-              {!selectedRow ? (
-                <p>Select a barangay to view its summary.</p>
-              ) : (
-                <>
-                  <h4>{selectedRow.name}</h4>
-                  <p className="barangay-heatmap-affected">
-                    Affected by selected event:{" "}
-                    <strong>
-                      {selectedRow.status === "affected"
-                        ? "Yes"
-                        : selectedRow.status === "unaffected"
-                          ? "No"
-                          : "Data unavailable"}
-                    </strong>
-                  </p>
-                  {selectedRow.apiRow ? (
-                    <dl>
-                      {detailFields.map(([label, field]) => (
-                        <div key={field}>
-                          <dt>{label}</dt>
-                          <dd>{formatCount(selectedRow.apiRow[field])}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  ) : (
-                    <p>Aggregate details are unavailable for this boundary.</p>
-                  )}
-                </>
-              )}
-            </aside>
+            <div className="barangay-heatmap-side-column">
+              <div className="barangay-heatmap-control">
+                <label htmlFor={metricId}>Map Metric</label>
+                <select
+                  id={metricId}
+                  aria-label="Heat map metric"
+                  value={selectedMetric}
+                  onChange={(event) => setSelectedMetric(event.target.value)}
+                >
+                  {BARANGAY_HEATMAP_METRICS.map((metric) => (
+                    <option key={metric.key} value={metric.key}>
+                      {metric.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <aside
+                className="barangay-heatmap-details"
+                aria-label="Selected barangay summary"
+                aria-live="polite"
+              >
+                <h3>Barangay Summary</h3>
+                {!selectedRow ? (
+                  <p>Select a barangay to view its summary.</p>
+                ) : (
+                  <>
+                    <h4>{selectedRow.name}</h4>
+                    <p className="barangay-heatmap-affected">
+                      Affected by selected event:{" "}
+                      <strong>
+                        {selectedRow.status === "affected"
+                          ? "Yes"
+                          : selectedRow.status === "unaffected"
+                            ? "No"
+                            : "Data unavailable"}
+                      </strong>
+                    </p>
+                    {selectedRow.apiRow ? (
+                      <dl>
+                        {detailFields.map(([label, field]) => (
+                          <div key={field}>
+                            <dt>{label}</dt>
+                            <dd>{formatCount(selectedRow.apiRow[field])}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    ) : (
+                      <p>Aggregate details are unavailable for this boundary.</p>
+                    )}
+                  </>
+                )}
+              </aside>
+            </div>
           </div>
 
           {model.affectedCount === 0 ? (
