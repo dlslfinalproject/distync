@@ -155,7 +155,7 @@ test("modal body scrolls inside a stable footer and adapts width and actions", a
   assert.match(styles, /\.stub-claim-confirm-body \{[\s\S]*?min-height: 0[\s\S]*?overflow-y: auto/);
   assert.match(styles, /\.stub-claim-confirm-actions \{[\s\S]*?position: sticky[\s\S]*?bottom: 0[\s\S]*?border-top: 1px solid/);
   assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?grid-template-columns: minmax\(0, 1fr\)[\s\S]*?\.stub-claim-confirm-actions button[\s\S]*?width: 100%/);
-  assert.match(styles, /width: min\(100%, 400px, 80vh\)/);
+  assert.match(styles, /width: min\(100%, 340px, 65vh\)/);
 });
 
 test("unavailable-Stub copy is concise and shared by Barangay and MSWDO", async () => {
@@ -281,8 +281,8 @@ test("claim proof layout removes method cards and keeps 4:3 camera framing respo
   const source = await readClientSource("src/index.css");
 
   assert.doesNotMatch(source, /claim-proof-method-(?:options|option|card)/);
-  assert.match(source, /\.claim-proof-camera-preview,[\s\S]*?width: min\(100%, 400px, 80vh\)[\s\S]*?max-height: 60vh[\s\S]*?aspect-ratio: 4 \/ 3/);
-  assert.match(source, /@supports \(height: 1dvh\)[\s\S]*?80dvh[\s\S]*?60dvh/);
+  assert.match(source, /\.claim-proof-camera-preview,[\s\S]*?width: min\(100%, 340px, 65vh\)[\s\S]*?max-height: 45vh[\s\S]*?aspect-ratio: 4 \/ 3/);
+  assert.match(source, /@supports \(height: 1dvh\)[\s\S]*?65dvh[\s\S]*?45dvh/);
   assert.match(source, /\.claim-proof-photo-preview[\s\S]*object-fit: contain/);
   assert.match(source, /@media \(max-height: 620px\)[\s\S]*\.stub-claim-confirm-modal[\s\S]*max-height: calc\(100dvh - 16px\)/);
   assert.match(source, /@media \(max-width: 520px\)[\s\S]*\.claim-proof-capture-actions[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);

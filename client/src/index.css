@@ -4589,9 +4589,20 @@ img {
 
 .stub-claim-confirm-header {
   flex: 0 0 auto;
-  padding: 20px 24px 14px;
+  padding: 16px 18px 11px;
   border-bottom: 1px solid #e1eaf3;
   background: #ffffff;
+}
+
+.stub-claim-confirm-header h3 {
+  font-size: 19px !important;
+  line-height: 1.3;
+}
+
+.stub-claim-confirm-header p {
+  margin-top: 6px !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
 }
 
 .stub-claim-confirm-header h3:focus {
@@ -4607,7 +4618,7 @@ img {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  padding: 16px 24px 20px;
+  padding: 12px 18px 16px;
   box-sizing: border-box;
 }
 
@@ -4618,7 +4629,7 @@ img {
   flex: 0 0 auto;
   width: 100%;
   margin: 0 !important;
-  padding: 12px 24px calc(12px + env(safe-area-inset-bottom, 0px));
+  padding: 9px 18px calc(9px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid #dce7f1;
   background: #ffffff;
   box-shadow: 0 -8px 18px rgba(20, 48, 78, 0.06);
@@ -4632,7 +4643,8 @@ img {
 
 .claim-distribution-summary {
   width: 100%;
-  padding: 12px;
+  margin-top: 8px;
+  padding: 10px 11px;
   border: 1px solid #dce7f1;
   border-radius: 14px;
   background: #f8fbfe;
@@ -4643,7 +4655,7 @@ img {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -4658,7 +4670,7 @@ img {
 }
 
 .claim-summary-stub-number {
-  margin: 3px 0 0;
+  display: none;
   color: #17324d;
   font-size: 19px;
   font-weight: 800;
@@ -4737,8 +4749,8 @@ img {
 .claim-distribution-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px 18px;
-  margin: 12px 0 0;
+  gap: 7px 12px;
+  margin: 8px 0 0;
 }
 
 .claim-distribution-summary-grid > div {
@@ -4756,9 +4768,9 @@ img {
 .claim-distribution-summary-grid dd {
   margin: 3px 0 0;
   color: #17324d;
-  font-size: 14px;
-  font-weight: 650;
-  line-height: 1.4;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
@@ -4771,8 +4783,8 @@ img {
 }
 
 .claim-offline-details-note {
-  margin: 10px 0 0;
-  padding: 8px 10px;
+  margin: 8px 0 0;
+  padding: 7px 9px;
   border-radius: 8px;
   background: #fff8e9;
   color: #795c20;
@@ -4781,20 +4793,27 @@ img {
 
 .stub-claim-confirm-content {
   width: 100%;
-  margin-top: 14px;
-  padding-top: 13px;
-  border-top: 1px solid #e1eaf3;
+  margin-top: 8px;
+  padding: 11px;
+  border: 1px solid #e1eaf3;
+  border-radius: 14px;
+  background: #f8fbfe;
+  box-sizing: border-box;
 }
 
 .claim-household-title {
   margin: 0;
-  color: #17324d;
-  font-size: 14px;
+  color: #60738a;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   line-height: 1.35;
+  text-transform: uppercase;
 }
 
 .stub-claim-confirm-family-head {
-  margin-top: 10px;
+  margin-top: 8px;
+  padding: 0 !important;
   align-items: center;
 }
 
@@ -4803,7 +4822,9 @@ img {
 }
 
 .claim-household-members {
-  margin-top: 10px;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid #e1eaf3;
 }
 
 .claim-household-members-label {
@@ -4822,8 +4843,8 @@ img {
   margin: 5px 0 0;
   padding-left: 18px;
   color: #17324d;
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .claim-household-empty {
@@ -4834,8 +4855,9 @@ img {
 }
 
 .claim-proof-workflow {
-  margin-top: 14px;
-  padding: 14px;
+  margin-top: 8px;
+  padding: 11px;
+  border-radius: 14px;
 }
 
 .claim-proof-workflow--QR {
@@ -4849,7 +4871,7 @@ img {
 }
 
 .claim-proof-section-title {
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .claim-proof-informational {
@@ -4872,8 +4894,8 @@ img {
 }
 
 .claim-proof-guidance {
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .claim-proof-capture-actions {
@@ -4891,8 +4913,8 @@ img {
 
 .claim-proof-camera-preview,
 .claim-proof-photo-frame {
-  width: min(100%, 400px, 80vh);
-  max-height: 60vh;
+  width: min(100%, 340px, 65vh);
+  max-height: 45vh;
   aspect-ratio: 4 / 3;
 }
 
@@ -4904,8 +4926,8 @@ img {
 @supports (height: 1dvh) {
   .claim-proof-camera-preview,
   .claim-proof-photo-frame {
-    width: min(100%, 400px, 80dvh);
-    max-height: 60dvh;
+    width: min(100%, 340px, 65dvh);
+    max-height: 45dvh;
   }
 }
 
@@ -4922,18 +4944,18 @@ img {
   }
 
   .stub-claim-confirm-header {
-    padding: 17px 16px 12px;
+    padding: 14px 14px 10px;
   }
 
   .stub-claim-confirm-body {
-    padding: 13px 16px 16px;
+    padding: 10px 14px 13px;
   }
 
   .stub-claim-confirm-actions {
     display: grid !important;
     grid-template-columns: minmax(0, 1fr);
     gap: 8px;
-    padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+    padding: 8px 14px calc(8px + env(safe-area-inset-bottom, 0px));
   }
 
   .stub-claim-confirm-actions button {
