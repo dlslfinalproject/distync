@@ -746,18 +746,6 @@ const StubClaimConfirmModal = ({
                     {getDisplayStubNumber(stubDetails)}
                   </p>
                 </div>
-                <span
-                  className={`claim-proof-state-badge claim-proof-state-badge--${proofType || "checking"} claim-summary-proof-badge`}
-                  role="status"
-                >
-                  {proofType === "QR"
-                    ? "Stub QR Verified"
-                    : proofType === "PHOTO"
-                      ? isProofPhotoReady
-                        ? "Photo Proof Ready"
-                        : "Photo Proof Required"
-                      : "Waiting for Claim Verification"}
-                </span>
               </div>
               <dl className="claim-distribution-summary-grid">
                 <div>
@@ -824,7 +812,7 @@ const StubClaimConfirmModal = ({
                 ) : familyHeadPhotoUrl ? (
                   <img
                     src={familyHeadPhotoUrl}
-                    alt="Registered family head photo for manual identity verification"
+                    alt="Family head reference photo"
                     style={modalStyles.photoPreview}
                   />
                 ) : (
@@ -832,14 +820,11 @@ const StubClaimConfirmModal = ({
                 )}
 
                 <div>
-                  <p style={modalStyles.label}>Registered Family Head Photo</p>
+                  <p style={modalStyles.label}>Household / Family Head</p>
                   <p style={modalStyles.value}>
                     {stubDetails?.household?.family_head_name ||
                       stubDetails?.family_head_name ||
                       "--"}
-                  </p>
-                  <p style={modalStyles.capturedText}>
-                    For manual identity verification only.
                   </p>
                   {stubDetails?.household?.photo_captured_at ? (
                     <p style={modalStyles.capturedText}>

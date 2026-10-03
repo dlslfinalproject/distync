@@ -4862,6 +4862,12 @@ img {
   border-radius: 14px;
 }
 
+.claim-proof-workflow .claim-proof-state-badge,
+.claim-proof-workflow--QR .claim-proof-informational,
+.claim-proof-workflow--PHOTO .claim-proof-required-notice {
+  display: none;
+}
+
 .claim-proof-workflow--QR {
   padding-top: 11px;
   padding-bottom: 11px;

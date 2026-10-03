@@ -91,15 +91,21 @@ test("claim proof requires a verified scan or explicit unavailable-Stub context"
   assert.match(source, /disabled=\{isConfirmDisabled\}/);
   assert.doesNotMatch(source, /Use Photo/);
 });
-test("single Stub confirmation keeps Photo Proof status below the claim and household summaries", async () => {
-  const source = await readClientSource("src/components/stubs/StubClaimConfirmModal.jsx");
+test("single Stub confirmation keeps Photo Proof below the claim and household summaries", async () => {
+  const [source, styles] = await Promise.all([
+    readClientSource("src/components/stubs/StubClaimConfirmModal.jsx"),
+    readClientSource("src/index.css"),
+  ]);
 
   assert.match(source, /Photo Proof of Receipt/);
   assert.doesNotMatch(source, /Proof requirements follow the claim path\./);
   assert.match(source, /Not Required — Stub QR Verified/);
   assert.match(source, /The physical Stub QR was verified\./);
   assert.match(source, /Stub QR Verified/);
-  assert.match(source, /Photo Proof Required/);
+  assert.doesNotMatch(source, /Photo Proof Required/);
+  assert.match(styles, /\.claim-proof-workflow \.claim-proof-state-badge,[\s\S]*?display: none;/);
+  assert.match(styles, /\.claim-proof-workflow--QR \.claim-proof-informational,[\s\S]*?display: none;/);
+  assert.match(styles, /\.claim-proof-workflow--PHOTO \.claim-proof-required-notice \{[\s\S]*?display: none;/);
   assert.match(source, /aria-labelledby="claim-household-verification-title"/);
   assert.match(source, /aria-labelledby="claim-proof-section-title"/);
 
@@ -127,7 +133,7 @@ test("claim summary combines the operational fields and proof path", async () =>
   assert.match(source, /<dt>Disaster Event<\/dt>/);
   assert.match(source, /<dt>Relief Pack<\/dt>/);
   assert.match(source, /<dt>Proof Method<\/dt>/);
-  assert.match(source, /claim-summary-proof-badge/);
+  assert.doesNotMatch(source, /claim-summary-proof-badge/);
   assert.doesNotMatch(source, /<p style=\{modalStyles\.label\}>Stub Number<\/p>/);
   const styles = await readClientSource("src/index.css");
   assert.match(
@@ -299,8 +305,8 @@ test("family-head photo remains separate from required claim-time proof", async 
     readClientSource("src/features/stubs/claimProofWorkflow.js"),
   ]);
 
-  assert.match(source, /Registered Family Head Photo/);
-  assert.match(source, /For manual identity verification only\./);
+  assert.match(source, /Household \/ Family Head/);
+  assert.doesNotMatch(source, /For manual identity verification only\./);
   assert.match(source, /proofType: "PHOTO"[\s\S]*proofPhotoDataUrl/);
   assert.doesNotMatch(proofResolver, /family_head_photo/);
 });
