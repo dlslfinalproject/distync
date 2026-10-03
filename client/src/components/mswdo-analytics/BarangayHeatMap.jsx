@@ -67,10 +67,6 @@ const BarangayHeatMap = ({ barangays }) => {
       <header className="barangay-heatmap-header">
         <div className="barangay-heatmap-heading">
           <h2 id={titleId}>Barangay Operational Heat Map</h2>
-          <p>
-            Event-wide operational counts by barangay. Select a barangay to
-            view its aggregate summary.
-          </p>
         </div>
         <div className="barangay-heatmap-control">
           <label htmlFor={metricId}>Map metric</label>
