@@ -216,21 +216,14 @@ const BarangayHeatMap = ({ barangays }) => {
                       className="barangay-heatmap-swatch barangay-heatmap-swatch--unaffected"
                       aria-hidden="true"
                     />
-                    Not affected by selected event
-                  </span>
-                  <span>
-                    <i
-                      className="barangay-heatmap-swatch barangay-heatmap-swatch--zero"
-                      aria-hidden="true"
-                    />
-                    Affected value of 0
+                    Not Affected
                   </span>
                   <span>
                     <i
                       className="barangay-heatmap-swatch barangay-heatmap-swatch--unavailable"
                       aria-hidden="true"
                     />
-                    Data unavailable
+                    Data Unavailable
                   </span>
                 </div>
               </div>

@@ -252,11 +252,6 @@
   background: #dce3e9;
 }
 
-.barangay-heatmap-swatch--zero {
-  background: #e9f3fa;
-  border-color: #6f97b5;
-}
-
 .barangay-heatmap-swatch--unavailable {
   background:
     repeating-linear-gradient(
