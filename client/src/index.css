@@ -4814,9 +4814,9 @@ img {
 }
 
 .stub-claim-confirm-family-head {
+  display: block;
   margin-top: 11px;
   padding: 0 !important;
-  align-items: center;
 }
 
 .stub-claim-confirm-family-head p {

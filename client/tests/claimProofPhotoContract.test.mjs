@@ -124,17 +124,18 @@ test("single Stub confirmation keeps Photo Proof below the claim and household s
   assert.match(source, /proofType === "PHOTO" \? \([\s\S]*?claim-proof-capture/);
 });
 
-test("claim summary combines the operational fields and proof path", async () => {
+test("shared claim layout uses relief metadata without a redundant summary", async () => {
   const source = await readClientSource("src/components/stubs/StubClaimConfirmModal.jsx");
 
-  assert.match(source, /<h4 id="claim-distribution-summary-title">Claim Summary<\/h4>/);
-  assert.match(source, /\{getDisplayStubNumber\(stubDetails\)\}/);
-  assert.match(source, /<dt>Household \/ Family Head<\/dt>/);
-  assert.match(source, /<dt>Disaster Event<\/dt>/);
-  assert.match(source, /<dt>Relief Pack<\/dt>/);
-  assert.match(source, /<dt>Proof Method<\/dt>/);
-  assert.doesNotMatch(source, /claim-summary-proof-badge/);
-  assert.doesNotMatch(source, /<p style=\{modalStyles\.label\}>Stub Number<\/p>/);
+  assert.doesNotMatch(source, /claim-distribution-summary/);
+  assert.doesNotMatch(source, /Claim Summary/);
+  assert.doesNotMatch(source, /<dt>Proof Method<\/dt>/);
+  assert.match(source, /className="claim-qr-relief-card"/);
+  assert.match(source, /<p className="claim-card-label">Relief Pack<\/p>/);
+  assert.match(source, /<p className="claim-card-label">Disaster Event<\/p>/);
+  assert.match(source, /proofType === "QR" \? \(/);
+  assert.match(source, /className="stub-claim-confirm-family-head"/);
+  assert.match(source, /Household \/ Family Head/);
   const styles = await readClientSource("src/index.css");
   assert.match(
     styles,
