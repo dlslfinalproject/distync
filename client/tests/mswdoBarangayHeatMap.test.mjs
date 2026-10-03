@@ -12,7 +12,9 @@ import {
   BARANGAY_HEATMAP_UNAFFECTED_COLOR,
   BARANGAY_HEATMAP_VIEWBOX,
   DEFAULT_BARANGAY_HEATMAP_METRIC,
+  BARANGAY_HEATMAP_LABEL_OFFSETS,
   buildBarangayHeatmapModel,
+  getBarangayHeatmapLabelOffset,
   getBarangayHeatmapScaleRanges,
   indexBarangayHeatmapRows,
   createBarangayHeatmapInteractionHandlers,
@@ -149,7 +151,7 @@ test("normalized Malvar geometry produces 15 finite, localized paths inside the 
   assert.equal(geometry.geoJson.features.length, 15);
   assert.equal(geometry.pathByFeature.size, 15);
   assert.equal(geometry.labelPointByFeature.size, 15);
-  assert.equal(BARANGAY_HEATMAP_VIEWBOX.padding, 12);
+  assert.equal(BARANGAY_HEATMAP_VIEWBOX.padding, 24);
   assert.ok(right - left > width * 0.5);
   assert.ok(bottom - top > height * 0.5);
   assert.ok(largestFeatureWidth < (width - 2 * padding) * 0.5);
@@ -331,6 +333,46 @@ test("the selected metric stays local and recalculates values and range", () => 
   assert.doesNotMatch(
     componentSource,
     /mswdoAnalyticsService|axios|fetch\s*\(/,
+  );
+});
+
+test("label offsets are small, targeted, and relative to geometry centroids", () => {
+  const geometry = createBarangayHeatmapGeometry(geoJson);
+  const canonicalNames = geometry.geoJson.features.map(
+    (feature) => feature.properties.adm4_name,
+  );
+  const overrideNames = Object.keys(BARANGAY_HEATMAP_LABEL_OFFSETS);
+
+  assert.equal(overrideNames.length, 9);
+  assert.ok(overrideNames.every((name) => canonicalNames.includes(name)));
+
+  for (const [name, expectedOffset] of Object.entries(
+    BARANGAY_HEATMAP_LABEL_OFFSETS,
+  )) {
+    const feature = geometry.geoJson.features.find(
+      (candidate) => candidate.properties.adm4_name === name,
+    );
+    const centroid = geometry.labelPointByFeature.get(feature);
+    const offset = getBarangayHeatmapLabelOffset(name);
+
+    assert.deepEqual(offset, expectedOffset);
+    assert.deepEqual(
+      [centroid[0] + offset.x, centroid[1] + offset.y],
+      [centroid[0] + expectedOffset.x, centroid[1] + expectedOffset.y],
+    );
+  }
+
+  const nonOverriddenNames = canonicalNames.filter(
+    (name) => !Object.hasOwn(BARANGAY_HEATMAP_LABEL_OFFSETS, name),
+  );
+  assert.equal(nonOverriddenNames.length, 6);
+  for (const name of nonOverriddenNames) {
+    assert.deepEqual(getBarangayHeatmapLabelOffset(name), { x: 0, y: 0 });
+  }
+  assert.ok(
+    Object.values(BARANGAY_HEATMAP_LABEL_OFFSETS).every(
+      ({ x, y }) => Math.abs(x) <= 4 && Math.abs(y) <= 3,
+    ),
   );
 });
 
@@ -604,12 +646,15 @@ test("mobile layout stacks the details below a full-width map and keeps focus vi
   assert.match(componentSource, /className="barangay-heatmap-label"/);
   assert.match(componentSource, /aria-hidden="true"/);
   assert.match(componentSource, /labelPointByFeature/);
+  assert.match(componentSource, /getBarangayHeatmapLabelOffset/);
+  assert.match(componentSource, /labelPoint\[0\] \+ labelOffset\.x/);
+  assert.match(componentSource, /labelPoint\[1\] \+ labelOffset\.y/);
   assert.match(cssSource, /\.barangay-heatmap-label[\s\S]*?pointer-events:\s*none/);
   assert.match(
     cssSource,
-    /\.barangay-heatmap-layout\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1\.55fr\)\s+minmax\(220px,\s*0\.45fr\)/,
+    /\.barangay-heatmap-layout\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1\.35fr\)\s+minmax\(240px,\s*0\.65fr\)/,
   );
-  assert.match(cssSource, /\.barangay-heatmap-map\s*\{[\s\S]*?padding:\s*4px/);
+  assert.match(cssSource, /\.barangay-heatmap-map\s*\{[\s\S]*?padding:\s*8px/);
   assert.match(componentSource, /stroke=\{\s*isSelected\s*\?\s*"#17324d"/);
   assert.match(componentSource, /strokeWidth=\{isSelected\s*\?\s*3\s*:\s*1\.25\}/);
 });

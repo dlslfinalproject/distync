@@ -10,6 +10,23 @@ export const BARANGAY_HEATMAP_METRICS = Object.freeze([
 
 export const DEFAULT_BARANGAY_HEATMAP_METRIC = "registered_households";
 
+export const BARANGAY_HEATMAP_LABEL_OFFSETS = Object.freeze({
+  "Bagong Pook": Object.freeze({ x: -4, y: 2 }),
+  "Luta del Norte": Object.freeze({ x: -2, y: -2 }),
+  "Luta del Sur": Object.freeze({ x: 2, y: 2 }),
+  Poblacion: Object.freeze({ x: 0, y: 2 }),
+  "San Gregorio": Object.freeze({ x: 0, y: -3 }),
+  "San Isidro East": Object.freeze({ x: 3, y: 2 }),
+  "San Pedro I (Eastern)": Object.freeze({ x: 3, y: -2 }),
+  "San Pedro II (Western)": Object.freeze({ x: -3, y: 0 }),
+  "San Pioquinto": Object.freeze({ x: 0, y: 3 }),
+});
+
+const ZERO_LABEL_OFFSET = Object.freeze({ x: 0, y: 0 });
+
+export const getBarangayHeatmapLabelOffset = (barangayName) =>
+  BARANGAY_HEATMAP_LABEL_OFFSETS[barangayName] || ZERO_LABEL_OFFSET;
+
 export const BARANGAY_HEATMAP_COLORS = Object.freeze([
   "#e9f3fa",
   "#d3e4f0",
@@ -23,7 +40,7 @@ export const BARANGAY_HEATMAP_UNAFFECTED_COLOR = "#dce3e9";
 export const BARANGAY_HEATMAP_VIEWBOX = Object.freeze({
   width: 760,
   height: 540,
-  padding: 12,
+  padding: 24,
 });
 
 const getPlanarRingSignedArea = (ring) => {

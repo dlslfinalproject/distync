@@ -62,7 +62,7 @@
 
 .barangay-heatmap-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(220px, 0.45fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(240px, 0.65fr);
   align-items: start;
   gap: 20px;
   min-width: 0;
@@ -80,7 +80,7 @@
 
 .barangay-heatmap-map {
   min-width: 0;
-  padding: 4px;
+  padding: 8px;
   overflow: hidden;
   background: #fbfdff;
   border: 1px solid #d9e4ed;
@@ -117,13 +117,13 @@
 .barangay-heatmap-label {
   pointer-events: none;
   fill: #17324d;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.01em;
   paint-order: stroke;
   stroke: #ffffff;
   stroke-linejoin: round;
-  stroke-width: 2.5px;
+  stroke-width: 3px;
   text-anchor: middle;
 }
 
