@@ -7,6 +7,7 @@ import {
   normalizeImageDrawableToDataUrl,
   normalizeImageFileToDataUrl,
 } from "../../utils/imageProcessing.js";
+import QrCodePanel from "./QrCodePanel";
 import { FiCamera, FiCheckCircle, FiImage, FiRotateCcw } from "react-icons/fi";
 
 const modalStyles = {
@@ -23,7 +24,7 @@ const modalStyles = {
   },
   modal: {
     width: "100%",
-    maxWidth: "820px",
+    maxWidth: "560px",
     maxHeight: "calc(100vh - 36px)",
     display: "flex",
     flexDirection: "column",
@@ -704,6 +705,35 @@ const StubClaimConfirmModal = ({
           </p>
         </header>
         <div className="stub-claim-confirm-body">
+          {selectedCount === 1 ? (
+            <section className="claim-stub-number-card" aria-label="Stub number">
+              <p className="claim-card-label">Stub Number</p>
+              <p className="claim-stub-number-value">
+                {getDisplayStubNumber(stubDetails)}
+              </p>
+            </section>
+          ) : null}
+          {selectedCount === 1 && proofType === "QR" ? (
+            <section className="claim-qr-relief-card" aria-label="QR code and relief pack">
+              <p className="claim-card-label">QR Code</p>
+              <QrCodePanel
+                value={resolvedQrReferenceValue}
+                showValue={false}
+                containerStyle={{ width: "100%", alignItems: "center" }}
+                imageStyle={{ width: "148px", maxWidth: "100%" }}
+              />
+              <div className="claim-qr-relief-details">
+                <div>
+                  <p className="claim-card-label">Relief Pack</p>
+                  <p className="claim-card-value">{reliefPackDisplay}</p>
+                </div>
+                <div>
+                  <p className="claim-card-label">Disaster Event</p>
+                  <p className="claim-card-supporting-value">{disasterEventName}</p>
+                </div>
+              </div>
+            </section>
+          ) : null}
           {selectedCount === 1 ? (
             <section
               className="claim-distribution-summary"

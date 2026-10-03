@@ -151,7 +151,7 @@ test("modal body scrolls inside a stable footer and adapts width and actions", a
 
   assert.ok(bodyPosition > -1 && footerPosition > bodyPosition);
   assert.match(component, /<\/div>\s*<div className="stub-claim-confirm-actions"/);
-  assert.match(styles, /\.stub-claim-confirm-modal \{[\s\S]*?max-width: 820px[\s\S]*?display: flex[\s\S]*?flex-direction: column[\s\S]*?overflow: hidden/);
+  assert.match(styles, /\.stub-claim-confirm-modal \{[\s\S]*?max-width: 560px[\s\S]*?display: flex[\s\S]*?flex-direction: column[\s\S]*?overflow: hidden/);
   assert.match(styles, /\.stub-claim-confirm-body \{[\s\S]*?min-height: 0[\s\S]*?overflow-y: auto/);
   assert.match(styles, /\.stub-claim-confirm-actions \{[\s\S]*?position: sticky[\s\S]*?bottom: 0[\s\S]*?border-top: 1px solid/);
   assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?grid-template-columns: minmax\(0, 1fr\)[\s\S]*?\.stub-claim-confirm-actions button[\s\S]*?width: 100%/);
