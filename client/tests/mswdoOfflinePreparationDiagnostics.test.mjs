@@ -63,13 +63,11 @@ test("retry cycles use generation guards for terminal metadata and events", asyn
   const preparation = await read("features/offline/mswdoOfflinePreparation.js");
   const hook = await read("features/offline/useMswdoOfflinePreparation.js");
   assert.match(preparation, /preparationGenerations/);
-  assert.match(preparation, /isCurrentPreparationGeneration\(id, currentGeneration\)/);
-  assert.match(
-    preparation,
-    /if \(\s*!isCurrentPreparationGeneration\(id, currentGeneration\)\s*\|\|\s*!isSyncQueueActorContextCurrent\(owner\)\s*\)\s*\{\s*return snapshot/,
-  );
+  assert.match(preparation, /isCurrentPreparationGeneration\(id, generation\)/);
+  assert.match(preparation, /isCurrentMswdoPreparation\(id, currentGeneration, owner, activeScope\.generation\)/);
+  assert.match(preparation, /return \{ \.\.\.snapshot, stale: true \}/);
   assert.match(hook, /const generation = \+\+generationRef\.current/);
-  assert.match(hook, /generationRef\.current === event\.detail\?\.generation/);
+  assert.match(hook, /event\.detail\?\.generation === generation/);
 });
 
 test("last-good cache and safe failure diagnostics remain available to the hook and popup", async () => {
