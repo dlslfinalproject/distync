@@ -89,7 +89,12 @@ const runPreparationStage = async (stage, operation) => {
 };
 
 const preparationGenerations = new Map();
+const preparationJobs = new Map();
+const activePreparationScopes = new Map();
 let nextPreparationGeneration = 0;
+let nextScopeActivationGeneration = 0;
+
+const normalize = (value) => String(value || "").trim();
 
 const beginPreparationGeneration = (id, requestedGeneration) => {
   const generation = requestedGeneration || ++nextPreparationGeneration;
@@ -100,25 +105,106 @@ const beginPreparationGeneration = (id, requestedGeneration) => {
 const isCurrentPreparationGeneration = (id, generation) =>
   preparationGenerations.get(id) === generation;
 
-const normalize = (value) => String(value || "").trim();
 export const getMswdoOfflineScopeKey = ({ userId, eventId, mode = getAccessMode() } = {}) =>
   [mode, userId, ROLE_CODES.MSWDO, eventId, MSWDO_OFFLINE_DATASET].map(normalize).join("|");
 
 const getOwner = () => getSyncQueueActorContext();
-const isMswdoOwner = (userId) => {
-  const owner = getOwner();
-  return owner.roleCode === ROLE_CODES.MSWDO && owner.userId === userId;
+const getActorScopeKey = (owner) =>
+  [owner?.accessMode, owner?.userId, owner?.roleCode].map(normalize).join("|");
+
+const activateMswdoOfflineScope = ({ userId, eventId } = {}, owner = getOwner()) => {
+  if (!userId || !eventId || owner.roleCode !== ROLE_CODES.MSWDO || owner.userId !== userId) {
+    return null;
+  }
+  const scopeKey = getMswdoOfflineScopeKey({ userId, eventId, mode: owner.accessMode });
+  const actorKey = getActorScopeKey(owner);
+  const activeScope = activePreparationScopes.get(actorKey);
+  if (!activeScope || activeScope.scopeKey !== scopeKey) {
+    const nextScope = { scopeKey, generation: ++nextScopeActivationGeneration };
+    activePreparationScopes.set(actorKey, nextScope);
+    return nextScope;
+  }
+  return activeScope;
 };
 
+export const setCurrentMswdoOfflineScope = (scope = {}) => {
+  const activeScope = activateMswdoOfflineScope(scope, getOwner());
+  return activeScope?.generation ?? null;
+};
+
+const isCurrentMswdoPreparation = (id, generation, owner, scopeGeneration) => {
+  const activeScope = activePreparationScopes.get(getActorScopeKey(owner));
+  return isCurrentPreparationGeneration(id, generation) &&
+    activeScope?.scopeKey === id &&
+    activeScope.generation === scopeGeneration &&
+    isSyncQueueActorContextCurrent(owner);
+};
+
+const isMswdoOwner = (userId, owner = getOwner()) =>
+  owner.roleCode === ROLE_CODES.MSWDO && owner.userId === userId;
+
 export const getMswdoOfflinePreparation = async ({ userId, eventId } = {}) => {
-  if (!userId || !eventId || !isMswdoOwner(userId)) return null;
-  return db.offlinePreparation.get(getMswdoOfflineScopeKey({ userId, eventId }));
+  const owner = getOwner();
+  if (!userId || !eventId || !isMswdoOwner(userId, owner)) return null;
+  const id = getMswdoOfflineScopeKey({ userId, eventId, mode: owner.accessMode });
+  const record = await db.offlinePreparation.get(id);
+  if (
+    !isSyncQueueActorContextCurrent(owner) ||
+    !record ||
+    record.id !== id ||
+    record.accessMode !== owner.accessMode ||
+    record.userId !== userId ||
+    record.roleCode !== ROLE_CODES.MSWDO ||
+    String(record.disaster_event_id || "") !== String(eventId) ||
+    String(record.barangay_id || "") !== ""
+  ) {
+    return null;
+  }
+  return record;
+};
+
+const hasCompleteMswdoOfflineDatasets = (record) => {
+  const datasets = record?.datasets;
+  const masterlistRows = datasets?.masterlist?.rows;
+  const masterlistPayloadRows = datasets?.masterlist?.payload?.data;
+  const filters = datasets?.filters;
+  const distributionRows = datasets?.distribution?.payload?.data;
+  const photoCache = datasets?.photoCache;
+  const photoCount = photoCache?.required;
+  return record?.cache_version === MSWDO_OFFLINE_CACHE_VERSION &&
+    datasets?.masterlist?.complete === true &&
+    datasets.masterlist.valid === true &&
+    Array.isArray(masterlistRows) &&
+    Array.isArray(masterlistPayloadRows) &&
+    masterlistRows.length === masterlistPayloadRows.length &&
+    Number.isInteger(record.masterlist_count) &&
+    Number(record.masterlist_count) === masterlistRows.length &&
+    datasets?.dashboard?.complete === true &&
+    datasets.dashboard.valid === true &&
+    typeof datasets.dashboard.payload === "object" &&
+    datasets.dashboard.payload !== null &&
+    !Array.isArray(datasets.dashboard.payload) &&
+    filters?.complete === true &&
+    Array.isArray(filters.events) &&
+    Array.isArray(filters.barangays) &&
+    Array.isArray(filters.sectors) &&
+    Array.isArray(filters.evacuationCenters) &&
+    datasets?.distribution?.complete === true &&
+    datasets.distribution.valid === true &&
+    Array.isArray(distributionRows) &&
+    Number.isInteger(datasets.distribution.rows) &&
+    datasets.distribution.rows === distributionRows.length &&
+    photoCache?.complete === true &&
+    Number.isInteger(photoCount) &&
+    photoCount >= 0 &&
+    photoCache.prepared === photoCount &&
+    photoCache.actual_bytes_persisted === photoCount;
 };
 
 export const readMswdoOfflineSnapshot = async ({ userId, eventId } = {}) => {
   const record = await getMswdoOfflinePreparation({ userId, eventId });
-  if (!record || record.cache_version !== MSWDO_OFFLINE_CACHE_VERSION || record.status !== "READY" && record.status !== "NEEDS_REFRESH") return null;
-  if (!record.datasets?.masterlist?.complete || !record.datasets?.dashboard?.complete || !record.datasets?.filters?.complete || !record.datasets?.distribution?.complete || !record.datasets?.photoCache?.complete) return null;
+  if (!record || !["READY", "NEEDS_REFRESH"].includes(record.status)) return null;
+  if (!hasCompleteMswdoOfflineDatasets(record)) return null;
   return record;
 };
 
@@ -222,13 +308,14 @@ const publish = (detail) => {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-mswdo-offline-preparation-updated", { detail }));
 };
 
-export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = {}) => {
-  if (!userId || !eventId || !isMswdoOwner(userId)) {
-    throw new MswdoOfflinePreparationError(MSWDO_PREPARATION_FAILURE_STAGES.ACTOR_CONTEXT);
-  }
-  const owner = getOwner();
-  const id = getMswdoOfflineScopeKey({ userId, eventId, mode: owner.accessMode });
-  const currentGeneration = beginPreparationGeneration(id, generation);
+const runMswdoOfflinePreparation = async ({
+  userId,
+  eventId,
+  owner,
+  id,
+  activeScope,
+  currentGeneration,
+} = {}) => {
   const existing = await runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.PREPARATION_METADATA, () => db.offlinePreparation.get(id));
   const readinessGeneration = Math.max(
     1,
@@ -239,13 +326,19 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
     id, accessMode: owner.accessMode, userId, roleCode: ROLE_CODES.MSWDO,
     disaster_event_id: eventId, barangay_id: "",
     cache_version: MSWDO_OFFLINE_CACHE_VERSION, status: "PREPARING",
-    previous_complete_cache: Boolean(existing?.datasets?.masterlist?.complete && existing?.datasets?.dashboard?.complete),
+    previous_complete_cache: hasCompleteMswdoOfflineDatasets(existing),
     ...(existing?.datasets ? { datasets: existing.datasets } : {}),
     updated_at: new Date().toISOString(),
     readiness_generation: readinessGeneration,
   };
+  if (!isCurrentMswdoPreparation(id, currentGeneration, owner, activeScope.generation)) {
+    return { ...preparing, stale: true };
+  }
   await runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.PREPARATION_METADATA, () => db.offlinePreparation.put(preparing));
-  if (isCurrentPreparationGeneration(id, currentGeneration)) publish({ ...preparing, generation: currentGeneration });
+  if (!isCurrentMswdoPreparation(id, currentGeneration, owner, activeScope.generation)) {
+    return { ...preparing, stale: true };
+  }
+  publish({ ...preparing, generation: currentGeneration });
   try {
     const [events, barangays, sectors, evacuationCenters, masterlist, dashboard, stubDashboard] = await Promise.all([
       runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.REFERENCE_DATA, () => fetchDisasterEvents()),
@@ -256,6 +349,9 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
       runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.DASHBOARD, () => fetchConsolidatedMasterlistDashboard({ disasterEventId: eventId })),
       runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.DISTRIBUTION_FETCH, () => fetchMunicipalStubDashboard({ disasterEventId: eventId, skipOfflineCache: true })),
     ]);
+    if (!isCurrentMswdoPreparation(id, currentGeneration, owner, activeScope.generation)) {
+      return { ...preparing, stale: true };
+    }
     const selectedEvent = (Array.isArray(events) ? events : []).find(
       (event) => String(event?.id || "") === String(eventId),
     );
@@ -281,11 +377,8 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
     const photoByHousehold = await hydratePhotos(stubRows);
     const preparedMasterlistRows = masterlistRows.map((row) => applyPhotoData(row, photoByHousehold));
     const preparedStubRows = stubRows.map((row) => applyPhotoData(row, photoByHousehold));
-    if (
-      !isCurrentPreparationGeneration(id, currentGeneration) ||
-      !isSyncQueueActorContextCurrent(owner)
-    ) {
-      return preparing;
+    if (!isCurrentMswdoPreparation(id, currentGeneration, owner, activeScope.generation)) {
+      return { ...preparing, stale: true };
     }
     const persistedStubs = await runPreparationStage(
       MSWDO_PREPARATION_FAILURE_STAGES.DISTRIBUTION_PERSIST,
@@ -340,21 +433,22 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
       masterlist_count: preparedMasterlistRows.length,
       updated_at: new Date().toISOString(),
     };
-    if (
-      !isCurrentPreparationGeneration(id, currentGeneration) ||
-      !isSyncQueueActorContextCurrent(owner)
-    ) {
-      return snapshot;
+    if (!isCurrentMswdoPreparation(id, currentGeneration, owner, activeScope.generation)) {
+      return { ...snapshot, stale: true };
     }
     await runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.PREPARATION_METADATA, () => db.offlinePreparation.put(snapshot));
     const readBack = await runPreparationStage(MSWDO_PREPARATION_FAILURE_STAGES.READ_BACK, () => db.offlinePreparation.get(id));
     // Preserve the Stage 2 contract wording while exposing READ_BACK safely.
-    if (!readBack?.datasets?.masterlist?.complete || !readBack?.datasets?.dashboard?.complete || !readBack?.datasets?.filters?.complete || !readBack?.datasets?.distribution?.complete || !readBack?.datasets?.photoCache?.complete) throw new MswdoOfflinePreparationError(MSWDO_PREPARATION_FAILURE_STAGES.READ_BACK, "MSWDO offline distribution data could not be verified.");
-    if (isCurrentPreparationGeneration(id, currentGeneration)) publish({ ...readBack, generation: currentGeneration });
+    if (!hasCompleteMswdoOfflineDatasets(readBack)) throw new MswdoOfflinePreparationError(MSWDO_PREPARATION_FAILURE_STAGES.READ_BACK, "MSWDO offline distribution data could not be verified.");
+    if (!isCurrentMswdoPreparation(id, currentGeneration, owner, activeScope.generation)) {
+      return { ...readBack, stale: true };
+    }
+    publish({ ...readBack, generation: currentGeneration });
     return readBack;
   } catch (error) {
-    if (!isCurrentPreparationGeneration(id, currentGeneration)) throw error;
-    if (!isSyncQueueActorContextCurrent(owner)) throw error;
+    if (!isCurrentMswdoPreparation(id, currentGeneration, owner, activeScope.generation)) {
+      return { ...preparing, stale: true };
+    }
     const failure = error instanceof MswdoOfflinePreparationError
       ? error
       : toPreparationError(error, MSWDO_PREPARATION_FAILURE_STAGES.PREPARATION_METADATA);
@@ -364,8 +458,38 @@ export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = 
     } catch (_metadataError) {
       throw new MswdoOfflinePreparationError(MSWDO_PREPARATION_FAILURE_STAGES.PREPARATION_METADATA);
     }
-    if (isCurrentPreparationGeneration(id, currentGeneration)) publish({ ...failed, generation: currentGeneration });
+    if (isCurrentMswdoPreparation(id, currentGeneration, owner, activeScope.generation)) {
+      publish({ ...failed, generation: currentGeneration });
+    }
     throw error;
   }
+};
+
+export const prepareMswdoOfflineData = async ({ userId, eventId, generation } = {}) => {
+  if (!userId || !eventId) {
+    throw new MswdoOfflinePreparationError(MSWDO_PREPARATION_FAILURE_STAGES.ACTOR_CONTEXT);
+  }
+  const owner = getOwner();
+  if (!isMswdoOwner(userId, owner)) {
+    throw new MswdoOfflinePreparationError(MSWDO_PREPARATION_FAILURE_STAGES.ACTOR_CONTEXT);
+  }
+  const id = getMswdoOfflineScopeKey({ userId, eventId, mode: owner.accessMode });
+  const activeScope = activateMswdoOfflineScope({ userId, eventId }, owner);
+  const existingJob = preparationJobs.get(id);
+  if (existingJob) return existingJob;
+  const currentGeneration = beginPreparationGeneration(id, generation);
+  const preparation = runMswdoOfflinePreparation({
+    userId,
+    eventId,
+    owner,
+    id,
+    activeScope,
+    currentGeneration,
+  });
+  const job = preparation.finally(() => {
+    if (preparationJobs.get(id) === job) preparationJobs.delete(id);
+  });
+  preparationJobs.set(id, job);
+  return job;
 };
 
