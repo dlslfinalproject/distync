@@ -1,0 +1,2055 @@
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { pageHeaderStyles } from "../layout/PageHeader";
+import { shellStyles } from "../layout/BarangayLayout";
+import { FiX } from "react-icons/fi";
+import {
+  isValidInventoryBarcode,
+  normalizeInventoryBarcode,
+} from "../../features/inventory-items/inventoryBarcode";
+import { findMayorInventoryItemByBarcode } from "../../offline/mayorInventoryOfflineModel";
+
+const overlayStyles = {
+  position: "fixed",
+  inset: 0,
+  backgroundColor: "rgba(21, 40, 63, 0.48)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "24px",
+  zIndex: 1000,
+};
+
+const modalStyles = {
+  width: "min(860px, 100%)",
+  maxHeight: "90vh",
+  overflowY: "auto",
+  backgroundColor: "#eef5fb",
+  borderRadius: "22px",
+  border: "1px solid #d7e2ef",
+  boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
+  padding: "24px",
+  boxSizing: "border-box",
+};
+
+const inputStyles = {
+  width: "100%",
+  minHeight: "48px",
+  padding: "12px 14px",
+  borderRadius: "14px",
+  border: "1px solid #d2deea",
+  boxSizing: "border-box",
+  fontSize: "14px",
+  color: "#21405f",
+  backgroundColor: "#ffffff",
+  outline: "none",
+};
+
+const lockedInputStyles = {
+  ...inputStyles,
+  backgroundColor: "#eef5fb",
+  color: "#5f7891",
+  cursor: "not-allowed",
+};
+
+const labelStyles = {
+  display: "block",
+  marginBottom: "8px",
+  color: "#4f677f",
+  fontSize: "13px",
+  fontWeight: 700,
+};
+
+const errorBoxStyles = {
+  marginTop: "4px",
+  padding: "12px 14px",
+  borderRadius: "12px",
+  backgroundColor: "#fff1f2",
+  color: "#e11d48",
+  fontSize: "13px",
+  fontWeight: 500,
+  border: "1px solid #ffe4e6",
+};
+
+const fieldErrorTextStyles = {
+  margin: "6px 0 0",
+  color: "#c53030",
+  fontSize: "12px",
+  lineHeight: 1.4,
+};
+
+const autocompleteStyles = {
+  wrap: {
+    position: "relative",
+  },
+  list: {
+    position: "absolute",
+    top: "calc(100% + 8px)",
+    left: 0,
+    right: 0,
+    margin: 0,
+    padding: "8px",
+    listStyle: "none",
+    borderRadius: "16px",
+    border: "1px solid #d2deea",
+    backgroundColor: "#ffffff",
+    boxShadow: "0 18px 36px rgba(31, 64, 95, 0.14)",
+    zIndex: 20,
+    display: "grid",
+    gap: "6px",
+    maxHeight: "220px",
+    overflowY: "auto",
+    boxSizing: "border-box",
+  },
+  itemButton: {
+    width: "100%",
+    border: "none",
+    borderRadius: "12px",
+    backgroundColor: "#ffffff",
+    color: "#17324d",
+    textAlign: "left",
+    padding: "10px 12px",
+    fontSize: "14px",
+    cursor: "pointer",
+  },
+  itemMeta: {
+    display: "block",
+    marginTop: "4px",
+    color: "#5f7891",
+    fontSize: "12px",
+    fontWeight: 600,
+  },
+  actionMeta: {
+    display: "block",
+    marginTop: "4px",
+    color: "#1d648c",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
+};
+
+const formFooterStyles = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "16px",
+  padding: "18px 20px",
+  borderRadius: "18px",
+  border: "1px solid #d7e2ef",
+  backgroundColor: "#ffffff",
+  boxShadow: "0 16px 34px rgba(23, 50, 77, 0.08)",
+  flexWrap: "wrap",
+};
+
+const footerTotalStyles = {
+  margin: 0,
+  color: "#4f677f",
+  fontSize: "15px",
+};
+
+const footerActionsStyles = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: "12px",
+  flexWrap: "wrap",
+};
+
+const editFooterActionsStyles = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: "12px",
+  flexWrap: "wrap",
+};
+
+const unitOfMeasureOptions = ["kg", "g", "L", "mL", "pc"];
+const packagingOptions = ["piece", "pack", "box", "case", "carton", "sack", "bottle"];
+
+const weightOrVolumeUnits = new Set(["kg", "g", "L", "mL"]);
+
+const getNormalizedInventoryText = (value) =>
+  String(value || "").trim().toLowerCase();
+
+const normalizeCategoryValue = (category) => {
+  if (typeof category !== "string") {
+    return "perishable";
+  }
+
+  const normalizedCategory = category.trim().toLowerCase();
+
+  if (normalizedCategory === "non-perishable") {
+    return "non-perishable";
+  }
+
+  return "perishable";
+};
+
+const createDefaultForm = () => ({
+  item_name: "",
+  barcode: "",
+  quantity: "",
+  unit_of_measure: "",
+  unit_of_measure_value: "",
+  packaging: "",
+  packaging_count: "",
+  category: "perishable",
+  expiration_date: "",
+  reorder_level: "",
+  tracking_method: "Count-Based",
+});
+
+const inferTrackingMethod = (unitOfMeasure) => {
+  return weightOrVolumeUnits.has(unitOfMeasure)
+    ? "Weight/Volume-Based"
+    : "Count-Based";
+};
+
+const isWeightOrVolumeBased = (trackingMethod) =>
+  trackingMethod === "Weight/Volume-Based";
+
+const getItemStockForms = (item, { activeOnly = false } = {}) => {
+  const stockForms = Array.isArray(item?.stock_forms) ? item.stock_forms : [];
+
+  return activeOnly
+    ? stockForms.filter((stockForm) => stockForm?.is_active !== false)
+    : stockForms;
+};
+
+const getComparableNumber = (value) => {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) ? parsedValue : null;
+};
+
+const haveSameOptionalNumber = (leftValue, rightValue) =>
+  getComparableNumber(leftValue) === getComparableNumber(rightValue);
+
+const findMatchingStockFormByDefinition = (item, formValues) => {
+  const packaging = getNormalizedInventoryText(formValues.packaging);
+
+  if (!packaging) {
+    return null;
+  }
+
+  const unitsPerPackaging =
+    packaging === "piece" ? 1 : getComparableNumber(formValues.quantity);
+  const unitOfMeasure = getNormalizedInventoryText(
+    formValues.unit_of_measure ||
+      (formValues.tracking_method === "Count-Based" ? "pc" : ""),
+  );
+  const unitOfMeasureValue =
+    formValues.unit_of_measure_value ||
+    (formValues.tracking_method === "Count-Based" ? "1" : null);
+
+  if (!unitsPerPackaging || !unitOfMeasure) {
+    return null;
+  }
+
+  return (
+    getItemStockForms(item, { activeOnly: true }).find((stockForm) => {
+      return (
+        stockForm?.is_active !== false &&
+        getNormalizedInventoryText(stockForm?.packaging) === packaging &&
+        Number(stockForm?.units_per_packaging || 0) === unitsPerPackaging &&
+        getNormalizedInventoryText(stockForm?.unit_of_measure) === unitOfMeasure &&
+        haveSameOptionalNumber(
+          stockForm?.unit_of_measure_value,
+          unitOfMeasureValue,
+        )
+      );
+    }) || null
+  );
+};
+
+const findMatchingStockFormByBarcode = (item, barcode) => {
+  const normalizedBarcode = normalizeInventoryBarcode(barcode);
+
+  if (!normalizedBarcode) {
+    return null;
+  }
+
+  const matchingStockForms = getItemStockForms(item, { activeOnly: true }).filter(
+    (stockForm) =>
+      normalizeInventoryBarcode(stockForm?.barcode) === normalizedBarcode,
+  );
+
+  return matchingStockForms.length === 1 ? matchingStockForms[0] : null;
+};
+
+const formatPackagingLabel = (packaging) => {
+  if (!packaging) {
+    return "Packaging";
+  }
+
+  return packaging.charAt(0).toUpperCase() + packaging.slice(1);
+};
+
+const getUnitsPerPackagingForDisplay = (item, stockForm, packaging) => {
+  if (packaging === "piece") {
+    return 1;
+  }
+
+  const candidateValues = [
+    stockForm?.units_per_packaging,
+    stockForm?.units_per_package,
+    stockForm?.quantity_per_packaging,
+    stockForm?.quantity_per_package,
+    item?.units_per_packaging,
+    item?.units_per_package,
+    item?.quantity_per_packaging,
+    item?.quantity_per_package,
+    item?.quantity,
+  ];
+
+  return (
+    candidateValues
+      .map((value) => Number(value))
+      .find((value) => Number.isFinite(value) && value > 0) || null
+  );
+};
+
+const formatPackagingUnit = (unitOfMeasure) => {
+  const normalizedUnit = getNormalizedInventoryText(unitOfMeasure);
+
+  if (["pc", "pcs", "piece", "pieces"].includes(normalizedUnit)) {
+    return "pieces";
+  }
+
+  return normalizedUnit || "units";
+};
+
+const formatStockFormMeta = (item, stockForm) => {
+  const rawPackaging = getNormalizedInventoryText(
+    stockForm?.packaging || item?.packaging || "piece",
+  );
+  const packaging = formatPackagingLabel(
+    rawPackaging,
+  );
+  const unitsPerPackaging = getUnitsPerPackagingForDisplay(
+    item,
+    stockForm,
+    rawPackaging,
+  );
+  const packagingQuantity =
+    rawPackaging !== "piece" && unitsPerPackaging
+      ? ` - ${unitsPerPackaging} ${formatPackagingUnit(
+          stockForm?.unit_of_measure || item?.unit_of_measure,
+        )}/${rawPackaging}`
+      : "";
+
+  return `${item.category || "Item"} (${packaging}${packagingQuantity})`;
+};
+
+const buildAddPackagingSuggestion = (item) => ({
+  key: `item-${item.id}-add-packaging`,
+  item,
+  stockForm: null,
+  isAddPackagingAction: true,
+  meta: "+ Add another packaging",
+});
+
+const buildAutocompleteSuggestions = (items, query, { collapseBarcodeVariants = false } = {}) => {
+  const normalizedQuery = getNormalizedInventoryText(query);
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  return items
+    .filter((item) =>
+      getNormalizedInventoryText(item?.item_name).includes(normalizedQuery),
+    )
+    .sort((leftItem, rightItem) =>
+      String(leftItem?.item_name || "").localeCompare(
+        String(rightItem?.item_name || ""),
+        undefined,
+        { sensitivity: "base" },
+      ),
+    )
+    .flatMap((item) => {
+      const stockForms = getItemStockForms(item, { activeOnly: true });
+      const addPackagingSuggestion = buildAddPackagingSuggestion(item);
+
+      if (collapseBarcodeVariants) {
+        return [
+          {
+            key: `item-${item.id}`,
+            item,
+            stockForm: null,
+            meta: item.category || "Item",
+          },
+        ];
+      }
+
+      return [
+        ...stockForms.map((stockForm, index) => ({
+          key: `item-${item.id}-stock-form-${stockForm?.id || index}`,
+          item,
+          stockForm,
+          meta: formatStockFormMeta(item, stockForm),
+        })),
+        addPackagingSuggestion,
+      ];
+    })
+    .slice(0, 8);
+};
+
+const formatPackagingExample = (packaging) => {
+  if (!packaging) {
+    return "Enter quantity on hand";
+  }
+
+  if (packaging === "piece") {
+    return "Example: 20 pieces";
+  }
+
+  if (packaging === "box") {
+    return "Example: 20 boxes";
+  }
+
+  return `Example: 20 ${packaging}s`;
+};
+
+const getStockMultiplierValue = (formValues, isPiecePackaging) => {
+  if (isPiecePackaging) {
+    return 1;
+  }
+
+  return parsePositiveNumberOrZero(formValues.quantity);
+};
+
+const parsePositiveNumberOrZero = (value) => {
+  const parsedValue = Number(value);
+
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return 0;
+  }
+
+  return parsedValue;
+};
+
+const isBlank = (value) => String(value ?? "").trim() === "";
+
+const isPositiveNumber = (value) => {
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) && parsedValue > 0;
+};
+
+const isPositiveInteger = (value) => {
+  const parsedValue = Number(value);
+  return Number.isInteger(parsedValue) && parsedValue > 0;
+};
+
+const isValidDateValue = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+const getTodayDateInputValue = () => {
+  const today = new Date();
+  today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+  return today.toISOString().slice(0, 10);
+};
+
+const formatComputedValue = (value) => {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+
+  if (Number.isInteger(value)) {
+    return value.toLocaleString();
+  }
+
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+};
+
+const preventBarcodeScanSubmit = (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+  }
+};
+
+const IMMEDIATE_VALIDATION_FIELDS = new Set([
+  "unit_of_measure_value",
+  "packaging_count",
+  "quantity",
+  "reorder_level",
+]);
+
+const isImmediateValidationField = (fieldName) =>
+  IMMEDIATE_VALIDATION_FIELDS.has(fieldName);
+
+const getImmediateNumericFieldError = (fieldName, value) => {
+  if (isBlank(value)) {
+    return "";
+  }
+
+  if (fieldName === "unit_of_measure_value" && !isPositiveNumber(value)) {
+    return "Amount per piece/container must be greater than 0.";
+  }
+
+  if (fieldName === "packaging_count" && !isPositiveInteger(value)) {
+    return "Quantity on hand must be a whole number greater than 0.";
+  }
+
+  if (fieldName === "quantity" && !isPositiveInteger(value)) {
+    return "Units per packaging must be a whole number greater than 0.";
+  }
+
+  if (fieldName === "reorder_level" && !isPositiveInteger(value)) {
+    return "Reorder level must be a whole number greater than 0.";
+  }
+
+  return "";
+};
+
+const InventoryItemFormModal = ({
+  isOpen,
+  mode,
+  source = "manual",
+  conflictResolution = false,
+  conflictResolutionTarget = "ITEM",
+  itemData,
+  inventoryItems = [],
+  getCurrentStockForItem = null,
+  isSubmitting,
+  errorMessage,
+  onClose,
+  onSubmit,
+}) => {
+  const [formValues, setFormValues] = useState(createDefaultForm());
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  const [selectedExistingItemId, setSelectedExistingItemId] = useState(null);
+  const [selectedExistingStockFormId, setSelectedExistingStockFormId] = useState(null);
+  const [isAddingNewStockForm, setIsAddingNewStockForm] = useState(false);
+  const [isAutocompleteOpen, setIsAutocompleteOpen] = useState(false);
+  const itemNameInputRef = useRef(null);
+  const barcodeInputRef = useRef(null);
+  const autocompleteRef = useRef(null);
+  const previousMatchedItemKeyRef = useRef("");
+  const isEditMode = mode === "edit";
+  const isBatchConflictResolution =
+    conflictResolution && conflictResolutionTarget === "BATCH";
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    if (itemData) {
+      const resolvedUnitOfMeasure = itemData.unit_of_measure || itemData.unit || "";
+      setFormValues({
+        item_name: itemData.item_name || itemData.name || "",
+        barcode: itemData.barcode || "",
+        quantity: itemData.quantity || "",
+        unit_of_measure: resolvedUnitOfMeasure,
+        unit_of_measure_value: itemData.unit_of_measure_value || "",
+        packaging: itemData.packaging || "",
+        packaging_count: itemData.packaging_count || "",
+        category: normalizeCategoryValue(itemData.category),
+        expiration_date: isEditMode
+          ? ""
+          : itemData.expiration_date ?? itemData.expiryDate ?? "",
+        reorder_level: itemData.reorder_level ?? "",
+        tracking_method:
+          itemData.tracking_method || inferTrackingMethod(resolvedUnitOfMeasure),
+      });
+    } else {
+      setFormValues(createDefaultForm());
+    }
+
+    setSelectedExistingItemId(itemData?.id || null);
+    setSelectedExistingStockFormId(
+      isBatchConflictResolution
+        ? null
+        : itemData?.inventory_item_stock_form_id || null,
+    );
+    setIsAddingNewStockForm(isBatchConflictResolution);
+    setIsAutocompleteOpen(false);
+    setFieldErrors({});
+    setHasAttemptedSubmit(false);
+  }, [isBatchConflictResolution, isEditMode, isOpen, itemData]);
+
+  const trimmedItemName = formValues.item_name.trim();
+  const eligibleExistingItems = mode === "create" ? inventoryItems : [];
+  const scannedBarcode =
+    source === "scan" ? normalizeInventoryBarcode(itemData?.barcode) : "";
+  const getEffectiveBarcode = (values) =>
+    source === "scan"
+      ? normalizeInventoryBarcode(scannedBarcode || values.barcode)
+      : normalizeInventoryBarcode(values.barcode);
+  const rawTrimmedBarcode = getEffectiveBarcode(formValues);
+  const barcodeMatchedExistingItem =
+    mode === "create" && rawTrimmedBarcode
+      ? findMayorInventoryItemByBarcode(
+          eligibleExistingItems,
+          rawTrimmedBarcode,
+        )
+      : null;
+  const barcodeMatchedItem = barcodeMatchedExistingItem?.item || null;
+  const exactNameDuplicateItem =
+    mode === "create" && trimmedItemName
+      ? eligibleExistingItems.find(
+          (item) =>
+            getNormalizedInventoryText(item?.item_name) ===
+            getNormalizedInventoryText(trimmedItemName),
+        ) || null
+      : null;
+  const exactNameMatchedExistingItem =
+    mode === "create" && trimmedItemName && !isAutocompleteOpen
+      ? eligibleExistingItems.find(
+          (item) =>
+            getNormalizedInventoryText(item?.item_name) ===
+              getNormalizedInventoryText(trimmedItemName) &&
+            getItemStockForms(item, { activeOnly: true }).length <= 1,
+        ) || null
+      : null;
+  const matchedExistingItem =
+    mode === "create"
+      ? isAddingNewStockForm
+        ? eligibleExistingItems.find(
+            (item) => String(item?.id) === String(selectedExistingItemId),
+          ) || null
+        : barcodeMatchedItem ||
+          (selectedExistingItemId
+            ? eligibleExistingItems.find(
+                (item) => String(item?.id) === String(selectedExistingItemId),
+              ) || null
+            : null) ||
+          exactNameMatchedExistingItem
+      : null;
+  const isBarcodeResolvedExistingItem = Boolean(
+    barcodeMatchedItem &&
+      matchedExistingItem &&
+      String(barcodeMatchedItem.id) === String(matchedExistingItem.id),
+  );
+  const duplicateBarcodeItem =
+    mode === "create" && rawTrimmedBarcode
+      ? eligibleExistingItems.some((item) => {
+          if (
+            matchedExistingItem &&
+            String(item?.id) === String(matchedExistingItem.id)
+          ) {
+            return false;
+          }
+
+          return [
+            item?.barcode,
+            ...getItemStockForms(item).map((stockForm) => stockForm?.barcode),
+          ].some(
+            (barcode) => normalizeInventoryBarcode(barcode) === rawTrimmedBarcode,
+          );
+        }) || null
+      : null;
+  const duplicateBarcodeMessage = duplicateBarcodeItem
+    ? "This barcode is already assigned to another item."
+    : "";
+  const hasUnselectedDuplicateName = Boolean(
+    exactNameDuplicateItem && !selectedExistingItemId && !matchedExistingItem,
+  );
+  const duplicateNameMessage = hasUnselectedDuplicateName
+    ? "This item already exists. Select an existing packaging or choose add another packaging."
+    : "";
+  const matchedExistingItemStockForms = getItemStockForms(matchedExistingItem, {
+    activeOnly: true,
+  });
+  const isBarcodeManagedItem =
+    Boolean(String(matchedExistingItem?.barcode || "").trim()) ||
+    matchedExistingItemStockForms.some((stockForm) =>
+      Boolean(String(stockForm?.barcode || "").trim()),
+    );
+  const hasScannedBarcode = source === "scan" && Boolean(rawTrimmedBarcode);
+  const barcodeMatchedExistingStockForm =
+    isBarcodeResolvedExistingItem
+      ? barcodeMatchedExistingItem?.stockForm || null
+      : null;
+  const matchedExistingStockForm =
+    barcodeMatchedExistingStockForm ||
+    (matchedExistingItem && selectedExistingStockFormId != null
+      ? matchedExistingItemStockForms.find(
+          (stockForm) =>
+            String(stockForm?.id) === String(selectedExistingStockFormId),
+        ) || null
+      : !isAddingNewStockForm &&
+          !hasScannedBarcode &&
+          matchedExistingItemStockForms.length === 1
+        ? matchedExistingItemStockForms[0]
+        : null);
+  const isExactBarcodeStockFormMatch =
+    source === "scan" &&
+    Boolean(rawTrimmedBarcode) &&
+    Boolean(matchedExistingStockForm);
+  const isScannedNewBarcodeStockForm =
+    source === "scan" &&
+    Boolean(rawTrimmedBarcode) &&
+    Boolean(matchedExistingItem) &&
+    !matchedExistingStockForm &&
+    !isBarcodeResolvedExistingItem;
+  const isAddingBarcodeStockForm =
+    isScannedNewBarcodeStockForm ||
+    (isAddingNewStockForm &&
+      isBarcodeManagedItem &&
+      !isBarcodeResolvedExistingItem);
+  const isAddingStockFormMode =
+    isScannedNewBarcodeStockForm ||
+    (isAddingNewStockForm && !isBarcodeResolvedExistingItem);
+  const isRestockMode = mode === "create" && Boolean(matchedExistingItem);
+  const matchedBarcodeValue = isBarcodeResolvedExistingItem
+    ? rawTrimmedBarcode
+    : matchedExistingStockForm
+    ? matchedExistingStockForm.barcode || ""
+    : isAddingNewStockForm
+      ? matchedExistingItem?.barcode ||
+        matchedExistingItemStockForms.find((stockForm) =>
+          Boolean(String(stockForm?.barcode || "").trim()),
+        )?.barcode ||
+        ""
+      : matchedExistingItem?.barcode || "";
+  const shouldShowBarcodeField =
+    source === "scan" ||
+    mode === "edit" ||
+    (mode === "create" &&
+      (!isRestockMode ||
+        isAddingBarcodeStockForm ||
+        Boolean(String(matchedBarcodeValue).trim())));
+  const trimmedBarcode = shouldShowBarcodeField
+    ? normalizeInventoryBarcode(formValues.barcode)
+    : "";
+  const autocompleteSuggestions =
+    mode === "create"
+      ? buildAutocompleteSuggestions(eligibleExistingItems, trimmedItemName, {
+          collapseBarcodeVariants:
+            source === "scan" &&
+            Boolean(rawTrimmedBarcode) &&
+            !matchedExistingStockForm,
+        })
+      : [];
+  const matchingStockFormByDefinition =
+    isAddingStockFormMode && rawTrimmedBarcode
+      ? findMatchingStockFormByDefinition(matchedExistingItem, formValues)
+      : null;
+  const matchingStockFormByBarcode =
+    isAddingStockFormMode && rawTrimmedBarcode
+      ? findMatchingStockFormByBarcode(matchedExistingItem, rawTrimmedBarcode)
+      : null;
+  const matchingStockFormBarcode = normalizeInventoryBarcode(
+    matchingStockFormByDefinition?.barcode,
+  );
+  const hasBarcodePackagingConflict = Boolean(
+    matchingStockFormBarcode && matchingStockFormBarcode !== rawTrimmedBarcode,
+  );
+  const scannedBarcodeAlreadyMatchesPackaging = Boolean(
+    matchingStockFormBarcode && matchingStockFormBarcode === rawTrimmedBarcode,
+  );
+  const isBarcodePackagingAutofillPending = Boolean(
+    matchingStockFormByBarcode && isBlank(formValues.packaging),
+  );
+  const allowedBarcodeStockFormId =
+    matchingStockFormByDefinition?.id ||
+    matchedExistingStockForm?.id ||
+    (isBarcodePackagingAutofillPending
+      ? matchingStockFormByBarcode?.id
+      : null) ||
+    null;
+  const itemBarcodeMatchesSelectedPackaging = Boolean(
+    normalizeInventoryBarcode(matchedExistingItem?.barcode) ===
+      rawTrimmedBarcode &&
+      ((matchingStockFormByDefinition &&
+        normalizeInventoryBarcode(matchingStockFormByDefinition.barcode) ===
+          rawTrimmedBarcode) ||
+        (matchedExistingStockForm &&
+          normalizeInventoryBarcode(matchedExistingStockForm.barcode) ===
+            rawTrimmedBarcode) ||
+        isBarcodePackagingAutofillPending),
+  );
+  const barcodeAlreadyAssignedToDifferentPackaging =
+    isAddingStockFormMode && rawTrimmedBarcode
+      ? Boolean(
+          getItemStockForms(matchedExistingItem).find((stockForm) => {
+            const stockFormBarcode = normalizeInventoryBarcode(stockForm?.barcode);
+
+            return (
+              stockFormBarcode === rawTrimmedBarcode &&
+              String(stockForm?.id || "") !== String(allowedBarcodeStockFormId || "")
+            );
+          }),
+        ) ||
+        (normalizeInventoryBarcode(matchedExistingItem?.barcode) ===
+          rawTrimmedBarcode &&
+          !itemBarcodeMatchesSelectedPackaging)
+      : false;
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      mode !== "create" ||
+      !isAddingStockFormMode ||
+      !matchingStockFormByBarcode
+    ) {
+      return;
+    }
+
+    const resolvedPackaging =
+      matchingStockFormByBarcode.packaging || matchedExistingItem?.packaging || "";
+    const resolvedTrackingMethod =
+      matchedExistingItem?.tracking_method ||
+      inferTrackingMethod(
+        matchedExistingItem?.unit_of_measure ||
+          matchedExistingItem?.unit ||
+          matchingStockFormByBarcode.unit_of_measure ||
+          "",
+      );
+    const resolvedUnitOfMeasure =
+      matchingStockFormByBarcode.unit_of_measure ||
+      matchedExistingItem?.unit_of_measure ||
+      matchedExistingItem?.unit ||
+      (resolvedTrackingMethod === "Count-Based" ? "pc" : "");
+    const resolvedUnitOfMeasureValue =
+      matchingStockFormByBarcode.unit_of_measure_value ??
+      matchedExistingItem?.unit_of_measure_value ??
+      (resolvedTrackingMethod === "Count-Based" ? "1" : "");
+    const resolvedQuantity =
+      getNormalizedInventoryText(resolvedPackaging) === "piece"
+        ? "1"
+        : matchingStockFormByBarcode.units_per_packaging != null
+          ? String(matchingStockFormByBarcode.units_per_packaging)
+          : "";
+
+    setFormValues((previousValues) => {
+      const nextValues = {
+        ...previousValues,
+        packaging: resolvedPackaging,
+        quantity: resolvedQuantity,
+        unit_of_measure: resolvedUnitOfMeasure,
+        unit_of_measure_value: resolvedUnitOfMeasureValue,
+      };
+
+      if (
+        previousValues.packaging === nextValues.packaging &&
+        String(previousValues.quantity || "") === String(nextValues.quantity || "") &&
+        previousValues.unit_of_measure === nextValues.unit_of_measure &&
+        String(previousValues.unit_of_measure_value || "") ===
+          String(nextValues.unit_of_measure_value || "")
+      ) {
+        return previousValues;
+      }
+
+      return nextValues;
+    });
+
+    setFieldErrors((previousErrors) => {
+      const nextErrors = { ...previousErrors };
+      [
+        "barcode",
+        "packaging",
+        "quantity",
+        "unit_of_measure",
+        "unit_of_measure_value",
+      ].forEach((fieldName) => {
+        delete nextErrors[fieldName];
+      });
+      return nextErrors;
+    });
+    setHasAttemptedSubmit(false);
+  }, [
+    isOpen,
+    mode,
+    isAddingStockFormMode,
+    matchingStockFormByBarcode?.id,
+    matchedExistingItem?.id,
+    rawTrimmedBarcode,
+  ]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const focusTimer = window.setTimeout(() => {
+      if (shouldShowBarcodeField && (source === "scan" || isRestockMode || mode === "edit")) {
+        barcodeInputRef.current?.focus();
+        barcodeInputRef.current?.select();
+      } else {
+        itemNameInputRef.current?.focus();
+      }
+    }, 50);
+
+    return () => window.clearTimeout(focusTimer);
+  }, [isOpen, isRestockMode, mode, shouldShowBarcodeField, source]);
+
+  useEffect(() => {
+    if (!isOpen || mode !== "create") {
+      previousMatchedItemKeyRef.current = "";
+      return;
+    }
+
+    const matchedItemKey = `${matchedExistingItem?.id || ""}:${
+      selectedExistingStockFormId || matchedExistingStockForm?.id || ""
+    }:${isAddingNewStockForm ? "new-stock-form" : "existing-stock-form"}:${
+      isBarcodeResolvedExistingItem ? rawTrimmedBarcode : ""
+    }`;
+
+    if (previousMatchedItemKeyRef.current === matchedItemKey) {
+      return;
+    }
+
+    previousMatchedItemKeyRef.current = matchedItemKey;
+
+    if (!matchedExistingItem) {
+      return;
+    }
+
+    const resolvedUnitOfMeasure =
+      matchedExistingItem.unit_of_measure || matchedExistingItem.unit || "";
+    const resolvedTrackingMethod =
+      matchedExistingItem.tracking_method ||
+      inferTrackingMethod(resolvedUnitOfMeasure);
+
+    const selectedStockForm = matchedExistingStockForm;
+    const preserveConflictStockDetails = isBatchConflictResolution;
+
+    setFormValues((prev) => ({
+      ...prev,
+      item_name: matchedExistingItem.item_name || prev.item_name,
+      barcode:
+        isAddingNewStockForm && isBarcodeManagedItem && !isBarcodeResolvedExistingItem
+          ? ""
+          : isBarcodeResolvedExistingItem
+            ? rawTrimmedBarcode
+          : source === "scan" && !isExactBarcodeStockFormMatch
+          ? prev.barcode
+          : isExactBarcodeStockFormMatch
+            ? prev.barcode
+            : selectedStockForm
+              ? selectedStockForm.barcode || ""
+              : matchedExistingItem.barcode || prev.barcode,
+      category: normalizeCategoryValue(matchedExistingItem.category),
+      tracking_method: resolvedTrackingMethod,
+      unit_of_measure:
+        resolvedTrackingMethod === "Count-Based"
+          ? "pc"
+          : resolvedUnitOfMeasure || prev.unit_of_measure,
+      unit_of_measure_value:
+        selectedStockForm?.unit_of_measure_value ||
+        matchedExistingItem.unit_of_measure_value ||
+        prev.unit_of_measure_value,
+      packaging: isAddingStockFormMode
+        ? preserveConflictStockDetails
+          ? prev.packaging
+          : ""
+        : selectedStockForm?.packaging ||
+          matchedExistingItem.packaging ||
+          prev.packaging,
+      quantity: isAddingStockFormMode
+        ? preserveConflictStockDetails
+          ? prev.quantity
+          : ""
+        : String(
+            selectedStockForm?.units_per_packaging ||
+              matchedExistingItem.quantity ||
+              ((selectedStockForm?.packaging || matchedExistingItem.packaging) ===
+              "piece"
+                ? 1
+                : ""),
+          ),
+      reorder_level:
+        matchedExistingItem.reorder_level != null
+          ? String(matchedExistingItem.reorder_level)
+          : prev.reorder_level,
+      expiration_date: preserveConflictStockDetails
+        ? prev.expiration_date
+        : "",
+    }));
+    setFieldErrors({});
+    setHasAttemptedSubmit(false);
+  }, [
+    isExactBarcodeStockFormMatch,
+    isOpen,
+    matchedExistingItem,
+    matchedExistingStockForm,
+    mode,
+    selectedExistingStockFormId,
+    isAddingNewStockForm,
+    isAddingStockFormMode,
+    isBarcodeManagedItem,
+    isBarcodeResolvedExistingItem,
+    isBatchConflictResolution,
+    rawTrimmedBarcode,
+  ]);
+
+  useEffect(() => {
+    if (!isOpen || mode !== "create") {
+      return undefined;
+    }
+
+    const handleOutsideClick = (event) => {
+      if (
+        itemNameInputRef.current?.contains(event.target) ||
+        autocompleteRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsAutocompleteOpen(false);
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [isOpen, mode]);
+
+  const handleChange = useCallback((fieldName, value) => {
+    setFieldErrors((prev) => {
+      const fieldsToClear = [fieldName];
+      const immediateError = getImmediateNumericFieldError(fieldName, value);
+
+      if (fieldName === "category") {
+        fieldsToClear.push("expiration_date");
+      }
+
+      if (fieldName === "tracking_method") {
+        fieldsToClear.push("unit_of_measure", "unit_of_measure_value");
+      }
+
+      if (fieldName === "packaging") {
+        fieldsToClear.push("packaging_count", "quantity");
+      }
+
+      const nextErrors = { ...prev };
+      fieldsToClear.forEach((field) => {
+        delete nextErrors[field];
+      });
+
+      if (immediateError) {
+        nextErrors[fieldName] = immediateError;
+      }
+
+      return nextErrors;
+    });
+
+    setFormValues((prev) => {
+      if (fieldName === "item_name") {
+        return {
+          ...prev,
+          item_name: value,
+        };
+      }
+
+      if (fieldName === "tracking_method") {
+        const nextValues = {
+          ...prev,
+          tracking_method: value,
+        };
+
+        if (value === "Count-Based") {
+          nextValues.unit_of_measure = "pc";
+          nextValues.unit_of_measure_value = "";
+        }
+
+        return nextValues;
+      }
+
+      if (fieldName === "unit_of_measure" && prev.tracking_method === "Count-Based") {
+        return {
+          ...prev,
+          unit_of_measure: "pc",
+        };
+      }
+
+      if (fieldName === "packaging") {
+        return {
+          ...prev,
+          packaging: value,
+          quantity: value === "piece" ? "1" : prev.quantity,
+        };
+      }
+
+      return { ...prev, [fieldName]: value };
+    });
+  }, []);
+
+  const handleItemNameChange = (value) => {
+    if (selectedExistingItemId) {
+      setSelectedExistingItemId(null);
+      setSelectedExistingStockFormId(null);
+      setIsAddingNewStockForm(false);
+      previousMatchedItemKeyRef.current = "";
+    }
+
+    handleChange("item_name", value);
+    setIsAutocompleteOpen(Boolean(value.trim()));
+  };
+
+  const handleSelectExistingItem = (suggestion) => {
+    setSelectedExistingItemId(suggestion.item.id);
+    setSelectedExistingStockFormId(
+      suggestion.isAddPackagingAction ? null : suggestion.stockForm?.id || null,
+    );
+    setIsAddingNewStockForm(Boolean(suggestion.isAddPackagingAction));
+    previousMatchedItemKeyRef.current = "";
+    setFormValues((prev) => ({
+      ...prev,
+      item_name: suggestion.item.item_name || prev.item_name,
+    }));
+    setFieldErrors((prev) => {
+      const nextErrors = { ...prev };
+      delete nextErrors.item_name;
+      return nextErrors;
+    });
+    setHasAttemptedSubmit(false);
+    setIsAutocompleteOpen(false);
+  };
+
+  if (!isOpen) {
+    return null;
+  }
+
+  const trackingMethod = formValues.tracking_method || "Count-Based";
+  const usesWeightOrVolume = isWeightOrVolumeBased(trackingMethod);
+  const isPerishable = normalizeCategoryValue(formValues.category) === "perishable";
+  const selectedPackagingLabel = formatPackagingLabel(formValues.packaging);
+  const isPiecePackaging = formValues.packaging === "piece";
+  const shouldShowUnitsPerPackagingField = !isPiecePackaging;
+  const unitValueLabel = usesWeightOrVolume
+    ? "Amount per Piece/Container"
+    : "Units per Packaging";
+  const unitValuePlaceholder = usesWeightOrVolume
+    ? `Example: 25 ${formValues.unit_of_measure || "kg"} per piece/container`
+    : "";
+  const quantityFieldLabel = usesWeightOrVolume
+    ? "Items per Package"
+    : `Units per ${selectedPackagingLabel}`;
+  const quantityFieldPlaceholder = usesWeightOrVolume
+    ? `Example: 1 ${formValues.packaging || "package"} contains 1 item`
+    : `Example: 12 pieces per ${formValues.packaging || "package"}`;
+  const quantityOnHandLabel = usesWeightOrVolume
+    ? "Packages Received"
+    : "Quantity on Hand";
+  const quantityOnHandPlaceholder = usesWeightOrVolume
+    ? formatPackagingExample(formValues.packaging).replace(
+        /^Example:\s*/i,
+        "Example: received ",
+      )
+    : formatPackagingExample(formValues.packaging);
+  const computedTotalLabel = usesWeightOrVolume
+    ? "Total Measured Stock"
+    : "Total Added Stock";
+  const packageCountValue = parsePositiveNumberOrZero(formValues.packaging_count);
+  const quantityPerPackageValue = getStockMultiplierValue(
+    formValues,
+    isPiecePackaging,
+  );
+  const computedTotalStock =
+    packageCountValue > 0 && quantityPerPackageValue > 0
+      ? packageCountValue * quantityPerPackageValue
+      : 0;
+  const hasComputedTotalInputs = packageCountValue > 0 && quantityPerPackageValue > 0;
+  const computedTotalUnit =
+    trackingMethod === "Count-Based"
+      ? formValues.unit_of_measure || "pc"
+      : formValues.unit_of_measure || "";
+  const titleText =
+    conflictResolution
+      ? "Correct Inventory Record"
+      : isEditMode
+      ? "Edit Inventory Item"
+      : isAddingStockFormMode
+        ? isAddingBarcodeStockForm
+          ? "Add Barcode Stock Form"
+          : "Add Packaging Stock Form"
+        : isRestockMode
+          ? isExactBarcodeStockFormMatch
+            ? "Add Barcode Stock Form"
+            : "Restock Existing Item"
+          : "Add Item";
+  const stockSectionTitle = conflictResolution
+    ? "Corrected Stock Details"
+    : isEditMode
+    ? "Item Settings"
+    : isAddingStockFormMode
+      ? "Stock Form Details"
+      : isRestockMode
+        ? "Restock Details"
+        : "Stock Details";
+  const identityFieldStyles =
+    isRestockMode && !isEditMode ? lockedInputStyles : inputStyles;
+  const hasExistingBarcode = Boolean(
+    normalizeInventoryBarcode(itemData?.barcode),
+  );
+  const isBarcodeLocked =
+    (isEditMode && hasExistingBarcode) ||
+    hasScannedBarcode ||
+    isExactBarcodeStockFormMatch ||
+    isBarcodeResolvedExistingItem ||
+    (!isAddingBarcodeStockForm &&
+      isRestockMode &&
+      Boolean(String(matchedBarcodeValue).trim()));
+  const barcodeFieldStyles =
+    isBarcodeLocked
+      ? lockedInputStyles
+      : inputStyles;
+  const shouldLockRestockStockFormFields =
+    isEditMode ||
+    isExactBarcodeStockFormMatch ||
+    (isRestockMode && Boolean(matchedExistingStockForm)) ||
+    Boolean(matchingStockFormByDefinition && !hasBarcodePackagingConflict) ||
+    isBarcodeResolvedExistingItem;
+  const packagingFieldStyles =
+    shouldLockRestockStockFormFields
+      ? lockedInputStyles
+      : inputStyles;
+  const quantityFieldStyles =
+    shouldLockRestockStockFormFields
+      ? lockedInputStyles
+      : inputStyles;
+  const reorderLevelFieldStyles = isRestockMode && !isEditMode
+    ? matchedExistingItem?.requires_reorder_level_before_restock
+      ? inputStyles
+      : lockedInputStyles
+    : inputStyles;
+  const isReorderLevelLocked =
+    isRestockMode &&
+    !isEditMode &&
+    !matchedExistingItem?.requires_reorder_level_before_restock;
+  const currentStockValue =
+    matchedExistingItem && typeof getCurrentStockForItem === "function"
+      ? Number(getCurrentStockForItem(matchedExistingItem) || 0)
+      : 0;
+  const currentStockUnit =
+    trackingMethod === "Count-Based"
+      ? matchedExistingItem?.unit_of_measure || formValues.unit_of_measure || "pc"
+      : matchedExistingItem?.unit_of_measure || formValues.unit_of_measure || "";
+  const currentStockDisplay = `${formatComputedValue(currentStockValue)}${
+    currentStockUnit ? ` ${currentStockUnit}` : ""
+  }`;
+  const computedTotalDisplay = `${formatComputedValue(
+    hasComputedTotalInputs ? computedTotalStock : 0,
+  )}${computedTotalUnit ? ` ${computedTotalUnit}` : ""}`;
+  const visibleFieldErrors = Object.fromEntries(
+    Object.entries(fieldErrors).filter(
+      ([fieldName]) =>
+        hasAttemptedSubmit || isImmediateValidationField(fieldName),
+    ),
+  );
+
+  const validateFormValues = (values) => {
+    const nextErrors = {};
+    const resolvedTrackingMethod = values.tracking_method || "Count-Based";
+    const resolvedUsesWeightOrVolume =
+      isWeightOrVolumeBased(resolvedTrackingMethod);
+    const resolvedIsPiecePackaging = values.packaging === "piece";
+    const resolvedIsPerishable =
+      normalizeCategoryValue(values.category) === "perishable";
+
+    if (isBlank(values.item_name)) {
+      nextErrors.item_name = "Item name is required.";
+    } else if (hasUnselectedDuplicateName) {
+      nextErrors.item_name = duplicateNameMessage;
+    }
+
+    if (isBlank(values.category)) {
+      nextErrors.category = "Category is required.";
+    }
+
+    if (isBlank(values.tracking_method)) {
+      nextErrors.tracking_method = "Tracking method is required.";
+    }
+
+    if (
+      !isEditMode &&
+      resolvedUsesWeightOrVolume &&
+      isBlank(values.unit_of_measure)
+    ) {
+      nextErrors.unit_of_measure = "Unit of measure is required.";
+    }
+
+    const effectiveBarcode = getEffectiveBarcode(values);
+    const normalizedEffectiveBarcode = normalizeInventoryBarcode(effectiveBarcode);
+    const isUnchangedExistingBarcode =
+      isEditMode &&
+      [
+        itemData?.barcode,
+        itemData?.inventory_item_stock_form?.barcode,
+        matchedExistingStockForm?.barcode,
+      ].some(
+        (existingBarcode) =>
+          normalizeInventoryBarcode(existingBarcode) === normalizedEffectiveBarcode,
+      );
+
+    if (!isEditMode && isAddingBarcodeStockForm && isBlank(effectiveBarcode)) {
+      nextErrors.barcode = "Barcode is required for this packaging.";
+    } else if (
+      !isUnchangedExistingBarcode &&
+      !isBlank(effectiveBarcode) &&
+      !isValidInventoryBarcode(effectiveBarcode)
+    ) {
+      nextErrors.barcode = "Barcode must contain 8 to 18 digits.";
+    } else if (duplicateBarcodeItem) {
+      nextErrors.barcode = duplicateBarcodeMessage;
+    } else if (barcodeAlreadyAssignedToDifferentPackaging) {
+      nextErrors.barcode =
+        "This barcode is already assigned to another packaging.";
+    }
+
+    if (hasBarcodePackagingConflict) {
+      nextErrors.packaging =
+        "This packaging already has a different barcode. Choose different packaging details.";
+    }
+
+    if (!isEditMode) {
+      if (resolvedUsesWeightOrVolume) {
+        if (isBlank(values.unit_of_measure_value)) {
+          nextErrors.unit_of_measure_value =
+            "Amount per piece/container is required.";
+        } else if (!isPositiveNumber(values.unit_of_measure_value)) {
+          nextErrors.unit_of_measure_value =
+            "Amount per piece/container must be greater than 0.";
+        }
+      }
+
+      if (isBlank(values.packaging)) {
+        nextErrors.packaging = "Packaging is required.";
+      }
+
+      if (isBlank(values.packaging_count)) {
+        nextErrors.packaging_count = "Quantity on hand is required.";
+      } else if (!isPositiveInteger(values.packaging_count)) {
+        nextErrors.packaging_count =
+          "Quantity on hand must be a whole number greater than 0.";
+      }
+
+      if (!resolvedIsPiecePackaging) {
+        if (isBlank(values.quantity)) {
+          nextErrors.quantity = "Units per packaging is required.";
+        } else if (!isPositiveInteger(values.quantity)) {
+          nextErrors.quantity =
+            "Units per packaging must be a whole number greater than 0.";
+        }
+      }
+    }
+
+    if (
+      !isRestockMode ||
+      isEditMode ||
+      matchedExistingItem?.requires_reorder_level_before_restock
+    ) {
+      if (isBlank(values.reorder_level)) {
+        nextErrors.reorder_level = "Reorder level is required.";
+      } else if (!isPositiveInteger(values.reorder_level)) {
+        nextErrors.reorder_level =
+          "Reorder level must be a whole number greater than 0.";
+      }
+    }
+
+    if (!isEditMode && resolvedIsPerishable && isBlank(values.expiration_date)) {
+      nextErrors.expiration_date = "Expiration date is required.";
+    } else if (!isEditMode && !isBlank(values.expiration_date)) {
+      if (!isValidDateValue(values.expiration_date)) {
+        nextErrors.expiration_date = "Enter a valid expiration date.";
+      } else if (values.expiration_date < getTodayDateInputValue()) {
+        nextErrors.expiration_date =
+          "Expiration date cannot be earlier than today.";
+      }
+    }
+
+    return nextErrors;
+  };
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+
+    if (
+      barcodeInputRef.current &&
+      event.nativeEvent?.submitter == null &&
+      typeof document !== "undefined" &&
+      barcodeInputRef.current === document.activeElement
+    ) {
+      return;
+    }
+
+    setHasAttemptedSubmit(true);
+
+    const nextFieldErrors = validateFormValues(formValues);
+    setFieldErrors(nextFieldErrors);
+
+    if (Object.keys(nextFieldErrors).length > 0) {
+      return;
+    }
+
+    const effectiveBarcode = getEffectiveBarcode(formValues);
+    const normalizedFormValues = {
+      ...formValues,
+      unit_of_measure:
+        formValues.unit_of_measure ||
+        (trackingMethod === "Count-Based" ? "pc" : ""),
+      unit_of_measure_value:
+        formValues.unit_of_measure_value ||
+        (trackingMethod === "Count-Based" ? "1" : ""),
+      quantity:
+        isPiecePackaging ? "1" : formValues.quantity,
+      barcode: isBlank(effectiveBarcode)
+        ? null
+        : effectiveBarcode,
+      existing_item_id: matchedExistingItem?.id || null,
+      inventory_item_stock_form_id:
+        matchingStockFormByDefinition && !hasBarcodePackagingConflict
+          ? matchingStockFormByDefinition.id
+          : matchedExistingStockForm?.id || null,
+    };
+
+    if (isEditMode) {
+      // Parent expiration is legacy compatibility metadata, not an editable
+      // inventory-item property. Opening-batch input remains create-only.
+      delete normalizedFormValues.expiration_date;
+    } else {
+      normalizedFormValues.expiration_date = isBlank(formValues.expiration_date)
+        ? null
+        : formValues.expiration_date;
+    }
+
+    onSubmit(normalizedFormValues);
+  };
+
+  const handleCancel = () => {
+    if (isRestockMode) {
+      setFormValues(createDefaultForm());
+      setFieldErrors({});
+      setSelectedExistingItemId(null);
+      setSelectedExistingStockFormId(null);
+      setIsAddingNewStockForm(false);
+      setIsAutocompleteOpen(false);
+      setHasAttemptedSubmit(false);
+      previousMatchedItemKeyRef.current = "";
+      return;
+    }
+
+    onClose();
+  };
+
+  return (
+    <div className="inventory-item-form-modal-backdrop" style={overlayStyles}>
+      <div className="inventory-item-form-modal" style={modalStyles}>
+        <div
+          className="inventory-item-form-modal-topbar"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: "16px",
+            marginBottom: "20px",
+          }}
+        >
+          <div>
+            <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
+              {titleText}
+            </h3>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            style={pageHeaderStyles.secondaryButton}
+          >
+            <FiX />
+          </button>
+        </div>
+
+        <form
+          onSubmit={handleSubmit}
+          noValidate
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "18px",
+          }}
+        >
+          <section className="inventory-item-form-section" style={{ ...shellStyles.card, padding: "18px 20px" }}>
+            <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
+              Item Information
+            </h3>
+
+            <div
+              className="inventory-item-form-grid"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "18px",
+              }}
+            >
+              <div style={{ ...autocompleteStyles.wrap, gridColumn: "1 / -1" }}>
+                <label htmlFor="item_name" style={labelStyles}>
+                  Item Name
+                </label>
+                <input
+                  ref={itemNameInputRef}
+                  id="item_name"
+                  type="text"
+                  placeholder="Enter item name"
+                  value={formValues.item_name}
+                  onChange={(e) => handleItemNameChange(e.target.value)}
+                  onFocus={() => {
+                    if (!isEditMode && !isRestockMode && autocompleteSuggestions.length > 0) {
+                      setIsAutocompleteOpen(true);
+                    }
+                  }}
+                  style={identityFieldStyles}
+                  disabled={isRestockMode && !isEditMode}
+                  aria-invalid={Boolean(visibleFieldErrors.item_name)}
+                  autoComplete="off"
+                />
+                {visibleFieldErrors.item_name || duplicateNameMessage ? (
+                  <p style={fieldErrorTextStyles}>
+                    {visibleFieldErrors.item_name || duplicateNameMessage}
+                  </p>
+                ) : null}
+                {!isEditMode && !isRestockMode && isAutocompleteOpen && autocompleteSuggestions.length > 0 ? (
+                  <ul ref={autocompleteRef} style={autocompleteStyles.list}>
+                    {autocompleteSuggestions.map((suggestion) => (
+                      <li key={suggestion.key}>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectExistingItem(suggestion)}
+                          style={{
+                            ...autocompleteStyles.itemButton,
+                            ...(suggestion.isAddPackagingAction
+                              ? {
+                                  backgroundColor: "#f4f9fd",
+                                  border: "1px solid #d7eaf5",
+                                }
+                              : {}),
+                          }}
+                        >
+                          <span>{suggestion.item.item_name}</span>
+                          <span
+                            style={
+                              suggestion.isAddPackagingAction
+                                ? autocompleteStyles.actionMeta
+                                : autocompleteStyles.itemMeta
+                            }
+                          >
+                            {suggestion.meta}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+
+              {shouldShowBarcodeField ? (
+                <div
+                  className="inventory-item-form-grid inventory-item-form-identity-grid"
+                  style={{
+                    gridColumn: "1 / -1",
+                    display: "grid",
+                    gridTemplateColumns: isEditMode
+                      ? "repeat(2, minmax(220px, 1fr))"
+                      : "minmax(260px, 2fr) minmax(180px, 1fr)",
+                    gap: "18px",
+                  }}
+                >
+                  <div>
+                    <label htmlFor="barcode" style={labelStyles}>
+                      Barcode
+                    </label>
+                    <input
+                      ref={barcodeInputRef}
+                      id="barcode"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder={
+                        isEditMode && !formValues.barcode.trim()
+                          ? "No barcode assigned"
+                          : !isRestockMode
+                            ? "Optional barcode"
+                            : "Scan or enter barcode"
+                      }
+                      value={
+                        source === "scan" && scannedBarcode
+                          ? scannedBarcode
+                          : formValues.barcode
+                      }
+                      onChange={(e) => handleChange("barcode", e.target.value)}
+                      onKeyDown={preventBarcodeScanSubmit}
+                      style={barcodeFieldStyles}
+                      disabled={isBarcodeLocked}
+                      aria-invalid={Boolean(visibleFieldErrors.barcode)}
+                    />
+                    {visibleFieldErrors.barcode ? (
+                      <p style={fieldErrorTextStyles}>{visibleFieldErrors.barcode}</p>
+                    ) : null}
+                    {conflictResolution ? (
+                      <p
+                        style={{
+                          ...fieldErrorTextStyles,
+                          color: "#4f677f",
+                        }}
+                      >
+                        {isBatchConflictResolution
+                          ? "Enter a new barcode for this packaging."
+                          : "Optional. Leave blank for a manual item."}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <label htmlFor="category" style={labelStyles}>
+                      Category
+                    </label>
+                    <select
+                      id="category"
+                      value={formValues.category}
+                      onChange={(e) => handleChange("category", e.target.value)}
+                      style={identityFieldStyles}
+                      disabled={isRestockMode && !isEditMode}
+                      aria-invalid={Boolean(visibleFieldErrors.category)}
+                    >
+                      <option value="perishable">Perishable</option>
+                      <option value="non-perishable">Non-Perishable</option>
+                    </select>
+                    {visibleFieldErrors.category ? (
+                      <p style={fieldErrorTextStyles}>{visibleFieldErrors.category}</p>
+                    ) : null}
+                  </div>
+
+                  <div style={isEditMode ? undefined : { gridColumn: "1 / -1" }}>
+                    <label htmlFor="tracking_method" style={labelStyles}>
+                      Tracking Method
+                    </label>
+                    <select
+                      id="tracking_method"
+                      value={trackingMethod}
+                      onChange={(e) => handleChange("tracking_method", e.target.value)}
+                      style={identityFieldStyles}
+                      disabled={isRestockMode || isEditMode}
+                      aria-invalid={Boolean(visibleFieldErrors.tracking_method)}
+                    >
+                      <option value="Count-Based">Count-Based</option>
+                      <option value="Weight/Volume-Based">Weight/Volume-Based</option>
+                    </select>
+                    {visibleFieldErrors.tracking_method ? (
+                      <p style={fieldErrorTextStyles}>
+                        {visibleFieldErrors.tracking_method}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {isEditMode ? (
+                    <div>
+                      <label htmlFor="edit_unit_of_measure" style={labelStyles}>
+                        {usesWeightOrVolume ? "Base Unit" : "Unit of Measure"}
+                      </label>
+                      <input
+                        id="edit_unit_of_measure"
+                        type="text"
+                        value={formValues.unit_of_measure || "pc"}
+                        readOnly
+                        style={lockedInputStyles}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div
+                  className="inventory-item-form-grid inventory-item-form-identity-grid"
+                  style={{
+                    gridColumn: "1 / -1",
+                    display: "grid",
+                    gridTemplateColumns: "repeat(2, minmax(180px, 1fr))",
+                    gap: "18px",
+                  }}
+                >
+                  <div>
+                    <label htmlFor="category" style={labelStyles}>
+                      Category
+                    </label>
+                    <select
+                      id="category"
+                      value={formValues.category}
+                      onChange={(e) => handleChange("category", e.target.value)}
+                      style={identityFieldStyles}
+                      disabled={isRestockMode && !isEditMode}
+                      aria-invalid={Boolean(visibleFieldErrors.category)}
+                    >
+                      <option value="perishable">Perishable</option>
+                      <option value="non-perishable">Non-Perishable</option>
+                    </select>
+                    {visibleFieldErrors.category ? (
+                      <p style={fieldErrorTextStyles}>{visibleFieldErrors.category}</p>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <label htmlFor="tracking_method" style={labelStyles}>
+                      Tracking Method
+                    </label>
+                    <select
+                      id="tracking_method"
+                      value={trackingMethod}
+                      onChange={(e) => handleChange("tracking_method", e.target.value)}
+                      style={identityFieldStyles}
+                      disabled={isRestockMode || isEditMode}
+                      aria-invalid={Boolean(visibleFieldErrors.tracking_method)}
+                    >
+                      <option value="Count-Based">Count-Based</option>
+                      <option value="Weight/Volume-Based">Weight/Volume-Based</option>
+                    </select>
+                    {visibleFieldErrors.tracking_method ? (
+                      <p style={fieldErrorTextStyles}>
+                        {visibleFieldErrors.tracking_method}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+
+              {!isEditMode ? (
+                <div
+                  className="inventory-item-form-grid inventory-item-form-stock-grid"
+                  style={{
+                    gridColumn: "1 / -1",
+                    display: "grid",
+                    gridTemplateColumns: usesWeightOrVolume
+                      ? "repeat(3, minmax(180px, 1fr))"
+                      : "repeat(2, minmax(180px, 1fr))",
+                    gap: "18px",
+                  }}
+                >
+                  <div>
+                    <label htmlFor="unit_of_measure" style={labelStyles}>
+                      {usesWeightOrVolume ? "Base Unit" : "Unit of Measure"}
+                    </label>
+                    <select
+                      id="unit_of_measure"
+                      value={formValues.unit_of_measure}
+                      onChange={(e) =>
+                        handleChange("unit_of_measure", e.target.value)
+                      }
+                      style={isRestockMode || isEditMode ? lockedInputStyles : inputStyles}
+                      disabled={!usesWeightOrVolume || isRestockMode || isEditMode}
+                      aria-invalid={Boolean(visibleFieldErrors.unit_of_measure)}
+                    >
+                      {usesWeightOrVolume ? (
+                        <>
+                          <option value="">Select base unit</option>
+                          {unitOfMeasureOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </>
+                      ) : (
+                        <option value="pc">pc</option>
+                      )}
+                    </select>
+                    {visibleFieldErrors.unit_of_measure ? (
+                      <p style={fieldErrorTextStyles}>
+                        {visibleFieldErrors.unit_of_measure}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <label htmlFor="packaging" style={labelStyles}>
+                      Packaging
+                    </label>
+                    <select
+                      id="packaging"
+                      value={formValues.packaging}
+                      onChange={(e) => handleChange("packaging", e.target.value)}
+                      style={packagingFieldStyles}
+                      disabled={shouldLockRestockStockFormFields}
+                      aria-invalid={Boolean(visibleFieldErrors.packaging)}
+                    >
+                      <option value="">Select packaging</option>
+                      {packagingOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    {visibleFieldErrors.packaging ? (
+                      <p style={fieldErrorTextStyles}>{visibleFieldErrors.packaging}</p>
+                    ) : null}
+                  </div>
+                  {usesWeightOrVolume ? (
+                  <div>
+                    <label htmlFor="unit_of_measure_value" style={labelStyles}>
+                      {unitValueLabel}
+                    </label>
+                    <input
+                      id="unit_of_measure_value"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      placeholder={unitValuePlaceholder}
+                      value={formValues.unit_of_measure_value}
+                      onChange={(e) =>
+                        handleChange("unit_of_measure_value", e.target.value)
+                      }
+                      style={isRestockMode || isEditMode ? lockedInputStyles : inputStyles}
+                      disabled={isRestockMode || isEditMode}
+                      aria-invalid={Boolean(visibleFieldErrors.unit_of_measure_value)}
+                    />
+                    {visibleFieldErrors.unit_of_measure_value ? (
+                      <p style={fieldErrorTextStyles}>
+                        {visibleFieldErrors.unit_of_measure_value}
+                      </p>
+                    ) : null}
+                  </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="inventory-item-form-section" style={{ ...shellStyles.card, padding: "18px 20px" }}>
+            <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
+              {stockSectionTitle}
+            </h3>
+
+            <div
+              className="inventory-item-form-grid"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "18px",
+              }}
+            >
+              {!isEditMode ? (
+                <>
+                  <div>
+                    <label htmlFor="batch_number" style={labelStyles}>
+                      Batch Number
+                    </label>
+                    <input
+                      id="batch_number"
+                      type="text"
+                      value="Auto-generated after saving"
+                      readOnly
+                      style={lockedInputStyles}
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="packaging_count" style={labelStyles}>
+                      {quantityOnHandLabel}
+                    </label>
+                    <input
+                      id="packaging_count"
+                      type="number"
+                      min="1"
+                      placeholder={quantityOnHandPlaceholder}
+                      value={formValues.packaging_count}
+                      onChange={(e) =>
+                        handleChange("packaging_count", e.target.value)
+                      }
+                      style={inputStyles}
+                      aria-invalid={Boolean(visibleFieldErrors.packaging_count)}
+                    />
+                    {visibleFieldErrors.packaging_count ? (
+                      <p style={fieldErrorTextStyles}>
+                        {visibleFieldErrors.packaging_count}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {shouldShowUnitsPerPackagingField ? (
+                    <div>
+                      <label htmlFor="quantity" style={labelStyles}>
+                        {quantityFieldLabel}
+                      </label>
+                      <input
+                        id="quantity"
+                        type="number"
+                        min="1"
+                        placeholder={quantityFieldPlaceholder}
+                        value={formValues.quantity}
+                        onChange={(e) => handleChange("quantity", e.target.value)}
+                        style={quantityFieldStyles}
+                        disabled={shouldLockRestockStockFormFields}
+                        aria-invalid={Boolean(visibleFieldErrors.quantity)}
+                      />
+                      {visibleFieldErrors.quantity ? (
+                        <p style={fieldErrorTextStyles}>{visibleFieldErrors.quantity}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+
+              <div>
+                <label htmlFor="reorder_level" style={labelStyles}>
+                  Reorder Level
+                </label>
+                <input
+                  id="reorder_level"
+                  type="number"
+                  min="1"
+                  placeholder="Set reorder level"
+                  value={formValues.reorder_level}
+                  onChange={(e) =>
+                    handleChange("reorder_level", e.target.value)
+                  }
+                  style={reorderLevelFieldStyles}
+                  disabled={isReorderLevelLocked}
+                  aria-invalid={Boolean(visibleFieldErrors.reorder_level)}
+                />
+                {visibleFieldErrors.reorder_level ? (
+                  <p style={fieldErrorTextStyles}>
+                    {visibleFieldErrors.reorder_level}
+                  </p>
+                ) : null}
+              </div>
+
+              {!isEditMode ? (
+                <div>
+                  <label htmlFor="expiration_date" style={labelStyles}>
+                    {isPerishable
+                      ? "Batch Expiration Date"
+                      : "Batch Expiration Date (If Applicable)"}
+                  </label>
+                  <input
+                    id="expiration_date"
+                    type="date"
+                    value={formValues.expiration_date}
+                    onChange={(e) =>
+                      handleChange("expiration_date", e.target.value)
+                    }
+                    style={inputStyles}
+                    aria-invalid={Boolean(visibleFieldErrors.expiration_date)}
+                  />
+                  {visibleFieldErrors.expiration_date ? (
+                    <p style={fieldErrorTextStyles}>
+                      {visibleFieldErrors.expiration_date}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {isRestockMode ? (
+                <div>
+                  <label htmlFor="current_stock" style={labelStyles}>
+                    Current Stock
+                  </label>
+                  <input
+                    id="current_stock"
+                    type="text"
+                    value={currentStockDisplay}
+                    readOnly
+                    style={lockedInputStyles}
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            {matchingStockFormByDefinition && !hasBarcodePackagingConflict ? (
+              <div
+                style={{
+                  marginTop: "16px",
+                  padding: "14px 16px",
+                  borderRadius: "14px",
+                  border: "1px solid #cfe3f1",
+                  backgroundColor: "#f4f9fd",
+                }}
+              >
+                <p
+                  style={{
+                    margin: "0 0 10px",
+                    color: "#21405f",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                  }}
+                >
+                  {formatPackagingLabel(matchingStockFormByDefinition.packaging)} packaging
+                  matches the existing packaging definition.
+                </p>
+
+                <p
+                  style={{
+                    margin: 0,
+                    color: "#21405f",
+                    fontSize: "13px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {scannedBarcodeAlreadyMatchesPackaging
+                    ? "This barcode is already linked to this packaging."
+                    : "The scanned barcode will be assigned to this packaging."}
+                </p>
+              </div>
+            ) : null}
+
+            {hasBarcodePackagingConflict ? (
+              <div
+                style={{
+                  marginTop: "16px",
+                  padding: "14px 16px",
+                  borderRadius: "14px",
+                  border: "1px solid #f0b8b8",
+                  backgroundColor: "#fff6f6",
+                  color: "#9f2d2d",
+                  fontSize: "13px",
+                  lineHeight: 1.5,
+                }}
+              >
+                This packaging already has a different barcode. Choose different packaging
+                details.
+              </div>
+            ) : null}
+          </section>
+
+          {errorMessage && <div style={errorBoxStyles}>{errorMessage}</div>}
+
+          <div
+            className="inventory-item-form-footer"
+            style={isEditMode ? editFooterActionsStyles : formFooterStyles}
+          >
+            {!isEditMode ? (
+              <p style={footerTotalStyles}>
+                {computedTotalLabel}: <strong>{computedTotalDisplay}</strong>
+              </p>
+            ) : null}
+
+            <div className="inventory-item-form-footer-actions" style={footerActionsStyles}>
+              <button
+                type="button"
+                onClick={handleCancel}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                style={{
+                  ...pageHeaderStyles.primaryButton,
+                  opacity: isSubmitting ? 0.7 : 1,
+                }}
+              >
+                {isSubmitting
+                  ? "Processing..."
+                  : conflictResolution
+                    ? "Review"
+                  : mode === "edit"
+                    ? "Save Changes"
+                    : isAddingStockFormMode
+                      ? "Add Stock Form"
+                      : isRestockMode
+                        ? "Add Restock Entry"
+                        : "Add"}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default InventoryItemFormModal;

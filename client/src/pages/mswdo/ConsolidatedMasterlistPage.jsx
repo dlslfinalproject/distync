@@ -1,0 +1,469 @@
+import React, { useEffect, useRef, useState } from "react";
+import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
+import ActiveCrossEventInformationModal from "../../components/masterlist/ActiveCrossEventInformationModal";
+import PageHeader from "../../components/layout/PageHeader";
+import HouseholdArchiveConfirmModal from "../../components/masterlist/HouseholdArchiveConfirmModal";
+import HouseholdDetailModal from "../../components/masterlist/HouseholdDetailModal";
+import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
+import MasterlistSelectionBar from "../../components/masterlist/MasterlistSelectionBar";
+import MasterlistStatusMessages from "../../components/masterlist/MasterlistStatusMessages";
+import MasterlistTable from "../../components/masterlist/MasterlistTable";
+import MswdoMasterlistControls from "../../components/mswdo-masterlist/MswdoMasterlistControls";
+import MswdoExportModal from "../../components/mswdo-masterlist/MswdoExportModal";
+import MswdoMasterlistEventSummary from "../../components/mswdo-masterlist/MswdoMasterlistEventSummary";
+import MswdoMasterlistScopeSection from "../../components/mswdo-masterlist/MswdoMasterlistScopeSection";
+import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
+import FeedbackToast from "../../components/shared/FeedbackToast";
+import { TABLE_PAGE_SIZE_OPTIONS } from "../../features/pagination/pagination.mjs";
+import { useAuth } from "../../context/AuthContext";
+import { useMswdoMasterlistPage } from "../../features/mswdo-masterlist/useMswdoMasterlistPage";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
+import { useRememberedInitialLoading } from "../../utils/rememberedPageLoading";
+
+const ConsolidatedEvacueeMasterlist = () => {
+  const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+  const { authenticatedUser } = useAuth();
+  const {
+    disasterEvents,
+    barangays,
+    sectors,
+    selectedDisasterEventId,
+    selectedBarangayId,
+    selectedDisasterEvent,
+    searchTerm,
+    selectedRecordStatus,
+    displayedRows,
+    pagination,
+    currentPage,
+    pageSize,
+    summaryMetrics,
+    isInitialLoadingFilters: baseIsInitialLoadingFilters,
+    isInitialLoadingMasterlist: baseIsInitialLoadingMasterlist,
+    isInitialLoadingDashboard: baseIsInitialLoadingDashboard,
+    errorMessage,
+    dashboardErrorMessage,
+    activeTab,
+    selectedHouseholds,
+    pendingDepartureFamilyHeadName,
+    pendingDepartureFamilyHeadPhotoUrl,
+    pendingBulkDepartureHouseholds,
+    isLoadingDepartureHouseholdDetails,
+    isFilterOpen,
+    isExportModalOpen,
+    exportingFormat,
+    selectedExportFormat,
+    selectedExportDisasterEventId,
+    selectedExportBarangayIds,
+    selectedExportRecordStatus,
+    selectedExportSortOrder,
+    selectedExportSectorIds,
+    availableExportSectorIds,
+    availableExportBarangayIds,
+    isRegisterModalOpen,
+    registrationSuccessMessage,
+    attendanceActionMessage,
+    activeCrossEventModalTitles,
+    viewingHouseholdId,
+    editingHouseholdId,
+    isLoadingHouseholdDetails,
+    householdDetailsErrorMessage,
+    editHouseholdErrorMessage,
+    pendingRestoreHouseholdId,
+    pendingRestoreHouseholdDetails,
+    isLoadingRestoreHouseholdDetails,
+    isRestoringHousehold,
+    reAdmissionHouseholdId,
+    exportFeedback,
+    selectedSectorIds,
+    selectedSortOrder,
+    activeEventLabel,
+    reliefPeriodText,
+    canRegisterFamily,
+    isEndedView,
+    endedEventDateTimeText,
+    hasActiveSectorFilters,
+    hasNonDefaultSort,
+    scopedDisasterEvents,
+    selectableBarangays,
+    registrationForm,
+    editHouseholdForm,
+    reAdmissionForm,
+    setSelectedDisasterEventId,
+    setSelectedBarangayId,
+    setSearchTerm,
+    setCurrentPage,
+    setPageSize,
+    setSelectedExportFormat,
+    setSelectedExportDisasterEventId,
+    setSelectedExportBarangayIds,
+    setSelectedExportRecordStatus,
+    setSelectedExportSortOrder,
+    setSelectedExportSectorIds,
+    setExportFeedback,
+    setActiveCrossEventModalTitles,
+    setIsExportModalOpen,
+    setIsFilterOpen,
+    handleExportDisasterEventChange,
+    handleEventScopeChange,
+    handleRecordStatusChange,
+    handleToggleSelect,
+    handleSelectAll,
+    handleOpenBulkDepartureConfirmation,
+    handleOpenDepartureConfirmation,
+    handleCloseDepartureConfirmation,
+    handleConfirmDeparture,
+    handleOpenRegisterModal,
+    handleCloseRegisterModal,
+    handleOpenHouseholdDetails,
+    handleCloseHouseholdDetails,
+    handleOpenEditHousehold,
+    handleEditHouseholdFromDetails,
+    handleCloseEditHousehold,
+    handleOpenRestoreHousehold,
+    handleCancelRestoreHousehold,
+    handleConfirmRestoreHousehold,
+    handleCloseReAdmission,
+    handleExport,
+    toggleSectorFilter,
+    clearSectorFilters,
+    setTabSortOrder,
+    householdDetails,
+    pendingDepartureHouseholdId,
+    isBulkDepartureConfirmOpen,
+    isRecordingDeparture,
+    exportSortOptions,
+  } = useMswdoMasterlistPage({ authenticatedUser });
+
+  const shouldShowInitialLoading = useRememberedInitialLoading({
+    pageKey: "mswdo:consolidated-masterlist",
+    isLoading:
+      baseIsInitialLoadingFilters ||
+      baseIsInitialLoadingMasterlist ||
+      baseIsInitialLoadingDashboard,
+    errorMessage: errorMessage || dashboardErrorMessage,
+    hasUsableData: displayedRows.length > 0,
+  });
+  const isInitialLoadingFilters =
+    baseIsInitialLoadingFilters && shouldShowInitialLoading;
+  const isInitialLoadingMasterlist =
+    baseIsInitialLoadingMasterlist && shouldShowInitialLoading;
+  const isInitialLoadingDashboard =
+    baseIsInitialLoadingDashboard && shouldShowInitialLoading;
+  const pendingRestoreFamilyHeadName = pendingRestoreHouseholdDetails?.household
+    ? [
+        pendingRestoreHouseholdDetails.household.family_head_first_name,
+        pendingRestoreHouseholdDetails.household.family_head_middle_name,
+        pendingRestoreHouseholdDetails.household.family_head_last_name,
+        pendingRestoreHouseholdDetails.household.family_head_suffix,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "";
+  const pendingRestoreFamilyHeadPhotoUrl =
+    pendingRestoreHouseholdDetails?.household?.family_head_photo_url || "";
+  const pendingRestoreRow = displayedRows.find(
+    (row) => row.household_id === pendingRestoreHouseholdId,
+  );
+  const pendingRestoreVariant = pendingRestoreRow?.is_non_admitted_resident
+    ? "admit"
+    : "readmit";
+  const [exportValidationErrors, setExportValidationErrors] = useState({
+    sectors: "",
+    barangays: "",
+  });
+  const exportModalRef = useRef(null);
+  useEffect(() => {
+    if (!isExportModalOpen) {
+      setExportValidationErrors({ sectors: "", barangays: "" });
+      return;
+    }
+
+    setExportValidationErrors((currentErrors) => ({
+      sectors: selectedExportSectorIds.length ? "" : currentErrors.sectors,
+      barangays: selectedExportBarangayIds.length
+        ? ""
+        : currentErrors.barangays,
+    }));
+  }, [
+    isExportModalOpen,
+    selectedExportBarangayIds.length,
+    selectedExportSectorIds.length,
+  ]);
+
+  const handleValidatedExport = (format) => {
+    const nextErrors = {
+      sectors: selectedExportSectorIds.length
+        ? ""
+        : "Select at least one sector.",
+      barangays: selectedExportBarangayIds.length
+        ? ""
+        : "Select at least one barangay.",
+    };
+
+    if (nextErrors.sectors || nextErrors.barangays) {
+      setExportValidationErrors(nextErrors);
+      scheduleScrollToFirstError(exportModalRef);
+      return;
+    }
+
+    setExportValidationErrors({ sectors: "", barangays: "" });
+    handleExport(format);
+  };
+
+  return (
+    <>
+      <PageHeader title="EVACUEE MASTERLIST MANAGEMENT" actions={[]} />
+
+      <MswdoMasterlistScopeSection
+        activeTab={activeTab}
+        isLoadingFilters={isInitialLoadingFilters}
+        scopedDisasterEvents={scopedDisasterEvents}
+        selectedDisasterEventId={selectedDisasterEventId}
+        selectedBarangayId={selectedBarangayId}
+        barangays={selectableBarangays}
+        onEventScopeChange={handleEventScopeChange}
+        onDisasterEventChange={setSelectedDisasterEventId}
+        onBarangayChange={setSelectedBarangayId}
+      />
+
+      <MswdoMasterlistEventSummary
+        activeEventLabel={activeEventLabel}
+        selectedDisasterEvent={selectedDisasterEvent}
+        isLoadingFilters={isInitialLoadingFilters}
+        reliefPeriodText={reliefPeriodText}
+      />
+
+      {selectedDisasterEvent && !isInitialLoadingDashboard && !dashboardErrorMessage ? (
+        <MswdoSummaryCards
+          summary={summaryMetrics}
+          selectedBarangayId={selectedBarangayId}
+        />
+      ) : null}
+
+      <MasterlistStatusMessages
+        successMessage={registrationSuccessMessage}
+        infoMessage={attendanceActionMessage}
+        errorMessage={editHouseholdErrorMessage}
+      />
+
+      {!isEndedView ? (
+        <MasterlistSelectionBar
+          selectedCount={selectedHouseholds.length}
+          isSubmitting={isRecordingDeparture}
+          onConfirmDeparture={handleOpenBulkDepartureConfirmation}
+        />
+      ) : null}
+
+      <MswdoMasterlistControls
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        recordStatus={selectedRecordStatus}
+        onRecordStatusChange={handleRecordStatusChange}
+        isFilterOpen={isFilterOpen}
+        hasActiveSectorFilters={hasActiveSectorFilters}
+        hasNonDefaultSort={hasNonDefaultSort}
+        selectedSectorIds={selectedSectorIds}
+        selectedSortOrder={selectedSortOrder}
+        sectors={sectors}
+        filterScopeKey={`${activeTab}-${selectedBarangayId || "all"}-${
+          selectedDisasterEventId || "none"
+        }`}
+        onFilterOpenChange={setIsFilterOpen}
+        onToggleSectorFilter={toggleSectorFilter}
+        onSortOrderChange={setTabSortOrder}
+        onClearSectorFilters={clearSectorFilters}
+        canRegisterFamily={canRegisterFamily}
+        onOpenRegisterModal={handleOpenRegisterModal}
+        selectedDisasterEventId={selectedDisasterEventId}
+        exportingFormat={exportingFormat}
+        hideRecordStatus={isEndedView}
+        isOffline={isOffline}
+        onOpenExportModal={() => {
+          setSelectedExportDisasterEventId(selectedDisasterEventId || "");
+          setSelectedExportBarangayIds(
+            selectedBarangayId
+              ? [selectedBarangayId]
+              : Array.isArray(selectedDisasterEvent?.affected_barangays)
+                ? selectedDisasterEvent.affected_barangays
+                    .map((barangay) => barangay?.id)
+                    .filter(Boolean)
+                : [],
+          );
+          setSelectedExportFormat("csv");
+          setSelectedExportRecordStatus(isEndedView ? "archived" : selectedRecordStatus);
+          setSelectedExportSortOrder(selectedSortOrder);
+          setSelectedExportSectorIds(selectedSectorIds);
+          setExportValidationErrors({ sectors: "", barangays: "" });
+          setExportFeedback({ type: "", message: "" });
+          setIsExportModalOpen(true);
+        }}
+      />
+
+      <MasterlistTable
+        rows={displayedRows}
+        hasSelectedEvent={Boolean(selectedDisasterEventId)}
+        isLoading={isInitialLoadingFilters || isInitialLoadingMasterlist}
+        errorMessage={errorMessage}
+        onMarkDeparted={handleOpenDepartureConfirmation}
+        onViewHousehold={handleOpenHouseholdDetails}
+        onEditHousehold={handleOpenEditHousehold}
+        onRestoreHousehold={handleOpenRestoreHousehold}
+        isDepartureReadOnly={isEndedView}
+        departureReadOnlyText={endedEventDateTimeText}
+        selectedHouseholds={selectedHouseholds}
+        onToggleSelect={handleToggleSelect}
+        onSelectAll={handleSelectAll}
+        showAddressColumn={!selectedBarangayId}
+        isOffline={isOffline}
+        showOfflineSyncStatus={!isEndedView}
+        pagination={{
+          page: currentPage,
+          pageSize,
+          totalItems: pagination.totalItems,
+        }}
+        pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+        totalItems={pagination.totalItems}
+      />
+
+      <MasterlistDepartureConfirmModal
+        isOpen={Boolean(pendingDepartureHouseholdId) || isBulkDepartureConfirmOpen}
+        isSubmitting={isRecordingDeparture}
+        isLoadingHouseholdDetails={isLoadingDepartureHouseholdDetails}
+        onCancel={handleCloseDepartureConfirmation}
+        onConfirm={handleConfirmDeparture}
+        selectedCount={isBulkDepartureConfirmOpen ? selectedHouseholds.length : 1}
+        familyHeadName={pendingDepartureFamilyHeadName}
+        familyHeadPhotoUrl={pendingDepartureFamilyHeadPhotoUrl}
+        selectedHouseholdsPreview={pendingBulkDepartureHouseholds}
+      />
+
+      <MswdoExportModal
+        modalRef={exportModalRef}
+        isOpen={isExportModalOpen}
+        title="Evacuee Masterlist Report"
+        isSubmitting={Boolean(exportingFormat)}
+        disasterEvents={disasterEvents}
+        barangays={barangays}
+        sectors={sectors}
+        selectedDisasterEventId={selectedExportDisasterEventId}
+        selectedBarangayIds={selectedExportBarangayIds}
+        selectedRecordStatus={selectedExportRecordStatus}
+        selectedSortOrder={selectedExportSortOrder}
+        selectedSectorIds={selectedExportSectorIds}
+        availableSectorIds={availableExportSectorIds}
+        availableBarangayIds={availableExportBarangayIds}
+        selectedFormat={selectedExportFormat}
+        validationErrors={exportValidationErrors}
+        onClose={() => {
+          if (!exportingFormat) {
+            setIsExportModalOpen(false);
+          }
+        }}
+        onSubmit={() => handleValidatedExport(selectedExportFormat)}
+        onDisasterEventChange={handleExportDisasterEventChange}
+        onBarangayToggle={(barangayId) => {
+          setSelectedExportBarangayIds((currentValues) => {
+            const nextValues = currentValues.includes(barangayId)
+              ? currentValues.filter((id) => id !== barangayId)
+              : [...currentValues, barangayId];
+
+            if (nextValues.length > 0) {
+              setExportValidationErrors((currentErrors) => ({
+                ...currentErrors,
+                barangays: "",
+              }));
+            }
+
+            return nextValues;
+          });
+        }}
+        onSelectAllBarangays={() => {
+          setSelectedExportBarangayIds(availableExportBarangayIds);
+          setExportValidationErrors((currentErrors) => ({
+            ...currentErrors,
+            barangays: "",
+          }));
+        }}
+        onClearBarangays={() => setSelectedExportBarangayIds([])}
+        onRecordStatusChange={setSelectedExportRecordStatus}
+        onSortOrderChange={setSelectedExportSortOrder}
+        onSectorToggle={(sectorId) => {
+          setSelectedExportSectorIds((currentValues) => {
+            const nextValues = currentValues.includes(sectorId)
+              ? currentValues.filter((id) => id !== sectorId)
+              : [...currentValues, sectorId];
+
+            if (nextValues.length > 0) {
+              setExportValidationErrors((currentErrors) => ({
+                ...currentErrors,
+                sectors: "",
+              }));
+            }
+
+            return nextValues;
+          });
+        }}
+        onClearSectors={() => setSelectedExportSectorIds([])}
+        onFormatChange={setSelectedExportFormat}
+        sortOptions={exportSortOptions}
+        hideRecordStatusSelection={isEndedView}
+      />
+
+      <RegisterFamilyModal
+        isOpen={isRegisterModalOpen}
+        onClose={handleCloseRegisterModal}
+        form={registrationForm}
+      />
+
+      <RegisterFamilyModal
+        isOpen={Boolean(editingHouseholdId)}
+        onClose={handleCloseEditHousehold}
+        form={editHouseholdForm}
+      />
+
+      <RegisterFamilyModal
+        isOpen={Boolean(reAdmissionHouseholdId)}
+        onClose={handleCloseReAdmission}
+        form={reAdmissionForm}
+      />
+
+      <HouseholdDetailModal
+        isOpen={Boolean(viewingHouseholdId)}
+        isLoading={isLoadingHouseholdDetails}
+        errorMessage={householdDetailsErrorMessage}
+        householdDetails={householdDetails}
+        onClose={handleCloseHouseholdDetails}
+        onEditHousehold={isEndedView ? undefined : handleEditHouseholdFromDetails}
+        showAdministrativeMetadata={false}
+        showDataPrivacyAcknowledgement={true}
+      />
+
+      <HouseholdArchiveConfirmModal
+        isOpen={Boolean(pendingRestoreHouseholdId)}
+        isSubmitting={isRestoringHousehold}
+        isLoadingHouseholdDetails={isLoadingRestoreHouseholdDetails}
+        familyHeadName={pendingRestoreFamilyHeadName}
+        familyHeadPhotoUrl={pendingRestoreFamilyHeadPhotoUrl}
+        onCancel={handleCancelRestoreHousehold}
+        onConfirm={handleConfirmRestoreHousehold}
+        mode="restore"
+        restoreVariant={pendingRestoreVariant}
+      />
+
+      <FeedbackToast
+        type={exportFeedback.type}
+        message={exportFeedback.message}
+        onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
+
+      <ActiveCrossEventInformationModal
+        eventTitles={activeCrossEventModalTitles}
+        onClose={() => setActiveCrossEventModalTitles([])}
+      />
+    </>
+  );
+};
+
+export default ConsolidatedEvacueeMasterlist;

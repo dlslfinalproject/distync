@@ -1,0 +1,2066 @@
+const pool = require("../config/db");
+
+const buildLinkedReliefPackTemplateNamesQuery = (transactionAlias) => `
+  SELECT
+    STRING_AGG(
+      DISTINCT linked_template_row.name_snapshot,
+      ', ' ORDER BY linked_template_row.name_snapshot
+    ) AS names,
+    JSONB_AGG(
+      JSONB_BUILD_OBJECT(
+        'relief_pack_template_id', linked_template_row.relief_pack_template_id,
+        'name', linked_template_row.name_snapshot,
+        'is_additional_pack', linked_template_row.is_additional_pack_snapshot
+      )
+      ORDER BY linked_template_row.name_snapshot
+    ) AS snapshots
+  FROM distribution_transaction_relief_pack_templates linked_template_row
+  WHERE linked_template_row.distribution_transaction_id = ${transactionAlias}.id
+`;
+
+const buildDistributionHistoryReliefPackNamesQuery = (transactionAlias) => `
+  SELECT
+    STRING_AGG(relief_pack_name, ';' || CHR(10) ORDER BY relief_pack_name) AS names
+  FROM (
+    SELECT NULLIF(BTRIM(linked_template_row.name_snapshot), '') AS relief_pack_name
+    FROM distribution_transaction_relief_pack_templates linked_template_row
+    WHERE linked_template_row.distribution_transaction_id = ${transactionAlias}.id
+
+    UNION
+
+    SELECT NULLIF(BTRIM(relief_pack_template.name), '') AS relief_pack_name
+    FROM relief_pack_templates relief_pack_template
+    WHERE relief_pack_template.id = ${transactionAlias}.relief_pack_template_id
+
+    UNION
+
+    SELECT NULLIF(BTRIM(dti.donated_relief_pack_name_snapshot), '') AS relief_pack_name
+    FROM distribution_transaction_items dti
+    WHERE dti.distribution_transaction_id = ${transactionAlias}.id
+  ) relief_pack_names
+  WHERE relief_pack_name IS NOT NULL
+`;
+
+const getDistributionReceiptSequence = async (dbClient) => {
+  const currentYear = new Date().getFullYear();
+  const receiptPrefix = `RCPT-${currentYear}-`;
+  const advisoryLockNamespace = 4119;
+
+  await dbClient.query("SELECT pg_advisory_xact_lock($1, $2)", [
+    advisoryLockNamespace,
+    currentYear,
+  ]);
+
+  const sequenceQuery = `
+    SELECT
+      COALESCE(
+        MAX(CAST(SUBSTRING(receipt_no FROM '^RCPT-\\d{4}-(\\d{6})$') AS INTEGER)),
+        0
+      ) + 1 AS next_sequence
+    FROM distribution_transactions
+    WHERE receipt_no LIKE $1
+  `;
+
+  const sequenceResult = await dbClient.query(sequenceQuery, [`${receiptPrefix}%`]);
+  const nextSequence = Number(sequenceResult.rows[0]?.next_sequence || 1);
+
+  return `${receiptPrefix}${String(nextSequence).padStart(6, "0")}`;
+};
+
+const getStubByIdForUpdate = async (stubId, dbClient) => {
+  const query = `
+    SELECT
+      s.id,
+      s.disaster_event_id,
+      s.household_id,
+      s.stub_no,
+      s.serial_no,
+      s.status,
+      s.qr_code_value,
+      s.qr_generated_at,
+      s.qr_generated_by,
+      s.qr_status,
+      s.qr_notes,
+      s.assigned_relief_pack_snapshots,
+      s.claimed_at,
+      de.status AS disaster_event_status,
+      h.barangay_id,
+      h.household_size,
+      h.current_stay_type,
+      h.is_active,
+      h.family_head_first_name,
+      h.family_head_middle_name,
+      h.family_head_last_name,
+      h.family_head_suffix
+    FROM stubs s
+    INNER JOIN disaster_events de ON de.id = s.disaster_event_id
+    INNER JOIN households h ON h.id = s.household_id
+    WHERE s.id = $1
+    FOR UPDATE
+  `;
+
+  const result = await dbClient.query(query, [stubId]);
+  return result.rows[0] || null;
+};
+
+const getInventoryBatchByIdForUpdate = async (batchId, dbClient) => {
+  const query = `
+    SELECT
+      ib.id,
+      ib.inventory_item_id,
+      ib.batch_no,
+      ib.source_type,
+      ib.quantity_available,
+      ib.stock_version,
+      ib.expiration_date,
+      ib.status,
+      ii.item_code,
+      ii.item_name,
+      ii.category,
+      ii.unit_of_measure,
+      ii.reorder_level
+    FROM inventory_batches ib
+    INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    WHERE ib.id = $1
+    FOR UPDATE
+  `;
+
+  const result = await dbClient.query(query, [batchId]);
+  return result.rows[0] || null;
+};
+
+const getReliefPackTemplateByIdForUpdate = async (templateId, dbClient) => {
+  const query = `
+    SELECT
+      id,
+      name,
+      description,
+      based_on_family_size,
+      based_on_sector,
+      is_additional_pack,
+      sector_id,
+      applies_to_all_disasters,
+      is_active
+    FROM relief_pack_templates
+    WHERE id = $1
+    FOR SHARE
+  `;
+
+  const result = await dbClient.query(query, [templateId]);
+  return result.rows[0] || null;
+};
+
+const getReliefPackTemplateItemsByTemplateIdForUpdate = async (templateId, dbClient) => {
+  const query = `
+    SELECT
+      rpti.id,
+      rpti.template_id,
+      rpti.inventory_item_id,
+      rpti.quantity_required,
+      ii.item_code,
+      ii.item_name,
+      ii.category,
+      ii.unit_of_measure
+    FROM relief_pack_template_items rpti
+    INNER JOIN inventory_items ii ON ii.id = rpti.inventory_item_id
+    WHERE rpti.template_id = $1
+    ORDER BY ii.item_name ASC
+  `;
+
+  const result = await dbClient.query(query, [templateId]);
+  return result.rows;
+};
+
+const getLatestAttendanceByHouseholdId = async (
+  householdId,
+  disasterEventId,
+  dbClient,
+) => {
+  const query = `
+    SELECT
+      id,
+      household_id,
+      disaster_event_id,
+      status,
+      time_in,
+      time_out
+    FROM evacuation_logs
+    WHERE household_id = $1
+      AND disaster_event_id = $2
+    ORDER BY
+      COALESCE(time_out, time_in) DESC,
+      updated_at DESC,
+      created_at DESC
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [householdId, disasterEventId]);
+  return result.rows[0] || null;
+};
+
+const resolveReliefPackBatchQueryArguments = (
+  disasterEventIdOrDbClient,
+  maybeDbClient,
+) => ({
+  disasterEventId: maybeDbClient ? disasterEventIdOrDbClient : null,
+  dbClient: maybeDbClient || disasterEventIdOrDbClient,
+});
+
+const getAvailableInventoryBatchesByItemIdForUpdate = async (
+  inventoryItemId,
+  disasterEventIdOrDbClient,
+  maybeDbClient,
+) => {
+  const { disasterEventId, dbClient } = resolveReliefPackBatchQueryArguments(
+    disasterEventIdOrDbClient,
+    maybeDbClient,
+  );
+  const query = `
+    SELECT
+      ib.id,
+      ib.inventory_item_id,
+      ib.batch_no,
+      ib.quantity_received,
+      ib.quantity_available,
+      ib.stock_version,
+      ib.expiration_date,
+      ib.received_at,
+      ib.created_at,
+      ib.status,
+      ib.source_type,
+      ii.item_code,
+      ii.item_name,
+      ii.category,
+      ii.unit_of_measure,
+      ii.reorder_level,
+      loose_donation.donation_id,
+      loose_donation.donation_item_id,
+      loose_donation.donor_name,
+      loose_donation.donation_received_at,
+      loose_donation.donation_created_at
+    FROM inventory_batches ib
+    INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    LEFT JOIN disaster_events target_event
+      ON target_event.id = $2
+    LEFT JOIN LATERAL (
+      SELECT
+        loose_di.id AS donation_item_id,
+        loose_d.id AS donation_id,
+        loose_d.donor_name,
+        loose_d.received_at AS donation_received_at,
+        loose_d.created_at AS donation_created_at
+      FROM donation_items loose_di
+      INNER JOIN donations loose_d ON loose_d.id = loose_di.donation_id
+      INNER JOIN disaster_events donation_event
+        ON donation_event.id = loose_d.disaster_event_id
+      WHERE loose_di.inventory_batch_id = ib.id
+        AND loose_d.status <> 'CANCELLED'
+        AND COALESCE(loose_di.remarks, '') NOT ILIKE 'Relief Pack:%'
+        AND (
+          loose_d.disaster_event_id = target_event.id
+          OR (
+            target_event.id IS NOT NULL
+            AND target_event.status = 'ACTIVE'
+            AND donation_event.status = 'CLOSED'
+            AND (
+              target_event.created_at > donation_event.created_at
+              OR (
+                target_event.created_at = donation_event.created_at
+                AND target_event.id > donation_event.id
+              )
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM disaster_events next_event
+              WHERE next_event.status = 'ACTIVE'
+                AND (
+                  next_event.created_at > donation_event.created_at
+                  OR (
+                    next_event.created_at = donation_event.created_at
+                    AND next_event.id > donation_event.id
+                  )
+                )
+                AND (
+                  next_event.created_at < target_event.created_at
+                  OR (
+                    next_event.created_at = target_event.created_at
+                    AND next_event.id < target_event.id
+                  )
+                )
+            )
+          )
+        )
+      ORDER BY
+        loose_d.received_at ASC NULLS LAST,
+        loose_d.created_at ASC,
+        loose_di.created_at ASC
+      LIMIT 1
+    ) loose_donation ON TRUE
+    WHERE ib.inventory_item_id = $1
+      AND ($2::UUID IS NULL OR target_event.status = 'ACTIVE')
+      AND COALESCE(ib.quantity_available, 0) > 0
+      AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
+      AND (
+        ib.source_type = 'LGU'
+        OR (
+          ib.source_type = 'DONATED'
+          AND loose_donation.donation_id IS NOT NULL
+        )
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM donation_items relief_pack_donation_items
+        WHERE relief_pack_donation_items.inventory_batch_id = ib.id
+          AND COALESCE(relief_pack_donation_items.remarks, '') ILIKE 'Relief Pack:%'
+      )
+      AND (
+        ib.expiration_date IS NULL
+        OR ib.expiration_date > (CURRENT_DATE + INTERVAL '30 days')
+      )
+    ORDER BY
+      CASE WHEN ib.source_type = 'DONATED' THEN 0 ELSE 1 END,
+      CASE
+        WHEN ib.source_type = 'DONATED'
+          THEN loose_donation.donation_received_at
+        ELSE ib.received_at
+      END ASC NULLS LAST,
+      CASE
+        WHEN ib.source_type = 'DONATED'
+          THEN loose_donation.donation_created_at
+        ELSE ib.created_at
+      END ASC NULLS LAST,
+      ib.received_at ASC NULLS LAST,
+      ib.created_at ASC,
+      ib.batch_no ASC
+    FOR UPDATE OF ib
+  `;
+
+  const result = await dbClient.query(query, [inventoryItemId, disasterEventId]);
+  return result.rows;
+};
+
+const getDonatedReliefPackItemsByDisasterEventId = async (
+  disasterEventId,
+  dbClient = pool,
+  { forUpdate = false } = {},
+) => {
+  const query = `
+    SELECT
+      d.id AS donation_id,
+      d.donor_name,
+      d.received_at AS donation_received_at,
+      d.created_at AS donation_created_at,
+      di.id AS donation_item_id,
+      di.inventory_item_id,
+      di.inventory_batch_id,
+      di.quantity_received,
+      di.remarks,
+      di.created_at AS donation_item_created_at,
+      ib.batch_no,
+      ib.quantity_available,
+      ib.stock_version,
+      ib.expiration_date,
+      ib.status,
+      ii.item_code,
+      ii.item_name,
+      ii.category,
+      ii.unit_of_measure,
+      ii.reorder_level
+    FROM donation_items di
+    INNER JOIN donations d ON d.id = di.donation_id
+    INNER JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
+    INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
+    WHERE d.disaster_event_id = $1
+      AND d.status <> 'CANCELLED'
+      AND ib.source_type = 'DONATED'
+      AND COALESCE(di.remarks, '') ILIKE 'Relief Pack:%'
+    ORDER BY
+      d.received_at ASC,
+      d.created_at ASC,
+      d.id ASC,
+      di.created_at ASC,
+      ii.item_name ASC
+    ${forUpdate ? "FOR UPDATE OF ib" : ""}
+  `;
+
+  const result = await dbClient.query(query, [disasterEventId]);
+  return result.rows;
+};
+
+const getAvailableDonatedLooseItemsByDisasterEventId = async (
+  disasterEventId,
+  dbClient = pool,
+  { forUpdate = false } = {},
+) => {
+  const query = `
+    SELECT
+      d.id AS donation_id,
+      d.donor_name,
+      d.received_at AS donation_received_at,
+      d.created_at AS donation_created_at,
+      di.id AS donation_item_id,
+      di.inventory_item_id,
+      di.inventory_batch_id,
+      di.quantity_received,
+      di.remarks,
+      ib.batch_no,
+      ib.quantity_available,
+      ib.stock_version,
+      ib.expiration_date,
+      ib.status,
+      ii.item_code,
+      ii.item_name,
+      ii.category,
+      ii.unit_of_measure,
+      ii.reorder_level
+    FROM donation_items di
+    INNER JOIN donations d ON d.id = di.donation_id
+    INNER JOIN disaster_events donation_event
+      ON donation_event.id = d.disaster_event_id
+    INNER JOIN disaster_events target_event
+      ON target_event.id = $1
+    INNER JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
+    INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
+    WHERE target_event.status = 'ACTIVE'
+      AND (
+        d.disaster_event_id = target_event.id
+        OR (
+          donation_event.status = 'CLOSED'
+          AND (
+            target_event.created_at > donation_event.created_at
+            OR (
+              target_event.created_at = donation_event.created_at
+              AND target_event.id > donation_event.id
+            )
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM disaster_events next_event
+            WHERE next_event.status = 'ACTIVE'
+              AND (
+                next_event.created_at > donation_event.created_at
+                OR (
+                  next_event.created_at = donation_event.created_at
+                  AND next_event.id > donation_event.id
+                )
+              )
+              AND (
+                next_event.created_at < target_event.created_at
+                OR (
+                  next_event.created_at = target_event.created_at
+                  AND next_event.id < target_event.id
+                )
+              )
+          )
+        )
+      )
+      AND d.status <> 'CANCELLED'
+      AND ib.source_type = 'DONATED'
+      AND COALESCE(di.remarks, '') NOT ILIKE 'Relief Pack:%'
+      AND COALESCE(ib.quantity_available, 0) > 0
+      AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
+      AND (
+        ib.expiration_date IS NULL
+        OR ib.expiration_date > (CURRENT_DATE + INTERVAL '30 days')
+      )
+    ORDER BY
+      d.received_at ASC,
+      d.created_at ASC,
+      d.id ASC,
+      di.created_at ASC,
+      ii.item_name ASC
+    ${forUpdate ? "FOR UPDATE OF ib" : ""}
+  `;
+
+  const result = await dbClient.query(query, [disasterEventId]);
+  return result.rows;
+};
+
+const updateDonationStatusesByIds = async (donationIds, dbClient) => {
+  if (!Array.isArray(donationIds) || donationIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    WITH donation_receipts AS (
+      SELECT
+        di.donation_id,
+        COALESCE(SUM(di.quantity_received), 0)::integer AS quantity_received
+      FROM donation_items di
+      WHERE di.donation_id = ANY($1::uuid[])
+      GROUP BY di.donation_id
+    ),
+    donation_distributions AS (
+      SELECT
+        di.donation_id,
+        COALESCE(SUM(it.quantity), 0)::integer AS quantity_distributed
+      FROM donation_items di
+      INNER JOIN inventory_transactions it
+        ON it.inventory_batch_id = di.inventory_batch_id
+       AND it.transaction_type = 'OUTFLOW'
+       AND it.reference_type = 'DISTRIBUTION'
+      WHERE di.donation_id = ANY($1::uuid[])
+      GROUP BY di.donation_id
+    ),
+    donation_write_offs AS (
+      SELECT
+        di.donation_id,
+        COALESCE(SUM(it.quantity), 0)::integer AS quantity_written_off
+      FROM donation_items di
+      INNER JOIN inventory_transactions it
+        ON it.inventory_batch_id = di.inventory_batch_id
+       AND it.transaction_type IN (
+         'EXPIRED',
+         'MISSING',
+         'DAMAGED',
+         'SPOILED',
+         'STOLEN',
+         'OTHER'
+       )
+      WHERE di.donation_id = ANY($1::uuid[])
+      GROUP BY di.donation_id
+    ),
+    donation_totals AS (
+      SELECT
+        d.id,
+        COALESCE(receipts.quantity_received, 0)::integer AS quantity_received,
+        COALESCE(distributions.quantity_distributed, 0)::integer AS quantity_distributed,
+        COALESCE(write_offs.quantity_written_off, 0)::integer AS quantity_written_off
+      FROM donations d
+      LEFT JOIN donation_receipts receipts ON receipts.donation_id = d.id
+      LEFT JOIN donation_distributions distributions
+        ON distributions.donation_id = d.id
+      LEFT JOIN donation_write_offs write_offs
+        ON write_offs.donation_id = d.id
+      WHERE d.id = ANY($1::uuid[])
+        AND d.status <> 'CANCELLED'
+    )
+    UPDATE donations d
+    SET status = CASE
+          WHEN donation_totals.quantity_distributed > 0
+            AND donation_totals.quantity_distributed >= GREATEST(
+              donation_totals.quantity_received - donation_totals.quantity_written_off,
+              0
+            )
+            THEN 'DISTRIBUTED'
+          WHEN donation_totals.quantity_distributed > 0
+            THEN 'PARTIALLY_DISTRIBUTED'
+          ELSE 'RECEIVED'
+        END,
+        updated_at = NOW()
+    FROM donation_totals
+    WHERE d.id = donation_totals.id
+    RETURNING d.id, d.status, d.updated_at
+  `;
+
+  const result = await dbClient.query(query, [donationIds]);
+  return result.rows;
+};
+
+const insertDistributionTransaction = async (transactionData, dbClient) => {
+  const query = `
+    INSERT INTO distribution_transactions (
+      disaster_event_id,
+      household_id,
+      stub_id,
+      distribution_date,
+      distribution_status,
+      claimed_by_name,
+      verified_by,
+      device_id,
+      is_offline_encoded,
+      sync_status,
+      qr_reference_value,
+      qr_scanned_at,
+      qr_scanned_by,
+      receipt_no,
+      receipt_status,
+      received_at,
+      relief_pack_template_id,
+      remarks,
+      proof_type,
+      proof_photo_path,
+      proof_photo_sha256,
+      proof_photo_mime_type,
+      proof_photo_size_bytes,
+      proof_photo_captured_at,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      $1, $2, $3, COALESCE($15::timestamptz, NOW()), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW(), NOW()
+    )
+    RETURNING
+      id,
+      disaster_event_id,
+      household_id,
+      stub_id,
+      distribution_date,
+      distribution_status,
+      claimed_by_name,
+      verified_by,
+      device_id,
+      is_offline_encoded,
+      sync_status,
+      qr_reference_value,
+      qr_scanned_at,
+      qr_scanned_by,
+      receipt_no,
+      receipt_status,
+      received_at,
+      relief_pack_template_id,
+      remarks,
+      proof_type,
+      (proof_photo_path IS NOT NULL) AS has_proof_photo,
+      proof_photo_sha256,
+      proof_photo_mime_type,
+      proof_photo_size_bytes,
+      proof_photo_captured_at,
+      created_at,
+      updated_at
+  `;
+
+  const values = [
+    transactionData.disaster_event_id,
+    transactionData.household_id,
+    transactionData.stub_id,
+    transactionData.distribution_status,
+    transactionData.claimed_by_name,
+    transactionData.verified_by,
+    transactionData.device_id,
+    transactionData.is_offline_encoded,
+    transactionData.sync_status,
+    transactionData.qr_reference_value,
+    transactionData.qr_scanned_at,
+    transactionData.qr_scanned_by,
+    transactionData.receipt_no,
+    transactionData.receipt_status,
+    transactionData.received_at,
+    transactionData.relief_pack_template_id,
+    transactionData.remarks,
+    transactionData.proof_type || null,
+    transactionData.proof_photo_path || null,
+    transactionData.proof_photo_sha256 || null,
+    transactionData.proof_photo_mime_type || null,
+    transactionData.proof_photo_size_bytes || null,
+    transactionData.proof_photo_captured_at || null,
+  ];
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0];
+};
+
+const insertDistributionTransactionReliefPackTemplates = async (
+  distributionTransactionId,
+  reliefPackTemplateSnapshots = [],
+  dbClient,
+) => {
+  if (!distributionTransactionId) {
+    return [];
+  }
+
+  const templateRows = (reliefPackTemplateSnapshots || [])
+    .filter(Boolean)
+    .map((template) => ({
+      id: template?.id,
+      name: template?.name,
+      isAdditionalPack: Boolean(
+        template?.is_additional_pack ?? template?.is_additional_pack_snapshot,
+      ),
+    }));
+
+  if (templateRows.some((template) => !template.id || typeof template.name !== "string")) {
+    throw new Error(
+      "Relief pack template snapshots require both an id and name.",
+    );
+  }
+
+  const uniqueTemplateSnapshots = [
+    ...new Map(
+      templateRows.map((template) => [template.id, template]),
+    ).values(),
+  ];
+
+  if (uniqueTemplateSnapshots.length === 0) {
+    return [];
+  }
+
+  const query = `
+    INSERT INTO distribution_transaction_relief_pack_templates (
+      distribution_transaction_id,
+      relief_pack_template_id,
+      name_snapshot,
+      is_additional_pack_snapshot,
+      created_at
+    )
+    SELECT $1, template_id, name_snapshot, is_additional_pack_snapshot, NOW()
+    FROM UNNEST(
+      $2::uuid[],
+      $3::text[],
+      $4::boolean[]
+    ) AS template_rows(
+      template_id,
+      name_snapshot,
+      is_additional_pack_snapshot
+    )
+    ON CONFLICT (distribution_transaction_id, relief_pack_template_id) DO NOTHING
+    RETURNING
+      distribution_transaction_id,
+      relief_pack_template_id,
+      name_snapshot,
+      is_additional_pack_snapshot,
+      created_at
+  `;
+
+  const result = await dbClient.query(query, [
+    distributionTransactionId,
+    uniqueTemplateSnapshots.map((template) => template.id),
+    uniqueTemplateSnapshots.map((template) => template.name),
+    uniqueTemplateSnapshots.map((template) => template.isAdditionalPack),
+  ]);
+  return result.rows;
+};
+
+const insertDistributionTransactionItem = async (itemData, dbClient) => {
+  const query = `
+    INSERT INTO distribution_transaction_items (
+      distribution_transaction_id,
+      inventory_batch_id,
+      inventory_item_id,
+      quantity_released,
+      item_code_snapshot,
+      item_name_snapshot,
+      unit_of_measure_snapshot,
+      category_snapshot,
+      relief_pack_type_snapshot,
+      relief_pack_template_id_snapshot,
+      source_type_snapshot,
+      source_relief_type_snapshot,
+      donation_id_snapshot,
+      donation_item_id_snapshot,
+      donor_name_snapshot,
+      donated_relief_pack_name_snapshot,
+      created_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
+    RETURNING
+      id,
+      distribution_transaction_id,
+      inventory_batch_id,
+      inventory_item_id,
+      quantity_released,
+      item_code_snapshot,
+      item_name_snapshot,
+      unit_of_measure_snapshot,
+      category_snapshot,
+      relief_pack_type_snapshot,
+      relief_pack_template_id_snapshot,
+      source_type_snapshot,
+      source_relief_type_snapshot,
+      donation_id_snapshot,
+      donation_item_id_snapshot,
+      donor_name_snapshot,
+      donated_relief_pack_name_snapshot,
+      created_at
+  `;
+
+  const values = [
+    itemData.distribution_transaction_id,
+    itemData.inventory_batch_id,
+    itemData.inventory_item_id,
+    itemData.quantity_released,
+    itemData.item_code_snapshot ?? itemData.item_code,
+    itemData.item_name_snapshot ?? itemData.item_name,
+    itemData.unit_of_measure_snapshot ?? itemData.unit_of_measure,
+    itemData.category_snapshot ?? itemData.category ?? null,
+    itemData.relief_pack_type_snapshot ?? itemData.relief_pack_type ?? null,
+    itemData.relief_pack_template_id_snapshot || null,
+    itemData.source_type_snapshot ?? itemData.source_type ?? "LGU",
+    itemData.source_relief_type_snapshot ??
+      itemData.source_relief_type ??
+      ((itemData.source_type_snapshot ?? itemData.source_type) === "DONATED"
+        ? "DONATED_LOOSE_ITEM"
+        : itemData.source_type_snapshot ?? itemData.source_type ?? "LGU"),
+    itemData.donation_id_snapshot ?? itemData.donation_id ?? null,
+    itemData.donation_item_id_snapshot ?? itemData.donation_item_id ?? null,
+    itemData.donor_name_snapshot ?? itemData.donor_name ?? null,
+    itemData.donated_relief_pack_name_snapshot ??
+      itemData.donated_relief_pack_name ??
+      null,
+  ];
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0];
+};
+
+const insertInventoryTransaction = async (transactionData, dbClient) => {
+  const query = `
+    INSERT INTO inventory_transactions (
+      disaster_event_id,
+      inventory_batch_id,
+      transaction_type,
+      quantity,
+      reference_type,
+      reference_id,
+      performed_by,
+      performed_at,
+      remarks,
+      created_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, NOW())
+    RETURNING
+      id,
+      disaster_event_id,
+      inventory_batch_id,
+      transaction_type,
+      quantity,
+      reference_type,
+      reference_id,
+      inventory_transaction_reference_no,
+      performed_by,
+      performed_at,
+      remarks,
+      created_at
+  `;
+
+  const values = [
+    transactionData.disaster_event_id,
+    transactionData.inventory_batch_id,
+    transactionData.transaction_type,
+    transactionData.quantity,
+    transactionData.reference_type,
+    transactionData.reference_id,
+    transactionData.performed_by,
+    transactionData.remarks,
+  ];
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0];
+};
+
+const updateInventoryBatchQuantityAndStatus = async (
+  batchId,
+  quantityAvailable,
+  status,
+  dbClient,
+) => {
+  const query = `
+    UPDATE inventory_batches
+    SET quantity_available = $2,
+        status = $3,
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      inventory_item_id,
+      batch_no,
+      quantity_available,
+      stock_version,
+      status,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [batchId, quantityAvailable, status]);
+  return result.rows[0] || null;
+};
+
+const updateStubAsClaimed = async (stubId, dbClient, claimedAt = null) => {
+  const query = `
+    UPDATE stubs
+    SET status = 'CLAIMED',
+        claimed_at = COALESCE($2::timestamptz, NOW()),
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      stub_no,
+      serial_no,
+      status,
+      qr_code_value,
+      qr_generated_at,
+      qr_generated_by,
+      qr_status,
+      qr_notes,
+      claimed_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [stubId, claimedAt]);
+  return result.rows[0] || null;
+};
+
+const getInventoryDistributionTransactionItems = async (
+  distributionTransactionId,
+) => {
+  const query = `
+    SELECT
+      dti.id,
+      dti.distribution_transaction_id,
+      dti.inventory_batch_id,
+      dti.inventory_item_id,
+      dti.quantity_released,
+      dti.item_code_snapshot AS item_code,
+      dti.item_name_snapshot AS item_name,
+      dti.unit_of_measure_snapshot AS unit_of_measure,
+      dti.category_snapshot AS category,
+      dti.relief_pack_type_snapshot,
+      dti.relief_pack_template_id_snapshot,
+      dti.source_type_snapshot AS source_type,
+      dti.source_relief_type_snapshot AS source_relief_type,
+      dti.donation_id_snapshot AS donation_id,
+      dti.donation_item_id_snapshot AS donation_item_id,
+      dti.donor_name_snapshot AS donor_name,
+      dti.donated_relief_pack_name_snapshot AS donated_relief_pack_name,
+      dti.created_at
+    FROM distribution_transaction_items dti
+    WHERE dti.distribution_transaction_id = $1
+    ORDER BY dti.created_at ASC, dti.id ASC
+  `;
+
+  const result = await pool.query(query, [distributionTransactionId]);
+  return result.rows;
+};
+
+const getLatestDistributionReliefSourcesByStubIds = async (stubIds = []) => {
+  if (!Array.isArray(stubIds) || stubIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    WITH latest_distributions AS (
+      SELECT DISTINCT ON (dt.stub_id)
+        dt.id,
+        dt.stub_id,
+        dt.distribution_date,
+        dt.received_at
+      FROM distribution_transactions dt
+      WHERE dt.stub_id = ANY($1::uuid[])
+      ORDER BY dt.stub_id, dt.distribution_date DESC, dt.created_at DESC
+    )
+    SELECT
+      ld.stub_id,
+      ld.distribution_date,
+      ld.received_at,
+      linked_template_names.names AS relief_pack_template_name,
+      linked_template_names.names AS relief_pack_template_names,
+      dti.donor_name_snapshot AS donor_name,
+      dti.donated_relief_pack_name_snapshot AS donated_relief_pack_name,
+      dti.source_relief_type_snapshot = 'DONATED_RELIEF_PACK' AS is_relief_pack_donation
+    FROM latest_distributions ld
+    LEFT JOIN LATERAL (
+      ${buildLinkedReliefPackTemplateNamesQuery("ld")}
+    ) linked_template_names ON TRUE
+    LEFT JOIN distribution_transaction_items dti
+      ON dti.distribution_transaction_id = ld.id
+    ORDER BY
+      ld.stub_id ASC,
+      linked_template_names.names ASC,
+      dti.donor_name_snapshot ASC,
+      dti.donated_relief_pack_name_snapshot ASC,
+      dti.created_at ASC,
+      dti.id ASC
+  `;
+
+  const result = await pool.query(query, [stubIds]);
+  return result.rows;
+};
+
+const DISTRIBUTION_HISTORY_SORTS = {
+  newest: {
+    detail: "claimed_at DESC, distribution_date DESC, created_at DESC, id DESC",
+    summary:
+      "latest_claimed_at DESC NULLS LAST, start_date DESC NULLS LAST, disaster_event_id DESC",
+  },
+  oldest: {
+    detail: "claimed_at ASC, distribution_date ASC, created_at ASC, id ASC",
+    summary:
+      "latest_claimed_at ASC NULLS LAST, start_date ASC NULLS LAST, disaster_event_id ASC",
+  },
+  az: {
+    detail:
+      "family_head_name ASC NULLS LAST, claimed_at DESC, distribution_date DESC, created_at DESC, id DESC",
+    summary:
+      "disaster_event_title ASC NULLS LAST, latest_claimed_at DESC NULLS LAST, disaster_event_id ASC",
+  },
+  za: {
+    detail:
+      "family_head_name DESC NULLS LAST, claimed_at DESC, distribution_date DESC, created_at DESC, id DESC",
+    summary:
+      "disaster_event_title DESC NULLS LAST, latest_claimed_at DESC NULLS LAST, disaster_event_id DESC",
+  },
+};
+
+const getDistributionHistoryOrderBy = (sortOrder = "newest", mode = "detail") =>
+  DISTRIBUTION_HISTORY_SORTS[sortOrder]?.[mode] ||
+  DISTRIBUTION_HISTORY_SORTS.newest[mode];
+
+const buildManilaDateStartExpression = (parameter) =>
+  `(${parameter}::date AT TIME ZONE 'Asia/Manila')`;
+
+const buildManilaDateEndExpression = (parameter) =>
+  `((${parameter}::date + INTERVAL '1 day') AT TIME ZONE 'Asia/Manila')`;
+
+const buildDistributionHistoryClaimTimestampExpression = (
+  transactionAlias = "dt",
+  stubAlias = "s",
+) =>
+  `COALESCE(${stubAlias}.claimed_at, ${transactionAlias}.received_at, ${transactionAlias}.distribution_date)`;
+
+const buildDistributionHistorySearchPredicate = ({
+  searchParam,
+  transactionAlias = "dt",
+  householdAlias = "h",
+  barangayAlias = "b",
+  stubAlias = "s",
+  userAlias = "u",
+  disasterEventAlias = "de",
+  includeEventFields = true,
+}) => {
+  const predicates = [
+    `CONCAT_WS(
+      ' ',
+      ${householdAlias}.family_head_first_name,
+      ${householdAlias}.family_head_middle_name,
+      ${householdAlias}.family_head_last_name,
+      ${householdAlias}.family_head_suffix
+    ) ILIKE ${searchParam}`,
+    `${barangayAlias}.name ILIKE ${searchParam}`,
+    `${stubAlias}.stub_no ILIKE ${searchParam}`,
+    `${stubAlias}.serial_no ILIKE ${searchParam}`,
+    `CONCAT_WS(
+      ' ',
+      ${userAlias}.first_name,
+      ${userAlias}.middle_name,
+      ${userAlias}.last_name
+    ) ILIKE ${searchParam}`,
+    `CONCAT(
+      'STUB#',
+      (
+        SELECT COUNT(*)::int
+        FROM stubs sequence_stubs
+        INNER JOIN households sequence_households
+          ON sequence_households.id = sequence_stubs.household_id
+        WHERE sequence_stubs.disaster_event_id = ${stubAlias}.disaster_event_id
+          AND sequence_households.barangay_id IS NOT DISTINCT FROM ${householdAlias}.barangay_id
+          AND sequence_households.current_stay_type = 'EVAC_CENTER'
+          AND sequence_stubs.status IN ('ISSUED', 'CLAIMED')
+          AND (
+            sequence_stubs.issued_at < ${stubAlias}.issued_at
+            OR (
+              sequence_stubs.issued_at = ${stubAlias}.issued_at
+              AND sequence_stubs.id <= ${stubAlias}.id
+            )
+          )
+      )
+    ) ILIKE ${searchParam}`,
+    `EXISTS (
+      SELECT 1
+      FROM distribution_transaction_relief_pack_templates dtrpt_search
+      WHERE dtrpt_search.distribution_transaction_id = ${transactionAlias}.id
+        AND dtrpt_search.name_snapshot ILIKE ${searchParam}
+    )`,
+    `EXISTS (
+      SELECT 1
+      FROM distribution_transaction_items dti_search
+      WHERE dti_search.distribution_transaction_id = ${transactionAlias}.id
+        AND (
+          dti_search.item_name_snapshot ILIKE ${searchParam}
+          OR dti_search.donated_relief_pack_name_snapshot ILIKE ${searchParam}
+        )
+    )`,
+    `EXISTS (
+      SELECT 1
+      FROM household_sectors hs_search
+      INNER JOIN sectors household_sector_search
+        ON household_sector_search.id = hs_search.sector_id
+      WHERE hs_search.household_id = ${householdAlias}.id
+        AND (
+          household_sector_search.name ILIKE ${searchParam}
+          OR household_sector_search.code ILIKE ${searchParam}
+        )
+    )`,
+    `EXISTS (
+      SELECT 1
+      FROM evacuees e_search
+      INNER JOIN evacuee_sectors es_search
+        ON es_search.evacuee_id = e_search.id
+      INNER JOIN sectors member_sector_search
+        ON member_sector_search.id = es_search.sector_id
+      WHERE e_search.household_id = ${householdAlias}.id
+        AND e_search.is_active = TRUE
+        AND (
+          member_sector_search.name ILIKE ${searchParam}
+          OR member_sector_search.code ILIKE ${searchParam}
+        )
+    )`,
+  ];
+
+  if (includeEventFields) {
+    predicates.push(
+      `${disasterEventAlias}.title ILIKE ${searchParam}`,
+      `${disasterEventAlias}.event_code ILIKE ${searchParam}`,
+    );
+  }
+
+  return `(
+      ${predicates.join("\n      OR ")}
+    )`;
+};
+
+const buildDistributionHistoryFilters = ({
+  barangayId = null,
+  disasterEventId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+  search = "",
+} = {}) => {
+  const values = [];
+  const conditions = [];
+
+  if (barangayId) {
+    values.push(barangayId);
+    conditions.push(`h.barangay_id = $${values.length}`);
+  }
+
+  if (disasterEventId) {
+    values.push(disasterEventId);
+    conditions.push(`dt.disaster_event_id = $${values.length}`);
+  }
+
+  if (status) {
+    values.push(status);
+    conditions.push(`dt.distribution_status = $${values.length}`);
+  }
+
+  if (dateFrom) {
+    values.push(dateFrom);
+    conditions.push(
+      `${buildDistributionHistoryClaimTimestampExpression("dt", "s")} >= ${buildManilaDateStartExpression(`$${values.length}`)}`,
+    );
+  }
+
+  if (dateTo) {
+    values.push(dateTo);
+    conditions.push(
+      `${buildDistributionHistoryClaimTimestampExpression("dt", "s")} < ${buildManilaDateEndExpression(`$${values.length}`)}`,
+    );
+  }
+
+  const normalizedSearch = String(search || "").trim();
+
+  if (normalizedSearch) {
+    values.push(`%${normalizedSearch}%`);
+    const searchParam = `$${values.length}`;
+    conditions.push(`(
+      CONCAT_WS(' ', h.family_head_first_name, h.family_head_middle_name, h.family_head_last_name, h.family_head_suffix) ILIKE ${searchParam}
+      OR b.name ILIKE ${searchParam}
+      OR s.stub_no ILIKE ${searchParam}
+      OR s.serial_no ILIKE ${searchParam}
+      OR CONCAT_WS(' ', u.first_name, u.middle_name, u.last_name) ILIKE ${searchParam}
+      OR CONCAT(
+        'STUB#',
+        (
+          SELECT COUNT(*)::int
+          FROM stubs sequence_stubs
+          INNER JOIN households sequence_households
+            ON sequence_households.id = sequence_stubs.household_id
+          WHERE sequence_stubs.disaster_event_id = s.disaster_event_id
+            AND sequence_households.barangay_id IS NOT DISTINCT FROM h.barangay_id
+            AND sequence_households.current_stay_type = 'EVAC_CENTER'
+            AND sequence_stubs.status IN ('ISSUED', 'CLAIMED')
+            AND (
+              sequence_stubs.issued_at < s.issued_at
+              OR (
+                sequence_stubs.issued_at = s.issued_at
+                AND sequence_stubs.id <= s.id
+              )
+            )
+        )
+      ) ILIKE ${searchParam}
+      OR de.title ILIKE ${searchParam}
+      OR de.event_code ILIKE ${searchParam}
+      OR EXISTS (
+        SELECT 1
+        FROM distribution_transaction_relief_pack_templates dtrpt_search
+        WHERE dtrpt_search.distribution_transaction_id = dt.id
+          AND dtrpt_search.name_snapshot ILIKE ${searchParam}
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM distribution_transaction_items dti_search
+        WHERE dti_search.distribution_transaction_id = dt.id
+          AND (
+            dti_search.item_name_snapshot ILIKE ${searchParam}
+            OR dti_search.donated_relief_pack_name_snapshot ILIKE ${searchParam}
+          )
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM household_sectors hs_search
+        INNER JOIN sectors household_sector_search
+          ON household_sector_search.id = hs_search.sector_id
+        WHERE hs_search.household_id = h.id
+          AND (
+            household_sector_search.name ILIKE ${searchParam}
+            OR household_sector_search.code ILIKE ${searchParam}
+          )
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM evacuees e_search
+        INNER JOIN evacuee_sectors es_search
+          ON es_search.evacuee_id = e_search.id
+        INNER JOIN sectors member_sector_search
+          ON member_sector_search.id = es_search.sector_id
+        WHERE e_search.household_id = h.id
+          AND e_search.is_active = TRUE
+          AND (
+            member_sector_search.name ILIKE ${searchParam}
+            OR member_sector_search.code ILIKE ${searchParam}
+          )
+      )
+    )`);
+  }
+
+  const whereClause =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  return {
+    values,
+    whereClause,
+  };
+};
+
+const buildDistributionHistoryLimitClause = ({ values, limit, offset }) => {
+  if (!Number.isInteger(limit)) {
+    return "";
+  }
+
+  values.push(limit);
+  const limitParam = `$${values.length}`;
+
+  if (!Number.isInteger(offset)) {
+    return `LIMIT ${limitParam}`;
+  }
+
+  values.push(offset);
+  return `LIMIT ${limitParam} OFFSET $${values.length}`;
+};
+
+const selectDistributionHistoryRows = async ({
+  barangayId = null,
+  disasterEventId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+  search = "",
+  sortOrder = "newest",
+  limit = 100,
+  offset = null,
+}) => {
+  const { values, whereClause } = buildDistributionHistoryFilters({
+    barangayId,
+    disasterEventId,
+    status,
+    dateFrom,
+    dateTo,
+    search,
+  });
+  const limitClause = buildDistributionHistoryLimitClause({
+    values,
+    limit,
+    offset,
+  });
+  const orderBy = getDistributionHistoryOrderBy(sortOrder, "detail");
+
+  const query = `
+    WITH history_base AS (
+      SELECT
+        dt.id,
+        dt.disaster_event_id,
+        dt.household_id,
+        dt.stub_id,
+        dt.distribution_date,
+        ${buildDistributionHistoryClaimTimestampExpression("dt", "s")} AS claimed_at,
+        dt.distribution_status,
+        dt.claimed_by_name,
+        dt.verified_by,
+        dt.qr_reference_value,
+        dt.proof_type,
+        (dt.proof_photo_path IS NOT NULL) AS has_proof_photo,
+        dt.receipt_no,
+        dt.receipt_status,
+        dt.received_at,
+        dt.relief_pack_template_id,
+        dt.remarks,
+        dt.sync_status,
+        dt.created_at,
+        dt.updated_at,
+        de.event_code,
+        de.title AS disaster_event_title,
+        de.status AS disaster_event_status,
+        de.start_date,
+        b.id AS barangay_id,
+        b.name AS barangay_name,
+        s.stub_no,
+        s.serial_no,
+        h.household_size,
+        CONCAT_WS(
+          ' ',
+          h.family_head_first_name,
+          h.family_head_middle_name,
+          h.family_head_last_name,
+          h.family_head_suffix
+        ) AS family_head_name,
+        CONCAT_WS(
+          ' ',
+          u.first_name,
+          u.middle_name,
+          u.last_name
+        ) AS verified_by_name,
+        history_relief_pack_names.names AS relief_pack_template_name,
+        history_relief_pack_names.names AS relief_pack_template_names
+      FROM distribution_transactions dt
+      INNER JOIN households h ON h.id = dt.household_id
+      INNER JOIN barangays b ON b.id = h.barangay_id
+      INNER JOIN disaster_events de ON de.id = dt.disaster_event_id
+      INNER JOIN stubs s ON s.id = dt.stub_id
+      LEFT JOIN users u ON u.id = dt.verified_by
+      LEFT JOIN LATERAL (
+        ${buildDistributionHistoryReliefPackNamesQuery("dt")}
+      ) history_relief_pack_names ON TRUE
+      ${whereClause}
+    )
+    SELECT
+      history_base.*,
+      (
+        SELECT COUNT(*)::int
+        FROM stubs sequence_stubs
+        INNER JOIN households sequence_households
+          ON sequence_households.id = sequence_stubs.household_id
+        WHERE sequence_stubs.disaster_event_id = history_base.disaster_event_id
+          AND sequence_households.barangay_id IS NOT DISTINCT FROM history_base.barangay_id
+          AND sequence_households.current_stay_type = 'EVAC_CENTER'
+          AND sequence_stubs.status IN ('ISSUED', 'CLAIMED')
+          AND (
+            sequence_stubs.issued_at < (
+              SELECT current_stub.issued_at FROM stubs current_stub WHERE current_stub.id = history_base.stub_id
+            )
+            OR (
+              sequence_stubs.issued_at = (
+                SELECT current_stub.issued_at FROM stubs current_stub WHERE current_stub.id = history_base.stub_id
+              )
+              AND sequence_stubs.id <= history_base.stub_id
+            )
+          )
+      ) AS stub_sequence_no,
+      (
+        SELECT COUNT(*)::int
+        FROM evacuees e
+        WHERE e.household_id = history_base.household_id
+      ) AS members_count,
+      COALESCE(item_summary.total_quantity_released, 0) AS total_quantity_released,
+      COALESCE(item_summary.released_items_summary, '') AS released_items_summary
+    FROM history_base
+    LEFT JOIN LATERAL (
+      SELECT
+        SUM(dti.quantity_released)::integer AS total_quantity_released,
+        STRING_AGG(
+          CONCAT(dti.item_name_snapshot, ' x', dti.quantity_released),
+          ', '
+          ORDER BY dti.created_at ASC, dti.id ASC
+        ) AS released_items_summary
+        FROM distribution_transaction_items dti
+        WHERE dti.distribution_transaction_id = history_base.id
+    ) item_summary ON TRUE
+    ORDER BY ${orderBy}
+    ${limitClause}
+  `;
+
+  const result = await pool.query(query, values);
+  return result.rows;
+};
+
+const countDistributionHistory = async ({
+  barangayId = null,
+  disasterEventId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+  search = "",
+}) => {
+  const { values, whereClause } = buildDistributionHistoryFilters({
+    barangayId,
+    disasterEventId,
+    status,
+    dateFrom,
+    dateTo,
+    search,
+  });
+
+  const query = `
+    SELECT COUNT(DISTINCT dt.id)::int AS total_items
+    FROM distribution_transactions dt
+    INNER JOIN households h ON h.id = dt.household_id
+    INNER JOIN barangays b ON b.id = h.barangay_id
+    INNER JOIN disaster_events de ON de.id = dt.disaster_event_id
+    INNER JOIN stubs s ON s.id = dt.stub_id
+    LEFT JOIN users u ON u.id = dt.verified_by
+    ${whereClause}
+  `;
+
+  const result = await pool.query(query, values);
+  return Number(result.rows[0]?.total_items || 0);
+};
+
+const buildSummarySearchClause = ({
+  values,
+  search = "",
+  searchParam = null,
+  useFilteredTransactions = false,
+}) => {
+  const normalizedSearch = String(search || "").trim();
+
+  if (!normalizedSearch) {
+    return "";
+  }
+
+  const resolvedSearchParam = searchParam || (() => {
+    values.push(`%${normalizedSearch}%`);
+    return `$${values.length}`;
+  })();
+
+  if (useFilteredTransactions) {
+    return `AND EXISTS (
+      SELECT 1
+      FROM summary_filtered_transactions filtered_transaction
+      WHERE filtered_transaction.disaster_event_id = de.id
+    )`;
+  }
+
+  return `AND EXISTS (
+      SELECT 1
+      FROM distribution_transactions dt_search
+      INNER JOIN households h_search ON h_search.id = dt_search.household_id
+      INNER JOIN barangays b_search ON b_search.id = h_search.barangay_id
+      INNER JOIN stubs s_search ON s_search.id = dt_search.stub_id
+      LEFT JOIN users u_search ON u_search.id = dt_search.verified_by
+      WHERE dt_search.disaster_event_id = de.id
+        AND ($1::uuid IS NULL OR h_search.barangay_id = $1::uuid)
+        AND ($2::text IS NULL OR dt_search.distribution_status = $2::text)
+        AND ($3::date IS NULL OR ${buildDistributionHistoryClaimTimestampExpression("dt_search", "s_search")} >= ${buildManilaDateStartExpression("$3")})
+        AND ($4::date IS NULL OR ${buildDistributionHistoryClaimTimestampExpression("dt_search", "s_search")} < ${buildManilaDateEndExpression("$4")})
+        AND (
+          CONCAT_WS(
+            ' ',
+            h_search.family_head_first_name,
+            h_search.family_head_middle_name,
+            h_search.family_head_last_name,
+            h_search.family_head_suffix
+          ) ILIKE ${resolvedSearchParam}
+          OR b_search.name ILIKE ${resolvedSearchParam}
+          OR s_search.stub_no ILIKE ${resolvedSearchParam}
+          OR s_search.serial_no ILIKE ${resolvedSearchParam}
+          OR CONCAT_WS(
+            ' ',
+            u_search.first_name,
+            u_search.middle_name,
+            u_search.last_name
+          ) ILIKE ${resolvedSearchParam}
+          OR CONCAT(
+            'STUB#',
+            (
+              SELECT COUNT(*)::int
+              FROM stubs sequence_stubs
+              INNER JOIN households sequence_households
+                ON sequence_households.id = sequence_stubs.household_id
+              WHERE sequence_stubs.disaster_event_id = s_search.disaster_event_id
+                AND sequence_households.barangay_id IS NOT DISTINCT FROM h_search.barangay_id
+                AND sequence_households.current_stay_type = 'EVAC_CENTER'
+                AND sequence_stubs.status IN ('ISSUED', 'CLAIMED')
+                AND (
+                  sequence_stubs.issued_at < s_search.issued_at
+                  OR (
+                    sequence_stubs.issued_at = s_search.issued_at
+                    AND sequence_stubs.id <= s_search.id
+                  )
+                )
+            )
+          ) ILIKE ${resolvedSearchParam}
+          OR EXISTS (
+            SELECT 1
+            FROM distribution_transaction_relief_pack_templates dtrpt_search
+            WHERE dtrpt_search.distribution_transaction_id = dt_search.id
+              AND dtrpt_search.name_snapshot ILIKE ${resolvedSearchParam}
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM distribution_transaction_items dti_search
+            WHERE dti_search.distribution_transaction_id = dt_search.id
+              AND (
+                dti_search.item_name_snapshot ILIKE ${resolvedSearchParam}
+                OR dti_search.donated_relief_pack_name_snapshot ILIKE ${resolvedSearchParam}
+              )
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM household_sectors hs_search
+            INNER JOIN sectors household_sector_search
+              ON household_sector_search.id = hs_search.sector_id
+            WHERE hs_search.household_id = h_search.id
+              AND (
+                household_sector_search.name ILIKE ${resolvedSearchParam}
+                OR household_sector_search.code ILIKE ${resolvedSearchParam}
+              )
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM evacuees e_search
+            INNER JOIN evacuee_sectors es_search
+              ON es_search.evacuee_id = e_search.id
+            INNER JOIN sectors member_sector_search
+              ON member_sector_search.id = es_search.sector_id
+            WHERE e_search.household_id = h_search.id
+              AND e_search.is_active = TRUE
+              AND (
+                member_sector_search.name ILIKE ${resolvedSearchParam}
+                OR member_sector_search.code ILIKE ${resolvedSearchParam}
+              )
+          )
+        )
+    )`;
+};
+
+const buildDistributionHistorySummaryQuery = ({
+  barangayId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+  search = "",
+  sortOrder = "newest",
+  limit = 25,
+  offset = null,
+  countOnly = false,
+}) => {
+  const normalizedSearch = String(search || "").trim();
+  const values = [
+    barangayId || null,
+    status || null,
+    dateFrom || null,
+    dateTo || null,
+    ["ACTIVE", "CLOSED"],
+    normalizedSearch ? `%${normalizedSearch}%` : null,
+  ];
+  const searchClause = buildSummarySearchClause({
+    values,
+    search,
+    searchParam: "$6",
+    useFilteredTransactions: true,
+  });
+  const limitClause = countOnly
+    ? ""
+    : buildDistributionHistoryLimitClause({ values, limit, offset });
+  const orderBy = getDistributionHistoryOrderBy(sortOrder, "summary");
+
+  const summaryCte = `
+    WITH summary_filtered_transactions AS (
+      SELECT
+        dt_scope.id,
+        dt_scope.disaster_event_id,
+        dt_scope.stub_id,
+        dt_scope.distribution_date,
+        ${buildDistributionHistoryClaimTimestampExpression("dt_scope", "s_scope")} AS claimed_at,
+        dt_scope.relief_pack_template_id
+      FROM distribution_transactions dt_scope
+      INNER JOIN households h_scope
+        ON h_scope.id = dt_scope.household_id
+      INNER JOIN barangays b_scope
+        ON b_scope.id = h_scope.barangay_id
+      INNER JOIN stubs s_scope
+        ON s_scope.id = dt_scope.stub_id
+      LEFT JOIN users u_scope
+        ON u_scope.id = dt_scope.verified_by
+      WHERE ($1::uuid IS NULL OR h_scope.barangay_id = $1::uuid)
+        AND ($2::text IS NULL OR dt_scope.distribution_status = $2::text)
+        AND ($3::date IS NULL OR ${buildDistributionHistoryClaimTimestampExpression("dt_scope", "s_scope")} >= ${buildManilaDateStartExpression("$3")})
+        AND ($4::date IS NULL OR ${buildDistributionHistoryClaimTimestampExpression("dt_scope", "s_scope")} < ${buildManilaDateEndExpression("$4")})
+        AND ($6::text IS NULL OR ${buildDistributionHistorySearchPredicate({
+          searchParam: "$6",
+          transactionAlias: "dt_scope",
+          householdAlias: "h_scope",
+          barangayAlias: "b_scope",
+          stubAlias: "s_scope",
+          userAlias: "u_scope",
+          disasterEventAlias: "de_scope",
+          includeEventFields: false,
+        })})
+    ), summary_rows AS (
+      SELECT
+        de.id AS disaster_event_id,
+        de.event_code,
+        de.title AS disaster_event_title,
+        de.status AS disaster_event_status,
+        de.start_date,
+        COALESCE(barangay_summary.barangay_summary, '--') AS barangay_summary,
+        COALESCE(barangay_summary.barangay_count, 0)::int AS barangay_count,
+        COALESCE(stub_summary.issued_stubs_count, 0)::int AS issued_stubs_count,
+        COALESCE(stub_summary.claimed_stubs_count, 0)::int AS claimed_stubs_count,
+        COALESCE(stub_summary.unclaimed_stubs_count, 0)::int AS unclaimed_stubs_count,
+        COALESCE(relief_summary.relief_pack_summary, '--') AS relief_pack_summary,
+        distribution_summary.latest_claimed_at,
+        distribution_summary.latest_claimed_at AS latest_distribution_date
+      FROM disaster_events de
+      LEFT JOIN LATERAL (
+        SELECT
+          STRING_AGG(DISTINCT b.name, ', ' ORDER BY b.name) AS barangay_summary,
+          COUNT(DISTINCT b.id)::int AS barangay_count
+        FROM disaster_event_barangays deb
+        INNER JOIN barangays b ON b.id = deb.barangay_id
+        WHERE deb.disaster_event_id = de.id
+          AND ($1::uuid IS NULL OR deb.barangay_id = $1::uuid)
+      ) barangay_summary ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*) FILTER (WHERE s.status = 'CLAIMED')::int AS claimed_stubs_count,
+          COUNT(*) FILTER (WHERE s.status = 'ISSUED')::int AS unclaimed_stubs_count,
+          COUNT(*) FILTER (WHERE s.status IN ('ISSUED', 'CLAIMED'))::int AS issued_stubs_count
+        FROM stubs s
+        INNER JOIN households h ON h.id = s.household_id
+        WHERE s.disaster_event_id = de.id
+          AND ($1::uuid IS NULL OR h.barangay_id = $1::uuid)
+          AND (
+            ($3::date IS NULL AND $4::date IS NULL AND $6::text IS NULL)
+            OR EXISTS (
+              SELECT 1
+              FROM summary_filtered_transactions filtered_stub_transaction
+              WHERE filtered_stub_transaction.stub_id = s.id
+            )
+          )
+      ) stub_summary ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT MAX(filtered_transaction.claimed_at) AS latest_claimed_at
+        FROM summary_filtered_transactions filtered_transaction
+        WHERE filtered_transaction.disaster_event_id = de.id
+      ) distribution_summary ON TRUE
+      LEFT JOIN LATERAL (
+        WITH scoped_transactions AS (
+          SELECT filtered_transaction.id,
+            filtered_transaction.relief_pack_template_id
+          FROM summary_filtered_transactions filtered_transaction
+          WHERE filtered_transaction.disaster_event_id = de.id
+        ), relief_names AS (
+          SELECT NULLIF(BTRIM(dtrpt.name_snapshot), '') AS relief_name
+          FROM scoped_transactions scoped_dt
+          INNER JOIN distribution_transaction_relief_pack_templates dtrpt
+            ON dtrpt.distribution_transaction_id = scoped_dt.id
+
+          UNION
+
+          SELECT NULLIF(BTRIM(rpt.name), '') AS relief_name
+          FROM scoped_transactions scoped_dt
+          INNER JOIN relief_pack_templates rpt
+            ON rpt.id = scoped_dt.relief_pack_template_id
+
+          UNION
+
+          SELECT NULLIF(BTRIM(dti.donated_relief_pack_name_snapshot), '') AS relief_name
+          FROM scoped_transactions scoped_dt
+          INNER JOIN distribution_transaction_items dti
+            ON dti.distribution_transaction_id = scoped_dt.id
+        )
+        SELECT STRING_AGG(relief_name, ';' || CHR(10) ORDER BY relief_name) AS relief_pack_summary
+        FROM relief_names
+        WHERE relief_name IS NOT NULL
+      ) relief_summary ON TRUE
+      WHERE de.status = ANY($5::text[])
+        AND EXISTS (
+          SELECT 1
+          FROM disaster_event_barangays deb_scope
+          WHERE deb_scope.disaster_event_id = de.id
+            AND ($1::uuid IS NULL OR deb_scope.barangay_id = $1::uuid)
+        )
+        ${searchClause}
+    )
+  `;
+
+  if (countOnly) {
+    return {
+      query: `
+        ${summaryCte}
+        SELECT COUNT(*)::int AS total_items
+        FROM summary_rows
+      `,
+      values,
+    };
+  }
+
+  return {
+    query: `
+      ${summaryCte}
+      SELECT *
+      FROM summary_rows
+      ORDER BY ${orderBy}
+      ${limitClause}
+    `,
+    values,
+  };
+};
+
+const getDistributionHistorySummaryRows = async (options = {}) => {
+  const { query, values } = buildDistributionHistorySummaryQuery(options);
+  const result = await pool.query(query, values);
+  return result.rows;
+};
+
+const countDistributionHistorySummaryRows = async (options = {}) => {
+  const { query, values } = buildDistributionHistorySummaryQuery({
+    ...options,
+    countOnly: true,
+  });
+  const result = await pool.query(query, values);
+  return Number(result.rows[0]?.total_items || 0);
+};
+
+const getDistributionHistory = async ({
+  barangayId = null,
+  disasterEventId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+  search = "",
+  sortOrder = "newest",
+  limit = 100,
+  offset = null,
+}) => {
+  return selectDistributionHistoryRows({
+    barangayId,
+    disasterEventId,
+    status,
+    dateFrom,
+    dateTo,
+    search,
+    sortOrder,
+    limit,
+    offset,
+  });
+};
+
+const getDistributionHistoryStubSummaryByEventIds = async ({
+  eventIds = [],
+  barangayId = null,
+}) => {
+  if (!Array.isArray(eventIds) || eventIds.length === 0) {
+    return [];
+  }
+
+  const values = [eventIds];
+  let barangayCondition = "";
+
+  if (barangayId) {
+    values.push(barangayId);
+    barangayCondition = `AND h.barangay_id = $${values.length}`;
+  }
+
+  const query = `
+    SELECT
+      s.disaster_event_id,
+      COUNT(*) FILTER (WHERE s.status = 'CLAIMED')::int AS claimed_stubs_count,
+      COUNT(*) FILTER (WHERE s.status = 'ISSUED')::int AS unclaimed_stubs_count,
+      COUNT(*) FILTER (WHERE s.status IN ('ISSUED', 'CLAIMED'))::int AS issued_stubs_count
+    FROM stubs s
+    INNER JOIN households h ON h.id = s.household_id
+    WHERE s.disaster_event_id = ANY($1::uuid[])
+      ${barangayCondition}
+    GROUP BY s.disaster_event_id
+  `;
+
+  const result = await pool.query(query, values);
+  return result.rows;
+};
+
+const getDistributionHistoryExportRows = async ({
+  barangayId = null,
+  disasterEventId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+  search = "",
+  sortOrder = "newest",
+}) => {
+  return getDistributionHistory({
+    barangayId,
+    disasterEventId,
+    status,
+    dateFrom,
+    dateTo,
+    search,
+    sortOrder,
+    limit: null,
+  });
+};
+
+const getInventoryDistributionDetailByStubId = async (
+  stubId,
+  barangayId = null,
+) => {
+  const values = [stubId];
+  const barangayScopeClause = barangayId
+    ? (() => {
+        values.push(barangayId);
+        return "AND h.barangay_id = $2";
+      })()
+    : "";
+
+  const baseQuery = `
+    SELECT
+      s.id AS stub_id,
+      s.disaster_event_id,
+      s.household_id,
+      s.stub_no,
+      s.serial_no,
+      s.status AS stub_status,
+      s.issued_at,
+      s.claimed_at,
+      s.updated_at AS stub_updated_at,
+      s.qr_code_value,
+      s.qr_generated_at,
+      s.qr_status,
+      s.qr_notes,
+      de.event_code,
+      de.title AS disaster_event_title,
+      de.disaster_type,
+      de.status AS disaster_event_status,
+      h.residency_status,
+      h.family_head_first_name,
+      h.family_head_middle_name,
+      h.family_head_last_name,
+      h.family_head_suffix,
+      h.household_size,
+      h.current_stay_type,
+      h.current_address_details,
+      h.contact_number,
+      h.is_active,
+      h.registered_at,
+      h.registered_by,
+      CONCAT_WS(' ', registered_user.first_name, registered_user.middle_name, registered_user.last_name) AS registered_by_name,
+      h.family_head_photo_url,
+      h.family_head_photo_path,
+      h.family_head_photo_sha256,
+      h.family_head_photo_mime_type,
+      h.family_head_photo_size_bytes,
+      h.photo_captured_at,
+      h.photo_verification_notes,
+      b.id AS barangay_id,
+      b.code AS barangay_code,
+      b.name AS barangay_name
+    FROM stubs s
+    INNER JOIN disaster_events de ON de.id = s.disaster_event_id
+    INNER JOIN households h ON h.id = s.household_id
+    LEFT JOIN users registered_user ON registered_user.id = h.registered_by
+    LEFT JOIN barangays b ON b.id = h.barangay_id
+    WHERE s.id = $1
+      ${barangayScopeClause}
+  `;
+  const baseResult = await pool.query(baseQuery, values);
+  const baseRow = baseResult.rows[0] || null;
+
+  if (!baseRow) {
+    return null;
+  }
+
+  const householdId = baseRow.household_id;
+
+  const membersQuery = `
+    SELECT
+      id AS evacuee_id,
+      household_id,
+      first_name,
+      middle_name,
+      last_name,
+      suffix,
+      sex,
+      age,
+      age_value,
+      age_unit,
+      relationship_to_head,
+      is_family_head
+    FROM evacuees
+    WHERE household_id = $1
+      AND is_active = TRUE
+    ORDER BY is_family_head DESC, created_at ASC
+  `;
+  const householdSectorsQuery = `
+    SELECT
+      hs.household_id,
+      s.id,
+      s.code,
+      s.name
+    FROM household_sectors hs
+    INNER JOIN sectors s ON s.id = hs.sector_id
+    WHERE hs.household_id = $1
+    ORDER BY s.name ASC
+  `;
+  const memberSectorsQuery = `
+    SELECT
+      e.household_id,
+      es.evacuee_id,
+      s.id,
+      s.code,
+      s.name
+    FROM evacuee_sectors es
+    INNER JOIN evacuees e ON e.id = es.evacuee_id
+    INNER JOIN sectors s ON s.id = es.sector_id
+    WHERE e.household_id = $1
+      AND e.is_active = TRUE
+    ORDER BY e.household_id ASC, s.name ASC
+  `;
+  const attendanceQuery = `
+    SELECT
+      id,
+      household_id,
+      disaster_event_id,
+      status,
+      time_in,
+      time_out,
+      evacuation_center_id
+    FROM evacuation_logs
+    WHERE household_id = $1
+      AND disaster_event_id = $2
+    ORDER BY
+      COALESCE(time_out, time_in) DESC,
+      updated_at DESC,
+      created_at DESC
+    LIMIT 1
+  `;
+  const transactionQuery = `
+    SELECT
+      dt.id,
+      dt.disaster_event_id,
+      dt.household_id,
+      dt.stub_id,
+      dt.distribution_date,
+      dt.distribution_status,
+      dt.claimed_by_name,
+      dt.verified_by,
+      CONCAT_WS(' ', u.first_name, u.middle_name, u.last_name) AS verified_by_name,
+      dt.qr_reference_value,
+      dt.qr_scanned_at,
+      dt.proof_type,
+      (dt.proof_photo_path IS NOT NULL) AS has_proof_photo,
+      dt.proof_photo_captured_at,
+      dt.receipt_no,
+      dt.receipt_status,
+      dt.received_at,
+      dt.relief_pack_template_id,
+      linked_template_names.names AS relief_pack_template_name,
+      linked_template_names.names AS relief_pack_template_names,
+      linked_template_names.snapshots AS relief_pack_template_snapshots,
+      dt.remarks,
+      dt.sync_status,
+      dt.created_at,
+      dt.updated_at
+    FROM distribution_transactions dt
+    LEFT JOIN users u ON u.id = dt.verified_by
+    LEFT JOIN LATERAL (
+      ${buildLinkedReliefPackTemplateNamesQuery("dt")}
+    ) linked_template_names ON TRUE
+    WHERE dt.stub_id = $1
+    ORDER BY dt.distribution_date DESC, dt.created_at DESC
+    LIMIT 1
+  `;
+  const [
+    membersResult,
+    householdSectorsResult,
+    memberSectorsResult,
+    attendanceResult,
+    transactionResult,
+  ] = await Promise.all([
+    pool.query(membersQuery, [householdId]),
+    pool.query(householdSectorsQuery, [householdId]),
+    pool.query(memberSectorsQuery, [householdId]),
+    pool.query(attendanceQuery, [householdId, baseRow.disaster_event_id]),
+    pool.query(transactionQuery, [stubId]),
+  ]);
+
+  const transaction = transactionResult.rows[0] || null;
+  const transactionItems = transaction
+    ? await getInventoryDistributionTransactionItems(transaction.id)
+    : [];
+
+  return {
+    base: baseRow,
+    members: membersResult.rows,
+    household_sectors: householdSectorsResult.rows,
+    member_sectors: memberSectorsResult.rows,
+    latest_attendance: attendanceResult.rows[0] || null,
+    distribution_transaction: transaction,
+    distribution_transaction_items: transactionItems,
+  };
+};
+
+const getDistributionTransactionClaimProofById = async (
+  transactionId,
+  barangayId = null,
+) => {
+  const query = `
+    SELECT
+      dt.id,
+      dt.disaster_event_id,
+      dt.household_id,
+      dt.stub_id,
+      dt.proof_type,
+      dt.proof_photo_path,
+      dt.proof_photo_sha256,
+      dt.proof_photo_mime_type,
+      dt.proof_photo_size_bytes,
+      dt.proof_photo_captured_at,
+      dt.received_at,
+      dt.distribution_date,
+      h.barangay_id,
+      s.stub_no,
+      CONCAT_WS(
+        ' ',
+        h.family_head_first_name,
+        h.family_head_middle_name,
+        h.family_head_last_name,
+        h.family_head_suffix
+      ) AS family_head_name
+    FROM distribution_transactions dt
+    INNER JOIN households h ON h.id = dt.household_id
+    INNER JOIN stubs s ON s.id = dt.stub_id
+    WHERE dt.id = $1
+      AND ($2::uuid IS NULL OR h.barangay_id = $2::uuid)
+    LIMIT 1
+  `;
+  const result = await pool.query(query, [transactionId, barangayId || null]);
+  return result.rows[0] || null;
+};
+
+module.exports = {
+  getDistributionReceiptSequence,
+  getStubByIdForUpdate,
+  getInventoryBatchByIdForUpdate,
+  getReliefPackTemplateByIdForUpdate,
+  getReliefPackTemplateItemsByTemplateIdForUpdate,
+  getLatestAttendanceByHouseholdId,
+  getAvailableInventoryBatchesByItemIdForUpdate,
+  getDonatedReliefPackItemsByDisasterEventId,
+  getAvailableDonatedLooseItemsByDisasterEventId,
+  updateDonationStatusesByIds,
+  insertDistributionTransaction,
+  insertDistributionTransactionReliefPackTemplates,
+  insertDistributionTransactionItem,
+  insertInventoryTransaction,
+  updateInventoryBatchQuantityAndStatus,
+  updateStubAsClaimed,
+  getLatestDistributionReliefSourcesByStubIds,
+  getDistributionHistory,
+  countDistributionHistory,
+  getDistributionHistorySummaryRows,
+  countDistributionHistorySummaryRows,
+  getDistributionHistoryStubSummaryByEventIds,
+  getDistributionHistoryExportRows,
+  getInventoryDistributionDetailByStubId,
+  getDistributionTransactionClaimProofById,
+};

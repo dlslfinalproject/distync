@@ -1,0 +1,280 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const {
+  validateGetBarangayStubDashboard,
+  validateGetMunicipalStubDashboard,
+  validateClaimBarangayStub,
+} = require("../src/validators/stub.validator");
+
+const eventId = "11111111-1111-4111-8111-111111111111";
+const barangayId = "22222222-2222-4222-8222-222222222222";
+const userId = "33333333-3333-4333-8333-333333333333";
+const stubId = "44444444-4444-4444-8444-444444444444";
+
+const runMiddleware = (middleware, req) =>
+  new Promise((resolve) => {
+    const res = {
+      statusCode: 200,
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(payload) {
+        resolve({
+          calledNext: false,
+          statusCode: this.statusCode,
+          payload,
+          req,
+        });
+      },
+    };
+
+    middleware(req, res, () => {
+      resolve({
+        calledNext: true,
+        statusCode: res.statusCode,
+        req,
+      });
+    });
+  });
+
+test("DEPLOY-MSWDO-RGD-01 dashboard validator accepts legitimate barangay_id scope", async () => {
+  const result = await runMiddleware(validateGetBarangayStubDashboard, {
+    query: {
+      disaster_event_id: eventId,
+      barangay_id: barangayId,
+    },
+  });
+
+  assert.equal(result.calledNext, true);
+  assert.deepEqual(result.req.validatedQuery, {
+    user_id: null,
+    disaster_event_id: eventId,
+    barangay_id: barangayId,
+    override_barangay_id: null,
+    page: 1,
+    pageSize: 25,
+    search: "",
+    status: "all",
+    sector_ids: [],
+    sort_order: "oldest",
+    is_paginated: false,
+  });
+});
+
+test("DEPLOY-MSWDO-RGD-01 dashboard validator rejects malformed barangay_id", async () => {
+  const result = await runMiddleware(validateGetBarangayStubDashboard, {
+    query: {
+      disaster_event_id: eventId,
+      barangay_id: "not-a-uuid",
+    },
+  });
+
+  assert.equal(result.calledNext, false);
+  assert.equal(result.statusCode, 400);
+  assert.match(result.payload.message, /barangay_id must be a valid UUID/);
+});
+
+test("DEPLOY-MSWDO-RGD-01 dashboard validator preserves user and override compatibility", async () => {
+  const result = await runMiddleware(validateGetBarangayStubDashboard, {
+    query: {
+      user_id: userId,
+      disaster_event_id: eventId,
+      override_barangay_id: barangayId,
+    },
+  });
+
+  assert.equal(result.calledNext, true);
+  assert.equal(result.req.validatedQuery.user_id, userId);
+  assert.equal(result.req.validatedQuery.override_barangay_id, barangayId);
+});
+
+test("DEPLOY-MSWDO-RGD-01 claim validator accepts legitimate barangay_id scope", async () => {
+  const result = await runMiddleware(validateClaimBarangayStub, {
+    params: { id: stubId },
+    body: {
+      barangay_id: barangayId,
+      donated_loose_items: [],
+      proof_type: "QR",
+      qr_reference_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+      client_sync_id: "33333333-3333-4333-8333-333333333333",
+    },
+  });
+
+  assert.equal(result.calledNext, true);
+  assert.deepEqual(result.req.validatedBody, {
+    id: stubId,
+    user_id: null,
+    barangay_id: barangayId,
+    override_barangay_id: null,
+    donated_loose_items: [],
+    proof_type: "QR",
+    qr_reference_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+    proof_photo_data_url: null,
+    proof_photo_captured_at: null,
+    client_sync_id: "33333333-3333-4333-8333-333333333333",
+    device_id: null,
+  });
+});
+
+test("MSWDO claim validator accepts Photo Proof only with a claim-time photo", async () => {
+  const photoResult = await runMiddleware(validateClaimBarangayStub, {
+    params: { id: stubId },
+    body: {
+      barangay_id: barangayId,
+      disaster_event_id: eventId,
+      proof_type: "PHOTO",
+      proof_photo_data_url: "data:image/jpeg;base64,dGVzdA==",
+      proof_photo_captured_at: "2026-09-24T03:00:00.000Z",
+      client_sync_id: "33333333-3333-4333-8333-333333333333",
+    },
+  });
+
+  assert.equal(photoResult.calledNext, true);
+  assert.equal(photoResult.req.validatedBody.proof_type, "PHOTO");
+  assert.equal(photoResult.req.validatedBody.proof_photo_data_url, "data:image/jpeg;base64,dGVzdA==");
+  assert.equal(photoResult.req.validatedBody.disaster_event_id, eventId);
+
+  const missingPhotoResult = await runMiddleware(validateClaimBarangayStub, {
+    params: { id: stubId },
+    body: {
+      barangay_id: barangayId,
+      proof_type: "PHOTO",
+      client_sync_id: "33333333-3333-4333-8333-333333333333",
+    },
+  });
+
+  assert.equal(missingPhotoResult.calledNext, false);
+  assert.equal(missingPhotoResult.statusCode, 400);
+  assert.equal(missingPhotoResult.payload.code, "CLAIM_PROOF_PHOTO_INVALID");
+});
+
+test("DEPLOY-BRG-RGD-OFFLINE-QR claim validator preserves the requested disaster event", async () => {
+  const result = await runMiddleware(validateClaimBarangayStub, {
+    params: { id: stubId },
+    body: {
+      barangay_id: barangayId,
+      disaster_event_id: eventId,
+      proof_type: "QR",
+      qr_reference_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+      client_sync_id: "33333333-3333-4333-8333-333333333333",
+    },
+  });
+
+  assert.equal(result.calledNext, true);
+  assert.equal(result.req.validatedBody.disaster_event_id, eventId);
+});
+
+test("DEPLOY-BRG-RGD-OFFLINE-QR claim validator rejects malformed disaster_event_id", async () => {
+  const result = await runMiddleware(validateClaimBarangayStub, {
+    params: { id: stubId },
+    body: {
+      barangay_id: barangayId,
+      disaster_event_id: "not-a-uuid",
+    },
+  });
+
+  assert.equal(result.calledNext, false);
+  assert.equal(result.statusCode, 400);
+  assert.match(
+    result.payload.message,
+    /disaster_event_id must be a valid UUID when provided/,
+  );
+});
+
+test("DEPLOY-MSWDO-RGD-01 claim validator rejects malformed barangay_id", async () => {
+  const result = await runMiddleware(validateClaimBarangayStub, {
+    params: { id: stubId },
+    body: {
+      barangay_id: "not-a-uuid",
+    },
+  });
+
+  assert.equal(result.calledNext, false);
+  assert.equal(result.statusCode, 400);
+  assert.match(result.payload.message, /barangay_id must be a valid UUID/);
+});
+
+test("municipal validator accepts dashboard filters and pagination", async () => {
+  const result = await runMiddleware(validateGetMunicipalStubDashboard, {
+    query: {
+      disaster_event_id: eventId,
+      page: "2",
+      pageSize: "50",
+      search: "family",
+      status: "issued",
+      sector_ids: barangayId,
+      sort_order: "za",
+    },
+  });
+
+  assert.equal(result.calledNext, true);
+  assert.deepEqual(result.req.validatedQuery, {
+    disaster_event_id: eventId,
+    page: 2,
+    pageSize: 50,
+    search: "family",
+    status: "unclaimed",
+    sector_ids: [barangayId],
+    sort_order: "za",
+    is_paginated: true,
+  });
+});
+
+test("municipal validator supplies the default dashboard query contract", async () => {
+  const result = await runMiddleware(validateGetMunicipalStubDashboard, {
+    query: { disaster_event_id: eventId },
+  });
+
+  assert.equal(result.calledNext, true);
+  assert.deepEqual(result.req.validatedQuery, {
+    disaster_event_id: eventId,
+    page: 1,
+    pageSize: 25,
+    search: "",
+    status: "all",
+    sector_ids: [],
+    sort_order: "oldest",
+    is_paginated: false,
+  });
+});
+
+test("Stage 5 municipal validator rejects missing or malformed disaster_event_id", async () => {
+  for (const disasterEventId of [undefined, "not-a-uuid"]) {
+    const result = await runMiddleware(validateGetMunicipalStubDashboard, {
+      query: disasterEventId ? { disaster_event_id: disasterEventId } : {},
+    });
+
+    assert.equal(result.calledNext, false);
+    assert.equal(result.statusCode, 400);
+    assert.match(
+      result.payload.message,
+      /disaster_event_id is required and must be a valid UUID/,
+    );
+  }
+});
+
+test("municipal validator rejects unsupported scope and pagination parameters", async () => {
+  for (const parameter of [
+    "barangay_id",
+    "barangay_ids",
+    "user_id",
+    "override_barangay_id",
+    "scope",
+    "cursor",
+    "limit",
+    "offset",
+  ]) {
+    const result = await runMiddleware(validateGetMunicipalStubDashboard, {
+      query: {
+        disaster_event_id: eventId,
+        [parameter]: parameter === "barangay_id" ? barangayId : "1",
+      },
+    });
+
+    assert.equal(result.calledNext, false);
+    assert.equal(result.statusCode, 400);
+    assert.match(result.payload.message, new RegExp(parameter));
+  }
+});

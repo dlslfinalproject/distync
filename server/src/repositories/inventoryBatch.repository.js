@@ -1,0 +1,430 @@
+const pool = require("../config/db");
+const {
+  INVENTORY_BATCH_IDENTITY_CONSTRAINT,
+} = require("../utils/inventoryBatchIdentity");
+
+const baseSelectQuery = `
+  SELECT
+    ib.id,
+    ib.inventory_item_id,
+    ib.inventory_item_stock_form_id,
+    ib.batch_no,
+    ib.source_type,
+    ib.quantity_received,
+    ib.quantity_available,
+    ib.stock_version,
+    ib.expiration_date,
+    ib.received_at,
+    ib.storage_location,
+    ib.status,
+    ib.created_by,
+    ib.created_at,
+    ib.updated_at,
+    CAST(COALESCE((
+      SELECT SUM(COALESCE(item_stock.quantity_available, 0))
+      FROM inventory_batches item_stock
+      WHERE item_stock.inventory_item_id = ib.inventory_item_id
+    ), 0) AS integer) AS item_total_stock,
+    ii.item_code,
+    ii.item_name,
+    ii.category,
+    ii.unit_of_measure,
+    ii.reorder_level,
+    ii.barcode,
+    ii.is_perishable,
+    stock_forms.barcode AS stock_form_barcode,
+    stock_forms.packaging AS stock_form_packaging,
+    stock_forms.units_per_packaging AS stock_form_units_per_packaging,
+    stock_forms.unit_of_measure AS stock_form_unit_of_measure,
+    stock_forms.unit_of_measure_value AS stock_form_unit_of_measure_value,
+    stock_forms.is_active AS stock_form_is_active,
+    u.first_name AS created_by_first_name,
+    u.last_name AS created_by_last_name,
+    source_donation.donation_id AS source_donation_id,
+    source_donation.donation_item_id AS source_donation_item_id,
+    source_donation.donor_name AS source_donor_name,
+    source_donation.disaster_event_id AS source_donation_disaster_event_id,
+    source_donation.donation_status AS source_donation_status,
+    source_donation.donation_received_at AS source_donation_received_at,
+    source_donation.donation_created_at AS source_donation_created_at,
+    CASE
+      WHEN source_donation.item_remarks ILIKE 'Relief Pack:%'
+        THEN 'RELIEF_PACK'
+      WHEN source_donation.donation_id IS NOT NULL
+        THEN 'LOOSE_ITEM'
+      ELSE NULL
+    END AS source_donation_type
+  FROM inventory_batches ib
+  INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+  LEFT JOIN inventory_item_stock_forms stock_forms
+    ON stock_forms.id = ib.inventory_item_stock_form_id
+  LEFT JOIN users u ON u.id = ib.created_by
+  LEFT JOIN LATERAL (
+    SELECT
+      source_di.id AS donation_item_id,
+      source_di.donation_id,
+      source_d.donor_name,
+      source_d.disaster_event_id,
+      source_d.status AS donation_status,
+      source_d.received_at AS donation_received_at,
+      source_d.created_at AS donation_created_at,
+      source_di.remarks AS item_remarks
+    FROM donation_items source_di
+    INNER JOIN donations source_d
+      ON source_d.id = source_di.donation_id
+    WHERE source_di.inventory_batch_id = ib.id
+    ORDER BY source_di.created_at ASC
+    LIMIT 1
+  ) source_donation ON TRUE
+`;
+
+const buildInventoryBatchFilterQuery = (filters = {}) => {
+  const values = [];
+  const conditions = [];
+
+  if (filters.inventory_item_id) {
+    values.push(filters.inventory_item_id);
+    conditions.push(`ib.inventory_item_id = $${values.length}`);
+  }
+
+  if (filters.source_type) {
+    values.push(filters.source_type);
+    conditions.push(`ib.source_type = $${values.length}`);
+  }
+
+  if (filters.status) {
+    values.push(filters.status);
+    conditions.push(`ib.status = $${values.length}`);
+  }
+
+  if (filters.is_expiring === true) {
+    conditions.push(
+      `ib.expiration_date IS NOT NULL AND ib.expiration_date > CURRENT_DATE AND ib.expiration_date <= CURRENT_DATE + INTERVAL '30 days'`,
+    );
+  }
+
+  if (filters.is_expired === true) {
+    conditions.push(`ib.expiration_date IS NOT NULL AND ib.expiration_date <= CURRENT_DATE`);
+  }
+
+  if (filters.search) {
+    values.push(`%${filters.search}%`);
+    conditions.push(
+      `(ib.batch_no ILIKE $${values.length} OR ib.storage_location ILIKE $${values.length} OR ii.item_name ILIKE $${values.length} OR ii.item_code ILIKE $${values.length})`,
+    );
+  }
+
+  const whereClause =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  return { values, whereClause };
+};
+
+const buildInventoryBatchPaginationMetadata = ({ page, pageSize, totalItems }) => {
+  const totalPages = totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
+
+  return {
+    page,
+    pageSize,
+    totalItems,
+    totalPages,
+    hasPreviousPage: page > 1 && totalPages > 0,
+    hasNextPage: totalPages > 0 && page < totalPages,
+  };
+};
+
+const getInventoryBatches = async (filters = {}) => {
+  const { values, whereClause } = buildInventoryBatchFilterQuery(filters);
+  const isPaginated =
+    Number.isInteger(filters.page) &&
+    filters.page > 0 &&
+    Number.isInteger(filters.pageSize) &&
+    filters.pageSize > 0;
+
+  if (!isPaginated) {
+    const query = `
+      ${baseSelectQuery}
+      ${whereClause}
+      ORDER BY ib.received_at DESC, ib.id DESC
+    `;
+
+    const result = await pool.query(query, values);
+    return result.rows;
+  }
+
+  const countQuery = `
+    SELECT COUNT(*)::int AS total_items
+    FROM inventory_batches ib
+    INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    ${whereClause}
+  `;
+  const paginatedValues = [...values, filters.pageSize, (filters.page - 1) * filters.pageSize];
+  const limitParamIndex = paginatedValues.length - 1;
+  const offsetParamIndex = paginatedValues.length;
+  const query = `
+    ${baseSelectQuery}
+    ${whereClause}
+    ORDER BY ib.received_at DESC, ib.id DESC
+    LIMIT $${limitParamIndex}
+    OFFSET $${offsetParamIndex}
+  `;
+
+  const [countResult, result] = await Promise.all([
+    pool.query(countQuery, values),
+    pool.query(query, paginatedValues),
+  ]);
+  const totalItems = Number(countResult.rows[0]?.total_items || 0);
+
+  return {
+    rows: result.rows,
+    pagination: buildInventoryBatchPaginationMetadata({
+      page: filters.page,
+      pageSize: filters.pageSize,
+      totalItems,
+    }),
+  };
+};
+
+const getInventoryBatchById = async (id, dbClient = pool) => {
+  const query = `
+    ${baseSelectQuery}
+    WHERE ib.id = $1
+  `;
+
+  const result = await dbClient.query(query, [id]);
+  return result.rows[0] || null;
+};
+
+const getInventoryItemById = async (id, dbClient = pool) => {
+  const query = `
+    SELECT
+      id,
+      item_code,
+      item_name,
+      category,
+      unit_of_measure,
+      reorder_level,
+      CAST(COALESCE((
+        SELECT SUM(COALESCE(item_stock.quantity_available, 0))
+        FROM inventory_batches item_stock
+        WHERE item_stock.inventory_item_id = inventory_items.id
+      ), 0) AS integer) AS item_total_stock,
+      barcode,
+      is_perishable
+    FROM inventory_items
+    WHERE id = $1
+  `;
+
+  const result = await dbClient.query(query, [id]);
+  return result.rows[0] || null;
+};
+
+const getInventoryBatchByItemIdAndBatchNo = async (
+  inventoryItemId,
+  batchNo,
+  dbClient = pool,
+) => {
+  const query = `
+    SELECT
+      inventory_batches.id,
+      inventory_batches.inventory_item_id,
+      inventory_batches.inventory_item_stock_form_id,
+      inventory_batches.batch_no,
+      inventory_batches.source_type,
+      inventory_batches.quantity_received,
+      inventory_batches.quantity_available,
+      inventory_batches.stock_version,
+      inventory_batches.expiration_date,
+      inventory_batches.received_at,
+      inventory_batches.storage_location,
+      inventory_batches.status,
+      inventory_batches.created_by,
+      inventory_batches.created_at,
+      inventory_batches.updated_at,
+      stock_forms.barcode AS stock_form_barcode,
+      stock_forms.packaging AS stock_form_packaging,
+      stock_forms.units_per_packaging AS stock_form_units_per_packaging,
+      stock_forms.unit_of_measure AS stock_form_unit_of_measure,
+      stock_forms.unit_of_measure_value AS stock_form_unit_of_measure_value
+    FROM inventory_batches
+    LEFT JOIN inventory_item_stock_forms stock_forms
+      ON stock_forms.id = inventory_batches.inventory_item_stock_form_id
+    WHERE inventory_batches.inventory_item_id = $1
+      AND inventory_batches.batch_no = $2
+  `;
+
+  const result = await dbClient.query(query, [inventoryItemId, batchNo]);
+  return result.rows[0] || null;
+};
+
+const getInventoryBatchesByItemIdForUpdate = async (
+  inventoryItemId,
+  dbClient = pool,
+) => {
+  const result = await dbClient.query(
+    `
+      SELECT
+        id,
+        inventory_item_id,
+        inventory_item_stock_form_id,
+        batch_no,
+        source_type,
+        quantity_received,
+        quantity_available,
+        stock_version,
+        expiration_date,
+        received_at,
+        storage_location,
+        status,
+        created_by,
+        created_at,
+        updated_at
+      FROM inventory_batches
+      WHERE inventory_item_id = $1
+      ORDER BY received_at ASC NULLS LAST, created_at ASC, id ASC
+      FOR UPDATE
+    `,
+    [inventoryItemId],
+  );
+
+  return result.rows;
+};
+
+const insertInventoryBatch = async (batchData, dbClient = pool) => {
+  const hasReceivedAt =
+    batchData.received_at !== undefined && batchData.received_at !== null;
+  const query = `
+    INSERT INTO inventory_batches (
+      inventory_item_id,
+      inventory_item_stock_form_id,
+      batch_no,
+      source_type,
+      quantity_received,
+      quantity_available,
+      expiration_date,
+      received_at,
+      storage_location,
+      status,
+      created_by,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      $1, $2, $3, $4, $5, $6, $7, ${hasReceivedAt ? "$11::timestamptz" : "NOW()"}, $8, $9, $10, NOW(), NOW()
+    )
+    ON CONFLICT ON CONSTRAINT ${INVENTORY_BATCH_IDENTITY_CONSTRAINT}
+    DO NOTHING
+    RETURNING
+      id,
+      inventory_item_id,
+      inventory_item_stock_form_id,
+      batch_no,
+      source_type,
+      quantity_received,
+      quantity_available,
+      stock_version,
+      expiration_date,
+      received_at,
+      storage_location,
+      status,
+      created_by,
+      created_at,
+      updated_at
+  `;
+
+  const values = [
+    batchData.inventory_item_id,
+    batchData.inventory_item_stock_form_id,
+    batchData.batch_no,
+    batchData.source_type,
+    batchData.quantity_received,
+    batchData.quantity_available,
+    batchData.expiration_date,
+    batchData.storage_location,
+    batchData.status,
+    batchData.created_by,
+  ];
+
+  if (hasReceivedAt) {
+    values.push(batchData.received_at);
+  }
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0];
+};
+
+const updateInventoryBatchNumber = async (
+  id,
+  batchNo,
+  dbClient = pool,
+) => {
+  const query = `
+    UPDATE inventory_batches
+    SET batch_no = $2,
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      inventory_item_id,
+      inventory_item_stock_form_id,
+      batch_no,
+      source_type,
+      quantity_received,
+      quantity_available,
+      stock_version,
+      expiration_date,
+      received_at,
+      storage_location,
+      status,
+      created_by,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [id, batchNo]);
+  return result.rows[0] || null;
+};
+
+const updateInventoryBatchExpiry = async (
+  id,
+  { expiration_date, status },
+  dbClient = pool,
+) => {
+  const query = `
+    UPDATE inventory_batches
+    SET expiration_date = $2,
+        status = $3,
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      inventory_item_id,
+      inventory_item_stock_form_id,
+      batch_no,
+      source_type,
+      quantity_received,
+      quantity_available,
+      stock_version,
+      expiration_date,
+      received_at,
+      storage_location,
+      status,
+      created_by,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [id, expiration_date, status]);
+  return result.rows[0] || null;
+};
+
+module.exports = {
+  getInventoryBatches,
+  getInventoryBatchById,
+  getInventoryItemById,
+  getInventoryBatchByItemIdAndBatchNo,
+  getInventoryBatchesByItemIdForUpdate,
+  insertInventoryBatch,
+  updateInventoryBatchNumber,
+  updateInventoryBatchExpiry,
+};

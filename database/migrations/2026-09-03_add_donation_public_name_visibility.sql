@@ -1,0 +1,2 @@
+ALTER TABLE public.donations
+ADD COLUMN IF NOT EXISTS donor_name_public BOOLEAN NOT NULL DEFAULT FALSE;

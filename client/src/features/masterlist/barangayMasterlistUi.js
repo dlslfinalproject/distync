@@ -1,0 +1,695 @@
+import { sortMasterlistRows } from "./masterlistSort.js";
+import {
+  formatMasterlistFilterSectorLabel,
+  getCanonicalMemberSectorCode,
+  MASTERLIST_FILTER_SECTOR_CODES,
+} from "../../utils/registrationOptions.js";
+import { deriveAgeGroup } from "../../utils/ageGroup.js";
+import { buildSyncDescriptor } from "../../offline/syncStatus.js";
+import { LOCAL_SYNC_STATUS } from "../../offline/syncStatusConstants.js";
+
+const formatDateTime = (value) => {
+  if (!value) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+};
+
+export const getSectorNames = (sectorsText) => {
+  if (!sectorsText || sectorsText === "-") {
+    return [];
+  }
+
+  return String(sectorsText)
+    .split(",")
+    .map((sectorName) => sectorName.trim())
+    .filter(Boolean);
+};
+
+export const getFilteredRows = (rows, searchTerm) => {
+  if (!searchTerm.trim()) return rows;
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+
+  return rows.filter((row) => {
+    const searchableValues = [
+      row.family_head_name,
+      row.address,
+      row.sectors_text,
+      row.attendance_status_text,
+      row.arrival_time_text,
+      row.departure_time_text,
+    ];
+    return searchableValues.some((value) =>
+      String(value).toLowerCase().includes(normalizedSearchTerm),
+    );
+  });
+};
+
+const buildFamilyHeadName = (familyHead = {}) => {
+  return [
+    familyHead.first_name,
+    familyHead.middle_name,
+    familyHead.last_name,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+};
+
+const hasPersonName = (person) =>
+  Boolean(
+    person &&
+      [person.first_name, person.middle_name, person.last_name, person.suffix].some(
+        (value) => String(value || "").trim(),
+      ),
+  );
+
+const getSubmittedMembers = (payload = {}) =>
+  (Array.isArray(payload.members) ? payload.members : []).filter(hasPersonName);
+
+export const buildHouseholdDetailsSnapshot = (household = {}) => {
+  const members = Array.isArray(household.members) ? household.members : [];
+  const familyHead = members.find((member) => member.is_family_head) || {};
+  const householdId = household.id || household.household_id || null;
+
+  return {
+    household: {
+      ...household,
+      id: householdId,
+      barangay_name:
+        household.barangay_name || household.barangay?.name || "",
+      source_household_id:
+        household.source_household_id ||
+        household.re_admission_source_household_id ||
+        null,
+      family_head_first_name:
+        household.family_head_first_name || familyHead.first_name || "",
+      family_head_middle_name:
+        household.family_head_middle_name || familyHead.middle_name || "",
+      family_head_last_name:
+        household.family_head_last_name || familyHead.last_name || "",
+      family_head_suffix: household.family_head_suffix || familyHead.suffix || "",
+      household_size: household.household_size || members.length || 0,
+    },
+    members,
+    household_sectors: Array.isArray(household.household_sectors)
+      ? household.household_sectors
+      : [],
+    latest_attendance: household.latest_attendance || null,
+    privacy_consent: household.privacy_consent || null,
+  };
+};
+
+export const buildQueuedHouseholdDetails = (
+  entry,
+  sectorOptions = [],
+  { disasterEventTitle = "", barangayName = "" } = {},
+) => {
+  if (!entry) return null;
+
+  const payload = entry?.payload || {};
+  const familyHead = payload.family_head || {};
+  const legacyRegisteredBy = String(payload.registered_by || "").trim();
+  const registeredByName =
+    payload.registered_by_name ||
+    (legacyRegisteredBy &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      legacyRegisteredBy,
+    )
+      ? legacyRegisteredBy
+      : "") ||
+    "Not recorded";
+  const familyHeadMember = {
+    ...familyHead,
+    id: familyHead.id || `${entry?.entityLocalId || entry?.id}-family-head`,
+    is_family_head: true,
+    relationship_to_head: familyHead.relationship_to_head || "Family Head",
+    sectors: (familyHead.sector_ids || []).map((sectorId) =>
+      sectorOptions.find((sector) => String(sector.id) === String(sectorId)) || {
+        id: sectorId,
+        code: sectorId,
+      },
+    ),
+  };
+  const members = getSubmittedMembers(payload).map((member, index) => ({
+    ...member,
+    id: member.id || `${entry?.entityLocalId || entry?.id}-member-${index}`,
+    sectors: (member.sector_ids || []).map((sectorId) =>
+      sectorOptions.find((sector) => String(sector.id) === String(sectorId)) || {
+        id: sectorId,
+        code: sectorId,
+      },
+    ),
+  }));
+
+  return {
+    household: {
+      id: entry?.entityLocalId || entry?.id || null,
+      disaster_event_title: payload.disaster_event_title || disasterEventTitle || "",
+      barangay_name: payload.barangay_name || barangayName || "",
+      current_stay_type: payload.current_stay_type || "",
+      current_address_details: payload.current_address_details || "",
+      contact_number: payload.contact_number || "",
+      registered_at: entry?.clientTimestamp || null,
+      registered_by_name: registeredByName,
+      registered_by: payload.registered_by || "",
+      evacuation_center_id: payload.evacuation_center_id || "",
+      evacuation_center_name: payload.evacuation_center_name || "",
+      is_active: true,
+      household_size: (hasPersonName(familyHead) ? 1 : 0) + members.length,
+      family_head_first_name: familyHead.first_name || "",
+      family_head_middle_name: familyHead.middle_name || "",
+      family_head_last_name: familyHead.last_name || "",
+      family_head_suffix: familyHead.suffix || "",
+      family_head_photo_url: payload.family_head_photo_url || "",
+      family_head_photo_data_url:
+        payload.family_head_photo_data_url ||
+        (String(payload.family_head_photo_url || "").startsWith("data:image/")
+          ? payload.family_head_photo_url
+          : ""),
+    },
+    members: [familyHeadMember, ...members].filter(hasPersonName),
+    household_sectors: (payload.household_sector_ids || []).map((sectorId) =>
+      sectorOptions.find((sector) => String(sector.id) === String(sectorId)) || {
+        id: sectorId,
+        code: sectorId,
+      },
+    ),
+    latest_attendance:
+      entry?.actionKey === "HOUSEHOLD_DEPART"
+        ? { status: "LEFT", time_out: entry?.clientTimestamp || null }
+        : { status: "PRESENT", time_in: entry?.clientTimestamp || null },
+    privacy_consent: payload.privacy_consent || null,
+  };
+};
+
+const getDerivedAgeSectorCode = (person = {}) => {
+  const ageValue = Number.isInteger(person.age_value)
+    ? person.age_value
+    : Number.parseInt(person.age_value, 10);
+
+  return Number.isInteger(ageValue)
+    ? deriveAgeGroup(ageValue, person.age_unit)
+    : null;
+};
+
+const getSectorOptionsById = (sectorOptions = []) => {
+  const byId = new Map();
+
+  sectorOptions.forEach((sector) => {
+    [sector?.id, sector?.source_sector_id, sector?.code].filter(Boolean).forEach((id) => {
+      byId.set(String(id), sector);
+    });
+  });
+
+  return byId;
+};
+
+const buildQueuedSectorsText = (payload = {}, sectorOptions = []) => {
+  const sectorOptionsById = getSectorOptionsById(sectorOptions);
+  const sectorRefs = [
+    ...(payload.family_head?.sector_ids || []),
+    getDerivedAgeSectorCode(payload.family_head),
+    ...(payload.household_sector_ids || []),
+    ...getSubmittedMembers(payload).flatMap((member) => [
+      ...(member.sector_ids || []),
+      getDerivedAgeSectorCode(member),
+    ]),
+  ].filter(Boolean);
+  const orderIndexByCode = new Map(
+    MASTERLIST_FILTER_SECTOR_CODES.map((code, index) => [code, index]),
+  );
+  const sectorsByCode = new Map();
+
+  sectorRefs.forEach((sectorRef) => {
+    const sector =
+      typeof sectorRef === "object"
+        ? sectorRef
+        : sectorOptionsById.get(String(sectorRef)) || { code: sectorRef };
+    const code = getCanonicalMemberSectorCode(sector?.code);
+    const label = formatMasterlistFilterSectorLabel(sector);
+
+    if (code && label && !sectorsByCode.has(code)) {
+      sectorsByCode.set(code, label);
+    }
+  });
+
+  return [...sectorsByCode.entries()]
+    .sort(([left], [right]) => {
+      const leftIndex = orderIndexByCode.get(left);
+      const rightIndex = orderIndexByCode.get(right);
+      if (leftIndex !== undefined && rightIndex !== undefined) return leftIndex - rightIndex;
+      if (leftIndex !== undefined) return -1;
+      if (rightIndex !== undefined) return 1;
+      return left.localeCompare(right);
+    })
+    .map(([, label]) => label)
+    .join(", ") || "-";
+};
+
+export const buildQueuedHouseholdRow = (
+  entry,
+  assignedBarangayName,
+  sectorOptions = [],
+  options = {},
+) => {
+  const payload = entry.payload || {};
+  const departureStatus = buildSyncDescriptor(entry).status;
+  const departureDisplayStatus =
+    departureStatus === LOCAL_SYNC_STATUS.CONFLICT
+      ? LOCAL_SYNC_STATUS.FAILED
+      : departureStatus;
+  const familyHeadName = buildFamilyHeadName(payload.family_head);
+  const submittedMembers = getSubmittedMembers(payload);
+  const barangayName = payload.barangay_name || assignedBarangayName || "";
+  const pendingBarangayLabel = "Pending local address";
+  const departureTimestamp =
+    entry.actionKey === "HOUSEHOLD_DEPART" ? entry.clientTimestamp : null;
+  const sectorRefs = [
+    ...(payload.family_head?.sector_ids || []),
+    getDerivedAgeSectorCode(payload.family_head),
+    ...(payload.household_sector_ids || []),
+    ...submittedMembers.flatMap((member) => [
+      ...(member.sector_ids || []),
+      getDerivedAgeSectorCode(member),
+    ]),
+  ].filter(Boolean);
+  const sectorOptionsById = getSectorOptionsById(sectorOptions);
+  const sectorIds = [
+    ...new Set(
+      sectorRefs
+        .map((sectorRef) =>
+          typeof sectorRef === "object" ? sectorRef.id : sectorRef,
+        )
+        .filter(Boolean),
+    ),
+  ];
+  const sectorCodes = [
+    ...new Set(
+      sectorRefs
+        .map((sectorRef) => {
+          const sector =
+            typeof sectorRef === "object"
+              ? sectorRef
+              : sectorOptionsById.get(String(sectorRef)) || { code: sectorRef };
+          return getCanonicalMemberSectorCode(sector?.code);
+        })
+        .filter(Boolean),
+    ),
+  ];
+
+  return {
+    household_id: entry.entityLocalId || entry.id,
+    source_household_id:
+      payload.source_household_id ||
+      payload.re_admission_source_household_id ||
+      null,
+    masterlist_record_id: entry.id || entry.entityLocalId || `local-${entry.clientTimestamp}`,
+    family_head_name: familyHeadName || "Pending household",
+    address: barangayName || pendingBarangayLabel,
+    barangay_id: entry.barangayId || payload.barangay_id || null,
+    barangay_name: barangayName,
+    evacuation_center_id: payload.evacuation_center_id || null,
+    evacuation_center_name: payload.evacuation_center_name || null,
+    registered_by_name: payload.registered_by_name || null,
+    members_count: (hasPersonName(payload.family_head) ? 1 : 0) + submittedMembers.length,
+    sectors_text: buildQueuedSectorsText(payload, sectorOptions),
+    sector_ids: sectorIds,
+    sector_codes: sectorCodes,
+    arrival_time_text: formatDateTime(entry.clientTimestamp),
+    departure_time_value: departureTimestamp,
+    departure_time_text: departureTimestamp ? formatDateTime(departureTimestamp) : "-",
+    registered_at: entry.clientTimestamp,
+    can_record_departure: false,
+    is_local_only: true,
+    sync_status: entry.status,
+    ...(entry.actionKey === "HOUSEHOLD_DEPART"
+      ? {
+          departure_sync_status: departureDisplayStatus,
+          departure_sync_detailed_status: departureStatus,
+          departure_sync_tooltip:
+            departureStatus === LOCAL_SYNC_STATUS.PENDING
+              ? "Departure pending synchronization"
+              : departureStatus === LOCAL_SYNC_STATUS.CONFLICT
+                ? "Departure synchronization conflict"
+                : departureStatus === LOCAL_SYNC_STATUS.FAILED
+                  ? "Departure synchronization failed"
+                  : "Departure synchronized",
+          departure_sync_entry_id: entry.id || null,
+        }
+      : {}),
+    sync_entry_id: entry.id,
+    offline_household_details: buildQueuedHouseholdDetails(entry, sectorOptions, {
+      disasterEventTitle: options.disasterEventTitle,
+      barangayName: assignedBarangayName,
+    }),
+    is_active: entry.actionKey !== "HOUSEHOLD_DEPART",
+    is_operationally_active: entry.actionKey !== "HOUSEHOLD_DEPART",
+  };
+};
+
+const HOUSEHOLD_LIFECYCLE_ACTIONS = new Set([
+  "HOUSEHOLD_REGISTER",
+  "HOUSEHOLD_UPDATE",
+  "HOUSEHOLD_RE_ADMISSION",
+  "HOUSEHOLD_RESTORE",
+  "HOUSEHOLD_DEPART",
+]);
+
+const getEntryTimestamp = (entry) => {
+  const value = entry?.clientTimestamp || entry?.updatedAt || entry?.createdAt;
+  const timestamp = value ? new Date(value).getTime() : 0;
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+};
+
+const getEntryIdentityValues = (entry) =>
+  [
+    entry?.entityServerId,
+    entry?.entityLocalId,
+    entry?.householdId,
+    entry?.householdOccurrenceId,
+    entry?.payload?.household_id,
+    entry?.payload?.household_occurrence_id,
+    entry?.payload?.householdId,
+  ]
+    .filter(Boolean)
+    .map(String);
+
+const getRowIdentityValues = (row) =>
+  [
+    row?.household_id,
+    row?.masterlist_record_id,
+    row?.household_occurrence_id,
+    row?.householdOccurrenceId,
+  ]
+    .filter(Boolean)
+    .map(String);
+
+const isEntryForRow = (entry, row) => {
+  const rowIds = new Set(getRowIdentityValues(row));
+  return getEntryIdentityValues(entry).some((id) => rowIds.has(id));
+};
+
+export const getLatestHouseholdLifecycleEntry = (syncEntries = [], row = null) =>
+  syncEntries
+    .filter(
+      (entry) =>
+        HOUSEHOLD_LIFECYCLE_ACTIONS.has(entry?.actionKey) &&
+        entry?.entityType === "HOUSEHOLD" &&
+        isEntryForRow(entry, row),
+    )
+    .sort((left, right) => getEntryTimestamp(right) - getEntryTimestamp(left))[0] || null;
+
+export const getLatestHouseholdDepartureEntry = (syncEntries = [], row = null) =>
+  syncEntries
+    .filter(
+      (entry) =>
+        entry?.actionKey === "HOUSEHOLD_DEPART" &&
+        entry?.entityType === "HOUSEHOLD" &&
+        isEntryForRow(entry, row),
+    )
+    .sort((left, right) => getEntryTimestamp(right) - getEntryTimestamp(left))[0] || null;
+
+export const resolveDepartureSyncStatus = ({
+  row = null,
+  syncQueueEntries = [],
+} = {}) => {
+  const entry = getLatestHouseholdDepartureEntry(syncQueueEntries, row);
+  const detailedStatus = entry
+    ? buildSyncDescriptor(entry).status
+    : LOCAL_SYNC_STATUS.SYNCED;
+  const displayStatus =
+    detailedStatus === LOCAL_SYNC_STATUS.CONFLICT
+      ? LOCAL_SYNC_STATUS.FAILED
+      : detailedStatus;
+
+  return {
+    status: displayStatus,
+    detailedStatus,
+    tooltip:
+      detailedStatus === LOCAL_SYNC_STATUS.PENDING
+        ? "Departure pending synchronization"
+        : detailedStatus === LOCAL_SYNC_STATUS.CONFLICT
+          ? "Departure synchronization conflict"
+          : detailedStatus === LOCAL_SYNC_STATUS.FAILED
+            ? "Departure synchronization failed"
+            : "Departure synchronized",
+    entry,
+  };
+};
+
+const isActiveLifecycleAction = (actionKey, row) => {
+  if (actionKey === "HOUSEHOLD_DEPART") {
+    return false;
+  }
+
+  if (
+    [
+      "HOUSEHOLD_REGISTER",
+      "HOUSEHOLD_RE_ADMISSION",
+      "HOUSEHOLD_RESTORE",
+      "HOUSEHOLD_UPDATE",
+    ].includes(
+      actionKey,
+    )
+  ) {
+    return true;
+  }
+
+  return row?.is_active !== false && row?.is_operationally_active !== false;
+};
+
+const isReconciledDuplicate = (entry) =>
+  entry?.resolutionStatus === "DUPLICATE_HOUSEHOLD";
+
+// A terminal registration conflict remains in the queue for Sync Center and
+// Conflict Review, but its optimistic local household is not a valid
+// Masterlist occurrence. Failed entries remain projected because they retain
+// the existing retry/error behavior.
+const isRejectedHouseholdRegistration = (entry) =>
+  entry?.actionKey === "HOUSEHOLD_REGISTER" &&
+  entry?.status === "CONFLICT";
+
+const isRejectedHouseholdDeparture = (entry) =>
+  entry?.actionKey === "HOUSEHOLD_DEPART" &&
+  entry?.status === "CONFLICT";
+
+const hasAuthoritativeArchivedDeparture = (row, departureSync) =>
+  row?.is_local_only !== true &&
+  row?.is_operationally_active === false &&
+  Boolean(row?.household_id) &&
+  Boolean(row?.departure_time_value) &&
+  departureSync?.detailedStatus === LOCAL_SYNC_STATUS.CONFLICT;
+
+const applyLifecycleOverlay = (row, lifecycleEntry) => {
+  if (!lifecycleEntry) {
+    return row;
+  }
+
+  const isActive = isActiveLifecycleAction(lifecycleEntry.actionKey, row);
+  const isConflictedDeparture =
+    lifecycleEntry.actionKey === "HOUSEHOLD_DEPART" &&
+    lifecycleEntry.status === LOCAL_SYNC_STATUS.CONFLICT;
+  const projectedIsActive = isConflictedDeparture
+    ? row.is_operationally_active !== false
+    : isActive;
+  const preserveServerDeparture =
+    lifecycleEntry.actionKey === "HOUSEHOLD_DEPART" &&
+    lifecycleEntry.status === LOCAL_SYNC_STATUS.SYNCED &&
+    row.departure_time_value;
+  const effectiveDepartureTime = preserveServerDeparture
+    ? row.departure_time_value
+    : lifecycleEntry.clientTimestamp || row.departure_time_value;
+  const isRestoreProjection = lifecycleEntry.actionKey === "HOUSEHOLD_RESTORE";
+
+  return {
+    ...row,
+    sync_status: lifecycleEntry.status || row.sync_status,
+    is_active: projectedIsActive,
+    is_operationally_active: projectedIsActive,
+    can_record_departure: projectedIsActive && row.can_record_departure,
+    ...(isRestoreProjection
+      ? {
+          current_stay_type: "EVAC_CENTER",
+          is_non_admitted_resident: false,
+          arrival_time_text: formatDateTime(lifecycleEntry.clientTimestamp),
+          departure_time_value: null,
+          departure_time_text: "-",
+        }
+      : {}),
+    ...(projectedIsActive || isConflictedDeparture
+      ? {}
+      : {
+          departure_time_value: effectiveDepartureTime,
+          departure_time_text: formatDateTime(effectiveDepartureTime),
+        }),
+  };
+};
+
+const matchesRecordStatus = (row, recordStatus) => {
+  if (recordStatus === "archived") {
+    return row.is_operationally_active === false;
+  }
+
+  if (recordStatus === "all") {
+    return true;
+  }
+
+  return row.is_operationally_active !== false;
+};
+
+export const resolveEffectiveMasterlistRows = ({
+  rows = [],
+  syncQueueEntries = [],
+  recordStatus = "active",
+  assignedBarangayName = "",
+  selectedEventId = "",
+  selectedEventTitle = "",
+  assignedBarangayId = "",
+  sectorOptions = [],
+  sortOrder = "newest",
+} = {}) => {
+  const scopedEntries = syncQueueEntries.filter((entry) => {
+    const payload = entry?.payload || {};
+    const entryBarangayId = entry?.barangayId || payload.barangay_id || "";
+    return (
+      HOUSEHOLD_LIFECYCLE_ACTIONS.has(entry?.actionKey) &&
+      entry?.entityType === "HOUSEHOLD" &&
+      !isReconciledDuplicate(entry) &&
+      (!selectedEventId || String(payload.disaster_event_id || "") === String(selectedEventId)) &&
+      (!assignedBarangayId || String(entryBarangayId) === String(assignedBarangayId))
+    );
+  });
+
+  const resolvedRows = rows.map((row) => {
+    const resolvedRow = applyLifecycleOverlay(
+      row,
+      getLatestHouseholdLifecycleEntry(scopedEntries, row),
+    );
+
+    if (resolvedRow.is_operationally_active !== false) {
+      return resolvedRow;
+    }
+
+    const departureSync = resolveDepartureSyncStatus({
+      row: resolvedRow,
+      syncQueueEntries: scopedEntries,
+    });
+    const isAuthoritativelyReconciled = hasAuthoritativeArchivedDeparture(
+      resolvedRow,
+      departureSync,
+    );
+
+    return {
+      ...resolvedRow,
+      departure_sync_status: isAuthoritativelyReconciled
+        ? LOCAL_SYNC_STATUS.SYNCED
+        : departureSync.status,
+      departure_sync_detailed_status: isAuthoritativelyReconciled
+        ? LOCAL_SYNC_STATUS.SYNCED
+        : departureSync.detailedStatus,
+      departure_sync_tooltip: isAuthoritativelyReconciled
+        ? "Departure synchronized"
+        : departureSync.tooltip,
+      departure_sync_entry_id: departureSync.entry?.id || null,
+    };
+  });
+  const representedIds = new Set(
+    resolvedRows.flatMap((row) => getRowIdentityValues(row)),
+  );
+
+  scopedEntries
+    .filter(
+      (entry) =>
+        [
+          "HOUSEHOLD_REGISTER",
+          "HOUSEHOLD_RE_ADMISSION",
+          "HOUSEHOLD_RESTORE",
+          "HOUSEHOLD_DEPART",
+        ].includes(entry.actionKey) &&
+        !isReconciledDuplicate(entry) &&
+        !isRejectedHouseholdRegistration(entry) &&
+        !isRejectedHouseholdDeparture(entry) &&
+        !(entry.actionKey === "HOUSEHOLD_DEPART" &&
+          entry.status === LOCAL_SYNC_STATUS.SYNCED),
+    )
+    .sort((left, right) => getEntryTimestamp(right) - getEntryTimestamp(left))
+    .forEach((entry) => {
+      const localId = entry.entityLocalId || entry.entityServerId || entry.id;
+
+      const entryProjectionIds = [
+        ...getEntryIdentityValues(entry),
+        entry?.id,
+      ]
+        .filter(Boolean)
+        .map(String);
+
+      if (
+        !localId ||
+        entryProjectionIds.some((entryId) => representedIds.has(entryId))
+      ) {
+        return;
+      }
+
+      const queuedRow = buildQueuedHouseholdRow(
+        entry,
+        assignedBarangayName,
+        sectorOptions,
+        { disasterEventTitle: selectedEventTitle },
+      );
+      if (matchesRecordStatus(queuedRow, recordStatus)) {
+        resolvedRows.push(queuedRow);
+        representedIds.add(String(localId));
+      }
+    });
+
+  return sortMasterlistRows(
+    resolvedRows.filter((row) => matchesRecordStatus(row, recordStatus)),
+    sortOrder,
+    { recordStatus },
+  );
+};
+
+export const isEndedDisasterEvent = (event, eventScope) => {
+  const status = String(event?.status || "").toUpperCase();
+  return eventScope === "ended" || status === "CLOSED";
+};
+
+export const formatEventEndedDateTime = (value) => {
+  if (!value) {
+    return "-";
+  }
+
+  const normalizedValue = String(value).trim();
+  const isDateOnlyValue = /^\d{4}-\d{2}-\d{2}$/.test(normalizedValue);
+  const parsedDate = new Date(
+    isDateOnlyValue ? `${normalizedValue}T00:00:00` : normalizedValue,
+  );
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "-";
+  }
+
+  if (isDateOnlyValue) {
+    return new Intl.DateTimeFormat("en-PH", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(parsedDate);
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(parsedDate);
+};

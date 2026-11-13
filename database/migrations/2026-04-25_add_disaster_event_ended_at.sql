@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE disaster_events
+ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+
+COMMIT;

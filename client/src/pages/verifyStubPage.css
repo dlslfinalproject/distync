@@ -1,0 +1,132 @@
+.verify-stub-page,
+.verify-stub-page * {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.verify-stub-page {
+  width: 100%;
+  padding: 24px;
+}
+
+.verify-stub-page__content {
+  display: grid;
+  gap: 16px;
+}
+
+.verify-stub-page__section {
+  width: 100%;
+  max-width: 100%;
+  padding: 24px;
+  display: grid;
+  gap: 14px;
+  align-self: start;
+}
+
+.verify-stub-page__status-banner {
+  width: 100%;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.verify-stub-page__verification-layout {
+  width: 100%;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.verify-stub-page__photo-meta,
+.verify-stub-page__details-list {
+  width: 100%;
+  max-width: 100%;
+  align-self: start;
+}
+
+.verify-stub-page__photo-meta {
+  display: grid;
+  gap: 8px;
+}
+
+.verify-stub-page__photo,
+.verify-stub-page__photo-placeholder {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+
+.verify-stub-page__details-list {
+  display: grid;
+  gap: 12px;
+}
+
+.verify-stub-page__detail-row {
+  width: 100%;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.verify-stub-page__detail-label,
+.verify-stub-page__detail-value {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.verify-stub-page__detail-value {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.verify-stub-page__actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.verify-stub-page__action-link {
+  width: fit-content;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+@media (max-width: 768px) {
+  .verify-stub-page__verification-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .verify-stub-page__detail-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .verify-stub-page__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .verify-stub-page__action-link {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .verify-stub-page {
+    padding: 16px;
+  }
+
+  .verify-stub-page__section {
+    padding: 16px;
+  }
+}

@@ -1,0 +1,266 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const {
+  validateGetSyncHistory,
+  validateProcessSyncEntries,
+  validateResolveSyncConflict,
+} = require("../src/validators/sync.validator");
+
+const createResponse = () => {
+  const response = {
+    statusCode: null,
+    payload: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      this.payload = payload;
+      return this;
+    },
+  };
+
+  return response;
+};
+
+const baseEntry = {
+  client_sync_id: "11111111-1111-4111-8111-111111111111",
+  action_key: "HOUSEHOLD_REGISTER",
+  entity_type: "HOUSEHOLD",
+  entity_local_id: "local-household-1",
+  client_timestamp: "2026-08-08T01:00:00.000Z",
+  payload: {
+    family_head_first_name: "Local",
+  },
+};
+
+test("validateProcessSyncEntries accepts bounded UUID or legacy local client sync ids", () => {
+  for (const clientSyncId of [
+    "11111111-1111-4111-8111-111111111111",
+    "local-1770000000000-abcd1234",
+  ]) {
+    const req = {
+      body: {
+        entries: [
+          {
+            ...baseEntry,
+            client_sync_id: clientSyncId,
+          },
+        ],
+      },
+    };
+    const res = createResponse();
+    let nextCalled = false;
+
+    validateProcessSyncEntries(req, res, () => {
+      nextCalled = true;
+    });
+
+    assert.equal(nextCalled, true);
+    assert.equal(req.validatedBody.entries[0].client_sync_id, clientSyncId);
+  }
+});
+
+test("validateProcessSyncEntries rejects malformed client sync ids", () => {
+  const req = {
+    body: {
+      entries: [
+        {
+          ...baseEntry,
+          client_sync_id: "bad id with spaces and too much meaning",
+        },
+      ],
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateProcessSyncEntries(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.payload.message, /client_sync_id must be 80 characters/i);
+});
+
+test("validateGetSyncHistory accepts allow-listed sync and conflict statuses", () => {
+  const req = {
+    query: {
+      sync_status: "failed",
+      conflict_status: "resolved",
+      limit: "100",
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateGetSyncHistory(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(req.validatedQuery.sync_status, "FAILED");
+  assert.equal(req.validatedQuery.conflict_status, "RESOLVED");
+  assert.equal(req.validatedQuery.limit, 100);
+});
+
+test("validateGetSyncHistory rejects unsupported filter statuses", () => {
+  for (const query of [
+    { sync_status: "RESOLVED" },
+    { conflict_status: "FAILED" },
+  ]) {
+    const req = { query };
+    const res = createResponse();
+    let nextCalled = false;
+
+    validateGetSyncHistory(req, res, () => {
+      nextCalled = true;
+    });
+
+    assert.equal(nextCalled, false);
+    assert.equal(res.statusCode, 400);
+    assert.match(res.payload.message, /must be one of/i);
+  }
+});
+
+test("validateGetSyncHistory accepts a valid MSWDO Barangay filter", () => {
+  const barangayId = "11111111-1111-4111-8111-111111111111";
+  const req = {
+    query: {
+      barangay_id: barangayId,
+      limit: "25",
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateGetSyncHistory(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(req.validatedQuery.barangay_id, barangayId);
+  assert.equal(req.validatedQuery.limit, 25);
+});
+
+test("validateGetSyncHistory rejects a malformed Barangay filter", () => {
+  const req = {
+    query: {
+      barangay_id: "not-a-uuid",
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateGetSyncHistory(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.payload.message, /barangay_id must be a valid UUID/i);
+});
+
+test("validateProcessSyncEntries preserves the deployed device_id wire field and legacy missing values", () => {
+  const deviceUuid = "66666666-6666-4666-8666-666666666666";
+  const req = {
+    body: {
+      entries: [
+        {
+          ...baseEntry,
+          device_id: deviceUuid,
+        },
+        {
+          ...baseEntry,
+          client_sync_id: "legacy-entry-without-device-id",
+          device_id: undefined,
+        },
+      ],
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateProcessSyncEntries(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(req.validatedBody.entries[0].device_id, deviceUuid);
+  assert.equal(req.validatedBody.entries[1].device_id, null);
+});
+
+test("validateProcessSyncEntries rejects a malformed persistent device UUID", () => {
+  const req = {
+    body: {
+      entries: [
+        {
+          ...baseEntry,
+          device_id: "browser-device-identity",
+        },
+      ],
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateProcessSyncEntries(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.payload.message, /device_id must be a valid UUID/i);
+});
+
+test("validateResolveSyncConflict accepts an edited correction payload with a blank barcode", () => {
+  const req = {
+    params: {
+      conflictId: "11111111-1111-4111-8111-111111111111",
+    },
+    body: {
+      action: "APPLY_LOCAL",
+      reason: "This is the correct item record.",
+      resolution_payload: {
+        item_name: "Manual Rice",
+        category: "Non-Perishable",
+        barcode: null,
+      },
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateResolveSyncConflict(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(req.validatedBody.resolutionPayload.item_name, "Manual Rice");
+  assert.equal(req.validatedBody.resolutionPayload.barcode, null);
+});
+
+test("validateResolveSyncConflict rejects a non-object correction payload", () => {
+  const req = {
+    params: {
+      conflictId: "11111111-1111-4111-8111-111111111111",
+    },
+    body: {
+      action: "APPLY_LOCAL",
+      reason: "This is the correct item record.",
+      resolution_payload: [],
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateResolveSyncConflict(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.payload.message, /resolution_payload must be an object/i);
+});

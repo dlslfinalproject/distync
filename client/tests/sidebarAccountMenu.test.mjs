@@ -1,0 +1,54 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import path from "node:path";
+import test from "node:test";
+
+const sourcePath = path.join(process.cwd(), "src", "components", "layout", "SidebarAccountMenu.jsx");
+const sidebarPath = path.join(process.cwd(), "src", "components", "layout", "Sidebar.jsx");
+const headerPath = path.join(process.cwd(), "src", "components", "layout", "HeaderNotifications.jsx");
+const modalShellPath = path.join(process.cwd(), "src", "components", "shared", "FormModalShell.jsx");
+
+test("sidebar account menu uses the shared identity, settings, and logout pattern", async () => {
+  const source = await fs.readFile(sourcePath, "utf8");
+
+  assert.match(source, /ProfileAvatar/);
+  assert.match(source, /aria-haspopup="menu"/);
+  assert.match(source, /aria-expanded=\{isOpen\}/);
+  assert.match(source, /Account Settings/);
+  assert.match(source, /Log Out/);
+  assert.doesNotMatch(source, /Switch Role/);
+  assert.match(source, /bottom: "calc\(100% \+ 10px\)"/);
+  assert.match(source, /ConfirmationModal/);
+  assert.match(source, /accessMode === ACCESS_MODES\.DEVELOPMENT/);
+  assert.match(source, /Unsynchronized Offline Data/);
+  assert.match(source, /Sync and Logout/);
+  assert.match(source, /Discard Offline Data and Logout/);
+  assert.match(source, /Connect to the internet and synchronize them before logging out/);
+});
+
+test("authenticated shell keeps role controls out and exposes the shared header settings shortcut", async () => {
+  const [sidebar, header] = await Promise.all([
+    fs.readFile(sidebarPath, "utf8"),
+    fs.readFile(headerPath, "utf8"),
+  ]);
+
+  assert.match(sidebar, /SidebarAccountMenu/);
+  assert.doesNotMatch(sidebar, /Switch Role/);
+  assert.doesNotMatch(sidebar, /Current Role/);
+  assert.match(header, /FiBell/);
+  assert.match(header, /FiSettings/);
+  assert.match(header, /\/barangay\/settings/);
+  assert.match(header, /\/mswdo\/settings/);
+  assert.match(header, /\/inventory\/settings/);
+});
+
+test("shared modal shell portals its viewport-fixed backdrop outside sidebar containers", async () => {
+  const source = await fs.readFile(modalShellPath, "utf8");
+
+  assert.match(source, /import \{ createPortal \} from "react-dom"/);
+  assert.match(source, /position: "fixed"/);
+  assert.match(source, /inset: 0/);
+  assert.match(source, /alignItems: "center"/);
+  assert.match(source, /justifyContent: "center"/);
+  assert.match(source, /createPortal\(modalContent, document\.body\)/);
+});

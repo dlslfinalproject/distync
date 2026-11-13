@@ -1,0 +1,627 @@
+import db, { LOCAL_SYNC_STATUS } from "./db.js";
+import { getAccessMode } from "../utils/accessMode.js";
+import {
+  getAuthenticatedUser,
+  getCurrentRole,
+} from "../utils/roleSession.js";
+import { isSyncIdempotencyMismatch } from "./syncStatus.js";
+import {
+  SYNC_ERROR_CODES,
+  SYNC_PRESENTATION_MESSAGES,
+} from "./syncStatus.js";
+import { getOfflineDeviceId } from "./deviceIdentity.js";
+import {
+  isOfflineQueueEntryOwnedByActor,
+  isTerminalOfflineQueueEntry,
+} from "./offlineDataLifecycleCore.mjs";
+
+const unsupportedOfflineActionKeys = new Set([
+  "DONATION_NEED_CREATE",
+  "DONATION_NEED_UPDATE",
+  "DONATION_CREATE",
+  "DONATION_UPDATE",
+  "DONATION_ITEM_CREATE",
+  "DONATION_ITEM_UPDATE",
+  "DISASTER_EVENT_CREATE",
+  "DISASTER_EVENT_UPDATE",
+  "DISASTER_EVENT_EXTEND",
+  "DISASTER_EVENT_END",
+]);
+const supportedOfflineActionKeys = new Set([
+  "STUB_CLAIM",
+  "HOUSEHOLD_DEPART",
+  "HOUSEHOLD_RESTORE",
+  "HOUSEHOLD_UPDATE",
+  "INVENTORY_ITEM_CREATE",
+  "INVENTORY_ITEM_UPDATE",
+  "INVENTORY_BATCH_CREATE",
+]);
+const recognizedOfflineActionKeys = new Set([
+  ...supportedOfflineActionKeys,
+  ...unsupportedOfflineActionKeys,
+  "HOUSEHOLD_REGISTER",
+  "HOUSEHOLD_RE_ADMISSION",
+  "DISTRIBUTION_CREATE",
+  "INVENTORY_TRANSACTION_CREATE",
+]);
+
+const getIsoNow = () => new Date().toISOString();
+const SYNC_PROCESSING_LEASE_MS = 60 * 1000;
+
+const normalizeScopeValue = (value) => String(value || "").trim();
+
+const getQueueBarangayId = ({ payload = {}, barangayId = null, user = null } = {}) =>
+  normalizeScopeValue(
+    barangayId ||
+      payload?.barangay_id ||
+      payload?.override_barangay_id ||
+      payload?.barangay?.id ||
+      user?.default_barangay_id ||
+      "",
+  ) || null;
+
+export const isUnsupportedOfflineActionKey = (actionKey) => {
+  const normalizedActionKey = String(actionKey || "").trim().toUpperCase();
+
+  return Boolean(normalizedActionKey) &&
+    (unsupportedOfflineActionKeys.has(normalizedActionKey) ||
+      !recognizedOfflineActionKeys.has(normalizedActionKey));
+};
+
+export const isMalformedSyncEntry = (entry = {}) => {
+  if (!entry || typeof entry !== "object") {
+    return true;
+  }
+
+  const hasQueueIdentity =
+    entry.id || entry.actionKey || entry.entityType || entry.clientTimestamp || entry.payload;
+
+  if (!hasQueueIdentity) {
+    return false;
+  }
+
+  return Boolean(
+    !normalizeScopeValue(entry.id) ||
+      !normalizeScopeValue(entry.actionKey) ||
+      !normalizeScopeValue(entry.entityType) ||
+      !normalizeScopeValue(entry.clientTimestamp) ||
+      !entry.payload ||
+      typeof entry.payload !== "object" ||
+      Array.isArray(entry.payload),
+  );
+};
+
+export const isNonRetryableSyncEntry = (entry = {}) =>
+  isUnsupportedOfflineActionKey(entry.actionKey) ||
+  isMalformedSyncEntry(entry) ||
+  isSyncIdempotencyMismatch(entry);
+
+export const getUnsupportedOfflineActionMessage = (actionKey) => {
+  if (isUnsupportedOfflineActionKey(actionKey)) {
+    return "This operation is no longer supported for offline synchronization. Please complete the action while online.";
+  }
+
+  return "";
+};
+
+export const getSyncQueueActorContext = () => {
+  const authenticatedUser = getAuthenticatedUser();
+
+  return {
+    accessMode: getAccessMode(),
+    userId: authenticatedUser?.id || null,
+    roleCode: getCurrentRole() || null,
+    barangayId: authenticatedUser?.default_barangay_id || null,
+    deviceId: getOfflineDeviceId(),
+  };
+};
+
+export const isSyncQueueActorContextCurrent = (expectedContext = {}) => {
+  const currentContext = getSyncQueueActorContext();
+  return ["accessMode", "userId", "roleCode", "deviceId", "barangayId"].every(
+    (key) =>
+      normalizeScopeValue(expectedContext[key]) ===
+      normalizeScopeValue(currentContext[key]),
+  );
+};
+
+export const buildStoredSyncEntry = (
+  entry,
+  actorContext = getSyncQueueActorContext(),
+) => {
+  return {
+    ...entry,
+    accessMode: actorContext.accessMode,
+    userId: actorContext.userId,
+    roleCode: actorContext.roleCode,
+    deviceId: entry?.deviceId || actorContext.deviceId || null,
+    barangayId: getQueueBarangayId({
+      payload: entry?.payload,
+      barangayId: entry?.barangayId || actorContext.barangayId,
+      user: actorContext.user || null,
+    }),
+  };
+};
+
+export const isSyncEntryVisibleForContext = (
+  entry,
+  actorContext = getSyncQueueActorContext(),
+) => {
+  if (!entry || !isOfflineQueueEntryOwnedByActor(entry, actorContext)) {
+    return false;
+  }
+
+  if (entry.resolutionStatus === "RESOLVED_AUTOMATICALLY") {
+    return false;
+  }
+
+  return true;
+};
+
+export const emitSyncQueueUpdated = () => {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("distync-sync-queue-updated"));
+  }
+};
+
+export const getSyncQueueSnapshot = async () => {
+  return db.syncQueue
+    .orderBy("clientTimestamp")
+    .filter((entry) => isSyncEntryVisibleForContext(entry))
+    .reverse()
+    .toArray();
+};
+
+export const getVisibleSyncQueueEntries = async () => {
+  const actorContext = getSyncQueueActorContext();
+  return db.syncQueue
+    .orderBy("clientTimestamp")
+    .filter((entry) => isSyncEntryVisibleForContext(entry, actorContext))
+    .toArray();
+};
+
+export const getVisibleSyncQueueEntriesForBarangay = async (barangayId = "") => {
+  const actorContext = getSyncQueueActorContext();
+  const scopedContext =
+    actorContext.roleCode === "BARANGAY" && normalizeScopeValue(barangayId)
+      ? { ...actorContext, barangayId: normalizeScopeValue(barangayId) }
+      : actorContext;
+
+  return db.syncQueue
+    .orderBy("clientTimestamp")
+    .filter((entry) => isSyncEntryVisibleForContext(entry, scopedContext))
+    .toArray();
+};
+
+export const getVisibleStubClaimSyncEntriesForStub = async (stubId) => {
+  const normalizedStubId = normalizeScopeValue(stubId);
+  if (!normalizedStubId) {
+    return [];
+  }
+
+  const actorContext = getSyncQueueActorContext();
+  return db.syncQueue
+    .where("entityServerId")
+    .equals(normalizedStubId)
+    .filter(
+      (entry) =>
+        entry.actionKey === "STUB_CLAIM" &&
+        entry.entityType === "STUB" &&
+        entry.accessMode === actorContext.accessMode &&
+        entry.userId === actorContext.userId &&
+        entry.roleCode === actorContext.roleCode &&
+        (!entry.deviceId || !actorContext.deviceId || entry.deviceId === actorContext.deviceId) &&
+        entry.resolutionStatus !== "RESOLVED_AUTOMATICALLY",
+    )
+    .toArray();
+};
+
+export const getVisibleSyncQueueEntriesByUpdatedAt = async () => {
+  return db.syncQueue
+    .orderBy("updatedAt")
+    .filter((entry) => isSyncEntryVisibleForContext(entry))
+    .reverse()
+    .toArray();
+};
+
+export const getRetryableSyncEntries = async () => {
+  return db.syncQueue
+    .orderBy("clientTimestamp")
+    .filter(
+      (entry) =>
+        isSyncEntryVisibleForContext(entry) &&
+        !isNonRetryableSyncEntry(entry) &&
+        (entry.status === LOCAL_SYNC_STATUS.PENDING ||
+          entry.status === LOCAL_SYNC_STATUS.FAILED),
+    )
+    .toArray();
+};
+
+export const getFailedSyncEntries = async (entryIds = []) => {
+  const requestedIds = Array.isArray(entryIds) ? entryIds.filter(Boolean) : [];
+
+  return db.syncQueue
+    .orderBy("clientTimestamp")
+    .filter(
+      (entry) =>
+        isSyncEntryVisibleForContext(entry) &&
+        !isNonRetryableSyncEntry(entry) &&
+        entry.status === LOCAL_SYNC_STATUS.FAILED &&
+        (requestedIds.length === 0 || requestedIds.includes(entry.id)),
+    )
+    .toArray();
+};
+
+const blockingStubClaimStatuses = new Set([
+  LOCAL_SYNC_STATUS.PENDING,
+  LOCAL_SYNC_STATUS.FAILED,
+  LOCAL_SYNC_STATUS.CONFLICT,
+  LOCAL_SYNC_STATUS.SYNCED,
+]);
+
+const hasSameQueueOwner = (left, right) =>
+  left?.accessMode === right?.accessMode &&
+  left?.userId === right?.userId &&
+  left?.roleCode === right?.roleCode &&
+  (!left?.deviceId || !right?.deviceId || left.deviceId === right.deviceId);
+
+export const findBlockingStubClaimEntry = (
+  existingEntries = [],
+  incomingEntry = {},
+) =>
+  existingEntries.find(
+    (candidate) =>
+      candidate.actionKey === "STUB_CLAIM" &&
+      candidate.entityType === "STUB" &&
+      candidate.entityServerId === incomingEntry.entityServerId &&
+      hasSameQueueOwner(candidate, incomingEntry) &&
+      blockingStubClaimStatuses.has(candidate.status) &&
+      candidate.resolutionStatus !== "RESOLVED_AUTOMATICALLY",
+  ) || null;
+
+const createBlockingStubClaimError = (existingEntry) => {
+  const error = new Error(
+    existingEntry?.status === LOCAL_SYNC_STATUS.CONFLICT
+      ? "This relief stub has a synchronization conflict and cannot be claimed again until it is reviewed."
+      : existingEntry?.status === LOCAL_SYNC_STATUS.SYNCED
+        ? "This relief stub already has a centrally confirmed claim."
+        : "This relief stub already has a local claim awaiting synchronization. Review or retry it before trying again.",
+  );
+  error.code =
+    existingEntry?.status === LOCAL_SYNC_STATUS.CONFLICT
+      ? "STUB_CLAIM_CONFLICT"
+      : existingEntry?.status === LOCAL_SYNC_STATUS.SYNCED
+        ? "STUB_ALREADY_CLAIMED"
+        : "STUB_CLAIM_PENDING";
+  error.statusCode = 409;
+  return error;
+};
+
+export const queueSyncEntry = async (entry) => {
+  const now = getIsoNow();
+  const actorContext = getSyncQueueActorContext();
+  const storedEntry = buildStoredSyncEntry(entry, actorContext);
+
+  // Each locally created mutation already has its own client_sync_id. Never
+  // replace an earlier queue row under the same ID: that ID may already be
+  // known by the server even when the browser still shows the row as failed.
+  // queueGroupKey remains stored for grouping/filtering, but is not an
+  // idempotency boundary.
+
+  const completeStoredEntry = {
+    ...storedEntry,
+    status: LOCAL_SYNC_STATUS.PENDING,
+    lastError: null,
+    lastErrorCode: null,
+    syncedAt: null,
+    processingOwner: null,
+    processingUntil: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  try {
+    if (
+      completeStoredEntry.actionKey === "STUB_CLAIM" &&
+      completeStoredEntry.entityType === "STUB" &&
+      completeStoredEntry.entityServerId
+    ) {
+      await db.transaction("rw", db.syncQueue, async () => {
+        const existingEntries = await db.syncQueue
+          .where("entityServerId")
+          .equals(completeStoredEntry.entityServerId)
+          .toArray();
+        const blockingEntry = findBlockingStubClaimEntry(
+          existingEntries,
+          completeStoredEntry,
+        );
+        if (blockingEntry) {
+          throw createBlockingStubClaimError(blockingEntry);
+        }
+        await db.syncQueue.put(completeStoredEntry);
+      });
+    } else {
+      await db.syncQueue.put(completeStoredEntry);
+    }
+  } catch (error) {
+    if (
+      ["STUB_CLAIM_PENDING", "STUB_CLAIM_CONFLICT", "STUB_ALREADY_CLAIMED"].includes(
+        error?.code,
+      )
+    ) {
+      throw error;
+    }
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+
+  emitSyncQueueUpdated();
+  return entry.id;
+};
+
+export const updateSyncEntryStatus = async (entryId, updates) => {
+  try {
+    await db.syncQueue.update(entryId, {
+      ...updates,
+      updatedAt: getIsoNow(),
+    });
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+
+  emitSyncQueueUpdated();
+};
+
+export const removeSyncEntry = async (entryId) => {
+  if (!entryId) {
+    return false;
+  }
+
+  try {
+    await db.syncQueue.delete(entryId);
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+
+  emitSyncQueueUpdated();
+  return true;
+};
+
+export const persistResolvedInventoryItemProjectionId = async ({
+  parentLocalId,
+  parentServerId,
+} = {}) => {
+  const normalizedParentLocalId = normalizeScopeValue(parentLocalId);
+  const normalizedParentServerId = normalizeScopeValue(parentServerId);
+
+  if (!normalizedParentLocalId || !normalizedParentServerId) {
+    return 0;
+  }
+
+  let queueEntries;
+
+  try {
+    queueEntries = await db.syncQueue.toArray();
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+
+  const dependentEntryIds = queueEntries
+    .filter(
+      (entry) =>
+        isSyncEntryVisibleForContext(entry) &&
+        entry.actionKey === "INVENTORY_BATCH_CREATE" &&
+        entry.entityType === "INVENTORY_BATCH" &&
+        normalizeScopeValue(entry.payload?.inventory_item_local_id) ===
+          normalizedParentLocalId,
+    )
+    .map((entry) => entry.id)
+    .filter(Boolean);
+
+  if (dependentEntryIds.length === 0) {
+    return 0;
+  }
+
+  try {
+    await db.transaction("rw", db.syncQueue, async () => {
+      for (const entryId of dependentEntryIds) {
+        const currentEntry = await db.syncQueue.get(entryId);
+
+        if (!currentEntry) {
+          continue;
+        }
+
+        const currentDisplayContext =
+          currentEntry.queueDisplayContext &&
+          typeof currentEntry.queueDisplayContext === "object" &&
+          !Array.isArray(currentEntry.queueDisplayContext)
+            ? currentEntry.queueDisplayContext
+            : {};
+
+        await db.syncQueue.update(entryId, {
+          queueDisplayContext: {
+            ...currentDisplayContext,
+            resolved_inventory_item_id: normalizedParentServerId,
+          },
+          updatedAt: getIsoNow(),
+        });
+      }
+    });
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+
+  emitSyncQueueUpdated();
+  return dependentEntryIds.length;
+};
+
+export const claimSyncEntries = async (
+  entries = [],
+  processingOwner,
+  now = Date.now(),
+) => {
+  const requestedIds = entries.map((entry) => entry?.id).filter(Boolean);
+  const claimedEntries = [];
+
+  if (!processingOwner || requestedIds.length === 0) {
+    return claimedEntries;
+  }
+
+  try {
+    await db.transaction("rw", db.syncQueue, async () => {
+      for (const entryId of requestedIds) {
+        const currentEntry = await db.syncQueue.get(entryId);
+
+        if (
+          !currentEntry ||
+          !isSyncEntryVisibleForContext(currentEntry) ||
+          isNonRetryableSyncEntry(currentEntry) ||
+          ![LOCAL_SYNC_STATUS.PENDING, LOCAL_SYNC_STATUS.FAILED].includes(
+            currentEntry.status,
+          )
+        ) {
+          continue;
+        }
+
+        const processingUntil = new Date(currentEntry.processingUntil || 0).getTime();
+        const hasActiveClaim =
+          currentEntry.processingOwner &&
+          currentEntry.processingOwner !== processingOwner &&
+          Number.isFinite(processingUntil) &&
+          processingUntil > now;
+
+        if (hasActiveClaim) {
+          continue;
+        }
+
+        await db.syncQueue.update(entryId, {
+          processingOwner,
+          processingUntil: new Date(now + SYNC_PROCESSING_LEASE_MS).toISOString(),
+          updatedAt: getIsoNow(),
+        });
+        claimedEntries.push({
+          ...currentEntry,
+          processingOwner,
+          processingUntil: new Date(now + SYNC_PROCESSING_LEASE_MS).toISOString(),
+        });
+      }
+    });
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+
+  return claimedEntries;
+};
+
+export const clearSyncedEntries = async () => {
+  const actorContext = getSyncQueueActorContext();
+  const syncedEntries = await db.syncQueue
+    .orderBy("updatedAt")
+    .filter(
+      (entry) => {
+        return (
+          isOfflineQueueEntryOwnedByActor(entry, actorContext) &&
+          isTerminalOfflineQueueEntry(entry)
+        );
+      },
+    )
+    .toArray();
+
+  try {
+    await db.syncQueue.bulkDelete(syncedEntries.map((entry) => entry.id));
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+  emitSyncQueueUpdated();
+};
+
+const getResolvedSyncTransactionIds = (resolvedConflicts = []) =>
+  new Set(
+    (Array.isArray(resolvedConflicts) ? resolvedConflicts : [])
+      .filter((conflict) => {
+        const status = String(
+          conflict?.status ||
+            conflict?.conflict_status ||
+            conflict?.sync_conflict_status ||
+            conflict?.resolution_status ||
+            "",
+        )
+          .trim()
+          .toUpperCase();
+
+        return status === "RESOLVED";
+      })
+      .map(
+        (conflict) =>
+          conflict?.sync_transaction_id || conflict?.syncTransactionId || "",
+      )
+      .map((value) => String(value || "").trim())
+      .filter(Boolean),
+  );
+
+export const reconcileResolvedSyncEntries = async (resolvedConflicts = []) => {
+  const actorContext = getSyncQueueActorContext();
+  const resolvedTransactionIds = getResolvedSyncTransactionIds(resolvedConflicts);
+
+  if (resolvedTransactionIds.size === 0) {
+    return 0;
+  }
+
+  let queueEntries;
+
+  try {
+    queueEntries = await db.syncQueue.toArray();
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+
+  const staleEntryIds = queueEntries
+    .filter(
+      (entry) =>
+        isOfflineQueueEntryOwnedByActor(entry, actorContext) &&
+        resolvedTransactionIds.has(
+          String(entry.syncTransactionId || entry.sync_transaction_id || "").trim(),
+        ),
+    )
+    .map((entry) => entry.id)
+    .filter(Boolean);
+
+  if (staleEntryIds.length === 0) {
+    return 0;
+  }
+
+  try {
+    await db.syncQueue.bulkDelete(staleEntryIds);
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+
+  emitSyncQueueUpdated();
+  return staleEntryIds.length;
+};

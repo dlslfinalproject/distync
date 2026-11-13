@@ -1,0 +1,532 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const servicePath = require.resolve("../src/services/inventoryItem.service");
+const dbPath = require.resolve("../src/config/db");
+const inventoryItemRepositoryPath = require.resolve(
+  "../src/repositories/inventoryItem.repository",
+);
+const inventoryItemStockFormRepositoryPath = require.resolve(
+  "../src/repositories/inventoryItemStockForm.repository",
+);
+const inventoryBatchRepositoryPath = require.resolve(
+  "../src/repositories/inventoryBatch.repository",
+);
+const inventoryTransactionRepositoryPath = require.resolve(
+  "../src/repositories/inventoryTransaction.repository",
+);
+const forecastRepositoryPath = require.resolve("../src/repositories/forecast.repository");
+const systemLogRepositoryPath = require.resolve("../src/repositories/systemLog.repository");
+const inventoryItemExportPath = require.resolve("../src/utils/inventoryItemExport");
+const inventoryStateBasisPath = require.resolve("../src/utils/inventoryStateBasis");
+const mayorReportExportPath = require.resolve("../src/utils/mayorReportExport");
+const systemLogPath = require.resolve("../src/utils/systemLog");
+const inventoryBatchStatusServicePath = require.resolve(
+  "../src/services/inventoryBatchStatus.service",
+);
+
+const dependencyPaths = [
+  dbPath,
+  inventoryItemRepositoryPath,
+  inventoryItemStockFormRepositoryPath,
+  inventoryBatchRepositoryPath,
+  inventoryTransactionRepositoryPath,
+  forecastRepositoryPath,
+  systemLogRepositoryPath,
+  inventoryItemExportPath,
+  inventoryStateBasisPath,
+  mayorReportExportPath,
+  systemLogPath,
+  inventoryBatchStatusServicePath,
+];
+
+const withStubbedInventoryItemService = async (stubs, runTest) => {
+  const originalEntries = new Map(
+    dependencyPaths.map((modulePath) => [modulePath, require.cache[modulePath]]),
+  );
+
+  delete require.cache[servicePath];
+
+  try {
+    dependencyPaths.forEach((modulePath) => {
+      require.cache[modulePath] = {
+        id: modulePath,
+        filename: modulePath,
+        loaded: true,
+        exports: stubs[modulePath] || {},
+      };
+    });
+
+    const service = require(servicePath);
+    await runTest(service);
+  } finally {
+    delete require.cache[servicePath];
+
+    dependencyPaths.forEach((modulePath) => {
+      const originalEntry = originalEntries.get(modulePath);
+
+      if (originalEntry) {
+        require.cache[modulePath] = originalEntry;
+      } else {
+        delete require.cache[modulePath];
+      }
+    });
+  }
+};
+
+const buildInventoryItemPayload = (overrides = {}) => ({
+  item_name: "Century Tuna Flakes in Oil - Test",
+  barcode: "0748485100081",
+  category: "perishable",
+  expiration_date: "2027-08-14",
+  packaging: "piece",
+  packaging_count: "100",
+  quantity: "1",
+  reorder_level: "50",
+  unit_of_measure: "pc",
+  unit_of_measure_value: "1",
+  is_perishable: true,
+  is_active: true,
+  ...overrides,
+});
+
+const buildServiceStubs = (overrides = {}) => {
+  const events = [];
+  const calls = {
+    insertedItem: null,
+    insertedStockForm: null,
+    insertedBatch: null,
+    insertedTransaction: null,
+  };
+
+  const client = {
+    query: async (sql) => {
+      events.push(sql);
+      return { rows: [] };
+    },
+    release: () => {
+      events.push("RELEASE");
+    },
+  };
+
+  const stubs = {
+    [dbPath]: {
+      connect: async () => client,
+    },
+    [inventoryItemRepositoryPath]: {
+      getInventoryItemByCode: async () => null,
+      getInventoryItemByName: async () => null,
+      insertInventoryItem: async (itemData) => {
+        calls.insertedItem = itemData;
+
+        return {
+          id: "item-created",
+          ...itemData,
+        };
+      },
+    },
+    [inventoryItemStockFormRepositoryPath]: {
+      insertInventoryItemStockForm: async (stockFormData) => {
+        calls.insertedStockForm = stockFormData;
+
+        return {
+          id: "stock-form-created",
+          ...stockFormData,
+        };
+      },
+      getInventoryItemStockFormsByItemId: async () => [],
+    },
+    [inventoryBatchRepositoryPath]: {
+      insertInventoryBatch: async (batchData) => {
+        calls.insertedBatch = batchData;
+
+        return {
+          id: "batch-created",
+          ...batchData,
+        };
+      },
+    },
+    [inventoryTransactionRepositoryPath]: {
+      insertInventoryTransaction: async (transactionData) => {
+        calls.insertedTransaction = transactionData;
+
+        return {
+          id: "transaction-created",
+          ...transactionData,
+        };
+      },
+    },
+    [forecastRepositoryPath]: {},
+    [systemLogRepositoryPath]: {},
+    [inventoryItemExportPath]: {},
+    [inventoryStateBasisPath]: {
+      createInventoryStateBasis: () => ({ basisVersion: 1 }),
+    },
+    [mayorReportExportPath]: {
+      formatDateOnly: () => "",
+      formatDateTime: () => "",
+      buildExportFile: () => ({}),
+      ALLOWED_EXPORT_FORMATS: ["csv", "excel", "pdf"],
+    },
+    [systemLogPath]: {
+      logAuditSafely: async () => {},
+      pickDefined: (value, keys) =>
+        keys.reduce((picked, key) => {
+          if (value[key] !== undefined) {
+            picked[key] = value[key];
+          }
+          return picked;
+        }, {}),
+    },
+    [inventoryBatchStatusServicePath]: {
+      refreshDerivedInventoryBatchStatusesForItem: async () => {},
+    },
+  };
+
+  return {
+    events,
+    calls,
+    stubs: Object.fromEntries(
+      Object.entries(stubs).map(([modulePath, exportsValue]) => [
+        modulePath,
+        {
+          ...exportsValue,
+          ...(overrides[modulePath] || {}),
+        },
+      ]),
+    ),
+  };
+};
+
+test("createInventoryItem creates opening stock batch and transaction with Mayor add-item payload", async () => {
+  const { events, calls, stubs } = buildServiceStubs();
+
+  await withStubbedInventoryItemService(stubs, async ({ createInventoryItem }) => {
+    const item = await createInventoryItem(
+      buildInventoryItemPayload(),
+      { userId: "mayor-user-1", roleCode: "MAYOR" },
+    );
+
+    assert.equal(item.id, "item-created");
+  });
+
+  assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
+  assert.equal(calls.insertedItem.barcode, "0748485100081");
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(calls.insertedItem, "expiration_date"),
+    false,
+  );
+  assert.equal(calls.insertedItem.packaging, "piece");
+  assert.equal(calls.insertedItem.packaging_count, "100");
+  assert.equal(calls.insertedItem.quantity, "1");
+  assert.equal(calls.insertedItem.reorder_level, "50");
+  assert.equal(calls.insertedItem.unit_of_measure, "pc");
+  assert.equal(calls.insertedItem.unit_of_measure_value, "1");
+
+  assert.equal(calls.insertedStockForm.inventory_item_id, "item-created");
+  assert.equal(calls.insertedStockForm.barcode, "0748485100081");
+  assert.equal(calls.insertedStockForm.packaging, "piece");
+  assert.equal(calls.insertedStockForm.units_per_packaging, 1);
+  assert.equal(calls.insertedStockForm.unit_of_measure, "pc");
+  assert.equal(calls.insertedStockForm.unit_of_measure_value, "1");
+
+  assert.equal(calls.insertedBatch.inventory_item_id, "item-created");
+  assert.equal(calls.insertedBatch.inventory_item_stock_form_id, "stock-form-created");
+  assert.match(calls.insertedBatch.batch_no, /^INV-CENTURY-TUNA-FLAKES-IN-O-001-OPEN-/);
+  assert.equal(calls.insertedBatch.quantity_received, 100);
+  assert.equal(calls.insertedBatch.quantity_available, 100);
+  assert.equal(calls.insertedBatch.expiration_date, "2027-08-14");
+  assert.equal(calls.insertedBatch.storage_location, "Mayor's Office Inventory");
+  assert.equal(calls.insertedBatch.status, "AVAILABLE");
+  assert.equal(calls.insertedBatch.created_by, "mayor-user-1");
+
+  assert.equal(calls.insertedTransaction.inventory_batch_id, "batch-created");
+  assert.equal(calls.insertedTransaction.transaction_type, "INFLOW");
+  assert.equal(calls.insertedTransaction.quantity, 100);
+  assert.equal(calls.insertedTransaction.reference_type, "MANUAL");
+  assert.equal(calls.insertedTransaction.reference_id, "item-created");
+  assert.equal(calls.insertedTransaction.performed_by, "mayor-user-1");
+  assert.equal(
+    calls.insertedTransaction.remarks,
+    "Opening stock recorded during inventory item creation",
+  );
+});
+
+test("createInventoryItem normalizes an offline category and fills missing perishability", async () => {
+  const { calls, stubs } = buildServiceStubs();
+  const offlinePayload = buildInventoryItemPayload({
+    item_name: "Offline Perishable Item",
+    category: "perishable",
+  });
+
+  delete offlinePayload.is_perishable;
+
+  await withStubbedInventoryItemService(stubs, async ({ createInventoryItem }) => {
+    await createInventoryItem(offlinePayload, {
+      userId: "mayor-user-1",
+      roleCode: "MAYOR",
+    });
+  });
+
+  assert.equal(calls.insertedItem.category, "Perishable");
+  assert.equal(calls.insertedItem.is_perishable, true);
+});
+
+test("createInventoryItem reports an existing item code as a reviewable duplicate", async () => {
+  const { stubs } = buildServiceStubs({
+    [inventoryItemRepositoryPath]: {
+      getInventoryItemByCode: async () => ({
+        id: "existing-item",
+        item_code: "RICE-001",
+        item_name: "Rice",
+      }),
+    },
+  });
+
+  await withStubbedInventoryItemService(stubs, async ({ createInventoryItem }) => {
+    await assert.rejects(
+      createInventoryItem(buildInventoryItemPayload({ item_code: "RICE-001" })),
+      (error) => {
+        assert.equal(error.code, "DUPLICATE_INVENTORY_ITEM");
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.entityServerId, "existing-item");
+        assert.equal(error.duplicateField, "item_code");
+        return true;
+      },
+    );
+  });
+});
+
+test("createInventoryItem reports an existing barcode as a reviewable barcode conflict", async () => {
+  const { stubs } = buildServiceStubs({
+    [inventoryItemRepositoryPath]: {
+      getInventoryItemByBarcode: async () => ({
+        id: "existing-item",
+        item_code: "RICE-001",
+        item_name: "Rice",
+        barcode: "0748485100081",
+      }),
+    },
+  });
+
+  await withStubbedInventoryItemService(stubs, async ({ createInventoryItem }) => {
+    await assert.rejects(
+      createInventoryItem(buildInventoryItemPayload()),
+      (error) => {
+        assert.equal(error.code, "DUPLICATE_INVENTORY_BARCODE");
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.entityServerId, "existing-item");
+        assert.equal(error.serverPayload.barcode, "0748485100081");
+        return true;
+      },
+    );
+  });
+});
+
+test("createInventoryItem rolls back when opening batch persistence fails", async () => {
+  const { events, calls, stubs } = buildServiceStubs({
+    [inventoryBatchRepositoryPath]: {
+      insertInventoryBatch: async (batchData) => {
+        calls.insertedBatch = batchData;
+        throw new Error("batch insert failed");
+      },
+    },
+    [inventoryTransactionRepositoryPath]: {
+      insertInventoryTransaction: async () => {
+        throw new Error("transaction insert must not run after batch failure");
+      },
+    },
+  });
+
+  await withStubbedInventoryItemService(stubs, async ({ createInventoryItem }) => {
+    await assert.rejects(
+      createInventoryItem(
+        buildInventoryItemPayload({ item_name: "Rollback Tuna Test" }),
+        { userId: "mayor-user-1", roleCode: "MAYOR" },
+      ),
+      /batch insert failed/,
+    );
+  });
+
+  assert.equal(calls.insertedItem.item_name, "Rollback Tuna Test");
+  assert.equal(calls.insertedStockForm.inventory_item_id, "item-created");
+  assert.equal(calls.insertedBatch.created_by, "mayor-user-1");
+  assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
+});
+
+test("createInventoryItem with skip_opening_stock does not create opening batch or transaction", async () => {
+  const { events, calls, stubs } = buildServiceStubs({
+    [inventoryBatchRepositoryPath]: {
+      insertInventoryBatch: async () => {
+        throw new Error("opening batch must not be created when skipped");
+      },
+    },
+    [inventoryTransactionRepositoryPath]: {
+      insertInventoryTransaction: async () => {
+        throw new Error("opening transaction must not be created when skipped");
+      },
+    },
+  });
+
+  await withStubbedInventoryItemService(stubs, async ({ createInventoryItem }) => {
+    const item = await createInventoryItem(
+      buildInventoryItemPayload({
+        item_name: "No Opening Stock Test",
+        skip_opening_stock: true,
+      }),
+      { userId: "mayor-user-1", roleCode: "MAYOR" },
+    );
+
+    assert.equal(item.id, "item-created");
+  });
+
+  assert.equal(calls.insertedBatch, null);
+  assert.equal(calls.insertedTransaction, null);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(calls.insertedItem, "expiration_date"),
+    false,
+  );
+  assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
+});
+
+test("buildInventoryTrackingMap does not treat a parent-only expiry as current stock expiry", async () => {
+  const { stubs } = buildServiceStubs();
+
+  await withStubbedInventoryItemService(
+    stubs,
+    async ({ buildInventoryTrackingMap }) => {
+      const tracking = buildInventoryTrackingMap(
+        [{ id: "item-parent-only", expiration_date: "2020-01-01" }],
+        [],
+        [],
+      ).get("item-parent-only");
+
+      assert.equal(tracking.nearestExpirationDate, null);
+      assert.equal(tracking.onHand, 0);
+    },
+  );
+});
+
+test("buildInventoryTrackingMap does not inject a parent expiry for null-expiry batches", async () => {
+  const { stubs } = buildServiceStubs();
+
+  await withStubbedInventoryItemService(
+    stubs,
+    async ({ buildInventoryTrackingMap }) => {
+      const tracking = buildInventoryTrackingMap(
+        [{ id: "item-null-batch", expiration_date: "2020-01-01" }],
+        [
+          {
+            inventory_item_id: "item-null-batch",
+            quantity_available: 8,
+            expiration_date: null,
+          },
+        ],
+        [],
+      ).get("item-null-batch");
+
+      assert.equal(tracking.nearestExpirationDate, null);
+      assert.equal(tracking.onHand, 8);
+    },
+  );
+});
+
+test("buildInventoryTrackingMap preserves the batch-derived nearest expiry and stock quantities", async () => {
+  const { stubs } = buildServiceStubs();
+
+  await withStubbedInventoryItemService(
+    stubs,
+    async ({ buildInventoryTrackingMap }) => {
+      const tracking = buildInventoryTrackingMap(
+        [{ id: "item-multi-batch", expiration_date: "2020-01-01" }],
+        [
+          {
+            inventory_item_id: "item-multi-batch",
+            quantity_available: 8,
+            expiration_date: "2027-06-30",
+            status: "AVAILABLE",
+          },
+          {
+            inventory_item_id: "item-multi-batch",
+            quantity_available: 4,
+            expiration_date: "2027-01-01",
+            status: "AVAILABLE",
+          },
+        ],
+        [],
+      ).get("item-multi-batch");
+
+      assert.equal(tracking.nearestExpirationDate, "2027-01-01");
+      assert.equal(tracking.onHand, 12);
+      assert.equal(tracking.expiredOnHand, 0);
+    },
+  );
+});
+
+test("inventory item forecast summary uses the AUTO item model and fixed legacy fallback", async () => {
+  const runDetail = async (latestForecast) => {
+    const { stubs } = buildServiceStubs();
+    stubs[inventoryItemRepositoryPath].getInventoryItemById = async () => ({
+      id: "item-1",
+      item_name: "Rice",
+      reorder_level: 3,
+    });
+    stubs[inventoryBatchRepositoryPath].getInventoryBatches = async () => [];
+    stubs[inventoryTransactionRepositoryPath].getInventoryTransactions =
+      async () => [];
+    stubs[systemLogRepositoryPath].getAuditLogsByEntity = async () => [];
+    stubs[forecastRepositoryPath].getLatestForecastResultByInventoryItem =
+      async () => latestForecast;
+
+    let detail;
+    await withStubbedInventoryItemService(stubs, async ({ getInventoryItemDetail }) => {
+      detail = await getInventoryItemDetail("item-1");
+    });
+    return detail;
+  };
+
+  const autoDetail = await runDetail({
+    forecast_run_id: "run-auto",
+    disaster_event_id: "event-1",
+    disaster_event_title: "Flood Response",
+    event_code: "DE-001",
+    selection_mode: "AUTO_BACKTEST",
+    model_name: null,
+    selected_model_name: "EXPONENTIAL_SMOOTHING",
+    predicted_quantity_needed: 80,
+    predicted_depletion_date: "2026-10-04",
+    recommended_reorder_quantity: 57,
+    confidence_notes: JSON.stringify({ average_daily_usage: 5 }),
+    model_evaluation: null,
+    run_at: "2026-09-30T00:00:00.000Z",
+  });
+  assert.equal(autoDetail.forecast_summary.selection_mode, "AUTO_BACKTEST");
+  assert.equal(
+    autoDetail.forecast_summary.selected_model_name,
+    "EXPONENTIAL_SMOOTHING",
+  );
+  assert.equal(autoDetail.forecast_summary.model_name, "EXPONENTIAL_SMOOTHING");
+  assert.equal(autoDetail.forecast_summary.forecasted_usage, 80);
+  assert.equal(
+    autoDetail.forecast_summary.projected_depletion_date,
+    "2026-10-04",
+  );
+  assert.equal(autoDetail.forecast_summary.recommended_reorder_quantity, 57);
+
+  const legacyDetail = await runDetail({
+    forecast_run_id: "run-fixed",
+    disaster_event_id: "event-1",
+    disaster_event_title: "Flood Response",
+    event_code: "DE-001",
+    model_name: "MOVING_AVERAGE",
+    selected_model_name: null,
+    predicted_quantity_needed: 12,
+    predicted_depletion_date: null,
+    recommended_reorder_quantity: 0,
+    confidence_notes: null,
+    run_at: "2026-09-29T00:00:00.000Z",
+  });
+  assert.equal(legacyDetail.forecast_summary.selection_mode, "FIXED_MODEL");
+  assert.equal(legacyDetail.forecast_summary.selected_model_name, "MOVING_AVERAGE");
+  assert.equal(legacyDetail.forecast_summary.model_name, "MOVING_AVERAGE");
+});

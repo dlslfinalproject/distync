@@ -1,0 +1,423 @@
+import React, { useEffect, useRef, useState } from "react";
+import { shellStyles } from "../layout/BarangayLayout";
+import { pageHeaderStyles } from "../layout/PageHeader";
+import HouseholdFormSection from "./HouseholdFormSection";
+import FamilyHeadSection from "./FamilyHeadSection";
+import MembersSection from "./MembersSection";
+import HouseholdConditionsSection from "./HouseholdConditionsSection";
+import DataPrivacyConsentModal from "./DataPrivacyConsentModal";
+import FormModalShell from "../shared/FormModalShell";
+import { FiX } from "react-icons/fi";
+import {
+  HOUSEHOLD_PRIVACY_CONFIRM_BUTTON_LABEL,
+  HOUSEHOLD_PRIVACY_NOTICE_VERSION,
+  HOUSEHOLD_REGISTRATION_FLOW_STEPS,
+  getInitialHouseholdRegistrationFlowStep,
+} from "../../features/household-registration/privacyNotice.mjs";
+import { scheduleScrollToFirstError } from "../../utils/scrollToFirstError";
+
+const modalStyles = {
+  backdrop: {
+    position: "fixed",
+    inset: 0,
+    backgroundColor: "rgba(16, 35, 52, 0.48)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: "28px",
+    boxSizing: "border-box",
+    zIndex: 1000,
+  },
+  modal: {
+    width: "min(1120px, 100%)",
+    maxHeight: "90vh",
+    overflowY: "auto",
+    borderRadius: "24px",
+    backgroundColor: "#f7fbff",
+    boxShadow: "0 24px 48px rgba(18, 39, 60, 0.22)",
+    border: "1px solid #d4e0ec",
+    padding: "clamp(18px, 2vw, 28px)",
+    boxSizing: "border-box",
+  },
+  topBar: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "16px",
+    marginBottom: "20px",
+  },
+  closeButton: {
+    border: "1px solid #c4d6e8",
+    backgroundColor: "#ffffff",
+    color: "#2a4c6f",
+    borderRadius: "14px",
+    padding: "10px 14px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  sections: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "20px",
+  },
+  feedback: {
+    borderRadius: "14px",
+    padding: "14px 16px",
+    fontSize: "14px",
+    fontWeight: 600,
+  },
+};
+
+const DUPLICATE_HOUSEHOLD_REGISTRATION_CODE =
+  "DUPLICATE_HOUSEHOLD_REGISTRATION";
+const DUPLICATE_HOUSEHOLD_REGISTRATION_MESSAGE =
+  "Possible duplicate evacuee registration detected. Review the matched household before registering again.";
+
+const duplicateErrorModalBodyStyles = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  textAlign: "center",
+  padding: "4px 0 0",
+};
+
+const duplicateErrorIconStyles = {
+  width: "48px",
+  height: "48px",
+  borderRadius: "999px",
+  backgroundColor: "#fee2e2",
+  color: "#c53030",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "28px",
+  lineHeight: 1,
+  marginBottom: "14px",
+};
+
+const duplicateErrorTitleStyles = {
+  margin: 0,
+  color: "#1f2937",
+  fontSize: "18px",
+  fontWeight: 700,
+};
+
+const duplicateErrorMessageStyles = {
+  margin: "12px 0 0",
+  color: "#6b7280",
+  fontSize: "14px",
+  lineHeight: 1.6,
+  maxWidth: "320px",
+};
+
+const duplicateErrorButtonStyles = {
+  width: "100%",
+  minHeight: "40px",
+  border: "none",
+  borderRadius: "8px",
+  backgroundColor: "#c53030",
+  color: "#ffffff",
+  fontSize: "15px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const isDuplicateHouseholdRegistrationError = (errorCode, errorMessage) =>
+  errorCode === DUPLICATE_HOUSEHOLD_REGISTRATION_CODE ||
+  String(errorMessage || "").trim().toLowerCase() ===
+    DUPLICATE_HOUSEHOLD_REGISTRATION_MESSAGE.toLowerCase();
+
+const resolveInitialFlowStep = (requiresPrivacyAcknowledgment) =>
+  getInitialHouseholdRegistrationFlowStep({
+    requiresPrivacyAcknowledgment,
+  });
+
+const hasFieldValidationErrors = (validationErrors) => {
+  if (!validationErrors || typeof validationErrors !== "object") {
+    return false;
+  }
+
+  return Object.values(validationErrors).some((value) => {
+    if (typeof value === "string") {
+      return Boolean(value.trim());
+    }
+
+    if (Array.isArray(value)) {
+      return value.some((item) => hasFieldValidationErrors(item));
+    }
+
+    return value && typeof value === "object"
+      ? hasFieldValidationErrors(value)
+      : false;
+  });
+};
+
+const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
+  const formRef = useRef(null);
+  const shouldScrollToValidationErrorsRef = useRef(false);
+  const [flowStep, setFlowStep] = useState(() =>
+    resolveInitialFlowStep(form.requiresPrivacyAcknowledgment),
+  );
+  const [isPrivacyConfirmed, setIsPrivacyConfirmed] = useState(false);
+  const [privacyErrorMessage, setPrivacyErrorMessage] = useState("");
+  const [pendingPrivacyAcknowledgment, setPendingPrivacyAcknowledgment] =
+    useState(null);
+  useEffect(() => {
+    const initialFlowStep = resolveInitialFlowStep(
+      form.requiresPrivacyAcknowledgment,
+    );
+
+    if (!isOpen) {
+      setFlowStep(initialFlowStep);
+      setIsPrivacyConfirmed(false);
+      setPrivacyErrorMessage("");
+      setPendingPrivacyAcknowledgment(null);
+      return;
+    }
+
+    setFlowStep(initialFlowStep);
+    setIsPrivacyConfirmed(false);
+    setPrivacyErrorMessage("");
+    setPendingPrivacyAcknowledgment(null);
+  }, [form.requiresPrivacyAcknowledgment, isOpen]);
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !shouldScrollToValidationErrorsRef.current ||
+      !hasFieldValidationErrors(form.validationErrors)
+    ) {
+      return;
+    }
+
+    shouldScrollToValidationErrorsRef.current = false;
+    scheduleScrollToFirstError(formRef);
+  }, [form.validationErrors, isOpen]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  const handleClose = (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    setFlowStep(resolveInitialFlowStep(form.requiresPrivacyAcknowledgment));
+    setIsPrivacyConfirmed(false);
+    setPrivacyErrorMessage("");
+    setPendingPrivacyAcknowledgment(null);
+    form.resetForm();
+    onClose();
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    shouldScrollToValidationErrorsRef.current = true;
+
+    const wasSuccessful = await form.submitRegistration(
+      pendingPrivacyAcknowledgment,
+    );
+
+    if (wasSuccessful) {
+      shouldScrollToValidationErrorsRef.current = false;
+      handleClose();
+      return;
+    }
+  };
+
+  const handleCancelPrivacyNotice = () => {
+    if (form.isSubmitting) {
+      return;
+    }
+
+    handleClose();
+  };
+
+  const handleAcknowledgePrivacyNotice = () => {
+    const privacyAcknowledgment = form.createPrivacyAcknowledgment();
+
+    setPendingPrivacyAcknowledgment(privacyAcknowledgment);
+    setFlowStep(HOUSEHOLD_REGISTRATION_FLOW_STEPS.REGISTRATION_FORM);
+    setPrivacyErrorMessage("");
+    setIsPrivacyConfirmed(false);
+    form.clearFormMessages();
+  };
+
+  const showPrivacyNotice =
+    form.requiresPrivacyAcknowledgment &&
+    flowStep === HOUSEHOLD_REGISTRATION_FLOW_STEPS.PRIVACY_NOTICE;
+  const isDuplicateWarningOpen = isDuplicateHouseholdRegistrationError(
+    form.errorCode,
+    form.errorMessage,
+  );
+
+  return (
+    <>
+      {flowStep === HOUSEHOLD_REGISTRATION_FLOW_STEPS.REGISTRATION_FORM ? (
+        <div className="household-registration-modal-backdrop" style={modalStyles.backdrop}>
+          <div className="household-registration-modal" style={modalStyles.modal}>
+            <div className="household-registration-modal-topbar" style={modalStyles.topBar}>
+              <div>
+                <h2 style={{ ...pageHeaderStyles.title, fontSize: "30px" }}>
+                  {form.isReAdmissionMode
+                    ? "Register Family - Re-admission"
+                    : form.isEditMode
+                      ? "Edit Household Details"
+                      : "Register Family"}
+                </h2>
+                {form.isReAdmissionMode ? (
+                  <p style={{ ...shellStyles.mutedText, margin: "6px 0 0" }}>
+                    Review the previous information before creating a new evacuation record.
+                  </p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={handleClose}
+                style={modalStyles.closeButton}
+                aria-label="Close registration modal"
+              >
+                <FiX />
+              </button>
+            </div>
+
+            <form ref={formRef} onSubmit={handleSubmit} style={modalStyles.sections}>
+              {form.errorMessage && !isDuplicateWarningOpen ? (
+                <div
+                  style={{
+                    ...modalStyles.feedback,
+                    backgroundColor: "#fdecef",
+                    color: "#9c4151",
+                    border: "1px solid #f3c6cf",
+                  }}
+                >
+                  {form.errorMessage}
+                </div>
+              ) : null}
+
+              {form.successMessage ? (
+                <div
+                  style={{
+                    ...modalStyles.feedback,
+                    backgroundColor: "#ecf9f1",
+                    color: "#2d7a51",
+                    border: "1px solid #c9ebd8",
+                  }}
+                >
+                  {form.successMessage}
+                </div>
+              ) : null}
+
+              <HouseholdFormSection form={form} />
+              <FamilyHeadSection form={form} />
+              <MembersSection form={form} />
+              <HouseholdConditionsSection form={form} />
+
+              <section style={shellStyles.card}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <p style={shellStyles.mutedText}>
+                    Household Size: <strong>{form.memberCount}</strong>
+                  </p>
+                  <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={handleClose}
+                      style={pageHeaderStyles.secondaryButton}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={
+                        form.isSubmitting ||
+                        form.isLoadingOptions ||
+                        form.isProcessingPhoto
+                      }
+                      style={{
+                        ...pageHeaderStyles.primaryButton,
+                        opacity:
+                          form.isSubmitting ||
+                          form.isLoadingOptions ||
+                          form.isProcessingPhoto
+                            ? 0.7
+                            : 1,
+                      }}
+                    >
+                      {form.isSubmitting
+                        ? form.isEditMode
+                          ? "Updating..."
+                          : form.isReAdmissionMode
+                            ? "Submitting Re-admission..."
+                            : "Saving..."
+                        : form.isProcessingPhoto
+                          ? "Processing Photo..."
+                          : form.isEditMode
+                            ? "Save Changes"
+                            : form.isReAdmissionMode
+                              ? "Submit Re-admission"
+                              : "Register"}
+                    </button>
+                  </div>
+                </div>
+              </section>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {form.requiresPrivacyAcknowledgment ? (
+        <DataPrivacyConsentModal
+          isOpen={showPrivacyNotice}
+          noticeVersion={HOUSEHOLD_PRIVACY_NOTICE_VERSION}
+          isChecked={isPrivacyConfirmed}
+          errorMessage={privacyErrorMessage}
+          isSubmitting={false}
+          confirmLabel={HOUSEHOLD_PRIVACY_CONFIRM_BUTTON_LABEL}
+          onToggleChecked={(nextValue) => {
+            setIsPrivacyConfirmed(nextValue);
+            if (nextValue) {
+              setPrivacyErrorMessage("");
+            }
+          }}
+          onCancel={handleCancelPrivacyNotice}
+          onConfirm={handleAcknowledgePrivacyNotice}
+        />
+      ) : null}
+
+      <FormModalShell
+        isOpen={isDuplicateWarningOpen}
+        maxWidth="420px"
+        bodyStyle={{ marginTop: 0 }}
+        footer={
+          <button
+            type="button"
+            onClick={form.clearFormMessages}
+            style={duplicateErrorButtonStyles}
+          >
+            OK
+          </button>
+        }
+      >
+        <div style={duplicateErrorModalBodyStyles} role="alert" aria-live="assertive">
+          <div aria-hidden="true" style={duplicateErrorIconStyles}>
+            <FiX />
+          </div>
+          <p style={duplicateErrorTitleStyles}>Duplicate</p>
+          <p style={duplicateErrorMessageStyles}>
+            {form.errorMessage ||
+              "Evacuee registration already exists in records available on this device."}
+          </p>
+        </div>
+      </FormModalShell>
+    </>
+  );
+};
+
+export default RegisterFamilyModal;

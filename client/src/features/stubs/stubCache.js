@@ -1,0 +1,694 @@
+import db, { LOCAL_SYNC_STATUS } from "../../offline/db.js";
+import {
+  getSyncQueueActorContext,
+  isSyncQueueActorContextCurrent,
+  getVisibleStubClaimSyncEntriesForStub,
+  getVisibleSyncQueueEntriesForBarangay,
+  updateSyncEntryStatus,
+} from "../../offline/syncQueue.js";
+import { ROLE_CODES } from "../../utils/roleSession.js";
+import { extractStubQrValue } from "../../utils/stubQr.js";
+import { buildCachedStubClaimTerminalPatch } from "./stubClaimCacheReconciliation.mjs";
+import { getStubRowSectorCodes } from "./stubSectorFilters.js";
+import { isAuthoritativelyClaimedStubRow } from "./stubPresentation.js";
+
+export const normalizeOfflineStubQrKey = (value) => extractStubQrValue(value).trim();
+
+const STUB_CLAIM_ACTION_KEY = "STUB_CLAIM";
+const claimTerminalStatuses = new Set([
+  LOCAL_SYNC_STATUS.SYNCED,
+  LOCAL_SYNC_STATUS.CONFLICT,
+]);
+const claimBlockingStatuses = new Set([
+  LOCAL_SYNC_STATUS.PENDING,
+  LOCAL_SYNC_STATUS.FAILED,
+  LOCAL_SYNC_STATUS.CONFLICT,
+  LOCAL_SYNC_STATUS.SYNCED,
+]);
+const claimPendingStatuses = new Set([
+  LOCAL_SYNC_STATUS.PENDING,
+  LOCAL_SYNC_STATUS.FAILED,
+]);
+const claimReconciliationStatuses = new Set([
+  LOCAL_SYNC_STATUS.PENDING,
+  LOCAL_SYNC_STATUS.FAILED,
+  LOCAL_SYNC_STATUS.CONFLICT,
+]);
+
+const trimValue = (value) => String(value || "").trim();
+const getIsoNow = () => new Date().toISOString();
+const isImageDataUrl = (value) => typeof value === "string" && /^data:image\//i.test(value);
+
+const getFirstValue = (...values) =>
+  values.find((value) => value !== undefined && value !== null && value !== "");
+
+export const buildOfflineStubCacheId = ({ accessMode, userId, roleCode, stubId }) =>
+  [accessMode, userId, roleCode, stubId].map(trimValue).join("|");
+
+export const hasCompleteOfflineStubOwnerContext = (ownerContext = {}) =>
+  Boolean(
+    trimValue(ownerContext.accessMode) &&
+      trimValue(ownerContext.userId) &&
+      trimValue(ownerContext.roleCode),
+  );
+
+export const isOfflineStubVisibleForContext = (
+  cachedRow,
+  ownerContext = getSyncQueueActorContext(),
+  { currentBarangayId = "" } = {},
+) => {
+  if (!cachedRow || !hasCompleteOfflineStubOwnerContext(ownerContext)) {
+    return false;
+  }
+
+  if (
+    cachedRow.accessMode !== ownerContext.accessMode ||
+    cachedRow.userId !== ownerContext.userId ||
+    cachedRow.roleCode !== ownerContext.roleCode
+  ) {
+    return false;
+  }
+
+  if (ownerContext.roleCode === ROLE_CODES.BARANGAY) {
+    const trustedBarangayId = trimValue(currentBarangayId);
+    return Boolean(trustedBarangayId && cachedRow.barangay_id === trustedBarangayId);
+  }
+
+  return true;
+};
+
+const sanitizeAssignedReliefPacks = (row = {}) => {
+  const assignedReliefPacks = Array.isArray(row.assigned_relief_packs)
+    ? row.assigned_relief_packs
+    : [];
+
+  return assignedReliefPacks
+    .filter((template) => template && typeof template === "object")
+    .map((template) => ({
+      id: template.id || "",
+      name: template.name || "",
+      description: template.description || "",
+      based_on_family_size: Boolean(template.based_on_family_size),
+      is_additional_pack: Boolean(template.is_additional_pack),
+    }));
+};
+
+const sanitizeAssignedDonatedReliefPacks = (row = {}) => {
+  const assignedDonatedReliefPacks = Array.isArray(
+    row.assigned_donated_relief_packs,
+  )
+    ? row.assigned_donated_relief_packs
+    : Array.isArray(row.available_donated_relief_packs)
+      ? row.available_donated_relief_packs
+      : [];
+
+  return assignedDonatedReliefPacks
+    .filter((pack) => pack && typeof pack === "object")
+    .map((pack) => ({
+      id: pack.id || "",
+      donation_id: pack.donation_id || "",
+      donor_name: pack.donor_name || "",
+      name: pack.name || "",
+      pack_quantity: Number(pack.pack_quantity || 1) || 1,
+      assignment_status: pack.assignment_status || "RESERVED",
+      assigned_at: pack.assigned_at || null,
+      items: Array.isArray(pack.items)
+        ? pack.items
+            .filter((item) => item && typeof item === "object")
+            .map((item) => ({
+              inventory_item_id: item.inventory_item_id || "",
+              item_name: item.item_name || "",
+              category: item.category || "",
+              quantity_released: Number(item.quantity_released || 0) || 0,
+              unit_of_measure: item.unit_of_measure || "",
+            }))
+        : [],
+    }));
+};
+
+export const toOfflineStubSnapshot = (
+  serverRow,
+  ownerContext = getSyncQueueActorContext(),
+  { cachedAt = getIsoNow() } = {},
+) => {
+  const stubId = trimValue(getFirstValue(serverRow?.id, serverRow?.stub_id));
+
+  if (!stubId || serverRow?.is_local_only || !hasCompleteOfflineStubOwnerContext(ownerContext)) {
+    return null;
+  }
+
+  const household = serverRow.household || {};
+  const disasterEvent = serverRow.disaster_event || {};
+  const barangay = serverRow.barangay || {};
+  const qrCodeValue = normalizeOfflineStubQrKey(serverRow.qr_code_value);
+
+  return {
+    id: buildOfflineStubCacheId({ ...ownerContext, stubId }),
+    stubId,
+    accessMode: ownerContext.accessMode,
+    userId: ownerContext.userId,
+    roleCode: ownerContext.roleCode,
+    disaster_event_id: trimValue(
+      getFirstValue(serverRow.disaster_event_id, disasterEvent.id),
+    ),
+    disaster_event_name: trimValue(
+      getFirstValue(disasterEvent.name, disasterEvent.title, disasterEvent.event_name),
+    ),
+    disaster_event_status: trimValue(
+      getFirstValue(disasterEvent.status, serverRow.disaster_event_status),
+    ),
+    barangay_id: trimValue(
+      getFirstValue(serverRow.barangay_id, barangay.id, household.barangay_id),
+    ),
+    barangay_name: trimValue(getFirstValue(barangay.name, serverRow.barangay_name)),
+    household_id: trimValue(getFirstValue(serverRow.household_id, household.id)),
+    family_head_name: trimValue(
+      getFirstValue(serverRow.family_head_name, household.family_head_name),
+    ),
+    members_count:
+      Number(
+        getFirstValue(
+          household.members_count,
+          serverRow.members_count,
+          household.household_size,
+          serverRow.household_size,
+        ),
+      ) || 0,
+    household_is_active: household.is_active !== false,
+    ...(isImageDataUrl(getFirstValue(serverRow.family_head_photo_data_url, household.family_head_photo_data_url, ""))
+      ? { family_head_photo_data_url: getFirstValue(serverRow.family_head_photo_data_url, household.family_head_photo_data_url, "") }
+      : {}),
+    display_stub_no: trimValue(serverRow.display_stub_no),
+    stub_sequence_no: getFirstValue(serverRow.stub_sequence_no, null),
+    stub_number: trimValue(getFirstValue(serverRow.stub_number, serverRow.stub_no)),
+    stub_no: trimValue(serverRow.stub_no),
+    serial_no: trimValue(serverRow.serial_no),
+    qr_code_value: qrCodeValue,
+    qr_status: trimValue(serverRow.qr_status),
+    issued_at: serverRow.issued_at || null,
+    relief_pack_name: trimValue(
+      getFirstValue(
+        serverRow.relief_pack_name,
+        serverRow.relief_pack_template_name,
+        serverRow.distribution_transaction?.relief_pack_template_name,
+      ),
+    ),
+    assigned_relief_packs: sanitizeAssignedReliefPacks(serverRow),
+    assigned_donated_relief_packs: sanitizeAssignedDonatedReliefPacks(serverRow),
+    available_donated_relief_packs: sanitizeAssignedDonatedReliefPacks({
+      available_donated_relief_packs: serverRow.available_donated_relief_packs,
+    }),
+    sectors_text: trimValue(serverRow.sectors_text) || "-",
+    sector_ids: Array.isArray(serverRow.sector_ids)
+      ? serverRow.sector_ids.filter(Boolean).map(String)
+      : [],
+    sector_codes: getStubRowSectorCodes(serverRow),
+    status: trimValue(serverRow.status) || "ISSUED",
+    claimed_at: serverRow.claimed_at || null,
+    latest_attendance_status: trimValue(
+      getFirstValue(
+        serverRow.latest_attendance_status,
+        serverRow.latest_attendance?.status,
+      ),
+    ),
+    latest_attendance_time_out:
+      getFirstValue(
+        serverRow.latest_attendance_time_out,
+        serverRow.latest_attendance?.time_out,
+      ) ?? null,
+    server_updated_at: trimValue(
+      getFirstValue(serverRow.updated_at, serverRow.qr_generated_at, serverRow.issued_at),
+    ),
+    cached_at: cachedAt,
+  };
+};
+
+export const toStubRowFromOfflineSnapshot = (snapshot, syncEntry = null) => {
+  if (!snapshot) {
+    return null;
+  }
+
+  const syncStatus = syncEntry?.status || null;
+  const isLocallyPendingClaim = claimPendingStatuses.has(syncStatus);
+  const isAuthoritativelyClaimed = isAuthoritativelyClaimedStubRow(snapshot);
+
+  return {
+    id: snapshot.stubId,
+    household_id: snapshot.household_id,
+    family_head_name: snapshot.family_head_name,
+    household: {
+      id: snapshot.household_id,
+      family_head_name: snapshot.family_head_name,
+      members_count: snapshot.members_count,
+      is_active: snapshot.household_is_active,
+      family_head_photo_url: snapshot.family_head_photo_url || "",
+      family_head_photo_data_url: snapshot.family_head_photo_data_url || "",
+    },
+    members_count: snapshot.members_count,
+    display_stub_no: snapshot.display_stub_no,
+    stub_sequence_no: snapshot.stub_sequence_no,
+    stub_number: snapshot.stub_number,
+    stub_no: snapshot.stub_no,
+    serial_no: snapshot.serial_no,
+    qr_code_value: snapshot.qr_code_value,
+    qr_status: snapshot.qr_status,
+    issued_at: snapshot.issued_at || null,
+    relief_pack_name: snapshot.relief_pack_name,
+    assigned_relief_packs: snapshot.assigned_relief_packs || [],
+    assigned_donated_relief_packs: snapshot.assigned_donated_relief_packs || [],
+    available_donated_relief_packs:
+      snapshot.available_donated_relief_packs ||
+      snapshot.assigned_donated_relief_packs ||
+      [],
+    sectors_text: snapshot.sectors_text || "-",
+    sector_ids: Array.isArray(snapshot.sector_ids) ? snapshot.sector_ids : [],
+    sector_codes: Array.isArray(snapshot.sector_codes)
+      ? snapshot.sector_codes
+      : [],
+    status:
+      isAuthoritativelyClaimed || syncStatus === LOCAL_SYNC_STATUS.SYNCED
+        ? "CLAIMED"
+        : snapshot.status || "ISSUED",
+    claimed_at: snapshot.claimed_at || null,
+    latest_attendance_status: snapshot.latest_attendance_status || "",
+    latest_attendance_time_out: snapshot.latest_attendance_time_out || null,
+    sync_status: isAuthoritativelyClaimed ? "" : syncStatus,
+    is_cached_offline: true,
+    is_claim_pending: isAuthoritativelyClaimed ? false : isLocallyPendingClaim,
+    cached_at: snapshot.cached_at,
+    disaster_event: {
+      id: snapshot.disaster_event_id,
+      name: snapshot.disaster_event_name,
+      status: snapshot.disaster_event_status || "",
+    },
+    barangay: {
+      id: snapshot.barangay_id,
+      name: snapshot.barangay_name,
+    },
+  };
+};
+
+export const toStubDetailsFromOfflineSnapshot = (snapshot, syncEntry = null) => {
+  const row = toStubRowFromOfflineSnapshot(snapshot, syncEntry);
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row,
+    household: {
+      ...row.household,
+      household_size: snapshot.members_count,
+      members: [],
+      family_head_photo_url: snapshot.family_head_photo_url || "",
+      family_head_photo_data_url: snapshot.family_head_photo_data_url || "",
+      photo_captured_at: "",
+    },
+    disaster_event: row.disaster_event,
+    barangay: row.barangay,
+  };
+};
+
+const claimStatusPriority = {
+  [LOCAL_SYNC_STATUS.SYNCED]: 4,
+  [LOCAL_SYNC_STATUS.CONFLICT]: 3,
+  [LOCAL_SYNC_STATUS.FAILED]: 2,
+  [LOCAL_SYNC_STATUS.PENDING]: 1,
+};
+
+const matchesClaimScope = (entry, { disasterEventId = "", barangayId = "" } = {}) => {
+  const payload = entry?.payload || {};
+  const entryEventId = trimValue(payload.disaster_event_id);
+  const entryBarangayId = trimValue(
+    entry?.barangayId || payload.barangay_id || payload.override_barangay_id,
+  );
+
+  return (
+    (!disasterEventId || !entryEventId || entryEventId === trimValue(disasterEventId)) &&
+    (!barangayId || !entryBarangayId || entryBarangayId === trimValue(barangayId))
+  );
+};
+
+export const getClaimSyncEntriesForStub = (
+  syncEntries = [],
+  stubId,
+  scope = {},
+) => {
+  if (!stubId) {
+    return [];
+  }
+
+  return syncEntries
+    .filter(
+      (entry) =>
+        entry.actionKey === STUB_CLAIM_ACTION_KEY &&
+        entry.entityType === "STUB" &&
+        String(entry.entityServerId || "") === String(stubId || "") &&
+        claimBlockingStatuses.has(entry.status) &&
+        matchesClaimScope(entry, scope),
+    )
+    .sort(
+      (left, right) =>
+        (claimStatusPriority[right.status] || 0) -
+        (claimStatusPriority[left.status] || 0),
+    );
+};
+
+export const getClaimSyncEntryForStub = (syncEntries = [], stubId, scope = {}) =>
+  getClaimSyncEntriesForStub(syncEntries, stubId, scope)[0] || null;
+
+export const getStubClaimEntriesToAutoResolve = (rows = [], syncEntries = []) => {
+  const entriesToResolve = new Map();
+
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    if (!isAuthoritativelyClaimedStubRow(row)) {
+      return;
+    }
+
+    const matches = getClaimSyncEntriesForStub(
+      syncEntries,
+      row?.id || row?.stub_id,
+      {
+        disasterEventId:
+          row?.disaster_event?.id || row?.disaster_event_id || "",
+        barangayId: row?.barangay?.id || row?.barangay_id || "",
+      },
+    );
+
+    matches.forEach((entry) => {
+      const resolutionStatus = String(entry?.resolutionStatus || "").toUpperCase();
+      if (
+        claimReconciliationStatuses.has(entry.status) &&
+        !["RESOLVED", "RESOLVED_AUTOMATICALLY"].includes(resolutionStatus)
+      ) {
+        entriesToResolve.set(entry.id, entry);
+      }
+    });
+  });
+
+  return Array.from(entriesToResolve.values());
+};
+
+export const reconcileAuthoritativeStubClaimQueueEntries = async (
+  rows = [],
+  syncEntries = [],
+) => {
+  const entries = getStubClaimEntriesToAutoResolve(rows, syncEntries);
+  let resolvedCount = 0;
+
+  for (const entry of entries) {
+    try {
+      await updateSyncEntryStatus(entry.id, {
+        resolutionStatus: "RESOLVED_AUTOMATICALLY",
+        processingOwner: null,
+        processingUntil: null,
+      });
+      resolvedCount += 1;
+    } catch (_error) {
+      // The authoritative row still controls presentation if local bookkeeping
+      // is temporarily unavailable; server idempotency protects any later retry.
+    }
+  }
+
+  return resolvedCount;
+};
+
+export const applyLocalStubClaimSyncState = (row, syncEntry = null) => {
+  if (!row) {
+    return row;
+  }
+
+  if (isAuthoritativelyClaimedStubRow(row)) {
+    return {
+      ...row,
+      status: "CLAIMED",
+      presentation_status: "CLAIMED",
+      sync_status: "",
+      is_claim_pending: false,
+    };
+  }
+
+  if (!syncEntry || !claimBlockingStatuses.has(syncEntry.status)) {
+    return row;
+  }
+
+  const isLocallyPendingClaim = claimPendingStatuses.has(syncEntry.status);
+  return {
+    ...row,
+    status:
+      syncEntry.status === LOCAL_SYNC_STATUS.SYNCED ? "CLAIMED" : row.status,
+    sync_status: syncEntry.status,
+    is_claim_pending: isLocallyPendingClaim,
+  };
+};
+
+export const applyLocalStubClaimSyncStates = (rows = [], syncEntries = []) =>
+  (Array.isArray(rows) ? rows : []).map((row) => {
+    const syncEntry = getClaimSyncEntryForStub(syncEntries, row?.id || row?.stub_id, {
+      disasterEventId: row?.disaster_event?.id || row?.disaster_event_id || "",
+      barangayId: row?.barangay?.id || row?.barangay_id || "",
+    });
+    return applyLocalStubClaimSyncState(row, syncEntry);
+  });
+
+export const isLocalStubClaimBlocked = (row) =>
+  Boolean(
+    !isAuthoritativelyClaimedStubRow(row) &&
+      (row?.is_claim_pending ||
+        claimBlockingStatuses.has(String(row?.sync_status || "").toUpperCase())),
+  );
+
+export const getCachedStubClaimSyncEntry = async (stubId, scope = {}) => {
+  if (!stubId) {
+    return null;
+  }
+
+  const syncEntries = await getVisibleStubClaimSyncEntriesForStub(stubId);
+  return getClaimSyncEntryForStub(syncEntries, stubId, scope);
+};
+
+export const canUseOfflineStubCacheFallback = (error) => {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return true;
+  }
+
+  if (error?.statusCode) {
+    return false;
+  }
+
+  const message = String(error?.message || "");
+  return /Failed to fetch|NetworkError|Load failed/i.test(message);
+};
+
+export const upsertOfflineStubSnapshots = async (
+  serverRows = [],
+  ownerContext = getSyncQueueActorContext(),
+) => {
+
+  if (
+    !hasCompleteOfflineStubOwnerContext(ownerContext) ||
+    !isSyncQueueActorContextCurrent(ownerContext)
+  ) {
+    return [];
+  }
+
+  const snapshots = (Array.isArray(serverRows) ? serverRows : [serverRows])
+    .map((row) => toOfflineStubSnapshot(row, ownerContext))
+    .filter(Boolean);
+
+  if (snapshots.length > 0) {
+    await db.offlineStubCache.bulkPut(snapshots);
+  }
+
+  return snapshots;
+};
+
+export const getCachedStubSnapshotsForScope = async ({
+  disasterEventId,
+  currentBarangayId,
+}) => {
+  const ownerContext = getSyncQueueActorContext();
+
+  if (
+    !hasCompleteOfflineStubOwnerContext(ownerContext) ||
+    !disasterEventId ||
+    (ownerContext.roleCode === ROLE_CODES.BARANGAY && !currentBarangayId)
+  ) {
+    return [];
+  }
+
+  const rows = ownerContext.roleCode === ROLE_CODES.MSWDO
+    ? await db.offlineStubCache
+        .where("disaster_event_id")
+        .equals(trimValue(disasterEventId))
+        .toArray()
+    : await db.offlineStubCache
+        .where("[accessMode+userId+roleCode+disaster_event_id+barangay_id]")
+        .equals([
+          ownerContext.accessMode,
+          ownerContext.userId,
+          ownerContext.roleCode,
+          trimValue(disasterEventId),
+          trimValue(currentBarangayId),
+        ])
+        .toArray();
+
+  return rows
+    .filter((row) =>
+      isOfflineStubVisibleForContext(row, ownerContext, { currentBarangayId }),
+    )
+};
+
+export const hasCachedStubSnapshotsForScope = async ({
+  disasterEventId,
+  currentBarangayId,
+}) => {
+  const snapshots = await getCachedStubSnapshotsForScope({
+    disasterEventId,
+    currentBarangayId,
+  });
+
+  return snapshots.length > 0;
+};
+
+export const getCachedStubRowsForScope = async ({
+  disasterEventId,
+  currentBarangayId,
+}) => {
+  const [snapshots, syncEntries] = await Promise.all([
+    getCachedStubSnapshotsForScope({ disasterEventId, currentBarangayId }),
+    getVisibleSyncQueueEntriesForBarangay(currentBarangayId),
+  ]);
+  const cachedRows = snapshots
+    .map((snapshot) => toStubRowFromOfflineSnapshot(snapshot))
+    .filter(Boolean);
+  await reconcileAuthoritativeStubClaimQueueEntries(cachedRows, syncEntries);
+
+  return snapshots
+    .map((snapshot) =>
+      toStubRowFromOfflineSnapshot(
+        snapshot,
+        getClaimSyncEntryForStub(syncEntries, snapshot.stubId, {
+          disasterEventId: snapshot.disaster_event_id,
+          barangayId: snapshot.barangay_id,
+        }),
+      ),
+    )
+    .filter(Boolean);
+};
+
+export const getCachedStubSnapshotById = async (stubId, { currentBarangayId }) => {
+  const ownerContext = getSyncQueueActorContext();
+
+  if (!hasCompleteOfflineStubOwnerContext(ownerContext) || !stubId) {
+    return null;
+  }
+
+  const cachedRow = await db.offlineStubCache
+    .where("[accessMode+userId+roleCode+stubId]")
+    .equals([ownerContext.accessMode, ownerContext.userId, ownerContext.roleCode, stubId])
+    .first();
+
+  return isOfflineStubVisibleForContext(cachedRow, ownerContext, { currentBarangayId })
+    ? cachedRow
+    : null;
+};
+
+export const getCachedStubDetailsById = async (stubId, { currentBarangayId }) => {
+  const snapshot = await getCachedStubSnapshotById(stubId, { currentBarangayId });
+  const syncEntry = await getCachedStubClaimSyncEntry(stubId, {
+    disasterEventId: snapshot?.disaster_event_id,
+    barangayId: snapshot?.barangay_id || currentBarangayId,
+  });
+  await reconcileAuthoritativeStubClaimQueueEntries(
+    [toStubRowFromOfflineSnapshot(snapshot)].filter(Boolean),
+    syncEntry ? [syncEntry] : [],
+  );
+  return toStubDetailsFromOfflineSnapshot(snapshot, syncEntry);
+};
+
+export const getCachedStubDetailsByQrValue = async (
+  qrCodeValue,
+  { currentBarangayId },
+) => {
+  const normalizedQrValue = normalizeOfflineStubQrKey(qrCodeValue);
+  const ownerContext = getSyncQueueActorContext();
+
+  if (!hasCompleteOfflineStubOwnerContext(ownerContext) || !normalizedQrValue) {
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-offline-lookup-diagnostic", { detail: { kind: "stub", found: false, reason: !normalizedQrValue ? "OFFLINE_QR_KEY_MISSING" : "OFFLINE_QR_CONTEXT_MISSING" } }));
+    return null;
+  }
+
+  const cachedRow = await db.offlineStubCache
+    .where("[accessMode+userId+roleCode+qr_code_value]")
+    .equals([
+      ownerContext.accessMode,
+      ownerContext.userId,
+      ownerContext.roleCode,
+      normalizedQrValue,
+    ])
+    .first();
+
+  if (!isOfflineStubVisibleForContext(cachedRow, ownerContext, { currentBarangayId })) {
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-offline-lookup-diagnostic", { detail: { kind: "stub", found: false, reason: cachedRow ? "OFFLINE_QR_BARANGAY_SCOPE_MISMATCH" : "OFFLINE_QR_STUB_NOT_CACHED" } }));
+    return null;
+  }
+
+  const syncEntry = await getCachedStubClaimSyncEntry(cachedRow.stubId, {
+    disasterEventId: cachedRow.disaster_event_id,
+    barangayId: cachedRow.barangay_id || currentBarangayId,
+  });
+  await reconcileAuthoritativeStubClaimQueueEntries(
+    [toStubRowFromOfflineSnapshot(cachedRow)].filter(Boolean),
+    syncEntry ? [syncEntry] : [],
+  );
+  const details = toStubDetailsFromOfflineSnapshot(cachedRow, syncEntry);
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("distync-offline-lookup-diagnostic", { detail: { kind: "stub", found: Boolean(details), reason: details ? "OFFLINE_QR_READ_BACK_FOUND" : "OFFLINE_QR_SNAPSHOT_INVALID" } }));
+  return details;
+};
+
+export const markCachedStubClaimTerminal = async (
+  stubId,
+  terminalStatus = LOCAL_SYNC_STATUS.SYNCED,
+  claimResult = null,
+) => {
+  const ownerContext = getSyncQueueActorContext();
+
+  if (!hasCompleteOfflineStubOwnerContext(ownerContext) || !stubId) {
+    return;
+  }
+
+  const cachedRow = await db.offlineStubCache
+    .where("[accessMode+userId+roleCode+stubId]")
+    .equals([ownerContext.accessMode, ownerContext.userId, ownerContext.roleCode, stubId])
+    .first();
+
+  if (!cachedRow) {
+    return;
+  }
+
+  await db.offlineStubCache.update(
+    cachedRow.id,
+    buildCachedStubClaimTerminalPatch(
+      claimResult,
+      terminalStatus,
+      getIsoNow(),
+    ),
+  );
+};
+
+export const reconcileOfflineStubCacheForSyncResult = async (entry, result) => {
+  if (
+    entry?.actionKey !== STUB_CLAIM_ACTION_KEY ||
+    !claimTerminalStatuses.has(result?.sync_status)
+  ) {
+    return;
+  }
+
+  await markCachedStubClaimTerminal(
+    entry.entityServerId,
+    result.sync_status,
+    result,
+  );
+};

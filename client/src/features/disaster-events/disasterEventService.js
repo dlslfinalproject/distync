@@ -1,0 +1,233 @@
+import { performOnlineOnlyMutation } from "../../offline/syncService";
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const handleJsonResponse = async (response, fallbackMessage) => {
+  const responseData = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(responseData?.message || fallbackMessage);
+  }
+
+  return responseData;
+};
+
+const DISASTER_EVENT_ONLINE_ONLY_MESSAGE =
+  "An internet connection is required to create or update disaster events.";
+
+const getFallbackExportFilename = (format) => {
+  if (format === "excel") {
+    return "mswdo-disaster-events.xlsx";
+  }
+
+  if (format === "pdf") {
+    return "mswdo-disaster-events.pdf";
+  }
+
+  return "mswdo-disaster-events.csv";
+};
+
+export const fetchAllDisasterEvents = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events`);
+  return handleJsonResponse(response, "Failed to fetch disaster events");
+};
+
+export const fetchActiveDisasterEvents = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events/active`);
+  return handleJsonResponse(response, "Failed to fetch active disaster events");
+};
+
+export const fetchEndedDisasterEvents = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events/ended`);
+  return handleJsonResponse(response, "Failed to fetch ended disaster events");
+};
+
+export const fetchBarangayDisasterEventOptions = async () => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/disaster-events/barangay-options`,
+  );
+  return handleJsonResponse(
+    response,
+    "Failed to fetch barangay disaster event options",
+  );
+};
+
+export const fetchDisasterEventById = async (eventId) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events/${eventId}`);
+  return handleJsonResponse(response, "Failed to fetch disaster event details");
+};
+
+export const createDisasterEvent = async (payload) => {
+  return performOnlineOnlyMutation({
+    payload,
+    requiredFields: ["title", "disaster_type", "start_date"],
+    offlineMessage: DISASTER_EVENT_ONLINE_ONLY_MESSAGE,
+    request: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      return handleJsonResponse(response, "Failed to create disaster event");
+    },
+  });
+};
+
+export const updateDisasterEvent = async (eventId, payload) => {
+  return performOnlineOnlyMutation({
+    payload,
+    requiredFields: ["title", "disaster_type", "start_date", "end_date"],
+    offlineMessage: DISASTER_EVENT_ONLINE_ONLY_MESSAGE,
+    request: async () => {
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/disaster-events/${eventId}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      return handleJsonResponse(response, "Failed to update disaster event");
+    },
+  });
+};
+
+export const fetchBarangays = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/barangays`);
+  return handleJsonResponse(response, "Failed to fetch barangays");
+};
+
+export const exportDisasterEvents = async ({
+  selectedFilter,
+  search,
+  disasterEventId,
+  disasterTypes = [],
+  affectedBarangayIds = [],
+  sortOrder = "newest",
+  format,
+}) => {
+  const searchParams = new URLSearchParams({
+    scope: selectedFilter,
+    sort_order: sortOrder,
+    format,
+  });
+
+  if (search && search.trim()) {
+    searchParams.set("search", search.trim());
+  }
+
+  const normalizedDisasterEventId = String(disasterEventId || "").trim();
+  if (normalizedDisasterEventId) {
+    searchParams.set("disaster_event_id", normalizedDisasterEventId);
+  }
+
+  if (Array.isArray(disasterTypes) && disasterTypes.length > 0) {
+    searchParams.set("disaster_types", disasterTypes.join(","));
+  }
+
+  const validAffectedBarangayIds = Array.isArray(affectedBarangayIds)
+    ? affectedBarangayIds
+        .map((barangayId) => String(barangayId || "").trim())
+        .filter((barangayId) => UUID_PATTERN.test(barangayId))
+    : [];
+
+  if (validAffectedBarangayIds.length > 0) {
+    searchParams.set("affected_barangay_ids", validAffectedBarangayIds.join(","));
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/disaster-events/export?${searchParams.toString()}`,
+  );
+
+  if (!response.ok) {
+    let message = "Failed to export disaster events";
+
+    try {
+      const payload = await response.json();
+      message = payload.message || message;
+    } catch (_error) {
+      message = "Failed to export disaster events";
+    }
+
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+
+  return {
+    blob,
+    filename: fileNameMatch?.[1] || getFallbackExportFilename(format),
+  };
+};
+
+export const fetchDisasterEventReportSummary = async (filters = {}) => {
+  const searchParams = new URLSearchParams();
+
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+
+    searchParams.set(key, value);
+  });
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/disaster-events/reports/summary${
+      searchParams.toString() ? `?${searchParams.toString()}` : ""
+    }`,
+  );
+
+  return handleJsonResponse(
+    response,
+    "Failed to fetch disaster event report summary",
+  );
+};
+
+export const exportDisasterEventReportSummary = async (filters = {}) => {
+  const searchParams = new URLSearchParams();
+
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+
+    searchParams.set(key, value);
+  });
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/disaster-events/reports/export?${searchParams.toString()}`,
+  );
+
+  if (!response.ok) {
+    let message = "Failed to export disaster event summary";
+
+    try {
+      const payload = await response.json();
+      message = payload.message || message;
+    } catch (_error) {
+      message = "Failed to export disaster event summary";
+    }
+
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+
+  return {
+    blob,
+    filename: fileNameMatch?.[1] || "mswdo-disaster-event-summary.csv",
+  };
+};

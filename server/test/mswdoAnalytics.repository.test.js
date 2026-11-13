@@ -1,0 +1,138 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+
+const repositoryPath = path.resolve(
+  __dirname,
+  "../src/repositories/masterlist.repository.js",
+);
+const disasterEventRepositoryPath = path.resolve(
+  __dirname,
+  "../src/repositories/disasterEvent.repository.js",
+);
+
+const readAnalyticsSource = () => {
+  const source = fs.readFileSync(repositoryPath, "utf8").replace(/\r\n/g, "\n");
+  const analyticsSource = source.match(
+    /const getMswdoMasterlistAnalytics = async \([\s\S]*?const getHouseholdsByFilters/,
+  )?.[0];
+
+  assert.ok(analyticsSource, "MSWDO analytics repository source is present");
+  return analyticsSource;
+};
+
+test("MSWDO analytics uses database identity and explicit re-admission lineage", () => {
+  const source = readAnalyticsSource();
+
+  assert.match(source, /WITH RECURSIVE filtered_households/);
+  assert.match(source, /h\.source_household_id/);
+  assert.match(source, /household_lineage AS/);
+  assert.match(source, /parent\.household_identity_id/);
+  assert.match(source, /SELECT DISTINCT ON \(sh\.household_identity_id\)/);
+  assert.match(source, /sh\.is_active DESC/);
+  assert.match(source, /sh\.id DESC/);
+  assert.doesNotMatch(source, /household_key|evacuee_key/);
+});
+
+test("Barangay dashboard delegates to the same lineage-aware analytics", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+  const barangaySource = source.match(
+    /const getBarangayDashboardMetrics = async \([\s\S]*?\n};/,
+  )?.[0];
+
+  assert.ok(barangaySource, "Barangay dashboard metrics repository source is present");
+  assert.match(barangaySource, /getMswdoMasterlistAnalytics\(disasterEventId, barangayId\)/);
+  assert.doesNotMatch(barangaySource, /household_key|evacuee_key/);
+});
+
+test("disaster-event reports use explicit household lineage for registered-family counts", () => {
+  const source = fs.readFileSync(disasterEventRepositoryPath, "utf8");
+
+  assert.match(source, /const HOUSEHOLD_LINEAGE_CTE = `\s*WITH RECURSIVE household_lineage/);
+  assert.match(source, /COUNT\(DISTINCT COALESCE\(hl\.household_identity_id, h\.id\)\)::int AS registered_households_count/);
+  assert.doesNotMatch(source, /scoped_households\.household_key|AS household_key/);
+});
+
+test("MSWDO evacuation-center and daily admission charts use recorded log history", () => {
+  const source = readAnalyticsSource();
+  const centerSource = source.match(
+    /evacuation_center_distribution AS \([\s\S]*?relief_distribution_per_barangay AS/,
+  )?.[0];
+  const dailySource = source.match(
+    /daily_admission_trend AS \([\s\S]*?SELECT\s+summary\./,
+  )?.[0];
+
+  assert.ok(centerSource, "evacuation-center chart query is present");
+  assert.ok(dailySource, "daily-admission chart query is present");
+
+  for (const chartSource of [centerSource, dailySource]) {
+    assert.match(chartSource, /FROM filtered_households fh/);
+    assert.match(chartSource, /INNER JOIN evacuation_logs el/);
+    assert.match(chartSource, /COUNT\(DISTINCT el\.evacuee_id\)/);
+    assert.match(chartSource, /el\.disaster_event_id = \$1/);
+  }
+
+  assert.match(centerSource, /INNER JOIN evacuation_centers ec ON ec\.id = el\.evacuation_center_id/);
+  assert.match(dailySource, /DATE\(el\.time_in AT TIME ZONE 'Asia\/Manila'\)/);
+  assert.doesNotMatch(dailySource, /DATE\(el\.time_in\)/);
+  assert.doesNotMatch(centerSource, /summary_evacuees_with_latest_log/);
+});
+
+test("MSWDO analytics keeps cumulative event records while separating current presence", () => {
+  const source = readAnalyticsSource();
+  const filteredEvacueesSource = source.match(
+    /filtered_evacuees AS \([\s\S]*?\n    \),\n    summary_evacuees/,
+  )?.[0];
+
+  assert.ok(filteredEvacueesSource, "cumulative evacuee source is present");
+  assert.doesNotMatch(filteredEvacueesSource, /WHERE e\.is_active = TRUE/);
+  assert.match(
+    source,
+    /currently_admitted_evacuees[\s\S]*dse\.current_stay_type = 'EVAC_CENTER'[\s\S]*dse\.status = 'PRESENT'[\s\S]*dse\.time_out IS NULL/,
+  );
+  assert.match(source, /total_departed_evacuees[\s\S]*status = 'LEFT'/);
+  assert.match(
+    source,
+    /latest_logs AS \([\s\S]*?SELECT DISTINCT ON \(el\.evacuee_id\)[\s\S]*?el\.disaster_event_id = \$1[\s\S]*?ORDER BY\s+el\.evacuee_id,/,
+  );
+  assert.match(source, /Analytics is cumulative for the selected disaster event/);
+});
+
+test("barangay heatmap stub/reference query is event-wide and fixed-count", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+  const heatmapSource = source.match(
+    /const getMswdoBarangayHeatmapReferenceMetrics = async \([\s\S]*?const getHouseholdsByFilters/,
+  )?.[0];
+
+  assert.ok(heatmapSource, "heatmap reference query is present");
+  assert.match(heatmapSource, /FROM barangays b/);
+  assert.match(heatmapSource, /b\.municipality_name = 'Malvar'/);
+  assert.match(heatmapSource, /b\.province_name = 'Batangas'/);
+  assert.match(heatmapSource, /b\.code <> 'NON_RESIDENT_OUTSIDE_MALVAR'/);
+  assert.match(heatmapSource, /LEFT JOIN disaster_event_barangays deb/);
+  assert.match(heatmapSource, /deb\.disaster_event_id = \$1/);
+  assert.match(heatmapSource, /h\.id = s\.household_id[\s\S]*h\.disaster_event_id = s\.disaster_event_id/);
+  assert.match(heatmapSource, /GROUP BY h\.barangay_id/);
+  assert.match(heatmapSource, /ORDER BY b\.name ASC, b\.code ASC/);
+  assert.match(heatmapSource, /s\.status IN \('ISSUED', 'CLAIMED'\)/);
+  assert.match(heatmapSource, /s\.status = 'CLAIMED'/);
+  assert.match(heatmapSource, /s\.status = 'ISSUED'/);
+  assert.doesNotMatch(heatmapSource, /CANCELLED|VOID|evacuation_logs|current_stay_type|is_active/);
+  assert.equal((heatmapSource.match(/pool\.query\(/g) || []).length, 1);
+});
+
+test("re-admission lineage migration backfills only explicit audited links", () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../../database/migrations/2026-09-15_add_household_re_admission_lineage.sql",
+  );
+  const source = fs.readFileSync(migrationPath, "utf8");
+
+  assert.match(source, /ADD COLUMN IF NOT EXISTS source_household_id uuid/);
+  assert.match(source, /HOUSEHOLD_RE_ADMITTED/);
+  assert.match(source, /HOUSEHOLD_RETURN_TO_EVAC_CENTER/);
+  assert.match(source, /successor\.disaster_event_id = source\.disaster_event_id/);
+  assert.match(source, /successor\.barangay_id = source\.barangay_id/);
+  assert.match(source, /Do not infer links from names/);
+});

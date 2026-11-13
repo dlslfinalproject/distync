@@ -1,0 +1,401 @@
+const allowedTransactionTypes = [
+  "INFLOW",
+  "OUTFLOW",
+  "ADJUSTMENT",
+  "EXPIRED",
+  "MISSING",
+  "DAMAGED",
+  "SPOILED",
+  "STOLEN",
+  "RETURN",
+  "OTHER",
+];
+
+const allowedReferenceTypes = [
+  "MANUAL",
+  "BARCODE_SCAN",
+  "QR_SCAN",
+  "DISTRIBUTION",
+  "DONATION",
+  "PROOF_OF_RECEIPT",
+  "SYNC",
+  "SYSTEM",
+];
+
+const allowedTransactionLabels = [
+  "Stock-Up",
+  "Donated",
+  "Donation Adjustment",
+  "Distributed",
+  "Damaged",
+  "Spoiled",
+  "Missing",
+  "Stolen",
+  "Expired",
+  "Other",
+];
+
+const allowedMovementTypes = ["INFLOW", "OUTFLOW"];
+const allowedSourceLabels = ["Malvar LGU", "Donors"];
+const calendarDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+const normalizeStringList = (value) => {
+  const values = Array.isArray(value) ? value : [value];
+
+  return values
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter(Boolean);
+};
+
+const isValidCalendarDate = (value) => {
+  if (typeof value !== "string" || !calendarDatePattern.test(value)) {
+    return false;
+  }
+
+  const parsedDate = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(parsedDate.getTime()) &&
+    parsedDate.toISOString().slice(0, 10) === value
+  );
+};
+
+const {
+  isValidInventoryTransactionReferenceNo,
+  normalizeInventoryTransactionReferenceNo,
+} = require("../utils/inventoryTransactionReference");
+
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isValidUuid = (value) => {
+  return typeof value === "string" && uuidPattern.test(value);
+};
+
+const validateInventoryTransactionId = (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    if (!isValidUuid(id)) {
+      return res.status(400).json({
+        message: "id must be a valid UUID",
+      });
+    }
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate inventory transaction id",
+      error: error.message,
+    });
+  }
+};
+
+const validateGetInventoryTransactions = (req, res, next) => {
+  try {
+    const {
+      inventory_batch_id,
+      inventory_item_id,
+      transaction_type,
+      reference_type,
+      disaster_event_id,
+      performed_by,
+      search,
+      transaction_label,
+      movement,
+      source,
+      date_from,
+      date_to,
+      stock_form_packaging,
+    } = req.query;
+
+    const stockFormPackagings = normalizeStringList(stock_form_packaging);
+
+    if (inventory_batch_id !== undefined && !isValidUuid(inventory_batch_id)) {
+      return res.status(400).json({
+        message: "inventory_batch_id must be a valid UUID when provided",
+      });
+    }
+
+    if (inventory_item_id !== undefined && !isValidUuid(inventory_item_id)) {
+      return res.status(400).json({
+        message: "inventory_item_id must be a valid UUID when provided",
+      });
+    }
+
+    if (
+      transaction_type !== undefined &&
+      !allowedTransactionTypes.includes(transaction_type)
+    ) {
+      return res.status(400).json({
+        message:
+          "transaction_type must be one of: INFLOW, OUTFLOW, ADJUSTMENT, EXPIRED, MISSING, DAMAGED, SPOILED, STOLEN, RETURN, OTHER",
+      });
+    }
+
+    if (
+      reference_type !== undefined &&
+      !allowedReferenceTypes.includes(reference_type)
+    ) {
+      return res.status(400).json({
+        message:
+          "reference_type must be one of: MANUAL, BARCODE_SCAN, QR_SCAN, DISTRIBUTION, DONATION, PROOF_OF_RECEIPT, SYNC, SYSTEM",
+      });
+    }
+
+    if (disaster_event_id !== undefined && !isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID when provided",
+      });
+    }
+
+    if (performed_by !== undefined && !isValidUuid(performed_by)) {
+      return res.status(400).json({
+        message: "performed_by must be a valid UUID when provided",
+      });
+    }
+
+    if (
+      transaction_label !== undefined &&
+      !allowedTransactionLabels.includes(transaction_label)
+    ) {
+      return res.status(400).json({
+        message: "transaction_label is not a supported inventory transaction filter",
+      });
+    }
+
+    if (movement !== undefined && !allowedMovementTypes.includes(movement)) {
+      return res.status(400).json({
+        message: "movement must be one of: INFLOW, OUTFLOW",
+      });
+    }
+
+    if (source !== undefined && !allowedSourceLabels.includes(source)) {
+      return res.status(400).json({
+        message: "source must be one of: Malvar LGU, Donors",
+      });
+    }
+
+    if (date_from !== undefined && !isValidCalendarDate(date_from)) {
+      return res.status(400).json({
+        message: "date_from must be a valid YYYY-MM-DD date when provided",
+      });
+    }
+
+    if (date_to !== undefined && !isValidCalendarDate(date_to)) {
+      return res.status(400).json({
+        message: "date_to must be a valid YYYY-MM-DD date when provided",
+      });
+    }
+
+    if (date_from && date_to && date_from > date_to) {
+      return res.status(400).json({
+        message: "date_from must be on or before date_to",
+      });
+    }
+
+    req.validatedQuery = {
+      inventory_batch_id: inventory_batch_id || null,
+      inventory_item_id: inventory_item_id || null,
+      transaction_type:
+        typeof transaction_type === "string" && transaction_type.trim()
+          ? transaction_type.trim()
+          : null,
+      reference_type:
+        typeof reference_type === "string" && reference_type.trim()
+          ? reference_type.trim()
+          : null,
+      disaster_event_id: disaster_event_id || null,
+      performed_by: performed_by || null,
+      search: typeof search === "string" && search.trim() ? search.trim() : null,
+      transaction_label: transaction_label || null,
+      movement: movement || null,
+      source: source || null,
+      date_from: date_from || null,
+      date_to: date_to || null,
+      stock_form_packaging: stockFormPackagings,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate inventory transaction filters",
+      error: error.message,
+    });
+  }
+};
+
+const validateCreateInventoryTransaction = (req, res, next) => {
+  try {
+    const {
+      disaster_event_id,
+      inventory_batch_id,
+      inventory_item_id,
+      transaction_type,
+      quantity,
+      reference_type,
+      reference_id,
+      inventoryTransactionReferenceNo,
+      inventory_transaction_reference_no,
+      performed_by,
+      other_status,
+      remarks,
+    } = req.body;
+
+    if (
+      inventory_batch_id === undefined ||
+      inventory_batch_id === null ||
+      inventory_batch_id === ""
+    ) {
+      return res.status(400).json({
+        message: "inventory_batch_id is required",
+      });
+    }
+
+    if (
+      inventory_batch_id !== undefined &&
+      inventory_batch_id !== null &&
+      inventory_batch_id !== "" &&
+      !isValidUuid(inventory_batch_id)
+    ) {
+      return res.status(400).json({
+        message: "inventory_batch_id must be a valid UUID when provided",
+      });
+    }
+
+    if (
+      inventory_item_id !== undefined &&
+      inventory_item_id !== null &&
+      inventory_item_id !== "" &&
+      !isValidUuid(inventory_item_id)
+    ) {
+      return res.status(400).json({
+        message: "inventory_item_id must be a valid UUID when provided",
+      });
+    }
+
+    if (!allowedTransactionTypes.includes(transaction_type)) {
+      return res.status(400).json({
+        message:
+          "transaction_type is required and must be one of: INFLOW, OUTFLOW, ADJUSTMENT, EXPIRED, MISSING, DAMAGED, SPOILED, STOLEN, RETURN, OTHER",
+      });
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return res.status(400).json({
+        message: "quantity is required and must be a positive integer",
+      });
+    }
+
+    if (disaster_event_id !== undefined && disaster_event_id !== null && !isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID or null",
+      });
+    }
+
+    if (
+      reference_type !== undefined &&
+      reference_type !== null &&
+      !allowedReferenceTypes.includes(reference_type)
+    ) {
+      return res.status(400).json({
+        message:
+          "reference_type must be one of: MANUAL, BARCODE_SCAN, QR_SCAN, DISTRIBUTION, DONATION, PROOF_OF_RECEIPT, SYNC, SYSTEM",
+      });
+    }
+
+    if (reference_id !== undefined && reference_id !== null && !isValidUuid(reference_id)) {
+      return res.status(400).json({
+        message: "reference_id must be a valid UUID or null",
+      });
+    }
+
+    if (performed_by !== undefined && performed_by !== null && !isValidUuid(performed_by)) {
+      return res.status(400).json({
+        message: "performed_by must be a valid UUID or null",
+      });
+    }
+
+    if (remarks !== undefined && remarks !== null && typeof remarks !== "string") {
+      return res.status(400).json({
+        message: "remarks must be a string or null",
+      });
+    }
+
+    if (
+      other_status !== undefined &&
+      other_status !== null &&
+      typeof other_status !== "string"
+    ) {
+      return res.status(400).json({
+        message: "other_status must be a string or null",
+      });
+    }
+
+    const normalizedOtherStatus =
+      typeof other_status === "string" ? other_status.trim() : null;
+
+    if (normalizedOtherStatus && normalizedOtherStatus.length > 80) {
+      return res.status(400).json({
+        message: "other_status must not exceed 80 characters",
+      });
+    }
+
+    if (transaction_type === "OTHER" && !normalizedOtherStatus) {
+      return res.status(400).json({
+        message: "other_status is required when transaction_type is OTHER",
+      });
+    }
+
+    if (transaction_type === "OTHER" && !String(remarks || "").trim()) {
+      return res.status(400).json({
+        message: "remarks is required when transaction_type is OTHER",
+      });
+    }
+
+    const normalizedInventoryTransactionReferenceNo =
+      normalizeInventoryTransactionReferenceNo(
+        inventoryTransactionReferenceNo ?? inventory_transaction_reference_no,
+      );
+
+    if (
+      normalizedInventoryTransactionReferenceNo &&
+      !isValidInventoryTransactionReferenceNo(
+        normalizedInventoryTransactionReferenceNo,
+      )
+    ) {
+      return res.status(400).json({
+        message:
+          "Inventory Transaction Reference No. must use ITR-YYYY-NNNNNN and cannot end in 000000.",
+      });
+    }
+
+    req.validatedBody = {
+      disaster_event_id: disaster_event_id ?? null,
+      inventory_batch_id: inventory_batch_id ?? null,
+      inventory_item_id: inventory_item_id ?? null,
+      transaction_type,
+      quantity,
+      reference_type: "MANUAL",
+      reference_id: null,
+      inventoryTransactionReferenceNo:
+        normalizedInventoryTransactionReferenceNo,
+      performed_by: performed_by ?? null,
+      other_status:
+        transaction_type === "OTHER" ? normalizedOtherStatus : null,
+      remarks: remarks ?? null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate inventory transaction payload",
+      error: error.message,
+    });
+  }
+};
+
+module.exports = {
+  validateInventoryTransactionId,
+  validateGetInventoryTransactions,
+  validateCreateInventoryTransaction,
+};

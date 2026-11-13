@@ -1,0 +1,3646 @@
+const pool = require("../config/db");
+const crypto = require("crypto");
+const donationRepository = require("../repositories/donation.repository");
+const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
+const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
+const inventoryItemRepository = require("../repositories/inventoryItem.repository");
+const inventoryItemStockFormRepository = require("../repositories/inventoryItemStockForm.repository");
+const inventoryItemService = require("./inventoryItem.service");
+const inventoryBatchStatusService = require("./inventoryBatchStatus.service");
+const donatedReliefPackAssignmentService = require("./donatedReliefPackAssignment.service");
+const forecastService = require("./forecast.service");
+const mayorReportExport = require("../utils/mayorReportExport");
+const notificationService = require("../modules/notifications/notification.service");
+const {
+  getInventoryBatchStatus,
+  isInventoryBatchExpired,
+  isInventoryBatchDerivedStatus,
+} = require("../utils/inventoryBatchStatus");
+const {
+  logAuditSafely,
+  pickDefined,
+  normalizeActor,
+} = require("../utils/systemLog");
+const systemLogRepository = require("../repositories/systemLog.repository");
+const {
+  getDonationTypeKey: resolveDonationTypeKey,
+  isReliefPackDonationItemRemark,
+} = require("../utils/donationType");
+const {
+  isValidInventoryBarcode,
+  normalizeInventoryBarcode,
+} = require("../utils/inventoryBarcode");
+const {
+  createDuplicateInventoryBarcodeError,
+} = require("../utils/inventoryItemIdentity");
+
+const buildFullName = (firstName, lastName) => {
+  return [firstName, lastName].filter(Boolean).join(" ");
+};
+
+const priorityRank = {
+  URGENT: 1,
+  HIGH: 2,
+  MEDIUM: 3,
+  LOW: 4,
+};
+
+const canonicalDonorTypes = new Set([
+  "INDIVIDUAL",
+  "NGO",
+  "PRIVATE_ORGANIZATION",
+  "GOVERNMENT_PARTNER",
+  "OTHER",
+]);
+const legacyDonorTypeMap = {
+  "PRIVATE ORGANIZATION": "PRIVATE_ORGANIZATION",
+  "GOVERNMENT PARTNER": "GOVERNMENT_PARTNER",
+};
+
+const normalizeDonationDonorType = (value) => {
+  const normalizedValue = String(value || "").trim().toUpperCase();
+  return legacyDonorTypeMap[normalizedValue] || normalizedValue;
+};
+
+const ensureValidDonationDonorType = (value) => {
+  const normalizedDonorType = normalizeDonationDonorType(value);
+
+  if (!canonicalDonorTypes.has(normalizedDonorType)) {
+    const error = new Error("Please select a valid donor type.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalizedDonorType;
+};
+
+const normalizeDonationOtherDonorType = (value) => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const trimmedValue = String(value).trim();
+  return trimmedValue || null;
+};
+
+const normalizeDonationDonorName = (value) => String(value || "").trim().toLowerCase();
+
+const neededItemSourceMeta = {
+  FORECAST: {
+    title: "Forecasted Donation Needs",
+    description:
+      "These recommendations are generated from DISTYNC's inventory forecasting using the latest available disaster response and inventory data.",
+    notice:
+      "Forecasted donation requests reflect the estimated shortfall after eligible LGU and donated stock are considered.",
+  },
+  DEFAULT_EMERGENCY: {
+    title: "Emergency Donation Needs",
+    description:
+      "These recommendations are based on the municipality's standard disaster preparedness guidelines while operational data is still being collected.",
+    notice:
+      "These items are preparedness recommendations, not forecast quantities. They help donors identify commonly needed relief goods before enough operational data is available for forecasting.",
+  },
+  EMPTY: {
+    title: "Emergency Donation Needs",
+    description:
+      "Donation recommendations will appear when preparedness defaults or forecast results are available.",
+    notice:
+      "No public donation suggestions are available yet for the active relief operations.",
+  },
+};
+
+const createPublicKey = (prefix, value) =>
+  `${prefix}-${crypto
+    .createHash("sha256")
+    .update(String(value || ""))
+    .digest("hex")
+    .slice(0, 16)}`;
+
+const buildGoogleMapsSearchUrl = (locationName, addressLines) => {
+  const query = [locationName, ...addressLines].filter(Boolean).join(", ");
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+};
+
+const getPublicContactConfig = () => {
+  const locationName =
+    process.env.PUBLIC_DONATION_LOCATION_NAME || "Municipal Hall of Malvar";
+  const addressLines = [
+    process.env.PUBLIC_DONATION_ADDRESS_LINE_1 || "J. Leviste Street",
+    process.env.PUBLIC_DONATION_ADDRESS_LINE_2 ||
+      "Poblacion, Malvar, Batangas 4233",
+  ].filter(Boolean);
+
+  return {
+    system_name: "DISTYNC",
+    municipality: "Municipality of Malvar, Batangas",
+    drop_off: {
+      location_name: locationName,
+      address_lines: addressLines,
+      office_lines: [
+        process.env.PUBLIC_DONATION_OFFICE_LINE_1 ||
+          "Office of the Municipal Mayor",
+        process.env.PUBLIC_DONATION_OFFICE_LINE_2 ||
+          "Donation Coordination Desk",
+      ].filter(Boolean),
+      receiving_hours: [
+        process.env.PUBLIC_DONATION_RECEIVING_DAYS || "Monday-Friday",
+        process.env.PUBLIC_DONATION_RECEIVING_TIME || "8:00 AM-5:00 PM",
+      ].filter(Boolean),
+      phone: process.env.PUBLIC_DONATION_PHONE || "+63 43 778 5101",
+      email:
+        process.env.PUBLIC_DONATION_EMAIL || "lgumalvarbatangas@gmail.com",
+      maps_url:
+        process.env.PUBLIC_DONATION_MAPS_URL ||
+        buildGoogleMapsSearchUrl(locationName, addressLines),
+    },
+    notices: {
+      privacy:
+        "Donation information is public in aggregated form. Donor names appear only when the donor has chosen to publish them.",
+      in_kind_only:
+        "DISTYNC provides information for in-kind relief donations only. Cash donations and online payments are not processed through this portal.",
+    },
+  };
+};
+
+const mapDonationNeed = (row) => {
+  return {
+    id: row.id,
+    disaster_event_id: row.disaster_event_id,
+    inventory_item_id: row.inventory_item_id,
+    quantity_needed: row.quantity_needed,
+    priority_level: row.priority_level,
+    notes: row.notes,
+    is_active: row.is_active,
+    published_by: row.published_by,
+    published_at: row.published_at,
+    updated_at: row.updated_at,
+    disaster_event: {
+      id: row.disaster_event_id,
+      event_code: row.event_code,
+      title: row.disaster_event_title,
+      status: row.disaster_event_status,
+    },
+    inventory_item: {
+      id: row.inventory_item_id,
+      item_code: row.item_code,
+      item_name: row.item_name,
+      category: row.category,
+      unit_of_measure: row.unit_of_measure,
+    },
+    publisher: row.published_by
+      ? {
+          id: row.published_by,
+          full_name: buildFullName(
+            row.published_by_first_name,
+            row.published_by_last_name,
+          ),
+        }
+      : null,
+  };
+};
+
+const mapDonationItem = (row) => {
+  return {
+    id: row.id,
+    donation_id: row.donation_id,
+    inventory_item_id: row.inventory_item_id,
+    inventory_batch_id: row.inventory_batch_id,
+    quantity_received: row.quantity_received,
+    remarks: row.remarks,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    inventory_item: {
+      id: row.inventory_item_id,
+      item_code: row.item_code,
+      item_name: row.item_name,
+      category: row.category,
+      unit_of_measure: row.unit_of_measure,
+      reorder_level: row.reorder_level,
+      item_total_stock: row.item_total_stock,
+    },
+    inventory_batch: row.inventory_batch_id
+      ? {
+          id: row.inventory_batch_id,
+          inventory_item_stock_form_id: row.inventory_item_stock_form_id,
+          batch_no: row.batch_no,
+          source_type: row.source_type,
+          quantity_available: row.quantity_available,
+          expiration_date: row.expiration_date,
+          storage_location: row.storage_location,
+          stock_form_barcode: row.stock_form_barcode,
+          stock_form_packaging: row.stock_form_packaging,
+          stock_form_units_per_packaging: row.stock_form_units_per_packaging,
+          stock_form_unit_of_measure: row.stock_form_unit_of_measure,
+          stock_form_unit_of_measure_value: row.stock_form_unit_of_measure_value,
+          item_total_stock: row.item_total_stock,
+        }
+      : null,
+    inventory_item_stock_form: row.inventory_item_stock_form_id
+      ? {
+          id: row.inventory_item_stock_form_id,
+          barcode: row.stock_form_barcode,
+          packaging: row.stock_form_packaging,
+          units_per_packaging: row.stock_form_units_per_packaging,
+          unit_of_measure: row.stock_form_unit_of_measure,
+          unit_of_measure_value: row.stock_form_unit_of_measure_value,
+        }
+      : null,
+  };
+};
+
+const mapDonation = (row, items = []) => {
+  return {
+    id: row.id,
+    disaster_event_id: row.disaster_event_id,
+    donor_name: row.donor_name,
+    donor_name_public: Boolean(row.donor_name_public),
+    donor_type: row.donor_type,
+    donor_type_other: row.donor_type_other,
+    contact_information: row.contact_information,
+    received_by: row.received_by,
+    received_at: row.received_at,
+    status: row.status,
+    remarks: row.remarks,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    disaster_event: {
+      id: row.disaster_event_id,
+      event_code: row.event_code,
+      title: row.disaster_event_title,
+    },
+    receiver: row.received_by
+      ? {
+          id: row.received_by,
+          full_name: buildFullName(
+            row.received_by_first_name,
+            row.received_by_last_name,
+          ),
+        }
+      : null,
+    items,
+    item_count: items.length,
+    total_quantity_received: items.reduce(
+      (total, item) => total + Number(item.quantity_received || 0),
+      0,
+    ),
+  };
+};
+
+const summarizeDonation = (donation) =>
+  pickDefined(donation, [
+    "disaster_event_id",
+    "donor_name",
+    "donor_name_public",
+    "donor_type",
+    "donor_type_other",
+    "contact_information",
+    "received_by",
+    "received_at",
+    "status",
+    "remarks",
+    "item_count",
+    "total_quantity_received",
+  ]);
+
+const buildDonationAuditValues = (donation) => ({
+  ...summarizeDonation(donation),
+  donation_type: resolveDonationTypeKey(donation?.items),
+  disaster_event_title: donation?.disaster_event?.title || null,
+  items: [...(Array.isArray(donation?.items) ? donation.items : [])]
+    .map((item) => {
+      const stockForm = item.inventory_item_stock_form || {};
+      const batch = item.inventory_batch || {};
+
+      return {
+        inventory_item_id: item.inventory_item_id,
+        item_code: item.inventory_item?.item_code || item.item_code || null,
+        item_name: item.inventory_item?.item_name || item.item_name || null,
+        category: item.inventory_item?.category || item.category || null,
+        quantity_received: Number(item.quantity_received || 0),
+        unit_of_measure:
+          item.inventory_item?.unit_of_measure || item.unit_of_measure || null,
+        packaging:
+          stockForm.packaging || batch.stock_form_packaging || null,
+        units_per_packaging:
+          stockForm.units_per_packaging ||
+          batch.stock_form_units_per_packaging ||
+          null,
+        batch_no: batch.batch_no || null,
+        expiration_date: batch.expiration_date || null,
+        remarks: item.remarks || null,
+      };
+    })
+    .filter((item) => item.inventory_item_id || item.item_name)
+    .sort((leftItem, rightItem) =>
+      String(leftItem.item_name || "").localeCompare(
+        String(rightItem.item_name || ""),
+      ),
+    ),
+});
+
+const buildDonationUpdateAuditValues = (donation, disasterEvent = null) => ({
+  ...pickDefined(donation, [
+    "disaster_event_id",
+    "donor_name",
+    "donor_name_public",
+    "donor_type",
+    "donor_type_other",
+    "contact_information",
+    "received_at",
+    "status",
+    "remarks",
+  ]),
+  disaster_event_title:
+    donation?.disaster_event?.title ||
+    donation?.disaster_event_title ||
+    disasterEvent?.title ||
+    null,
+});
+
+const hasAuditValueChanges = (previousValues = {}, nextValues = {}) => {
+  const fieldNames = new Set([
+    ...Object.keys(previousValues || {}),
+    ...Object.keys(nextValues || {}),
+  ]);
+
+  return Array.from(fieldNames).some((fieldName) => {
+    const previousValue = previousValues?.[fieldName];
+    const nextValue = nextValues?.[fieldName];
+
+    return JSON.stringify(previousValue) !== JSON.stringify(nextValue);
+  });
+};
+
+const summarizeDonationItem = (donationItem) => {
+  const inventoryItem = donationItem?.inventory_item || {};
+  const inventoryBatch = donationItem?.inventory_batch || {};
+  const stockForm = donationItem?.inventory_item_stock_form || {};
+  const unitOfMeasureValue =
+    inventoryItem.unit_of_measure_value ??
+    stockForm.unit_of_measure_value ??
+    inventoryBatch.stock_form_unit_of_measure_value;
+
+  return {
+    ...pickDefined(donationItem, [
+      "donation_id",
+      "inventory_item_id",
+      "inventory_batch_id",
+      "quantity_received",
+      "remarks",
+    ]),
+    ...pickDefined(inventoryItem, [
+      "item_code",
+      "item_name",
+      "category",
+      "unit_of_measure",
+    ]),
+    ...(unitOfMeasureValue !== undefined
+      ? { unit_of_measure_value: unitOfMeasureValue }
+      : {}),
+    ...pickDefined(inventoryBatch, [
+      "batch_no",
+      "expiration_date",
+      "quantity_available",
+    ]),
+    packaging:
+      stockForm.packaging ?? inventoryBatch.stock_form_packaging ?? undefined,
+    units_per_packaging:
+      stockForm.units_per_packaging ??
+      inventoryBatch.stock_form_units_per_packaging ??
+      undefined,
+  };
+};
+
+const summarizeDonationInventoryBatch = (batch) =>
+  pickDefined(batch, [
+    "inventory_item_id",
+    "batch_no",
+    "source_type",
+    "quantity_received",
+    "quantity_available",
+    "expiration_date",
+    "received_at",
+    "storage_location",
+    "status",
+    "created_by",
+  ]);
+
+const summarizeDonationInventoryTransaction = (transaction) =>
+  pickDefined(transaction, [
+    "disaster_event_id",
+    "inventory_batch_id",
+    "transaction_type",
+    "quantity",
+    "reference_type",
+    "reference_id",
+    "performed_by",
+    "performed_at",
+    "remarks",
+  ]);
+
+const mapAuditLogRow = (row) => ({
+  id: row.id,
+  action: row.action,
+  entity_type: row.entity_type,
+  entity_id: row.entity_id,
+  role_code: row.role_code,
+  created_at: row.created_at,
+  actor_name: [row.first_name, row.last_name].filter(Boolean).join(" ").trim() || row.email || "Unknown User",
+  old_values_json: row.old_values_json || {},
+  new_values_json: row.new_values_json || {},
+});
+
+const resolvePublicDonorName = (donorName, index, isPublic = false) =>
+  isPublic && donorName ? donorName : `Donor #${index + 1}`;
+
+const mapPublicDisasterSummary = (row) => ({
+  public_key: createPublicKey("event", row.id),
+  event_code: row.event_code,
+  title: row.title,
+  disaster_type: row.disaster_type,
+  description: row.description,
+  start_date: row.start_date,
+  end_date: row.end_date,
+  status: row.status,
+  created_at: row.created_at,
+  updated_at: row.updated_at,
+  affected_barangays: Array.isArray(row.affected_barangays)
+    ? row.affected_barangays.map((barangay) => ({
+        public_key: createPublicKey("barangay", barangay.id || barangay.name),
+        name: barangay.name,
+      }))
+    : [],
+  affected_barangays_count: Number(row.affected_barangays_count || 0),
+  registered_households_count: Number(row.registered_households_count || 0),
+  eligible_unclaimed_households_count: Number(
+    row.eligible_unclaimed_households_count || 0,
+  ),
+  affected_individuals_count: Number(row.affected_individuals_count || 0),
+});
+
+const mapPublicDonationSummary = (row, index) => ({
+  public_key: row.public_key || `donation-${index + 1}`,
+  donor_name: resolvePublicDonorName(
+    row.donor_name,
+    index,
+    row.donor_name_public === true,
+  ),
+  donor_type: row.donor_type || "OTHER",
+  donor_type_label: donorTypeLabels[row.donor_type] || "Other",
+  disaster_event_title: row.disaster_event_title || "Disaster event",
+  recipient_barangay: row.recipient_barangay_name || "Not specified",
+  donation_date: row.received_at,
+  updated_at: row.updated_at,
+  status: row.status,
+  donation_count: Number(row.donation_count || 0),
+  item_count: Number(row.item_count || 0),
+  total_quantity_received: Number(row.total_quantity_received || 0),
+  total_loose_items_received: Number(row.total_loose_items_received || 0),
+  total_relief_packs_received: Number(row.total_relief_packs_received || 0),
+  items: Array.isArray(row.items)
+    ? row.items.map((item) => ({
+        item_name: item.item_name || "Donation item",
+        quantity_received: Number(item.quantity_received || 0),
+        unit_of_measure: item.unit_of_measure || "items",
+      }))
+    : [],
+});
+
+const parsePublicReliefPackDonationRemark = (remarks) => {
+  const normalizedRemarks = String(remarks || "").trim();
+
+  if (!isReliefPackDonationItemRemark(normalizedRemarks)) {
+    return null;
+  }
+
+  const remarkBody = normalizedRemarks
+    .replace(/^Relief Pack:\s*/i, "")
+    .trim();
+  const quantityMatch = remarkBody.match(/^(.*?)(?:\s+x\s+(\d+))$/i);
+  const packName = (quantityMatch ? quantityMatch[1] : "").trim();
+  const packQuantity = quantityMatch ? Number(quantityMatch[2]) : 0;
+
+  if (!packName || !Number.isInteger(packQuantity) || packQuantity <= 0) {
+    return null;
+  }
+
+  return {
+    packName,
+    packQuantity,
+  };
+};
+
+const mergePublicDonationWriteOffReasons = (existingReasons, nextReasons) => {
+  const reasonTotals = new Map();
+
+  [...(Array.isArray(existingReasons) ? existingReasons : []), ...(Array.isArray(nextReasons) ? nextReasons : [])].forEach(
+    (reasonRow) => {
+      const reason = String(reasonRow?.reason || "").trim();
+
+      if (!reason) {
+        return;
+      }
+
+      reasonTotals.set(
+        reason,
+        Number(reasonTotals.get(reason) || 0) + Number(reasonRow?.quantity || 0),
+      );
+    },
+  );
+
+  return [...reasonTotals.entries()]
+    .sort(([leftReason], [rightReason]) =>
+      leftReason.localeCompare(rightReason),
+    )
+    .map(([reason, quantity]) => ({ reason, quantity }));
+};
+
+const mergePublicDonationDistributionEvents = (
+  existingEvents,
+  nextEvents,
+) => {
+  const eventTotals = new Map();
+
+  [
+    ...(Array.isArray(existingEvents) ? existingEvents : []),
+    ...(Array.isArray(nextEvents) ? nextEvents : []),
+  ].forEach((eventRow) => {
+    const eventId = eventRow?.event_id || null;
+    const eventTitle = String(
+      eventRow?.event_title || "Unassigned disaster event",
+    ).trim();
+    const eventKey = `${eventId || "unassigned"}|${eventTitle}`;
+
+    eventTotals.set(eventKey, {
+      event_id: eventId,
+      event_title: eventTitle,
+      quantity:
+        Number(eventTotals.get(eventKey)?.quantity || 0) +
+        Number(eventRow?.quantity || 0),
+    });
+  });
+
+  return [...eventTotals.values()]
+    .filter((eventRow) => eventRow.quantity > 0)
+    .sort((leftEvent, rightEvent) =>
+      leftEvent.event_title.localeCompare(rightEvent.event_title),
+    );
+};
+
+const buildCompletePackEventBreakdown = (components, breakdownField) => {
+  const eventRows = new Map();
+
+  (Array.isArray(components) ? components : []).forEach((component) => {
+    (Array.isArray(component?.[breakdownField])
+      ? component[breakdownField]
+      : []
+    ).forEach((eventRow) => {
+      const eventId = eventRow?.event_id || null;
+      const eventTitle = String(
+        eventRow?.event_title || "Unassigned disaster event",
+      ).trim();
+      const eventKey = `${eventId || "unassigned"}|${eventTitle}`;
+
+      if (!eventRows.has(eventKey)) {
+        eventRows.set(eventKey, {
+          event_id: eventId,
+          event_title: eventTitle,
+        });
+      }
+    });
+  });
+
+  return [...eventRows.values()]
+    .map((eventRow) => {
+      const eventKey = `${eventRow.event_id || "unassigned"}|${
+        eventRow.event_title
+      }`;
+      const quantity = Math.min(
+        ...(Array.isArray(components) ? components : []).map((component) => {
+          const componentEventQuantity = (
+            Array.isArray(component?.[breakdownField])
+              ? component[breakdownField]
+              : []
+          ).find(
+            (componentEvent) =>
+              `${componentEvent?.event_id || "unassigned"}|${
+                componentEvent?.event_title || "Unassigned disaster event"
+              }` === eventKey,
+          )?.quantity;
+
+          return Math.floor(
+            Number(componentEventQuantity || 0) /
+              Number(component.quantity_per_pack || 1),
+          );
+        }),
+      );
+
+      return {
+        ...eventRow,
+        quantity,
+      };
+    })
+    .filter((eventRow) => eventRow.quantity > 0)
+    .sort((leftEvent, rightEvent) =>
+      leftEvent.event_title.localeCompare(rightEvent.event_title),
+    );
+};
+
+const buildPublicDonationUtilizationRows = (rows, options = {}) => {
+  const publicView = options.publicView === true;
+  const groups = new Map();
+
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const packMeta = parsePublicReliefPackDonationRemark(
+      row.donation_item_remarks,
+    );
+    const isPackDonation = isReliefPackDonationItemRemark(
+      row.donation_item_remarks,
+    );
+
+    if (isPackDonation && !packMeta) {
+      return;
+    }
+
+    const sourceType = packMeta ? "RELIEF_PACK" : "LOOSE_ITEM";
+    const sourceKey = packMeta
+      ? [
+          row.donation_id,
+          sourceType,
+          packMeta.packName.toLowerCase(),
+          packMeta.packQuantity,
+        ].join(":")
+      : [row.donation_id, sourceType, row.inventory_item_id].join(":");
+    const existingGroup = groups.get(sourceKey) || {
+      source_key: sourceKey,
+      source_type: sourceType,
+      donation_id: row.donation_id,
+      donor_name: row.donor_name,
+      donor_name_public: row.donor_name_public === true,
+      donor_type: row.donor_type || "OTHER",
+      disaster_event_id: row.disaster_event_id,
+      disaster_event_title: row.disaster_event_title,
+      item_name: packMeta?.packName || row.item_name,
+      relief_pack_name: packMeta?.packName || null,
+      unit_of_measure: packMeta ? "pack" : "pc",
+      pack_quantity: packMeta?.packQuantity || 0,
+      quantity_received: 0,
+      quantity_distributed: 0,
+      quantity_written_off: 0,
+      quantity_remaining: 0,
+      write_off_reasons: [],
+      distribution_event_breakdown: [],
+      transfer_event_breakdown: [],
+      components: [],
+    };
+
+    if (packMeta) {
+      const quantityReceivedAfterWriteOff = Math.max(
+        0,
+        Number(row.quantity_received || 0) -
+          (publicView ? Number(row.quantity_written_off || 0) : 0),
+      );
+      const quantityPerPack = Math.floor(
+        Number(row.quantity_received || 0) / packMeta.packQuantity,
+      );
+
+      if (quantityPerPack <= 0) {
+        return;
+      }
+
+      existingGroup.components.push({
+        quantity_per_pack: quantityPerPack,
+        quantity_received_packs: Math.floor(
+          quantityReceivedAfterWriteOff / quantityPerPack,
+        ),
+        quantity_distributed: Number(row.quantity_distributed || 0),
+        quantity_written_off: Number(row.quantity_written_off || 0),
+        quantity_remaining: Number(row.quantity_remaining || 0),
+        distribution_event_breakdown: Array.isArray(
+          row.distribution_event_breakdown,
+        )
+          ? row.distribution_event_breakdown
+          : [],
+        transfer_event_breakdown: Array.isArray(row.transfer_event_breakdown)
+          ? row.transfer_event_breakdown
+          : [],
+      });
+    } else {
+      existingGroup.quantity_received += Math.max(
+        0,
+        Number(row.quantity_received || 0) -
+          (publicView ? Number(row.quantity_written_off || 0) : 0),
+      );
+      existingGroup.quantity_distributed += Number(
+        row.quantity_distributed || 0,
+      );
+      existingGroup.quantity_written_off += Number(
+        row.quantity_written_off || 0,
+      );
+      existingGroup.quantity_remaining += Number(row.quantity_remaining || 0);
+    }
+
+    existingGroup.write_off_reasons = mergePublicDonationWriteOffReasons(
+      existingGroup.write_off_reasons,
+      row.write_off_reasons,
+    );
+    existingGroup.distribution_event_breakdown =
+      mergePublicDonationDistributionEvents(
+        existingGroup.distribution_event_breakdown,
+        row.distribution_event_breakdown,
+      );
+    existingGroup.transfer_event_breakdown =
+      mergePublicDonationDistributionEvents(
+        existingGroup.transfer_event_breakdown,
+        row.transfer_event_breakdown,
+      );
+
+    groups.set(sourceKey, existingGroup);
+  });
+
+  return [...groups.values()]
+    .map((group) => {
+    if (group.source_type !== "RELIEF_PACK") {
+      return group;
+    }
+
+    const getCompletePackCount = (fieldName) => {
+      if (group.components.length === 0) {
+        return 0;
+      }
+
+      return Math.min(
+        ...group.components.map((component) =>
+          Math.floor(
+            Number(component[fieldName] || 0) /
+              Number(component.quantity_per_pack || 1),
+          ),
+        ),
+      );
+    };
+
+    return {
+      ...group,
+      quantity_received: publicView
+        ? Math.min(
+            ...group.components.map((component) =>
+              Number(component.quantity_received_packs || 0),
+            ),
+          )
+        : group.pack_quantity,
+      quantity_distributed: getCompletePackCount("quantity_distributed"),
+      quantity_written_off: getCompletePackCount("quantity_written_off"),
+      quantity_remaining: getCompletePackCount("quantity_remaining"),
+      distribution_event_breakdown: buildCompletePackEventBreakdown(
+        group.components,
+        "distribution_event_breakdown",
+      ),
+      transfer_event_breakdown: buildCompletePackEventBreakdown(
+        group.components,
+        "transfer_event_breakdown",
+      ),
+      components: undefined,
+    };
+    })
+    .filter((group) => {
+      if (!publicView) {
+        return true;
+      }
+
+      return (
+        Number(group.quantity_received || 0) > 0 ||
+        Number(group.quantity_distributed || 0) > 0
+      );
+    });
+};
+
+const calculatePublicDonationUtilizationTotals = (rows) =>
+  (Array.isArray(rows) ? rows : []).reduce(
+    (totals, row) => {
+      const isReliefPack = row.source_type === "RELIEF_PACK";
+      const quantityKey = isReliefPack ? "relief_packs" : "loose_items";
+
+      totals[`${quantityKey}_received`] += Number(row.quantity_received || 0);
+      totals[`${quantityKey}_distributed`] += Number(
+        row.quantity_distributed || 0,
+      );
+      totals[`${quantityKey}_remaining`] += Number(
+        row.quantity_remaining || 0,
+      );
+      return totals;
+    },
+    {
+      loose_items_received: 0,
+      loose_items_distributed: 0,
+      loose_items_remaining: 0,
+      relief_packs_received: 0,
+      relief_packs_distributed: 0,
+      relief_packs_remaining: 0,
+    },
+  );
+
+const mapPublicDonationUtilizationRow = (row, getPublicDonorLabel) => ({
+  public_key: createPublicKey("utilization-source", row.source_key),
+  donor_name:
+    row.donor_name_public === true && row.donor_name
+      ? row.donor_name
+      : getPublicDonorLabel(row),
+  donor_type: row.donor_type,
+  donor_type_label: donorTypeLabels[row.donor_type] || "Other",
+  disaster_event_id: row.disaster_event_id,
+  disaster_event_title: row.disaster_event_title,
+  source_type: row.source_type,
+  relief_pack_name: row.relief_pack_name,
+  item_name: row.item_name,
+  unit_of_measure: row.unit_of_measure,
+  quantity_received: row.quantity_received,
+  quantity_distributed: row.quantity_distributed,
+  quantity_written_off: row.quantity_written_off,
+  write_off_reasons: Array.isArray(row.write_off_reasons)
+    ? row.write_off_reasons
+    : [],
+  distribution_event_breakdown: Array.isArray(row.distribution_event_breakdown)
+    ? row.distribution_event_breakdown
+    : [],
+  quantity_remaining: row.quantity_remaining,
+});
+
+const mapManagementDonationUtilizationRow = (row) => ({
+  public_key: createPublicKey("utilization-source", row.source_key),
+  donor_name: row.donor_name || null,
+  donor_type: row.donor_type,
+  donor_type_label: donorTypeLabels[row.donor_type] || "Other",
+  disaster_event_id: row.disaster_event_id,
+  disaster_event_title: row.disaster_event_title,
+  source_type: row.source_type,
+  relief_pack_name: row.relief_pack_name,
+  item_name: row.item_name,
+  unit_of_measure: row.unit_of_measure,
+  quantity_received: row.quantity_received,
+  quantity_distributed: row.quantity_distributed,
+  quantity_written_off: row.quantity_written_off,
+  write_off_reasons: Array.isArray(row.write_off_reasons)
+    ? row.write_off_reasons
+    : [],
+  distribution_event_breakdown: Array.isArray(row.distribution_event_breakdown)
+    ? row.distribution_event_breakdown
+    : [],
+  transfer_event_breakdown: Array.isArray(row.transfer_event_breakdown)
+    ? row.transfer_event_breakdown
+    : [],
+  quantity_remaining: row.quantity_remaining,
+});
+
+const getDateOnlyTime = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+};
+
+const getDisasterFallbackTime = (event) => {
+  const updatedTime = new Date(event?.updated_at || 0).getTime();
+  const createdTime = new Date(event?.created_at || 0).getTime();
+
+  return Math.max(
+    Number.isFinite(updatedTime) ? updatedTime : 0,
+    Number.isFinite(createdTime) ? createdTime : 0,
+  );
+};
+
+const isPublicActiveDisasterStatus = (status) =>
+  ["ACTIVE", "ONGOING"].includes(String(status || "").toUpperCase());
+
+const isCurrentPublicDisaster = (event, todayTime) => {
+  const startTime = getDateOnlyTime(event?.start_date);
+  const endTime = getDateOnlyTime(event?.end_date);
+
+  return (
+    isPublicActiveDisasterStatus(event?.status) &&
+    (startTime === null || startTime <= todayTime) &&
+    (endTime === null || endTime >= todayTime)
+  );
+};
+
+const isCompletedPublicDisaster = (event, todayTime) => {
+  const normalizedStatus = String(event?.status || "").toUpperCase();
+  const startTime = getDateOnlyTime(event?.start_date);
+  const endTime = getDateOnlyTime(event?.end_date);
+  const hasStarted = startTime === null || startTime <= todayTime;
+  const isClosed = normalizedStatus === "CLOSED";
+  const isDateEnded =
+    isPublicActiveDisasterStatus(normalizedStatus) &&
+    endTime !== null &&
+    endTime < todayTime;
+
+  return hasStarted && (isClosed || isDateEnded);
+};
+
+const sortPublicDisastersByRecency = (left, right) => {
+  const leftStartTime = getDateOnlyTime(left.start_date);
+  const rightStartTime = getDateOnlyTime(right.start_date);
+
+  if (leftStartTime !== rightStartTime) {
+    if (leftStartTime === null) {
+      return 1;
+    }
+
+    if (rightStartTime === null) {
+      return -1;
+    }
+
+    return rightStartTime - leftStartTime;
+  }
+
+  return getDisasterFallbackTime(right) - getDisasterFallbackTime(left);
+};
+
+const getVisiblePublicDisasterSummaries = (events) => {
+  const today = new Date();
+  const todayTime = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  ).getTime();
+  const disasterEvents = [...(events || [])];
+  const currentEvents = disasterEvents
+    .filter((event) => isCurrentPublicDisaster(event, todayTime))
+    .sort(sortPublicDisastersByRecency);
+
+  if (currentEvents.length > 0) {
+    return currentEvents;
+  }
+
+  return disasterEvents
+    .filter((event) => isCompletedPublicDisaster(event, todayTime))
+    .sort(sortPublicDisastersByRecency)
+    .slice(0, 3);
+};
+
+const combinePublicForecastSuggestions = (latestForecasts) => {
+  const combinedSuggestions = new Map();
+
+  latestForecasts
+    .filter(Boolean)
+    .flatMap((forecast) => forecastService.buildPublicForecastSuggestions(forecast))
+    .forEach((suggestion) => {
+      const suggestionKey =
+        suggestion.public_key ||
+        `${suggestion.item_name || "item"}:${suggestion.unit_of_measure || "items"}`;
+      const existingSuggestion = combinedSuggestions.get(suggestionKey);
+
+      if (!existingSuggestion) {
+        combinedSuggestions.set(suggestionKey, { ...suggestion });
+        return;
+      }
+
+      const existingPriorityRank =
+        priorityRank[existingSuggestion.priority_level] || priorityRank.LOW;
+      const incomingPriorityRank =
+        priorityRank[suggestion.priority_level] || priorityRank.LOW;
+      const latestForecastedAt =
+        new Date(suggestion.forecasted_at || 0).getTime() >
+        new Date(existingSuggestion.forecasted_at || 0).getTime()
+          ? suggestion.forecasted_at
+          : existingSuggestion.forecasted_at;
+
+      combinedSuggestions.set(suggestionKey, {
+        ...existingSuggestion,
+        suggested_quantity:
+          Number(existingSuggestion.suggested_quantity || 0) +
+          Number(suggestion.suggested_quantity || 0),
+        priority_level:
+          incomingPriorityRank < existingPriorityRank
+            ? suggestion.priority_level
+            : existingSuggestion.priority_level,
+        note: "Combined recommendation across active relief operations.",
+        forecasted_at: latestForecastedAt,
+      });
+    });
+
+  return Array.from(combinedSuggestions.values()).sort((left, right) => {
+    const priorityDifference =
+      (priorityRank[left.priority_level] || priorityRank.LOW) -
+      (priorityRank[right.priority_level] || priorityRank.LOW);
+
+    if (priorityDifference !== 0) {
+      return priorityDifference;
+    }
+
+    const quantityDifference =
+      Number(right.suggested_quantity || 0) -
+      Number(left.suggested_quantity || 0);
+
+    if (quantityDifference !== 0) {
+      return quantityDifference;
+    }
+
+    return String(left.item_name || "").localeCompare(
+      String(right.item_name || ""),
+    );
+  });
+};
+
+const resolvePublicDefaultNeedPriority = (priorityLevel) => {
+  const normalizedPriorityLevel = String(priorityLevel || "").toUpperCase();
+
+  if (normalizedPriorityLevel === "URGENT" || normalizedPriorityLevel === "HIGH") {
+    return "HIGH";
+  }
+
+  if (normalizedPriorityLevel === "MEDIUM") {
+    return "MEDIUM";
+  }
+
+  return "LOW";
+};
+
+const buildDefaultEmergencySuggestions = (defaultNeeds) => {
+  const combinedDefaults = new Map();
+
+  (defaultNeeds || []).forEach((need) => {
+    if (!need.item_name) {
+      return;
+    }
+
+    const itemKey =
+      need.inventory_item_id ||
+      `${need.item_name}:${need.unit_of_measure || "items"}`;
+    const existingDefault = combinedDefaults.get(itemKey);
+    const priorityLevel = resolvePublicDefaultNeedPriority(need.priority_level);
+    const suggestedQuantity =
+      need.suggested_quantity === null || need.suggested_quantity === undefined
+        ? null
+        : Math.max(0, Number(need.suggested_quantity || 0));
+
+    if (existingDefault) {
+      return;
+    }
+
+    combinedDefaults.set(itemKey, {
+      public_key: createPublicKey("default-emergency-item", itemKey),
+      item_name: need.item_name,
+      category: need.category,
+      unit_of_measure: need.unit_of_measure || "items",
+      suggested_quantity: suggestedQuantity,
+      priority_level: priorityLevel,
+      note: need.notes || "Standard emergency preparedness item.",
+      forecasted_at: need.updated_at || null,
+    });
+  });
+
+  return Array.from(combinedDefaults.values()).sort((left, right) => {
+    const priorityDifference =
+      (priorityRank[left.priority_level] || priorityRank.LOW) -
+      (priorityRank[right.priority_level] || priorityRank.LOW);
+
+    if (priorityDifference !== 0) {
+      return priorityDifference;
+    }
+
+    return String(left.item_name || "").localeCompare(
+      String(right.item_name || ""),
+    );
+  });
+};
+
+const buildNeededItemsPayload = (sourceType, suggestions) => {
+  const resolvedSourceType = neededItemSourceMeta[sourceType]
+    ? sourceType
+    : "EMPTY";
+  const meta = neededItemSourceMeta[resolvedSourceType];
+
+  return {
+    source_type: resolvedSourceType,
+    title: meta.title,
+    description: meta.description,
+    notice: meta.notice,
+    suggestions: suggestions || [],
+  };
+};
+
+const resolvePublicNeededItems = ({
+  latestForecasts,
+  defaultEmergencyNeeds,
+}) => {
+  const forecastSuggestions = combinePublicForecastSuggestions(latestForecasts);
+  const hasForecast = (latestForecasts || []).some(Boolean);
+
+  if (forecastSuggestions.length > 0) {
+    return buildNeededItemsPayload("FORECAST", forecastSuggestions);
+  }
+
+  if (hasForecast) {
+    return buildNeededItemsPayload("FORECAST", []);
+  }
+
+  const defaultEmergencySuggestions =
+    buildDefaultEmergencySuggestions(defaultEmergencyNeeds);
+
+  if (defaultEmergencySuggestions.length > 0) {
+    return buildNeededItemsPayload(
+      "DEFAULT_EMERGENCY",
+      defaultEmergencySuggestions,
+    );
+  }
+
+  return buildNeededItemsPayload("EMPTY", []);
+};
+
+const getBatchStatus = (
+  expirationDate,
+  quantityAvailable,
+  reorderLevel,
+  totalQuantityAvailable,
+) =>
+  getInventoryBatchStatus({
+    expirationDate,
+    quantityAvailable,
+    reorderLevel,
+    totalQuantityAvailable,
+  });
+
+const getProjectedItemStock = (batchOrItem, quantityDelta = 0) => {
+  if (
+    batchOrItem?.item_total_stock === undefined ||
+    batchOrItem?.item_total_stock === null
+  ) {
+    return undefined;
+  }
+
+  return Math.max(
+    0,
+    Number(batchOrItem.item_total_stock || 0) + Number(quantityDelta || 0),
+  );
+};
+
+const buildDonationBatchPrefix = (inventoryItem) => {
+  const normalizedItemCode = String(
+    inventoryItem?.item_code || inventoryItem?.id || "ITEM",
+  )
+    .replace(/[^A-Z0-9_-]+/gi, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toUpperCase();
+
+  return `DON-${normalizedItemCode}-BATCH-`;
+};
+
+const buildDonationBatchNumber = async ({ inventoryItem, dbClient }) => {
+  const batchPrefix = buildDonationBatchPrefix(inventoryItem);
+  const result = await dbClient.query(
+    `
+      SELECT batch_no
+      FROM inventory_batches
+      WHERE inventory_item_id = $1
+        AND source_type = 'DONATED'
+        AND batch_no ILIKE 'DON-%'
+    `,
+    [inventoryItem.id],
+  );
+
+  const existingSequences = result.rows
+    .map((row) => {
+      const batchNumber = String(row?.batch_no || "").toUpperCase();
+      const matchedSequence = batchNumber.match(/-BATCH-(\d+)$/);
+      const parsedValue = matchedSequence ? Number(matchedSequence[1]) : null;
+      return Number.isInteger(parsedValue) && parsedValue > 0
+        ? parsedValue
+        : null;
+    })
+    .filter(Boolean);
+
+  const nextSequence = Math.max(result.rows.length, 0, ...existingSequences) + 1;
+
+  return `${batchPrefix}${String(nextSequence).padStart(3, "0")}`;
+};
+
+const normalizeDonationStockFormDefinition = (
+  donationItemPayload,
+  inventoryItem,
+) => {
+  const packaging = String(
+    donationItemPayload.stock_form_packaging || inventoryItem.packaging || "piece",
+  )
+    .trim()
+    .toLowerCase();
+  const unitsPerPackaging = Number(
+    donationItemPayload.stock_form_units_per_packaging ??
+      (packaging === "piece" ? 1 : null),
+  );
+  const unitOfMeasure = String(
+    donationItemPayload.stock_form_unit_of_measure ||
+      inventoryItem.unit_of_measure ||
+      "pc",
+  ).trim();
+  const rawUnitValue =
+    donationItemPayload.stock_form_unit_of_measure_value ??
+    inventoryItem.unit_of_measure_value ??
+    null;
+  const unitOfMeasureValue =
+    rawUnitValue === null || rawUnitValue === undefined || rawUnitValue === ""
+      ? null
+      : Number(rawUnitValue);
+
+  if (!packaging) {
+    return null;
+  }
+
+  if (!Number.isInteger(unitsPerPackaging) || unitsPerPackaging <= 0) {
+    return null;
+  }
+
+  if (!unitOfMeasure) {
+    return null;
+  }
+
+  if (
+    unitOfMeasureValue !== null &&
+    (!Number.isFinite(unitOfMeasureValue) || unitOfMeasureValue <= 0)
+  ) {
+    return null;
+  }
+
+  return {
+    inventory_item_id: inventoryItem.id,
+    barcode: normalizeInventoryBarcode(donationItemPayload.stock_form_barcode) || null,
+    packaging,
+    units_per_packaging: unitsPerPackaging,
+    unit_of_measure: unitOfMeasure,
+    unit_of_measure_value: unitOfMeasureValue,
+    is_active: true,
+  };
+};
+
+const ensureDisasterEvent = async (
+  disasterEventId,
+  dbClient,
+  { requireActive = false } = {},
+) => {
+  const disasterEvent = await donationRepository.getDisasterEventById(
+    disasterEventId,
+    dbClient,
+  );
+
+  if (!disasterEvent) {
+    const error = new Error("disaster_event_id does not refer to an existing disaster event");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (requireActive) {
+    const normalizedStatus = String(disasterEvent.status || "").trim().toUpperCase();
+
+    if (!["ACTIVE", "ONGOING"].includes(normalizedStatus)) {
+      const error = new Error(
+        "disaster_event_id must refer to an active disaster event",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  return disasterEvent;
+};
+
+const ensureInventoryItem = async (inventoryItemId, dbClient) => {
+  const inventoryItem = await donationRepository.getInventoryItemById(
+    inventoryItemId,
+    dbClient,
+  );
+
+  if (!inventoryItem) {
+    const error = new Error("inventory_item_id does not refer to an existing inventory item");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return inventoryItem;
+};
+
+const ensureInventoryItemForUpdate = async (inventoryItemId, dbClient) => {
+  const inventoryItem =
+    typeof donationRepository.getInventoryItemByIdForUpdate === "function"
+      ? await donationRepository.getInventoryItemByIdForUpdate(
+          inventoryItemId,
+          dbClient,
+        )
+      : await ensureInventoryItem(inventoryItemId, dbClient);
+
+  if (!inventoryItem) {
+    const error = new Error(
+      "inventory_item_id does not refer to an existing inventory item",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return inventoryItem;
+};
+
+const normalizeDonationInventoryItemName = (itemName) =>
+  String(itemName || "").trim().toLowerCase();
+
+const getInventoryItemsByBarcode = async (barcode, dbClient = pool) => {
+  if (typeof inventoryItemRepository.getInventoryItemsByBarcode === "function") {
+    const matches = await inventoryItemRepository.getInventoryItemsByBarcode(
+      barcode,
+      dbClient,
+    );
+    return Array.isArray(matches) ? matches : [];
+  }
+
+  if (typeof inventoryItemRepository.getInventoryItemByBarcode === "function") {
+    const match = await inventoryItemRepository.getInventoryItemByBarcode(
+      barcode,
+      dbClient,
+    );
+    return match ? [match] : [];
+  }
+
+  return [];
+};
+
+const ensureDonationBarcodeOwnerAvailable = async ({
+  barcode,
+  inventoryItem,
+  dbClient,
+}) => {
+  if (!barcode) {
+    return;
+  }
+
+  const canonicalOwner =
+    typeof inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode ===
+    "function"
+      ? await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
+          barcode,
+          dbClient,
+        )
+      : null;
+
+  if (canonicalOwner) {
+    const existingItem =
+      String(canonicalOwner.inventory_item_id) === String(inventoryItem.id)
+        ? inventoryItem
+        : typeof inventoryItemRepository.getInventoryItemById === "function"
+          ? await inventoryItemRepository.getInventoryItemById(
+              canonicalOwner.inventory_item_id,
+              dbClient,
+            )
+          : null;
+
+    throw createDuplicateInventoryBarcodeError({
+      existingItem,
+      existingStockForm: canonicalOwner,
+      packagingConflict: true,
+    });
+  }
+
+  const legacyItemCandidates = await getInventoryItemsByBarcode(
+    barcode,
+    dbClient,
+  );
+  const conflictingLegacyItems = legacyItemCandidates.filter(
+    (candidate) => String(candidate.id) !== String(inventoryItem.id),
+  );
+
+  if (conflictingLegacyItems.length > 0) {
+    throw createDuplicateInventoryBarcodeError({
+      existingItem:
+        legacyItemCandidates.length === 1 ? conflictingLegacyItems[0] : null,
+    });
+  }
+};
+
+const resolveDonationInventoryItem = async ({
+  donationItemPayload,
+  performedBy,
+  dbClient,
+  inventoryItemByNameCache,
+}) => {
+  if (donationItemPayload.inventory_item_id) {
+    return ensureInventoryItem(donationItemPayload.inventory_item_id, dbClient);
+  }
+
+  const itemDefinition = donationItemPayload.new_inventory_item;
+  const normalizedItemName = normalizeDonationInventoryItemName(
+    itemDefinition?.item_name,
+  );
+
+  if (!itemDefinition || !normalizedItemName) {
+    const error = new Error(
+      "Donation items must identify an existing inventory item or define a new inventory item",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (inventoryItemByNameCache?.has(normalizedItemName)) {
+    return inventoryItemByNameCache.get(normalizedItemName);
+  }
+
+  const existingInventoryItem = await donationRepository.getInventoryItemByName(
+    itemDefinition.item_name,
+    dbClient,
+  );
+
+  if (existingInventoryItem) {
+    inventoryItemByNameCache?.set(normalizedItemName, existingInventoryItem);
+    return existingInventoryItem;
+  }
+
+  const { is_active: _legacyItemIsActive, ...canonicalItemDefinition } =
+    itemDefinition;
+  const category = String(itemDefinition.category || "").trim();
+  const createdInventoryItem = await inventoryItemService.createInventoryItem(
+    {
+      ...canonicalItemDefinition,
+      category,
+      is_perishable:
+        typeof itemDefinition.is_perishable === "boolean"
+          ? itemDefinition.is_perishable
+          : category.toLowerCase() === "perishable",
+      skip_opening_stock: true,
+    },
+    { userId: performedBy },
+    { dbClient },
+  );
+
+  if (!createdInventoryItem?.id) {
+    const error = new Error(
+      `Failed to create inventory item for ${itemDefinition.item_name}.`,
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  inventoryItemByNameCache?.set(normalizedItemName, createdInventoryItem);
+  return createdInventoryItem;
+};
+
+const ensureUser = async (userId, fieldName, dbClient) => {
+  const user = await donationRepository.getUserById(userId, dbClient);
+
+  if (!user) {
+    const error = new Error(`${fieldName} does not refer to an existing user`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return user;
+};
+
+const attachDonationItems = async (donationId, dbClient = pool) => {
+  const items = await donationRepository.getDonationItemsByDonationId(
+    donationId,
+    dbClient,
+  );
+
+  return items.map(mapDonationItem);
+};
+
+const buildInventoryTransactionRemarks = ({
+  donationName,
+  inventoryItemName,
+  action,
+  remarks,
+}) => {
+  const baseMessage = `${action} donation stock for ${inventoryItemName} from ${donationName}`;
+
+  if (!remarks) {
+    return baseMessage;
+  }
+
+  return `${baseMessage}. ${remarks}`;
+};
+
+const createOrAttachDonationBatch = async ({
+  donation,
+  inventoryItem,
+  donationItemPayload,
+  createdBy,
+  dbClient,
+}) => {
+  if (donationItemPayload.inventory_batch_id) {
+    const error = new Error(
+      "Donation receipts must create a new donated batch for each received entry",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let resolvedStockFormId = donationItemPayload.inventory_item_stock_form_id || null;
+
+  if (resolvedStockFormId) {
+    const stockForm =
+      await inventoryItemStockFormRepository.getInventoryItemStockFormById(
+        resolvedStockFormId,
+        dbClient,
+      );
+
+    if (!stockForm) {
+      const error = new Error(
+        "inventory_item_stock_form_id does not refer to an existing stock form",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (String(stockForm.inventory_item_id) !== String(inventoryItem.id)) {
+      const error = new Error(
+        "inventory_item_stock_form_id does not belong to the selected inventory item",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+  } else {
+    const stockForms =
+      await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(
+        inventoryItem.id,
+        dbClient,
+      );
+
+    const stockFormDefinition = normalizeDonationStockFormDefinition(
+      donationItemPayload,
+      inventoryItem,
+    );
+
+    if (stockFormDefinition) {
+      const matchedStockForm =
+        await inventoryItemStockFormRepository.getInventoryItemStockFormByDefinition(
+          stockFormDefinition,
+          dbClient,
+        );
+
+      if (matchedStockForm) {
+        resolvedStockFormId = matchedStockForm.id;
+      } else {
+        if (
+          stockFormDefinition.barcode &&
+          !isValidInventoryBarcode(stockFormDefinition.barcode)
+        ) {
+          const error = new Error(
+            "stock_form_barcode must contain 8 to 18 digits",
+          );
+          error.statusCode = 400;
+          throw error;
+        }
+
+        await ensureDonationBarcodeOwnerAvailable({
+          barcode: stockFormDefinition.barcode,
+          inventoryItem,
+          dbClient,
+        });
+
+        const createdStockForm =
+          await inventoryItemStockFormRepository.insertInventoryItemStockForm(
+            stockFormDefinition,
+            dbClient,
+          );
+        resolvedStockFormId = createdStockForm.id;
+      }
+    } else if (stockForms.length === 1) {
+      resolvedStockFormId = stockForms[0].id;
+    } else if (stockForms.length > 1) {
+      const error = new Error(
+        "inventory_item_stock_form_id is required when the selected inventory item has multiple stock forms",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  const createdBatch = await inventoryBatchRepository.insertInventoryBatch(
+    {
+      inventory_item_id: inventoryItem.id,
+      inventory_item_stock_form_id: resolvedStockFormId,
+      batch_no: await buildDonationBatchNumber({
+        inventoryItem,
+        dbClient,
+      }),
+      source_type: "DONATED",
+      quantity_received: donationItemPayload.quantity_received,
+      quantity_available: donationItemPayload.quantity_received,
+      expiration_date: donationItemPayload.expiration_date,
+      received_at: donation.received_at,
+      storage_location: donationItemPayload.storage_location,
+      status: getBatchStatus(
+        donationItemPayload.expiration_date,
+        donationItemPayload.quantity_received,
+        inventoryItem.reorder_level,
+        getProjectedItemStock(
+          inventoryItem,
+          donationItemPayload.quantity_received,
+        ),
+      ),
+      created_by: createdBy,
+    },
+    dbClient,
+  );
+
+  return createdBatch.id;
+};
+
+const createDonationItemWithInventory = async ({
+  donation,
+  donationItemPayload,
+  performedBy,
+  dbClient,
+  inventoryItemByNameCache,
+}) => {
+  const resolvedInventoryItem = await resolveDonationInventoryItem({
+    donationItemPayload,
+    performedBy,
+    dbClient,
+    inventoryItemByNameCache,
+  });
+  const inventoryItem = await ensureInventoryItemForUpdate(
+    resolvedInventoryItem.id,
+    dbClient,
+  );
+
+  const inventoryBatchId = await createOrAttachDonationBatch({
+    donation,
+    inventoryItem,
+    donationItemPayload,
+    createdBy: performedBy,
+    dbClient,
+  });
+
+  const createdDonationItem = await donationRepository.insertDonationItem(
+    {
+      donation_id: donation.id,
+      inventory_item_id: inventoryItem.id,
+      inventory_batch_id: inventoryBatchId,
+      quantity_received: donationItemPayload.quantity_received,
+      remarks: donationItemPayload.remarks,
+    },
+    dbClient,
+  );
+
+  await donationRepository.insertInventoryTransaction(
+    {
+      disaster_event_id: donation.disaster_event_id,
+      inventory_batch_id: inventoryBatchId,
+      transaction_type: "INFLOW",
+      quantity: donationItemPayload.quantity_received,
+      reference_type: "DONATION",
+      reference_id: createdDonationItem.id,
+      performed_by: performedBy,
+      remarks: buildInventoryTransactionRemarks({
+        donationName: donation.donor_name,
+        inventoryItemName: inventoryItem.item_name,
+        action: "Received",
+        remarks: donationItemPayload.remarks,
+      }),
+    },
+    dbClient,
+  );
+
+  await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
+    inventoryItem.id,
+    { dbClient },
+  );
+
+  return createdDonationItem.id;
+};
+
+const removeDonationItemWithinTransaction = async ({
+  donationItem,
+  donation,
+  performedBy,
+  dbClient,
+}) => {
+  const inventoryItem = await ensureInventoryItemForUpdate(
+    donationItem.inventory_item_id,
+    dbClient,
+  );
+  const batch = await donationRepository.getInventoryBatchByIdForUpdate(
+    donationItem.inventory_batch_id,
+    dbClient,
+  );
+
+  if (!batch) {
+    const error = new Error("Linked inventory batch not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const quantityReceived = Number(donationItem.quantity_received);
+  const currentAvailable = Number(batch.quantity_available);
+
+  if (currentAvailable < quantityReceived) {
+    const error = new Error(
+      "This donation item can no longer be deleted because part of the donated stock has already been distributed or used",
+    );
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const nextAvailable = currentAvailable - quantityReceived;
+  const nextReceived = Number(batch.quantity_received) - quantityReceived;
+  const nextItemTotalStock = getProjectedItemStock(batch, -quantityReceived);
+
+  await donationRepository.updateInventoryBatchStock(
+    batch.id,
+    {
+      quantity_received: nextReceived,
+      quantity_available: nextAvailable,
+      expiration_date: batch.expiration_date,
+      storage_location: batch.storage_location,
+      status: isInventoryBatchDerivedStatus(batch.status)
+        ? getBatchStatus(
+            batch.expiration_date,
+            nextAvailable,
+            inventoryItem.reorder_level,
+            nextItemTotalStock,
+          )
+        : batch.status,
+    },
+    dbClient,
+  );
+
+  await donationRepository.insertInventoryTransaction(
+    {
+      disaster_event_id: donation.disaster_event_id,
+      inventory_batch_id: batch.id,
+      transaction_type: "OUTFLOW",
+      quantity: quantityReceived,
+      reference_type: "DONATION",
+      reference_id: donationItem.id,
+      performed_by: performedBy,
+      remarks: buildInventoryTransactionRemarks({
+        donationName: donation.donor_name,
+        inventoryItemName: inventoryItem.item_name,
+        action: "Removed",
+        remarks: donationItem.remarks,
+      }),
+    },
+    dbClient,
+  );
+
+  await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
+    inventoryItem.id,
+    { dbClient },
+  );
+
+  await donationRepository.deleteDonationItem(donationItem.id, dbClient);
+
+  return {
+    batchId: batch.id,
+    batchNo: batch.batch_no,
+    previousQuantityAvailable: currentAvailable,
+    previousStatus: batch.status,
+    nextQuantityAvailable: nextAvailable,
+    nextStatus: getBatchStatus(
+      batch.expiration_date,
+      nextAvailable,
+      inventoryItem.reorder_level,
+      nextItemTotalStock,
+    ),
+    expirationDate: batch.expiration_date,
+    itemName: inventoryItem.item_name,
+    reorderLevel: inventoryItem.reorder_level,
+    itemTotalStock: nextItemTotalStock,
+    quantityRemoved: quantityReceived,
+    disasterEventId: donation.disaster_event_id,
+  };
+};
+
+const getDonationNeeds = async (filters = {}) => {
+  const donationNeeds = await donationRepository.getDonationNeeds(filters);
+  return donationNeeds.map(mapDonationNeed);
+};
+
+const createDonationNeed = async (payload, publishedBy) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    await ensureDisasterEvent(payload.disaster_event_id, client);
+    await ensureInventoryItem(payload.inventory_item_id, client);
+    await ensureUser(publishedBy, "published_by", client);
+
+    const createdNeed = await donationRepository.insertDonationNeed(
+      {
+        ...payload,
+        published_by: publishedBy,
+      },
+      client,
+    );
+
+    await client.query("COMMIT");
+
+    const donationNeed = await donationRepository.getDonationNeedById(
+      createdNeed.id,
+      pool,
+    );
+
+    return mapDonationNeed(donationNeed);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const updateDonationNeed = async (id, payload) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const existingNeed = await donationRepository.getDonationNeedById(id, client);
+
+    if (!existingNeed) {
+      const error = new Error("Donation need not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    await ensureDisasterEvent(payload.disaster_event_id, client);
+    await ensureInventoryItem(payload.inventory_item_id, client);
+
+    await donationRepository.updateDonationNeed(id, payload, client);
+    await client.query("COMMIT");
+
+    const donationNeed = await donationRepository.getDonationNeedById(id, pool);
+    return mapDonationNeed(donationNeed);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const deleteDonationNeed = async (id) => {
+  const deletedNeed = await donationRepository.deleteDonationNeed(id, pool);
+
+  if (!deletedNeed) {
+    const error = new Error("Donation need not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return deletedNeed;
+};
+
+const getDonations = async (filters = {}) => {
+  const donations = await donationRepository.getDonations(filters);
+
+  return Promise.all(
+    donations.map(async (donation) => {
+      const items = await attachDonationItems(donation.id);
+      return mapDonation(donation, items);
+    }),
+  );
+};
+
+const getDonationById = async (id) => {
+  const donation = await donationRepository.getDonationById(id);
+
+  if (!donation) {
+    return null;
+  }
+
+  const items = await attachDonationItems(id);
+  return mapDonation(donation, items);
+};
+
+const getDonationDetail = async (id) => {
+  const [donation, stockUpdateHistory, auditLogs] = await Promise.all([
+    getDonationById(id),
+    donationRepository.getDonationInventoryTransactions(id),
+    systemLogRepository.getAuditLogsByEntity({
+      entityType: "DONATION",
+      entityId: id,
+      limit: 20,
+    }),
+  ]);
+
+  if (!donation) {
+    return null;
+  }
+
+  return {
+    donation,
+    stock_update_history: stockUpdateHistory,
+    audit_history: auditLogs.map(mapAuditLogRow),
+  };
+};
+
+const createDonation = async (payload, actor) => {
+  const normalizedActor = normalizeActor(actor);
+  const receivedBy = normalizedActor.userId;
+  const normalizedDonorType = ensureValidDonationDonorType(payload.donor_type);
+  const normalizedDonorTypeOther = normalizeDonationOtherDonorType(
+    payload.donor_type_other,
+  );
+  const normalizedPayload = {
+    ...payload,
+    donor_type: normalizedDonorType,
+    donor_type_other:
+      normalizedDonorType === "OTHER" ? normalizedDonorTypeOther : null,
+  };
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    await ensureDisasterEvent(normalizedPayload.disaster_event_id, client, {
+      requireActive: true,
+    });
+    await ensureUser(receivedBy, "received_by", client);
+
+    const createdDonation = await donationRepository.insertDonation(
+      {
+        ...normalizedPayload,
+        received_by: receivedBy,
+      },
+      client,
+    );
+
+    const donationRecord = await donationRepository.getDonationByIdForUpdate(
+      createdDonation.id,
+      client,
+    );
+    const inventoryItemByNameCache = new Map();
+
+    for (const item of normalizedPayload.items || []) {
+      await createDonationItemWithInventory({
+        donation: donationRecord,
+        donationItemPayload: item,
+        performedBy: receivedBy,
+        dbClient: client,
+        inventoryItemByNameCache,
+      });
+    }
+
+    // Existing eligible stubs may predate this donation. Assign newly received
+    // donated relief packs inside the same transaction so they are ready for
+    // online or offline claiming as soon as the donation is saved.
+    await donatedReliefPackAssignmentService.ensureDonatedReliefPackAssignmentsForEvent(
+      donationRecord.disaster_event_id,
+      client,
+    );
+
+    await client.query("COMMIT");
+    const createdDonationRecord = await getDonationById(createdDonation.id);
+
+    await notificationService.emitSafely(async () => {
+      await notificationService.emitDonationSummaryUpdate({
+        donorName: createdDonationRecord.donor_name,
+        itemCount: createdDonationRecord.items.length,
+        disasterEventId: createdDonationRecord.disaster_event_id,
+        referenceId: createdDonationRecord.id,
+      });
+
+      for (const item of createdDonationRecord.items) {
+        await notificationService.emitBatchAlerts({
+          batch: {
+            id: item.inventory_batch?.id,
+            batch_no: item.inventory_batch?.batch_no,
+            quantity_available: item.inventory_batch?.quantity_available,
+            status: item.inventory_batch?.source_type === "DONATED"
+              ? getBatchStatus(
+                  item.inventory_batch?.expiration_date,
+                  item.inventory_batch?.quantity_available,
+                  item.inventory_item?.reorder_level,
+                  item.inventory_batch?.item_total_stock,
+                )
+              : null,
+            reorder_level: item.inventory_item?.reorder_level,
+            item_total_stock: item.inventory_batch?.item_total_stock,
+            expiration_date: item.inventory_batch?.expiration_date,
+            item_name: item.inventory_item?.item_name,
+          },
+          disasterEventId: createdDonationRecord.disaster_event_id,
+        });
+      }
+    });
+
+    await logAuditSafely({
+      actor: normalizedActor,
+      action: "DONATION_CREATE",
+      entityType: "DONATION",
+      entityId: createdDonationRecord.id,
+      oldValues: {},
+      newValues: buildDonationAuditValues(createdDonationRecord),
+    });
+
+    return createdDonationRecord;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const updateDonation = async (id, payload, actor = null) => {
+  const normalizedActor = normalizeActor(actor);
+  const normalizedDonorType = ensureValidDonationDonorType(payload.donor_type);
+  const normalizedDonorTypeOther = normalizeDonationOtherDonorType(
+    payload.donor_type_other,
+  );
+  const normalizedPayload = {
+    ...payload,
+    donor_type: normalizedDonorType,
+    donor_type_other:
+      normalizedDonorType === "OTHER" ? normalizedDonorTypeOther : null,
+  };
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const existingDonation = await donationRepository.getDonationByIdForUpdate(
+      id,
+      client,
+    );
+
+    if (!existingDonation) {
+      const error = new Error("Donation not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const donorNameChanged =
+      normalizeDonationDonorName(existingDonation.donor_name) !==
+      normalizeDonationDonorName(normalizedPayload.donor_name);
+
+    const nextDisasterEvent = await ensureDisasterEvent(
+      normalizedPayload.disaster_event_id,
+      client,
+      {
+        requireActive: true,
+      },
+    );
+    const previousDisasterEvent =
+      String(existingDonation.disaster_event_id) ===
+      String(normalizedPayload.disaster_event_id)
+        ? nextDisasterEvent
+        : await donationRepository.getDisasterEventById(
+            existingDonation.disaster_event_id,
+            client,
+          );
+    const previousDonationSummary = buildDonationUpdateAuditValues(
+      existingDonation,
+      previousDisasterEvent,
+    );
+
+    let renamedDonationRows = [];
+
+    if (donorNameChanged) {
+      renamedDonationRows = await donationRepository.renameDonorAcrossDonations(
+        {
+          previousDonorName: existingDonation.donor_name,
+          nextDonorName: normalizedPayload.donor_name,
+          donorType: existingDonation.donor_type,
+          donorTypeOther: existingDonation.donor_type_other || null,
+        },
+        client,
+      );
+    }
+
+    await donationRepository.updateDonation(id, normalizedPayload, client);
+
+    const syncTargets = new Map();
+
+    renamedDonationRows.forEach((row) => {
+      syncTargets.set(String(row.id), {
+        disaster_event_id: row.disaster_event_id,
+        received_at: row.received_at || null,
+      });
+    });
+
+    syncTargets.set(String(id), {
+      disaster_event_id: normalizedPayload.disaster_event_id,
+      received_at: normalizedPayload.received_at || null,
+    });
+
+    for (const [donationId, syncPayload] of syncTargets.entries()) {
+      await donationRepository.syncDonationInventoryTransactions(
+        donationId,
+        syncPayload,
+        client,
+      );
+    }
+
+    await client.query("COMMIT");
+
+    const updatedDonation = await getDonationById(id);
+    const nextDonationSummary = buildDonationUpdateAuditValues(
+      updatedDonation,
+      nextDisasterEvent,
+    );
+
+    if (hasAuditValueChanges(previousDonationSummary, nextDonationSummary)) {
+      await logAuditSafely({
+        actor: normalizedActor,
+        action: "DONATION_UPDATE",
+        entityType: "DONATION",
+        entityId: id,
+        oldValues: previousDonationSummary,
+        newValues: nextDonationSummary,
+      });
+    }
+
+    if (donorNameChanged) {
+      const propagatedOldValues = pickDefined(existingDonation, ["donor_name"]);
+      const propagatedNewValues = pickDefined(updatedDonation, ["donor_name"]);
+
+      for (const renamedDonationRow of renamedDonationRows) {
+        if (String(renamedDonationRow.id) === String(id)) {
+          continue;
+        }
+
+        await logAuditSafely({
+          actor: normalizedActor,
+          action: "DONATION_UPDATE",
+          entityType: "DONATION",
+          entityId: renamedDonationRow.id,
+          oldValues: propagatedOldValues,
+          newValues: propagatedNewValues,
+        });
+      }
+    }
+
+    return updatedDonation;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const updateDonationPublicName = async (id, donorNamePublic, actor = null) => {
+  const normalizedActor = normalizeActor(actor);
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const existingDonation = await donationRepository.getDonationByIdForUpdate(
+      id,
+      client,
+    );
+
+    if (!existingDonation) {
+      const error = new Error("Donation not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const nextDonorNamePublic = donorNamePublic === true;
+
+    await donationRepository.updateDonationPublicName(
+      id,
+      nextDonorNamePublic,
+      client,
+    );
+
+    await client.query("COMMIT");
+
+    const updatedDonation = await getDonationById(id);
+    const previousVisibility = {
+      donor_name_public: Boolean(existingDonation.donor_name_public),
+    };
+    const nextVisibility = {
+      donor_name_public: nextDonorNamePublic,
+    };
+
+    if (hasAuditValueChanges(previousVisibility, nextVisibility)) {
+      await logAuditSafely({
+        actor: normalizedActor,
+        action: "DONATION_PUBLIC_NAME_UPDATE",
+        entityType: "DONATION",
+        entityId: id,
+        oldValues: previousVisibility,
+        newValues: nextVisibility,
+      });
+    }
+
+    return updatedDonation;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const createDonationItem = async (donationId, payload, performedBy) => {
+  const normalizedActor = normalizeActor(performedBy);
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const donation = await donationRepository.getDonationByIdForUpdate(
+      donationId,
+      client,
+    );
+
+    if (!donation) {
+      const error = new Error("Donation not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    await ensureUser(performedBy, "performed_by", client);
+
+    const createdDonationItemId = await createDonationItemWithInventory({
+      donation,
+      donationItemPayload: payload,
+      performedBy,
+      dbClient: client,
+      inventoryItemByNameCache: new Map(),
+    });
+
+    await donatedReliefPackAssignmentService.ensureDonatedReliefPackAssignmentsForEvent(
+      donation.disaster_event_id,
+      client,
+    );
+
+    if (
+      typeof distributionTransactionRepository.updateDonationStatusesByIds ===
+      "function"
+    ) {
+      await distributionTransactionRepository.updateDonationStatusesByIds(
+        [donation.id],
+        client,
+      );
+    }
+
+    await client.query("COMMIT");
+
+    const donationItem = await donationRepository.getDonationItemById(
+      createdDonationItemId,
+      pool,
+    );
+    const mappedDonationItem = mapDonationItem(donationItem);
+
+    await logAuditSafely({
+      actor: normalizedActor,
+      action: "DONATION_ITEM_UPDATE",
+      entityType: "DONATION_ITEM",
+      entityId: createdDonationItemId,
+      oldValues: {},
+      newValues: {
+        donor_name: donation.donor_name,
+        ...summarizeDonationItem(mappedDonationItem),
+      },
+    });
+
+    await notificationService.emitSafely(async () => {
+      await notificationService.emitDonationStockUpdate({
+        donorName: donation.donor_name,
+        itemName: mappedDonationItem.inventory_item?.item_name || "Donation item",
+        quantity: mappedDonationItem.quantity_received,
+        disasterEventId: donation.disaster_event_id,
+        referenceId: mappedDonationItem.id,
+        actionLabel: "received",
+      });
+
+      await notificationService.emitBatchAlerts({
+        batch: {
+          id: mappedDonationItem.inventory_batch?.id,
+          batch_no: mappedDonationItem.inventory_batch?.batch_no,
+          quantity_available: mappedDonationItem.inventory_batch?.quantity_available,
+          status: getBatchStatus(
+            mappedDonationItem.inventory_batch?.expiration_date,
+            mappedDonationItem.inventory_batch?.quantity_available,
+            mappedDonationItem.inventory_item?.reorder_level,
+            mappedDonationItem.inventory_batch?.item_total_stock,
+          ),
+          reorder_level: mappedDonationItem.inventory_item?.reorder_level,
+          item_total_stock: mappedDonationItem.inventory_batch?.item_total_stock,
+          expiration_date: mappedDonationItem.inventory_batch?.expiration_date,
+          item_name: mappedDonationItem.inventory_item?.item_name,
+        },
+        disasterEventId: donation.disaster_event_id,
+      });
+    });
+
+    return mappedDonationItem;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const updateDonationItem = async (id, payload, performedBy) => {
+  const normalizedActor = normalizeActor(performedBy);
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const existingDonationItem =
+      await donationRepository.getDonationItemByIdForUpdate(id, client);
+
+    if (!existingDonationItem) {
+      const error = new Error("Donation item not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const donation = await donationRepository.getDonationByIdForUpdate(
+      existingDonationItem.donation_id,
+      client,
+    );
+
+    if (!donation) {
+      const error = new Error("Parent donation not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (
+      payload.inventory_item_id &&
+      payload.inventory_item_id !== existingDonationItem.inventory_item_id
+    ) {
+      const error = new Error(
+        "inventory_item_id cannot be changed for an existing donation item",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const inventoryItem = await ensureInventoryItemForUpdate(
+      existingDonationItem.inventory_item_id,
+      client,
+    );
+    const batch = await donationRepository.getInventoryBatchByIdForUpdate(
+      existingDonationItem.inventory_batch_id,
+      client,
+    );
+
+    if (!batch) {
+      const error = new Error("Linked inventory batch not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const existingDonationItemRecord = await donationRepository.getDonationItemById(
+      id,
+      client,
+    );
+    const previousDonationItemSummary = summarizeDonationItem(
+      mapDonationItem(existingDonationItemRecord),
+    );
+    const previousBatchSummary = summarizeDonationInventoryBatch(batch);
+
+    const nextQuantity = payload.quantity_received;
+    const quantityDelta = nextQuantity - Number(existingDonationItem.quantity_received);
+    const currentAvailable = Number(batch.quantity_available);
+    const currentReceived = Number(batch.quantity_received);
+
+    let nextAvailable = currentAvailable;
+    let nextReceived = currentReceived;
+
+    if (quantityDelta > 0) {
+      nextAvailable += quantityDelta;
+      nextReceived += quantityDelta;
+    }
+
+    if (quantityDelta < 0) {
+      const quantityToRemove = Math.abs(quantityDelta);
+
+      if (currentAvailable < quantityToRemove) {
+        const error = new Error(
+          "Unable to reduce the donated quantity because part of the donated stock has already been distributed or used",
+        );
+        error.statusCode = 409;
+        throw error;
+      }
+
+      nextAvailable -= quantityToRemove;
+      nextReceived -= quantityToRemove;
+    }
+
+    await donationRepository.updateInventoryBatchStock(
+      batch.id,
+      {
+        quantity_received: nextReceived,
+        quantity_available: nextAvailable,
+        expiration_date: payload.expiration_date || batch.expiration_date,
+        storage_location: payload.storage_location || batch.storage_location,
+        status: isInventoryBatchDerivedStatus(batch.status)
+          ? getBatchStatus(
+              payload.expiration_date || batch.expiration_date,
+              nextAvailable,
+              inventoryItem.reorder_level,
+              getProjectedItemStock(batch, quantityDelta),
+            )
+          : batch.status,
+      },
+      client,
+    );
+
+    await donationRepository.updateDonationItem(
+      id,
+      {
+        quantity_received: nextQuantity,
+        remarks: payload.remarks,
+      },
+      client,
+    );
+
+    let adjustmentTransactionId = null;
+    let adjustmentTransactionSummary = null;
+
+    if (quantityDelta !== 0) {
+      adjustmentTransactionSummary = {
+        disaster_event_id: donation.disaster_event_id,
+        inventory_batch_id: batch.id,
+        transaction_type: quantityDelta > 0 ? "INFLOW" : "OUTFLOW",
+        quantity: Math.abs(quantityDelta),
+        reference_type: "DONATION",
+        reference_id: id,
+        performed_by: performedBy,
+        performed_at: donation.received_at || new Date().toISOString(),
+        remarks: buildInventoryTransactionRemarks({
+          donationName: donation.donor_name,
+          inventoryItemName: inventoryItem.item_name,
+          action: quantityDelta > 0 ? "Adjusted up" : "Adjusted down",
+          remarks: payload.remarks,
+        }),
+      };
+
+      const createdAdjustmentTransaction =
+        await donationRepository.insertInventoryTransaction(
+          adjustmentTransactionSummary,
+          client,
+        );
+
+      adjustmentTransactionId = createdAdjustmentTransaction.id;
+    }
+
+    await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
+      existingDonationItem.inventory_item_id,
+      { dbClient: client },
+    );
+
+    if (
+      typeof distributionTransactionRepository.updateDonationStatusesByIds ===
+      "function"
+    ) {
+      await distributionTransactionRepository.updateDonationStatusesByIds(
+        [donation.id],
+        client,
+      );
+    }
+
+    await client.query("COMMIT");
+
+    const donationItem = await donationRepository.getDonationItemById(id, pool);
+    const mappedDonationItem = mapDonationItem(donationItem);
+    const nextDonationItemSummary = summarizeDonationItem(mappedDonationItem);
+    const nextBatchSummary = summarizeDonationInventoryBatch({
+      ...batch,
+      ...pickDefined(mappedDonationItem?.inventory_batch || {}, [
+        "batch_no",
+        "expiration_date",
+        "quantity_available",
+      ]),
+      quantity_received: nextReceived,
+      quantity_available: nextAvailable,
+      expiration_date:
+        mappedDonationItem?.inventory_batch?.expiration_date ||
+        payload.expiration_date ||
+        batch.expiration_date,
+      storage_location: payload.storage_location || batch.storage_location,
+      status: getBatchStatus(
+        mappedDonationItem?.inventory_batch?.expiration_date ||
+          payload.expiration_date ||
+          batch.expiration_date,
+        nextAvailable,
+        inventoryItem.reorder_level,
+        getProjectedItemStock(batch, quantityDelta),
+      ),
+    });
+
+    const nextDonationAuditValues = {
+      ...nextDonationItemSummary,
+      ...(adjustmentTransactionId
+        ? { adjustment_transaction_id: adjustmentTransactionId }
+        : {}),
+    };
+
+    if (
+      hasAuditValueChanges(
+        previousDonationItemSummary,
+        nextDonationAuditValues,
+      )
+    ) {
+      await logAuditSafely({
+        actor: normalizedActor,
+        action: "DONATION_ITEM_UPDATE",
+        entityType: "DONATION_ITEM",
+        entityId: id,
+        oldValues: previousDonationItemSummary,
+        newValues: nextDonationAuditValues,
+      });
+    }
+
+    await logAuditSafely({
+      actor: normalizedActor,
+      action: "INVENTORY_BATCH_UPDATE",
+      entityType: "INVENTORY_BATCH",
+      entityId: batch.id,
+      oldValues: previousBatchSummary,
+      newValues: nextBatchSummary,
+    });
+
+    if (adjustmentTransactionId && adjustmentTransactionSummary) {
+      await logAuditSafely({
+        actor: normalizedActor,
+        action: "INVENTORY_TRANSACTION_CREATE",
+        entityType: "INVENTORY_TRANSACTION",
+        entityId: adjustmentTransactionId,
+        oldValues: {},
+        newValues: summarizeDonationInventoryTransaction(
+          adjustmentTransactionSummary,
+        ),
+      });
+    }
+
+    if (quantityDelta !== 0) {
+      await notificationService.emitSafely(async () => {
+        await notificationService.emitDonationStockUpdate({
+          donorName: donation.donor_name,
+          itemName: mappedDonationItem.inventory_item?.item_name || "Donation item",
+          quantity: Math.abs(quantityDelta),
+          disasterEventId: donation.disaster_event_id,
+          referenceId: mappedDonationItem.id,
+          actionLabel: quantityDelta > 0 ? "adjusted upward" : "adjusted downward",
+          severity: quantityDelta > 0 ? "INFO" : "WARNING",
+          anomaly: quantityDelta < 0,
+        });
+
+        await notificationService.emitBatchAlerts({
+          batch: {
+            id: mappedDonationItem.inventory_batch?.id,
+            batch_no: mappedDonationItem.inventory_batch?.batch_no,
+            quantity_available: mappedDonationItem.inventory_batch?.quantity_available,
+            status: getBatchStatus(
+              mappedDonationItem.inventory_batch?.expiration_date,
+              mappedDonationItem.inventory_batch?.quantity_available,
+              mappedDonationItem.inventory_item?.reorder_level,
+              mappedDonationItem.inventory_batch?.item_total_stock,
+            ),
+            reorder_level: mappedDonationItem.inventory_item?.reorder_level,
+            item_total_stock: mappedDonationItem.inventory_batch?.item_total_stock,
+            expiration_date: mappedDonationItem.inventory_batch?.expiration_date,
+            item_name: mappedDonationItem.inventory_item?.item_name,
+          },
+          previousQuantityAvailable: currentAvailable,
+          previousStatus: batch.status,
+          disasterEventId: donation.disaster_event_id,
+        });
+      });
+    }
+
+    return mappedDonationItem;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const deleteDonationItem = async (id, performedBy) => {
+  const normalizedActor = normalizeActor(performedBy);
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const existingDonationItem =
+      await donationRepository.getDonationItemByIdForUpdate(id, client);
+
+    if (!existingDonationItem) {
+      const error = new Error("Donation item not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const donation = await donationRepository.getDonationByIdForUpdate(
+      existingDonationItem.donation_id,
+      client,
+    );
+
+    if (!donation) {
+      const error = new Error("Parent donation not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const existingDonationItemRecord = await donationRepository.getDonationItemById(
+      id,
+      client,
+    );
+    const previousDonationItemSummary = {
+      donor_name: donation.donor_name,
+      ...summarizeDonationItem(mapDonationItem(existingDonationItemRecord)),
+    };
+
+    const removalSummary = await removeDonationItemWithinTransaction({
+      donationItem: existingDonationItem,
+      donation,
+      performedBy,
+      dbClient: client,
+    });
+
+    if (
+      typeof distributionTransactionRepository.updateDonationStatusesByIds ===
+      "function"
+    ) {
+      await distributionTransactionRepository.updateDonationStatusesByIds(
+        [donation.id],
+        client,
+      );
+    }
+
+    await client.query("COMMIT");
+
+    await logAuditSafely({
+      actor: normalizedActor,
+      action: "DONATION_ITEM_UPDATE",
+      entityType: "DONATION_ITEM",
+      entityId: id,
+      oldValues: previousDonationItemSummary,
+      newValues: {},
+    });
+
+    await notificationService.emitSafely(async () => {
+      await notificationService.emitDonationStockUpdate({
+        donorName: donation.donor_name,
+        itemName: removalSummary.itemName,
+        quantity: removalSummary.quantityRemoved,
+        disasterEventId: donation.disaster_event_id,
+        referenceId: id,
+        actionLabel: "removed",
+        severity: "WARNING",
+        anomaly: true,
+      });
+
+      await notificationService.emitBatchAlerts({
+        batch: {
+          id: removalSummary.batchId,
+          batch_no: removalSummary.batchNo,
+          quantity_available: removalSummary.nextQuantityAvailable,
+          status: removalSummary.nextStatus,
+          expiration_date: removalSummary.expirationDate,
+          reorder_level: removalSummary.reorderLevel,
+          item_total_stock: removalSummary.itemTotalStock,
+          item_name: removalSummary.itemName,
+        },
+        previousQuantityAvailable: removalSummary.previousQuantityAvailable,
+        previousStatus: removalSummary.previousStatus,
+        disasterEventId: removalSummary.disasterEventId,
+      });
+    });
+
+    return { id };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const reassignLeftoverDonationStock = async (
+  donationItemId,
+  payload,
+  performedBy,
+) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const sourceDonationItem =
+      await donationRepository.getDonationItemByIdForUpdate(
+        donationItemId,
+        client,
+      );
+
+    if (!sourceDonationItem) {
+      const error = new Error("Donation item not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const sourceDonation = await donationRepository.getDonationByIdForUpdate(
+      sourceDonationItem.donation_id,
+      client,
+    );
+
+    if (!sourceDonation) {
+      const error = new Error("Source donation not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const sourceEvent = await donationRepository.getDisasterEventById(
+      sourceDonation.disaster_event_id,
+      client,
+    );
+    const targetEvent = await donationRepository.getDisasterEventById(
+      payload.target_disaster_event_id,
+      client,
+    );
+
+    if (!sourceEvent || !targetEvent) {
+      const error = new Error("Disaster event not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (
+      String(sourceEvent.status).toUpperCase() === "CLOSED"
+    ) {
+      const error = new Error(
+        "Leftover stock can only be reassigned after the source disaster event is closed.",
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (String(sourceEvent.id) === String(targetEvent.id)) {
+      const error = new Error(
+        "Target disaster event must be different from the source event.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (
+      String(targetEvent.status).toUpperCase() === "CLOSED"
+    ) {
+      const error = new Error("Target disaster event must be planned or active.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const quantityToReassign = Number(payload.quantity || 0);
+
+    if (!Number.isInteger(quantityToReassign) || quantityToReassign <= 0) {
+      const error = new Error("Quantity must be a positive whole number.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (isReliefPackDonationItemRemark(sourceDonationItem.remarks)) {
+      const error = new Error(
+        "Relief pack stock cannot be reassigned as loose leftover stock.",
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const inventoryItem = await ensureInventoryItemForUpdate(
+      sourceDonationItem.inventory_item_id,
+      client,
+    );
+    const sourceBatch = await donationRepository.getInventoryBatchByIdForUpdate(
+      sourceDonationItem.inventory_batch_id,
+      client,
+    );
+
+    if (!sourceBatch || sourceBatch.source_type !== "DONATED") {
+      const error = new Error("Linked donated inventory batch not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const sourceQuantityAvailable = Number(sourceBatch.quantity_available || 0);
+    const sourceBatchStatus = String(sourceBatch.status || "").toUpperCase();
+    if (!["AVAILABLE", "LOW_STOCK"].includes(sourceBatchStatus)) {
+      const error = new Error(
+        "Only available donated leftover stock can be reassigned.",
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (isInventoryBatchExpired(sourceBatch.expiration_date)) {
+      const error = new Error("Expired donated stock cannot be reassigned.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (sourceQuantityAvailable < quantityToReassign) {
+      const error = new Error(
+        "Reassigned quantity cannot exceed the remaining stock.",
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const nextSourceQuantityAvailable =
+      sourceQuantityAvailable - quantityToReassign;
+    const nextItemTotalStock = getProjectedItemStock(
+      sourceBatch,
+      0,
+    );
+
+    await donationRepository.updateInventoryBatchStock(
+      sourceBatch.id,
+      {
+        quantity_received: sourceBatch.quantity_received,
+        quantity_available: nextSourceQuantityAvailable,
+        expiration_date: sourceBatch.expiration_date,
+        storage_location: sourceBatch.storage_location,
+        status: isInventoryBatchDerivedStatus(sourceBatch.status)
+          ? getBatchStatus(
+              sourceBatch.expiration_date,
+              nextSourceQuantityAvailable,
+              inventoryItem.reorder_level,
+              getProjectedItemStock(sourceBatch, -quantityToReassign),
+            )
+          : sourceBatch.status,
+      },
+      client,
+    );
+
+    await donationRepository.insertInventoryTransaction(
+      {
+        disaster_event_id: targetEvent.id,
+        inventory_batch_id: sourceBatch.id,
+        transaction_type: "OUTFLOW",
+        quantity: quantityToReassign,
+        reference_type: "DONATION",
+        reference_id: sourceDonationItem.id,
+        performed_by: performedBy,
+        remarks: `Reassigned leftover donated stock for ${inventoryItem.item_name} from ${sourceDonation.donor_name} to ${targetEvent.title}`,
+      },
+      client,
+    );
+
+    const createdDonation = await donationRepository.insertDonation(
+      {
+        disaster_event_id: targetEvent.id,
+        donor_name: sourceDonation.donor_name,
+        donor_type: sourceDonation.donor_type,
+        donor_type_other: sourceDonation.donor_type_other,
+        contact_information: sourceDonation.contact_information,
+        received_by: performedBy,
+        received_at: new Date().toISOString(),
+        status: "RECEIVED",
+        remarks: `Reassigned leftover stock from ${sourceEvent.title}. Original donation ID: ${sourceDonation.id}.`,
+      },
+      client,
+    );
+
+    const createdBatch = await inventoryBatchRepository.insertInventoryBatch(
+      {
+        inventory_item_id: sourceDonationItem.inventory_item_id,
+        inventory_item_stock_form_id: sourceBatch.inventory_item_stock_form_id,
+        batch_no: await buildDonationBatchNumber({
+          inventoryItem,
+          dbClient: client,
+        }),
+        source_type: "DONATED",
+        quantity_received: quantityToReassign,
+        quantity_available: quantityToReassign,
+        expiration_date: sourceBatch.expiration_date,
+        storage_location: sourceBatch.storage_location,
+        status: getBatchStatus(
+          sourceBatch.expiration_date,
+          quantityToReassign,
+          inventoryItem.reorder_level,
+          nextItemTotalStock,
+        ),
+        created_by: performedBy,
+      },
+      client,
+    );
+
+    const createdDonationItem = await donationRepository.insertDonationItem(
+      {
+        donation_id: createdDonation.id,
+        inventory_item_id: sourceDonationItem.inventory_item_id,
+        inventory_batch_id: createdBatch.id,
+        quantity_received: quantityToReassign,
+        remarks: null,
+      },
+      client,
+    );
+
+    await donationRepository.insertInventoryTransaction(
+      {
+        disaster_event_id: targetEvent.id,
+        inventory_batch_id: createdBatch.id,
+        transaction_type: "INFLOW",
+        quantity: quantityToReassign,
+        reference_type: "DONATION",
+        reference_id: createdDonationItem.id,
+        performed_by: performedBy,
+        remarks: `Received reassigned leftover donated stock for ${inventoryItem.item_name} from ${sourceDonation.donor_name}; source event: ${sourceEvent.title}`,
+      },
+      client,
+    );
+
+    await inventoryBatchStatusService.refreshDerivedInventoryBatchStatusesForItem(
+      sourceDonationItem.inventory_item_id,
+      { dbClient: client },
+    );
+    await distributionTransactionRepository.updateDonationStatusesByIds(
+      [sourceDonation.id, createdDonation.id],
+      client,
+    );
+
+    await client.query("COMMIT");
+
+    return getDonationById(createdDonation.id);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const deleteDonationRecord = async (id, performedBy) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const donation = await donationRepository.getDonationByIdForUpdate(id, client);
+
+    if (!donation) {
+      const error = new Error("Donation not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const donationItems = await donationRepository.getDonationItemsByDonationId(
+      id,
+      client,
+    );
+
+    for (const donationItem of donationItems) {
+      await removeDonationItemWithinTransaction({
+        donationItem,
+        donation,
+        performedBy,
+        dbClient: client,
+      });
+    }
+
+    await donationRepository.deleteDonation(id, client);
+    await client.query("COMMIT");
+
+    await notificationService.emitSafely(() =>
+      notificationService.emitDonationStockUpdate({
+        donorName: donation.donor_name,
+        itemName: "donation record items",
+        quantity: donationItems.length,
+        disasterEventId: donation.disaster_event_id,
+        referenceId: id,
+        actionLabel: "removed",
+        severity: "WARNING",
+        anomaly: true,
+      }),
+    );
+
+    return { id };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const getPublicDonationPortal = async (options = null) => {
+  const normalizedOptions =
+    typeof options === "string"
+      ? { disasterEventId: options }
+      : options && typeof options === "object"
+        ? options
+        : {};
+  const disasterEventId =
+    normalizedOptions.disaster_event_id ??
+    normalizedOptions.disasterEventId ??
+    null;
+  const transparencyPage =
+    normalizedOptions.transparency_page ??
+    normalizedOptions.transparencyPage ??
+    null;
+  const transparencyPageSize =
+    normalizedOptions.transparency_page_size ??
+    normalizedOptions.transparencyPageSize ??
+    null;
+  const hasTransparencyPagination =
+    transparencyPage !== null && transparencyPageSize !== null;
+  const transparencyPaginationOptions = hasTransparencyPagination
+    ? {
+        page: Number(transparencyPage),
+        pageSize: Number(transparencyPageSize),
+      }
+    : null;
+  const publicDisasterSummaries =
+    await donationRepository.getPublicDonationDisasterSummaries(disasterEventId);
+  const visibleDisasterSummaries = getVisiblePublicDisasterSummaries(
+    publicDisasterSummaries,
+  );
+  const selectedDisasterEventId = visibleDisasterSummaries[0]?.id || null;
+  const visibleDisasterEventIds = visibleDisasterSummaries.map((event) => event.id);
+
+  const [
+    summaryTotals,
+    transparencyQueryResult,
+    recentDonationRows,
+    latestForecasts,
+    defaultEmergencyNeedRows,
+  ] = visibleDisasterEventIds.length > 0
+    ? await Promise.all([
+        donationRepository.getDonationSummaryTotals(visibleDisasterEventIds, {
+          scope: "public",
+        }),
+        donationRepository.getDonationItemTransparencySummary(
+          visibleDisasterEventIds,
+          transparencyPaginationOptions || { scope: "public" },
+        ),
+        donationRepository.getPublicRecentDonationSummaries(
+          visibleDisasterEventIds,
+          6,
+        ),
+        Promise.all(
+          visibleDisasterEventIds.map((visibleDisasterEventId) =>
+            forecastService.getLatestInventoryForecast(visibleDisasterEventId),
+          ),
+        ),
+        donationRepository.getDefaultEmergencyDonationNeeds(
+          visibleDisasterSummaries.map((event) => event.disaster_type),
+        ),
+      ])
+    : [
+        {
+          total_donations_received: 0,
+          total_quantity_received: 0,
+          total_donated_items_distributed: 0,
+          total_donated_items_written_off: 0,
+          remaining_donated_inventory: 0,
+        },
+        hasTransparencyPagination
+          ? {
+              rows: [],
+              totalItems: 0,
+              page: 1,
+              pageSize: transparencyPaginationOptions.pageSize,
+              totals: null,
+            }
+          : [],
+        [],
+        [],
+        [],
+      ];
+
+  const neededItems = resolvePublicNeededItems({
+    latestForecasts,
+    defaultEmergencyNeeds: defaultEmergencyNeedRows,
+  });
+  const publicUtilizationRows = hasTransparencyPagination
+    ? Array.isArray(transparencyQueryResult)
+      ? buildPublicDonationUtilizationRows(transparencyQueryResult)
+      : Array.isArray(transparencyQueryResult?.rows)
+        ? transparencyQueryResult.rows
+        : []
+    : buildPublicDonationUtilizationRows(transparencyQueryResult, {
+        publicView: true,
+      });
+  const publicUtilizationTotals =
+    hasTransparencyPagination && transparencyQueryResult?.totals
+      ? {
+          loose_items_received: Number(
+            transparencyQueryResult.totals.loose_items_received || 0,
+          ),
+          loose_items_distributed: Number(
+            transparencyQueryResult.totals.loose_items_distributed || 0,
+          ),
+          loose_items_remaining: Number(
+            transparencyQueryResult.totals.loose_items_remaining || 0,
+          ),
+          relief_packs_received: Number(
+            transparencyQueryResult.totals.relief_packs_received || 0,
+          ),
+          relief_packs_distributed: Number(
+            transparencyQueryResult.totals.relief_packs_distributed || 0,
+          ),
+          relief_packs_remaining: Number(
+            transparencyQueryResult.totals.relief_packs_remaining || 0,
+          ),
+        }
+      : calculatePublicDonationUtilizationTotals(publicUtilizationRows);
+  const publicDonorLabels = new Map();
+  const getPublicUtilizationDonorLabel = (row) => {
+    const donorLabelNumber = Number(row.donor_label_number);
+
+    if (Number.isSafeInteger(donorLabelNumber) && donorLabelNumber > 0) {
+      return `Donor #${donorLabelNumber}`;
+    }
+
+    const donorKey = [
+      row.donor_name,
+      row.donor_type,
+      row.disaster_event_id,
+    ]
+      .map((value) => String(value || "").trim().toLowerCase())
+      .join("|");
+
+    if (!publicDonorLabels.has(donorKey)) {
+      publicDonorLabels.set(donorKey, `Donor #${publicDonorLabels.size + 1}`);
+    }
+
+    return publicDonorLabels.get(donorKey);
+  };
+  const transparencyPaginationMetadata = hasTransparencyPagination
+    ? (() => {
+        const totalItems = Number(transparencyQueryResult?.totalItems || 0);
+        const pageSize = Number(
+          transparencyQueryResult?.pageSize ||
+            transparencyPaginationOptions.pageSize,
+        );
+        const totalPages =
+          totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
+        const page = Math.min(
+          Math.max(
+            Number(
+              transparencyQueryResult?.page ||
+                transparencyPaginationOptions.page,
+            ),
+            1,
+          ),
+          totalPages || 1,
+        );
+
+        return {
+          page,
+          pageSize,
+          totalItems,
+          totalPages,
+          hasPreviousPage: page > 1,
+          hasNextPage: totalPages > 0 && page < totalPages,
+        };
+      })()
+    : null;
+
+  return {
+    public_contact_config: getPublicContactConfig(),
+    disaster_events: visibleDisasterSummaries.map(mapPublicDisasterSummary),
+    selected_disaster_event_key: selectedDisasterEventId
+      ? createPublicKey("event", selectedDisasterEventId)
+      : null,
+    needed_items: neededItems,
+    ...(hasTransparencyPagination
+      ? {}
+      : { forecast_suggestions: neededItems.suggestions }),
+    recent_donations: recentDonationRows.map(mapPublicDonationSummary),
+    transparency_summary: {
+      ...summaryTotals,
+      total_loose_items_received: publicUtilizationTotals.loose_items_received,
+      total_loose_items_distributed:
+        publicUtilizationTotals.loose_items_distributed,
+      total_loose_items_remaining: publicUtilizationTotals.loose_items_remaining,
+      total_relief_packs_received:
+        publicUtilizationTotals.relief_packs_received,
+      total_relief_packs_distributed:
+        publicUtilizationTotals.relief_packs_distributed,
+      total_relief_packs_remaining: publicUtilizationTotals.relief_packs_remaining,
+      received_vs_distributed: publicUtilizationRows.map((row) =>
+        mapPublicDonationUtilizationRow(row, getPublicUtilizationDonorLabel),
+      ),
+      ...(transparencyPaginationMetadata
+        ? { pagination: transparencyPaginationMetadata }
+        : {}),
+    },
+  };
+};
+
+const getDonationManagementTransparency = async (options = null) => {
+  const normalizedOptions =
+    typeof options === "string"
+      ? { disasterEventId: options }
+      : options && typeof options === "object"
+        ? options
+        : {};
+  const disasterEventId =
+    normalizedOptions.disaster_event_id ??
+    normalizedOptions.disasterEventId ??
+    null;
+
+  const [summaryTotals, transparencyRows] = await Promise.all([
+    donationRepository.getDonationSummaryTotals(disasterEventId, {
+      includeCrossEventDistributions: true,
+    }),
+    donationRepository.getDonationItemTransparencySummary(disasterEventId, {
+      scope: "management",
+    }),
+  ]);
+  const utilizationRows = buildPublicDonationUtilizationRows(transparencyRows);
+  const utilizationTotals = calculatePublicDonationUtilizationTotals(
+    utilizationRows,
+  );
+
+  return {
+    transparency_summary: {
+      ...summaryTotals,
+      total_loose_items_received: utilizationTotals.loose_items_received,
+      total_loose_items_distributed: utilizationTotals.loose_items_distributed,
+      total_loose_items_remaining: utilizationTotals.loose_items_remaining,
+      total_relief_packs_received: utilizationTotals.relief_packs_received,
+      total_relief_packs_distributed: utilizationTotals.relief_packs_distributed,
+      total_relief_packs_remaining: utilizationTotals.relief_packs_remaining,
+      received_vs_distributed: utilizationRows.map(
+        mapManagementDonationUtilizationRow,
+      ),
+    },
+  };
+};
+
+const donationTypeLabels = {
+  LOOSE_ITEM: "Loose Item",
+  RELIEF_PACK: "Relief Pack",
+};
+
+const donorTypeLabels = {
+  INDIVIDUAL: "Individual",
+  NGO: "NGO",
+  PRIVATE_ORGANIZATION: "Private Organization",
+  GOVERNMENT_PARTNER: "Government Partner",
+  OTHER: "Other",
+};
+
+const exportSortLabels = {
+  newest: "Newest-Oldest",
+  oldest: "Oldest-Newest",
+  az: "A-Z by Donor",
+  za: "Z-A by Donor",
+};
+
+const formatReportDonorType = (donorType, donorTypeOther) => {
+  const normalizedDonorType = normalizeDonationDonorType(donorType);
+
+  if (normalizedDonorType === "OTHER") {
+    return donorTypeOther || "Other";
+  }
+
+  return donorTypeLabels[normalizedDonorType] || "Other";
+};
+
+const getDonationTypeKey = (donation) => {
+  const items = Array.isArray(donation?.items) ? donation.items : [];
+  return resolveDonationTypeKey(items);
+};
+
+const getDonationReportItems = (donation) => {
+  const items = Array.isArray(donation?.items) ? donation.items : [];
+
+  if (items.length === 0) {
+    return [
+      {
+        itemName: "--",
+        quantityPerItem: "0",
+      },
+    ];
+  }
+
+  return items.map((item) => {
+    const unit = item?.inventory_item?.unit_of_measure || "unit(s)";
+
+    return {
+      itemName: item?.inventory_item?.item_name || "Inventory item",
+      quantityPerItem: `${Number(item?.quantity_received || 0)} ${unit}`,
+    };
+  });
+};
+
+const sortDonationRowsForReport = (rows, sortOrder = "newest") => {
+  const getTimestamp = (row) => {
+    const timestamp = new Date(row.received_at || row.created_at || 0).getTime();
+    return Number.isNaN(timestamp) ? 0 : timestamp;
+  };
+
+  return [...rows].sort((leftRow, rightRow) => {
+    if (sortOrder === "oldest") {
+      return getTimestamp(leftRow) - getTimestamp(rightRow);
+    }
+
+    if (sortOrder === "az") {
+      return String(leftRow.donor_name || "").localeCompare(
+        String(rightRow.donor_name || ""),
+        undefined,
+        { sensitivity: "base" },
+      );
+    }
+
+    if (sortOrder === "za") {
+      return String(rightRow.donor_name || "").localeCompare(
+        String(leftRow.donor_name || ""),
+        undefined,
+        { sensitivity: "base" },
+      );
+    }
+
+    return getTimestamp(rightRow) - getTimestamp(leftRow);
+  });
+};
+
+const matchesDonationReportSearch = (donation, search) => {
+  const normalizedSearch = String(search || "").trim().toLowerCase();
+
+  if (!normalizedSearch) {
+    return true;
+  }
+
+  const items = Array.isArray(donation?.items) ? donation.items : [];
+
+  return [
+    donation?.donor_name,
+    donation?.donor_type_other,
+    donation?.disaster_event?.title,
+    donation?.disaster_event?.event_code,
+    ...items.map((item) => item?.inventory_item?.item_name),
+  ]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(normalizedSearch));
+};
+
+const exportReceivedDonationsReport = async (filters = {}, format) => {
+  const donations = await getDonations({
+    disaster_event_id: filters.disaster_event_id,
+    donor_type: filters.donor_type,
+  });
+  const filteredDonations = donations.filter((donation) => {
+    if (!matchesDonationReportSearch(donation, filters.search)) {
+      return false;
+    }
+
+    if (!filters.donation_type) {
+      return true;
+    }
+
+    return getDonationTypeKey(donation) === filters.donation_type;
+  });
+  const sortedDonations = sortDonationRowsForReport(
+    filteredDonations,
+    filters.sort_order,
+  );
+  const rows = sortedDonations.flatMap((donation) => {
+    const donationType = getDonationTypeKey(donation);
+
+    return getDonationReportItems(donation).map((itemSummary) => ({
+      donor_name: donation.donor_name || "--",
+      donor_type: formatReportDonorType(
+        donation.donor_type,
+        donation.donor_type_other,
+      ),
+      donation_type: donationTypeLabels[donationType],
+      disaster_event: donation.disaster_event?.title || "--",
+      item_name: itemSummary.itemName,
+      quantity_per_item: itemSummary.quantityPerItem,
+      total_quantity_received: Number(donation.total_quantity_received || 0),
+      date_received: mayorReportExport.formatDateTime(donation.received_at),
+      received_at: donation.received_at,
+      created_at: donation.created_at,
+    }));
+  });
+
+  if (rows.length === 0) {
+    const error = new Error("No received donation records are available to export.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return mayorReportExport.buildExportFile({
+    filePrefix: "office-mayor-received-donations-report",
+    worksheetName: "Received Donations",
+    reportTitle: "Received Donations Report",
+    metadata: [
+      { label: "Disaster Event Filter", value: filters.disaster_event_id || "All" },
+      {
+        label: "Donation Type",
+        value: donationTypeLabels[filters.donation_type] || "All",
+      },
+      {
+        label: "Donor Type",
+        value: filters.donor_type
+          ? formatReportDonorType(filters.donor_type, null)
+          : "All",
+      },
+      {
+        label: "Order List",
+        value: exportSortLabels[filters.sort_order] || exportSortLabels.newest,
+      },
+      ...(filters.search ? [{ label: "Search", value: filters.search }] : []),
+    ],
+    columns: [
+      { key: "donor_name", label: "Donor Name", width: 24, pdfWidth: 94 },
+      { key: "donor_type", label: "Donor Type", width: 20, pdfWidth: 78 },
+      { key: "donation_type", label: "Donation Type", width: 18, pdfWidth: 74 },
+      { key: "disaster_event", label: "Disaster Event", width: 28, pdfWidth: 112 },
+      { key: "item_name", label: "Item Name", width: 30, pdfWidth: 120 },
+      {
+        key: "quantity_per_item",
+        label: "Quantity Per Item",
+        width: 22,
+        pdfWidth: 98,
+      },
+      {
+        key: "total_quantity_received",
+        label: "Total Quantity Received",
+        width: 18,
+        pdfWidth: 100,
+      },
+      { key: "date_received", label: "Date Received", width: 22, pdfWidth: 86 },
+    ],
+    rows,
+    format,
+    pdfLayout: "wide",
+    excelLayout: "wide",
+  });
+};
+
+const formatDonationEventDetails = (
+  breakdown,
+  unitOfMeasure,
+  prefix,
+  emptyLabel,
+  separator = "; ",
+  compactUnit = false,
+) => {
+  let normalizedBreakdown = breakdown;
+
+  if (typeof normalizedBreakdown === "string") {
+    try {
+      normalizedBreakdown = JSON.parse(normalizedBreakdown);
+    } catch (_error) {
+      normalizedBreakdown = [];
+    }
+  }
+
+  if (!Array.isArray(normalizedBreakdown) || normalizedBreakdown.length === 0) {
+    return emptyLabel;
+  }
+
+  const normalizedUnit = String(unitOfMeasure || "").trim();
+  const movementRows = normalizedBreakdown.filter(
+    (eventRow) => Number(eventRow?.quantity || 0) > 0,
+  );
+
+  if (movementRows.length === 0) {
+    return emptyLabel;
+  }
+
+  return movementRows
+    .map((eventRow) => {
+      const eventTitle = String(
+        eventRow?.event_title || "Unassigned disaster event",
+      ).trim();
+      const quantity = Number(eventRow?.quantity || 0);
+      const displayUnit =
+        compactUnit && normalizedUnit.toLowerCase() === "pc" && quantity !== 1
+          ? "pcs"
+          : normalizedUnit;
+      const unitSuffix = compactUnit
+        ? displayUnit
+        : displayUnit
+          ? ` ${displayUnit}`
+          : "";
+
+      return `${prefix ? `${prefix} ` : ""}${eventTitle}: ${quantity}${unitSuffix}`;
+    })
+    .join(separator);
+};
+
+const formatDistributionEventDetails = (breakdown, unitOfMeasure) =>
+  formatDonationEventDetails(
+    breakdown,
+    unitOfMeasure,
+    "",
+    "No distributions recorded",
+    "\n",
+    true,
+  );
+
+const formatTransferEventDetails = (breakdown, unitOfMeasure) =>
+  formatDonationEventDetails(
+    breakdown,
+    unitOfMeasure,
+    "Transferred to",
+    "No transfers recorded",
+  );
+
+const exportDonationTransparencyReport = async (filters = {}, format) => {
+  const rows = await donationRepository.getDonationTransparencyExportRows(
+    filters.disaster_event_id,
+  );
+  const sortedRows = sortDonationRowsForReport(rows, filters.sort_order).map(
+    (row) => ({
+      ...row,
+      distribution_event_details: formatDistributionEventDetails(
+        row.distribution_event_breakdown,
+        row.unit_of_measure,
+      ),
+      write_off_reasons: row.write_off_reasons || "--",
+    }),
+  );
+
+  if (sortedRows.length === 0) {
+    const error = new Error("No donation transparency records are available to export.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return mayorReportExport.buildExportFile({
+    filePrefix: "office-mayor-donation-item-transparency-report",
+    worksheetName: "Item Transparency",
+    reportTitle: "Donation Item Transparency Report",
+    metadata: [
+      { label: "Disaster Event Filter", value: filters.disaster_event_id || "All" },
+      {
+        label: "Order List",
+        value: exportSortLabels[filters.sort_order] || exportSortLabels.newest,
+      },
+    ],
+    columns: [
+      { key: "donor_name", label: "Donor Name", width: 24, pdfWidth: 100 },
+      { key: "disaster_event", label: "Disaster Event", width: 28, pdfWidth: 118 },
+      {
+        key: "distribution_event_details",
+        label: "Distribution Details",
+        width: 30,
+        pdfWidth: 140,
+        pdfMaxChars: 40,
+      },
+      { key: "item_name", label: "Item Name", width: 28, pdfWidth: 124 },
+      { key: "unit_of_measure", label: "Unit", width: 14, pdfWidth: 64 },
+      { key: "quantity_received", label: "Received", width: 14, pdfWidth: 70 },
+      { key: "quantity_distributed", label: "Distributed", width: 14, pdfWidth: 78 },
+      { key: "quantity_written_off", label: "Written Off", width: 14, pdfWidth: 78 },
+      {
+        key: "write_off_reasons",
+        label: "Write-Off Reason",
+        width: 24,
+        pdfWidth: 126,
+      },
+      {
+        key: "remaining_stock",
+        label: "Remaining Balance",
+        width: 18,
+        pdfWidth: 68,
+      },
+    ],
+    rows: sortedRows,
+    format,
+    pdfLayout: "wide",
+    excelLayout: "wide",
+  });
+};
+
+module.exports = {
+  getDonationNeeds,
+  createDonationNeed,
+  updateDonationNeed,
+  deleteDonationNeed,
+  getDonations,
+  getDonationById,
+  getDonationDetail,
+  createDonation,
+  updateDonation,
+  updateDonationPublicName,
+  createDonationItem,
+  updateDonationItem,
+  deleteDonationItem,
+  reassignLeftoverDonationStock,
+  deleteDonationRecord,
+  getPublicDonationPortal,
+  getDonationManagementTransparency,
+  exportReceivedDonationsReport,
+  exportDonationTransparencyReport,
+  formatDistributionEventDetails,
+  formatTransferEventDetails,
+};

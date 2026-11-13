@@ -1,0 +1,473 @@
+const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED"];
+const reportAllowedStatuses = allowedStatuses;
+const allowedSortOrders = ["newest", "oldest", "az", "za"];
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const {
+  isValidDisasterEventReportSelection,
+  normalizeDisasterEventReportSelection,
+} = require("../utils/disasterEventReportSelection");
+const DISASTER_EVENT_EXPORT_TYPE_OPTIONS = [
+  "Typhoon",
+  "Flood",
+  "Earthquake",
+  "Landslide",
+  "Volcanic Eruption",
+  "Storm Surge",
+  "Drought / El Niño",
+  "Tsunami",
+  "Fire",
+  "Other",
+];
+
+const isValidDateString = (value) => {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime());
+};
+
+const isStrictPositiveInteger = (value) => {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value > 0;
+  }
+
+  return (
+    typeof value === "string" &&
+    /^[1-9]\d*$/.test(value) &&
+    Number.isSafeInteger(Number(value))
+  );
+};
+
+const requiresCompletedEndDate = (status) => status === "CLOSED";
+
+const validateCreateDisasterEvent = (req, res, next) => {
+  try {
+    const {
+      event_code,
+      event_name,
+      title,
+      disaster_type,
+      description,
+      start_date,
+      end_date,
+      status,
+      created_by,
+      barangay_ids,
+    } = req.body;
+
+    const normalizedTitle = title ?? event_name;
+
+    if (!normalizedTitle || typeof normalizedTitle !== "string") {
+      return res.status(400).json({
+        message: "title is required and must be a string",
+      });
+    }
+
+    if (!disaster_type || typeof disaster_type !== "string") {
+      return res.status(400).json({
+        message: "disaster_type is required and must be a string",
+      });
+    }
+
+    if (description !== undefined && description !== null && typeof description !== "string") {
+      return res.status(400).json({
+        message: "description must be a string or null",
+      });
+    }
+
+    if (!start_date || !isValidDateString(start_date)) {
+      return res.status(400).json({
+        message: "start_date is required and must be a valid date",
+      });
+    }
+
+    if (end_date !== undefined && end_date !== null && !isValidDateString(end_date)) {
+      return res.status(400).json({
+        message: "end_date must be a valid date or null",
+      });
+    }
+
+    const normalizedStatus = status ?? "ACTIVE";
+
+    if (status !== undefined && !allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        message: "status must be one of: PLANNED, ACTIVE, CLOSED",
+      });
+    }
+
+    if (end_date && new Date(end_date) < new Date(start_date)) {
+      return res.status(400).json({
+        message: "end_date must not be earlier than start_date",
+      });
+    }
+
+    if (requiresCompletedEndDate(normalizedStatus) && !end_date) {
+      return res.status(400).json({
+        message: "end_date is required when status is CLOSED",
+      });
+    }
+
+    if (created_by !== undefined && created_by !== null && typeof created_by !== "string") {
+      return res.status(400).json({
+        message: "created_by must be a string or null",
+      });
+    }
+
+    if (barangay_ids !== undefined && !Array.isArray(barangay_ids)) {
+      return res.status(400).json({
+        message: "barangay_ids must be an array when provided",
+      });
+    }
+
+    if (Array.isArray(barangay_ids)) {
+      const hasInvalidBarangayId = barangay_ids.some(
+        (barangayId) =>
+          typeof barangayId !== "string" ||
+          !uuidPattern.test(barangayId.trim()),
+      );
+
+      if (hasInvalidBarangayId) {
+        return res.status(400).json({
+          message: "barangay_ids must contain valid UUID values",
+        });
+      }
+    }
+
+    const normalizedBarangayIds = Array.isArray(barangay_ids)
+      ? [...new Set(barangay_ids.map((barangayId) => barangayId.trim().toLowerCase()))]
+      : [];
+
+    req.validatedBody = {
+      event_code:
+        typeof event_code === "string" && event_code.trim()
+          ? event_code.trim()
+          : null,
+      title: normalizedTitle.trim(),
+      disaster_type: disaster_type.trim(),
+      description: description ?? null,
+      start_date,
+      end_date: end_date ?? null,
+      status: normalizedStatus,
+      created_by: created_by ?? null,
+      barangay_ids: normalizedBarangayIds,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate disaster event request",
+      error: error.message,
+    });
+  }
+};
+
+const validateExtendDisasterEvent = (req, res, next) => {
+  try {
+    const { end_date } = req.body;
+
+    if (!end_date || !isValidDateString(end_date)) {
+      return res.status(400).json({
+        message: "end_date is required and must be a valid date",
+      });
+    }
+
+    req.validatedBody = {
+      end_date,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate disaster event extension request",
+      error: error.message,
+    });
+  }
+};
+
+const validateUpdateDisasterEvent = (req, res, next) => {
+  return validateCreateDisasterEvent(req, res, next);
+};
+
+const validateExportDisasterEvents = (req, res, next) => {
+  try {
+    const {
+      scope,
+      format,
+      search,
+      disaster_event_id,
+      disaster_types,
+      affected_barangay_ids,
+      sort_order,
+    } = req.query;
+    const normalizedScope = String(scope || "all").toLowerCase();
+    const normalizedFormat = String(format || "").toLowerCase();
+    const normalizedSortOrder = String(sort_order || "newest").toLowerCase();
+    const parsedDisasterTypes = String(disaster_types || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const parsedAffectedBarangayIds = String(affected_barangay_ids || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    if (!["active", "closed", "all"].includes(normalizedScope)) {
+      return res.status(400).json({
+        message: "scope must be one of: active, closed, all",
+      });
+    }
+
+    if (!["pdf", "excel", "csv"].includes(normalizedFormat)) {
+      return res.status(400).json({
+        message: "format must be one of: pdf, excel, csv",
+      });
+    }
+
+    if (!["newest", "oldest", "az", "za"].includes(normalizedSortOrder)) {
+      return res.status(400).json({
+        message: "sort_order must be one of: newest, oldest, az, za",
+      });
+    }
+
+    const hasInvalidDisasterType = parsedDisasterTypes.some(
+      (disasterType) =>
+        !DISASTER_EVENT_EXPORT_TYPE_OPTIONS.includes(disasterType),
+    );
+
+    if (hasInvalidDisasterType) {
+      return res.status(400).json({
+        message: "disaster_types contains an invalid disaster type",
+      });
+    }
+
+    if (disaster_event_id && !uuidPattern.test(String(disaster_event_id))) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID",
+      });
+    }
+
+    const hasInvalidBarangayId = parsedAffectedBarangayIds.some(
+      (barangayId) => !uuidPattern.test(barangayId),
+    );
+
+    if (hasInvalidBarangayId) {
+      return res.status(400).json({
+        message: "affected_barangay_ids must contain valid UUID values",
+      });
+    }
+
+    req.validatedQuery = {
+      scope: normalizedScope,
+      format: normalizedFormat,
+      sort_order: normalizedSortOrder,
+      search: typeof search === "string" ? search : "",
+      disaster_event_id:
+        typeof disaster_event_id === "string" ? disaster_event_id : "",
+      disaster_types: parsedDisasterTypes,
+      affected_barangay_ids: parsedAffectedBarangayIds,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate disaster events export request",
+      error: error.message,
+    });
+  }
+};
+
+const validateDisasterEventReportSummary = (req, res, next) => {
+  try {
+    const {
+      disaster_event_id,
+      event_selection,
+      barangay_id,
+      status,
+      date_from,
+      date_to,
+      sort_order,
+      limit,
+      page,
+      page_size,
+      search,
+    } = req.query;
+
+    const normalizedDisasterEventId =
+      typeof disaster_event_id === "string" ? disaster_event_id.trim() : "";
+    const normalizedEventSelection = normalizeDisasterEventReportSelection({
+      eventSelection:
+        typeof event_selection === "string" ? event_selection : "",
+      disasterEventId: normalizedDisasterEventId,
+    });
+
+    if (!isValidDisasterEventReportSelection(normalizedEventSelection)) {
+      return res.status(400).json({
+        message:
+          "event_selection must be one of: ALL, ACTIVE, ENDED, or EVENT:<valid UUID>",
+      });
+    }
+
+    const resolvedDisasterEventId = normalizedEventSelection.startsWith("EVENT:")
+      ? normalizedEventSelection.slice("EVENT:".length)
+      : normalizedDisasterEventId;
+
+    if (resolvedDisasterEventId && !uuidPattern.test(String(resolvedDisasterEventId))) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID",
+      });
+    }
+
+    const normalizedBarangayId =
+      typeof barangay_id === "string" ? barangay_id.trim() : "";
+
+    if (normalizedBarangayId && !uuidPattern.test(normalizedBarangayId)) {
+      return res.status(400).json({
+        message: "barangay_id must be a valid UUID",
+      });
+    }
+
+    const normalizedStatus =
+      typeof status === "string" && status.trim()
+        ? status.trim().toUpperCase()
+        : "";
+
+    if (
+      normalizedStatus &&
+      !reportAllowedStatuses.includes(normalizedStatus)
+    ) {
+      return res.status(400).json({
+        message:
+          "status must be one of: PLANNED, ACTIVE, CLOSED",
+      });
+    }
+
+    const normalizedDateFrom =
+      typeof date_from === "string" && date_from.trim()
+        ? date_from.trim()
+        : "";
+    const normalizedDateTo =
+      typeof date_to === "string" && date_to.trim() ? date_to.trim() : "";
+
+    if (normalizedDateFrom && !isValidDateString(normalizedDateFrom)) {
+      return res.status(400).json({
+        message: "date_from must be a valid date",
+      });
+    }
+
+    if (normalizedDateTo && !isValidDateString(normalizedDateTo)) {
+      return res.status(400).json({
+        message: "date_to must be a valid date",
+      });
+    }
+
+    if (
+      normalizedDateFrom &&
+      normalizedDateTo &&
+      new Date(normalizedDateFrom) > new Date(normalizedDateTo)
+    ) {
+      return res.status(400).json({
+        message: "date_from cannot be later than date_to",
+      });
+    }
+
+    if (search !== undefined && typeof search !== "string") {
+      return res.status(400).json({
+        message: "search must be a text value",
+      });
+    }
+
+    const normalizedSearch =
+      typeof search === "string" ? search.trim().slice(0, 120) : "";
+
+    const normalizedSortOrder = String(sort_order || "newest").toLowerCase();
+
+    if (!allowedSortOrders.includes(normalizedSortOrder)) {
+      return res.status(400).json({
+        message: "sort_order must be one of: newest, oldest, az, za",
+      });
+    }
+
+    const parsedLimit =
+      limit === undefined ? 100 : Number.parseInt(String(limit), 10);
+
+    if (!Number.isInteger(parsedLimit) || parsedLimit <= 0 || parsedLimit > 1000) {
+      return res.status(400).json({
+        message: "limit must be an integer between 1 and 1000",
+      });
+    }
+
+    const hasPage = page !== undefined;
+    const hasPageSize = page_size !== undefined;
+
+    if (hasPage !== hasPageSize) {
+      return res.status(400).json({
+        message: "page and page_size must be provided together",
+      });
+    }
+
+    if (hasPage && !isStrictPositiveInteger(page)) {
+      return res.status(400).json({
+        message: "page must be a positive integer",
+      });
+    }
+
+    if (
+      hasPageSize &&
+      (!isStrictPositiveInteger(page_size) || Number(page_size) > 100)
+    ) {
+      return res.status(400).json({
+        message: "page_size must be an integer between 1 and 100",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_id: resolvedDisasterEventId,
+      event_selection: normalizedEventSelection,
+      barangay_id: normalizedBarangayId,
+      status: normalizedStatus,
+      date_from: normalizedDateFrom,
+      date_to: normalizedDateTo,
+      search: normalizedSearch,
+      sort_order: normalizedSortOrder,
+      limit: parsedLimit,
+      page: hasPage ? Number(page) : 1,
+      page_size: hasPageSize ? Number(page_size) : Math.min(parsedLimit, 100),
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate disaster event report request",
+      error: error.message,
+    });
+  }
+};
+
+const validateExportDisasterEventReportSummary = (req, res, next) => {
+  const normalizedFormat = String(req.query.format || "").toLowerCase();
+
+  if (!["csv", "excel", "pdf"].includes(normalizedFormat)) {
+    return res.status(400).json({
+      message: "format must be one of: csv, excel, pdf",
+    });
+  }
+
+  req.validatedQuery = {
+    ...(req.validatedQuery || {}),
+    format: normalizedFormat,
+  };
+
+  return next();
+};
+
+module.exports = {
+  validateCreateDisasterEvent,
+  validateUpdateDisasterEvent,
+  validateExtendDisasterEvent,
+  validateExportDisasterEvents,
+  validateDisasterEventReportSummary,
+  validateExportDisasterEventReportSummary,
+};

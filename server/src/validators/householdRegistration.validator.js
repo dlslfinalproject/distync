@@ -1,0 +1,1485 @@
+const allowedStayTypes = ["EVAC_CENTER", "RELATIVES", "OTHER_SAFE_PLACE"];
+const allowedSexValues = ["MALE", "FEMALE"];
+const allowedResidencyStatuses = ["RESIDENT", "NON_RESIDENT"];
+const {
+  HOUSEHOLD_PRIVACY_CONSENT_STATUS,
+  HOUSEHOLD_PRIVACY_NOTICE_VERSION,
+  HOUSEHOLD_PRIVACY_SYNC_STATUS,
+} = require("../config/privacyNotice");
+const { ALLOWED_AGE_UNITS } = require("../utils/ageGroup");
+
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isValidUuid = (value) => {
+  return typeof value === "string" && uuidPattern.test(value);
+};
+
+const normalizeComparableText = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+
+const buildComparableFullName = (person) =>
+  [
+    person?.first_name,
+    person?.middle_name,
+    person?.last_name,
+    person?.suffix,
+  ]
+    .map((value) => normalizeComparableText(value))
+    .filter(Boolean)
+    .join("|");
+
+const validateUuidArray = (values) => {
+  return values.every((value) => isValidUuid(value));
+};
+
+const isValidDateString = (value) => {
+  if (typeof value !== "string" || !value.trim()) {
+    return false;
+  }
+
+  return !Number.isNaN(new Date(value).getTime());
+};
+
+const MAX_FAMILY_HEAD_PHOTO_URL_LENGTH = 4_500_000;
+const FAMILY_HEAD_PHOTO_DATA_URL_PATTERN =
+  /^data:image\/(jpe?g|png|webp|gif);base64,([A-Za-z0-9+/]+={0,2})$/i;
+const MAX_PHOTO_VERIFICATION_NOTES_LENGTH = 1_000;
+const MAX_CONTACT_NUMBER_LENGTH = 50;
+const MAX_CURRENT_ADDRESS_LENGTH = 500;
+const MAX_CORRECTION_REMARKS_LENGTH = 1000;
+const MAX_PRIVACY_NOTICE_VERSION_LENGTH = 100;
+const MAX_PRIVACY_ACKNOWLEDGED_NAME_LENGTH = 200;
+const MAX_PRIVACY_RELATIONSHIP_LENGTH = 100;
+const NEW_HOUSEHOLD_OCCURRENCE_OPERATION =
+  "CREATE_NEW_HOUSEHOLD_OCCURRENCE";
+
+const createValidationError = (message) => {
+  const error = new Error(message);
+  error.statusCode = 400;
+  error.code = "HOUSEHOLD_REGISTRATION_VALIDATION_FAILED";
+  return error;
+};
+
+const isReadableJpegBuffer = (bytes) => {
+  if (
+    bytes.length < 16 ||
+    bytes[0] !== 0xff ||
+    bytes[1] !== 0xd8 ||
+    bytes[bytes.length - 2] !== 0xff ||
+    bytes[bytes.length - 1] !== 0xd9
+  ) {
+    return false;
+  }
+
+  const startOfFrameMarkers = new Set([
+    0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce,
+    0xcf,
+  ]);
+  let offset = 2;
+  let componentCount = 0;
+  let hasFrame = false;
+  let hasScan = false;
+
+  while (offset < bytes.length) {
+    if (bytes[offset] !== 0xff) {
+      return false;
+    }
+
+    while (offset < bytes.length && bytes[offset] === 0xff) {
+      offset += 1;
+    }
+
+    if (offset >= bytes.length) {
+      return false;
+    }
+
+    const marker = bytes[offset];
+    offset += 1;
+
+    if (marker === 0xd9) {
+      return hasFrame && hasScan && offset === bytes.length;
+    }
+
+    if (marker === 0xd8 || marker === 0x00 || (marker >= 0xd0 && marker <= 0xd7)) {
+      return false;
+    }
+
+    if (marker === 0x01) {
+      continue;
+    }
+
+    if (offset + 2 > bytes.length) {
+      return false;
+    }
+
+    const segmentLength = bytes.readUInt16BE(offset);
+    if (segmentLength < 2 || offset + segmentLength > bytes.length) {
+      return false;
+    }
+
+    const segmentDataOffset = offset + 2;
+    const segmentEnd = offset + segmentLength;
+
+    if (startOfFrameMarkers.has(marker)) {
+      if (segmentLength < 11) {
+        return false;
+      }
+
+      const height = bytes.readUInt16BE(segmentDataOffset + 1);
+      const width = bytes.readUInt16BE(segmentDataOffset + 3);
+      componentCount = bytes[segmentDataOffset + 5];
+      if (
+        !width ||
+        !height ||
+        width * height > 40_000_000 ||
+        componentCount < 1 ||
+        componentCount > 4 ||
+        segmentLength !== 8 + componentCount * 3
+      ) {
+        return false;
+      }
+
+      hasFrame = true;
+      offset = segmentEnd;
+      continue;
+    }
+
+    if (marker === 0xda) {
+      const scanComponentCount = bytes[segmentDataOffset];
+      if (
+        !hasFrame ||
+        scanComponentCount < 1 ||
+        scanComponentCount > componentCount ||
+        segmentLength !== 6 + scanComponentCount * 2
+      ) {
+        return false;
+      }
+
+      hasScan = true;
+      offset = segmentEnd;
+      let hasScanData = false;
+
+      while (offset < bytes.length) {
+        if (bytes[offset] !== 0xff) {
+          hasScanData = true;
+          offset += 1;
+          continue;
+        }
+
+        const nextMarkerOffset = offset;
+        offset += 1;
+        while (offset < bytes.length && bytes[offset] === 0xff) {
+          offset += 1;
+        }
+        if (offset >= bytes.length) {
+          return false;
+        }
+
+        const scanMarker = bytes[offset];
+        if (scanMarker === 0x00 || (scanMarker >= 0xd0 && scanMarker <= 0xd7)) {
+          hasScanData = true;
+          offset += 1;
+          continue;
+        }
+
+        if (!hasScanData) {
+          return false;
+        }
+        offset = nextMarkerOffset;
+        break;
+      }
+
+      if (offset >= bytes.length) {
+        return false;
+      }
+      continue;
+    }
+
+    offset = segmentEnd;
+  }
+
+  return false;
+};
+
+const isReadablePngBuffer = (bytes) => {
+  if (
+    bytes.length < 45 ||
+    !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+  ) {
+    return false;
+  }
+
+  let offset = 8;
+  let hasImageHeader = false;
+  let hasImageData = false;
+  while (offset + 12 <= bytes.length) {
+    const chunkLength = bytes.readUInt32BE(offset);
+    const chunkType = bytes.subarray(offset + 4, offset + 8).toString("ascii");
+    const chunkEnd = offset + 12 + chunkLength;
+    if (chunkEnd > bytes.length) {
+      return false;
+    }
+
+    if (!hasImageHeader) {
+      if (chunkType !== "IHDR" || chunkLength !== 13) {
+        return false;
+      }
+      const width = bytes.readUInt32BE(offset + 8);
+      const height = bytes.readUInt32BE(offset + 12);
+      if (!width || !height || width * height > 40_000_000) {
+        return false;
+      }
+      hasImageHeader = true;
+    } else if (chunkType === "IDAT" && chunkLength > 0) {
+      hasImageData = true;
+    } else if (chunkType === "IEND") {
+      return chunkLength === 0 && hasImageData && chunkEnd === bytes.length;
+    }
+
+    offset = chunkEnd;
+  }
+
+  return false;
+};
+
+const isReadableWebpBuffer = (bytes) => {
+  if (
+    bytes.length < 20 ||
+    bytes.subarray(0, 4).toString("ascii") !== "RIFF" ||
+    bytes.readUInt32LE(4) !== bytes.length - 8 ||
+    bytes.subarray(8, 12).toString("ascii") !== "WEBP"
+  ) {
+    return false;
+  }
+
+  let offset = 12;
+  let hasImageData = false;
+  while (offset + 8 <= bytes.length) {
+    const chunkType = bytes.subarray(offset, offset + 4).toString("ascii");
+    const chunkLength = bytes.readUInt32LE(offset + 4);
+    const chunkEnd = offset + 8 + chunkLength + (chunkLength % 2);
+    if (chunkEnd > bytes.length) {
+      return false;
+    }
+    if (["VP8 ", "VP8L", "ANMF"].includes(chunkType) && chunkLength > 0) {
+      hasImageData = true;
+    }
+    offset = chunkEnd;
+  }
+
+  return hasImageData && offset === bytes.length;
+};
+
+const isReadableGifBuffer = (bytes) => {
+  if (
+    bytes.length < 14 ||
+    !["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"))
+  ) {
+    return false;
+  }
+
+  const width = bytes.readUInt16LE(6);
+  const height = bytes.readUInt16LE(8);
+  return Boolean(
+    width &&
+      height &&
+      width * height <= 40_000_000 &&
+      bytes[bytes.length - 1] === 0x3b,
+  );
+};
+
+const isValidFamilyHeadPhotoDataUrl = (value) => {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const match = FAMILY_HEAD_PHOTO_DATA_URL_PATTERN.exec(value.trim());
+  if (!match) {
+    return false;
+  }
+
+  const mimeType = match[1].toLowerCase();
+  const encodedBytes = match[2];
+  if (encodedBytes.length % 4 !== 0) {
+    return false;
+  }
+
+  const bytes = Buffer.from(encodedBytes, "base64");
+  if (!bytes.length || bytes.toString("base64") !== encodedBytes) {
+    return false;
+  }
+
+  if (mimeType === "jpeg" || mimeType === "jpg") {
+    return isReadableJpegBuffer(bytes);
+  }
+
+  if (mimeType === "png") {
+    return isReadablePngBuffer(bytes);
+  }
+
+  if (mimeType === "webp") {
+    return isReadableWebpBuffer(bytes);
+  }
+
+  return isReadableGifBuffer(bytes);
+};
+
+const isHttpsLegacyFamilyHeadPhotoReference = (value) => {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      Boolean(url.hostname) &&
+      !url.username &&
+      !url.password
+    );
+  } catch {
+    return false;
+  }
+};
+
+const isLegacyFamilyHeadPhotoDataUrl = (value) =>
+  /^data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]+={0,2}$/i.test(value);
+
+const validateAndNormalizeHouseholdRegistrationPayload = (
+  payload = {},
+  {
+    requirePrivacyAcknowledgment = true,
+    requireFamilyHead = true,
+    requireFamilyHeadPhoto = true,
+    requireHouseholdSize = true,
+  } = {},
+) => {
+    const hasFamilyHeadField = Object.prototype.hasOwnProperty.call(
+      payload || {},
+      "family_head",
+    );
+    const hasFamilyHeadPhotoUrlField = Object.prototype.hasOwnProperty.call(
+      payload || {},
+      "family_head_photo_url",
+    );
+    const hasPhotoVerificationNotesField = Object.prototype.hasOwnProperty.call(
+      payload || {},
+      "photo_verification_notes",
+    );
+    const hasHouseholdSizeField = Object.prototype.hasOwnProperty.call(
+      payload || {},
+      "household_size",
+    );
+    const {
+      disaster_event_id,
+      barangay_id,
+      residency_status,
+      evacuation_center_id,
+      family_head,
+      current_stay_type,
+      household_size,
+      registered_by,
+      contact_number,
+      current_address_details,
+      members,
+      household_sector_ids,
+      family_head_photo_url,
+      photo_verification_notes,
+      privacy_acknowledgment,
+      registration_operation,
+      re_admission_source_household_id,
+    } = payload || {};
+
+    const normalizedRegistrationOperation =
+      typeof registration_operation === "string" && registration_operation.trim()
+        ? registration_operation.trim().toUpperCase()
+        : null;
+
+    if (
+      normalizedRegistrationOperation &&
+      normalizedRegistrationOperation !== NEW_HOUSEHOLD_OCCURRENCE_OPERATION
+    ) {
+      throw createValidationError(
+        `registration_operation must be ${NEW_HOUSEHOLD_OCCURRENCE_OPERATION}`,
+      );
+    }
+
+    if (
+      re_admission_source_household_id !== undefined &&
+      re_admission_source_household_id !== null &&
+      re_admission_source_household_id !== "" &&
+      !isValidUuid(re_admission_source_household_id)
+    ) {
+      throw createValidationError(
+        "re_admission_source_household_id must be a valid UUID when provided",
+      );
+    }
+
+    if (
+      normalizedRegistrationOperation === NEW_HOUSEHOLD_OCCURRENCE_OPERATION &&
+      !isValidUuid(re_admission_source_household_id)
+    ) {
+      throw createValidationError(
+        "re_admission_source_household_id is required for re-admission registration",
+      );
+    }
+
+    if (
+      normalizedRegistrationOperation !== NEW_HOUSEHOLD_OCCURRENCE_OPERATION &&
+      re_admission_source_household_id !== undefined &&
+      re_admission_source_household_id !== null &&
+      re_admission_source_household_id !== ""
+    ) {
+      throw createValidationError(
+        "re_admission_source_household_id requires a re-admission registration operation",
+      );
+    }
+
+    if (!isValidUuid(disaster_event_id)) {
+      throw createValidationError(
+        "disaster_event_id is required and must be a valid UUID",
+      );
+    }
+
+    const normalizedResidencyStatus = residency_status || "RESIDENT";
+
+    if (!allowedResidencyStatuses.includes(normalizedResidencyStatus)) {
+      throw createValidationError(
+        "residency_status must be RESIDENT or NON_RESIDENT",
+      );
+    }
+
+    if (!isValidUuid(barangay_id)) {
+      throw createValidationError(
+        "barangay_id is required and must be a valid handling barangay",
+      );
+    }
+
+    if (
+      evacuation_center_id !== undefined &&
+      evacuation_center_id !== null &&
+      !isValidUuid(evacuation_center_id)
+    ) {
+      throw createValidationError(
+        "evacuation_center_id must be a valid UUID or null",
+      );
+    }
+
+    if (requireFamilyHead && (!family_head || typeof family_head !== "object")) {
+      throw createValidationError("family_head is required");
+    }
+
+    if (family_head !== undefined && family_head !== null) {
+      if (typeof family_head !== "object") {
+        throw createValidationError("family_head must be an object when provided");
+      }
+
+      if (!family_head.first_name || typeof family_head.first_name !== "string") {
+        throw createValidationError(
+          "family_head.first_name is required and must be a string",
+        );
+      }
+
+      if (
+        family_head.middle_name !== undefined &&
+        family_head.middle_name !== null &&
+        typeof family_head.middle_name !== "string"
+      ) {
+        throw createValidationError(
+          "family_head.middle_name must be a string or null",
+        );
+      }
+
+      if (!family_head.last_name || typeof family_head.last_name !== "string") {
+        throw createValidationError(
+          "family_head.last_name is required and must be a string",
+        );
+      }
+
+      if (
+        family_head.suffix !== undefined &&
+        family_head.suffix !== null &&
+        typeof family_head.suffix !== "string"
+      ) {
+        throw createValidationError("family_head.suffix must be a string or null");
+      }
+
+      if (!allowedSexValues.includes(family_head.sex)) {
+        throw createValidationError("family_head.sex must be MALE or FEMALE");
+      }
+
+      if (
+        !Number.isInteger(family_head.age_value) ||
+        family_head.age_value < 0
+      ) {
+        throw createValidationError(
+          "family_head.age_value is required and must be a non-negative integer",
+        );
+      }
+
+      if (!ALLOWED_AGE_UNITS.includes(family_head.age_unit)) {
+        throw createValidationError("family_head.age_unit must be YEARS");
+      }
+
+      if (family_head.age_unit !== "YEARS") {
+        throw createValidationError("family_head.age_unit must be YEARS");
+      }
+
+      if (
+        family_head.sector_ids !== undefined &&
+        !Array.isArray(family_head.sector_ids)
+      ) {
+        throw createValidationError(
+          "family_head.sector_ids must be an array when provided",
+        );
+      }
+
+      if (
+        Array.isArray(family_head.sector_ids) &&
+        !validateUuidArray(family_head.sector_ids)
+      ) {
+        throw createValidationError(
+          "Each family_head.sector_ids value must be a valid UUID",
+        );
+      }
+    }
+
+    if (!allowedStayTypes.includes(current_stay_type)) {
+      throw createValidationError(
+        "current_stay_type must be EVAC_CENTER, RELATIVES, or OTHER_SAFE_PLACE",
+      );
+    }
+
+    if (
+      requireHouseholdSize &&
+      (!Number.isInteger(household_size) || household_size <= 0)
+    ) {
+      throw createValidationError(
+        "household_size is required and must be a positive integer",
+      );
+    }
+
+    if (
+      !requireHouseholdSize &&
+      household_size !== undefined &&
+      household_size !== null &&
+      (!Number.isInteger(household_size) || household_size <= 0)
+    ) {
+      throw createValidationError(
+        "household_size must be a positive integer when provided",
+      );
+    }
+
+    if (
+      contact_number !== undefined &&
+      contact_number !== null &&
+      typeof contact_number !== "string"
+    ) {
+      throw createValidationError("contact_number must be a string or null");
+    }
+
+    if (
+      typeof contact_number === "string" &&
+      contact_number.length > MAX_CONTACT_NUMBER_LENGTH
+    ) {
+      throw createValidationError("contact_number must be 50 characters or fewer");
+    }
+
+    if (
+      current_address_details !== undefined &&
+      current_address_details !== null &&
+      typeof current_address_details !== "string"
+    ) {
+      throw createValidationError(
+        "current_address_details must be a string or null",
+      );
+    }
+
+    if (
+      typeof current_address_details === "string" &&
+      current_address_details.length > MAX_CURRENT_ADDRESS_LENGTH
+    ) {
+      throw createValidationError(
+        "current_address_details must be 500 characters or fewer",
+      );
+    }
+
+    if (
+      registered_by !== undefined &&
+      registered_by !== null &&
+      !isValidUuid(registered_by)
+    ) {
+      throw createValidationError("registered_by must be a valid UUID or null");
+    }
+
+    if (
+      family_head_photo_url !== undefined &&
+      family_head_photo_url !== null &&
+      typeof family_head_photo_url !== "string"
+    ) {
+      throw createValidationError("family_head_photo_url must be a string or null");
+    }
+
+    if (
+      typeof family_head_photo_url === "string" &&
+      family_head_photo_url.length > MAX_FAMILY_HEAD_PHOTO_URL_LENGTH
+    ) {
+      throw createValidationError("family_head_photo_url is too large");
+    }
+
+    if (
+      typeof family_head_photo_url === "string" &&
+      family_head_photo_url.trim() &&
+      !isValidFamilyHeadPhotoDataUrl(family_head_photo_url.trim()) &&
+      !(
+        normalizedRegistrationOperation ===
+          NEW_HOUSEHOLD_OCCURRENCE_OPERATION &&
+        (isHttpsLegacyFamilyHeadPhotoReference(family_head_photo_url.trim()) ||
+          isLegacyFamilyHeadPhotoDataUrl(family_head_photo_url.trim()))
+      )
+    ) {
+      throw createValidationError(
+        "Family head photo must be a supported, readable image.",
+      );
+    }
+
+    if (
+      requireFamilyHeadPhoto &&
+      (family_head_photo_url === undefined ||
+        family_head_photo_url === null ||
+        (typeof family_head_photo_url === "string" &&
+          !family_head_photo_url.trim()))
+    ) {
+      throw createValidationError(
+        "Family head photo is required for verification.",
+      );
+    }
+
+    if (
+      photo_verification_notes !== undefined &&
+      photo_verification_notes !== null &&
+      typeof photo_verification_notes !== "string"
+    ) {
+      throw createValidationError(
+        "photo_verification_notes must be a string or null",
+      );
+    }
+
+    if (
+      typeof photo_verification_notes === "string" &&
+      photo_verification_notes.length > MAX_PHOTO_VERIFICATION_NOTES_LENGTH
+    ) {
+      throw createValidationError(
+        "photo_verification_notes must be 1000 characters or fewer",
+      );
+    }
+
+    if (
+      privacy_acknowledgment !== undefined &&
+      privacy_acknowledgment !== null &&
+      typeof privacy_acknowledgment !== "object"
+    ) {
+      throw createValidationError(
+        "privacy_acknowledgment must be an object when provided",
+      );
+    }
+
+    if (requirePrivacyAcknowledgment && !privacy_acknowledgment) {
+      throw createValidationError(
+        "Data Privacy Notice acknowledgment is required before the family can be registered.",
+      );
+    }
+
+    let normalizedPrivacyAcknowledgment = null;
+
+    if (privacy_acknowledgment) {
+      const {
+        consent_status,
+        notice_version,
+        acknowledged_at,
+        acknowledged_by_name,
+        representative_relationship,
+        device_id,
+        is_offline_encoded,
+        sync_status,
+      } = privacy_acknowledgment;
+
+      if (consent_status !== HOUSEHOLD_PRIVACY_CONSENT_STATUS.ACKNOWLEDGED) {
+        throw createValidationError(
+          "Data Privacy Notice acknowledgment is required before the family can be registered.",
+        );
+      }
+
+      if (
+        typeof notice_version !== "string" ||
+        !notice_version.trim() ||
+        notice_version.length > MAX_PRIVACY_NOTICE_VERSION_LENGTH
+      ) {
+        throw createValidationError(
+          "privacy_acknowledgment.notice_version is required and must be 100 characters or fewer",
+        );
+      }
+
+      if (notice_version.trim() !== HOUSEHOLD_PRIVACY_NOTICE_VERSION) {
+        throw createValidationError(
+          "privacy_acknowledgment.notice_version is invalid or outdated",
+        );
+      }
+
+      if (!isValidDateString(acknowledged_at)) {
+        throw createValidationError(
+          "privacy_acknowledgment.acknowledged_at must be a valid ISO date string",
+        );
+      }
+
+      if (
+        acknowledged_by_name !== undefined &&
+        acknowledged_by_name !== null &&
+        (typeof acknowledged_by_name !== "string" ||
+          !acknowledged_by_name.trim() ||
+          acknowledged_by_name.length > MAX_PRIVACY_ACKNOWLEDGED_NAME_LENGTH)
+      ) {
+        throw createValidationError(
+          "privacy_acknowledgment.acknowledged_by_name must be 200 characters or fewer when provided",
+        );
+      }
+
+      if (
+        representative_relationship !== undefined &&
+        representative_relationship !== null &&
+        (typeof representative_relationship !== "string" ||
+          representative_relationship.length > MAX_PRIVACY_RELATIONSHIP_LENGTH)
+      ) {
+        throw createValidationError(
+          "privacy_acknowledgment.representative_relationship must be 100 characters or fewer when provided",
+        );
+      }
+
+      if (
+        device_id !== undefined &&
+        device_id !== null &&
+        !isValidUuid(device_id)
+      ) {
+        throw createValidationError(
+          "privacy_acknowledgment.device_id must be a valid UUID or null",
+        );
+      }
+
+      if (
+        is_offline_encoded !== undefined &&
+        typeof is_offline_encoded !== "boolean"
+      ) {
+        throw createValidationError(
+          "privacy_acknowledgment.is_offline_encoded must be a boolean when provided",
+        );
+      }
+
+      if (
+        sync_status !== undefined &&
+        sync_status !== null &&
+        !Object.values(HOUSEHOLD_PRIVACY_SYNC_STATUS).includes(
+          String(sync_status).toUpperCase(),
+        )
+      ) {
+        throw createValidationError(
+          "privacy_acknowledgment.sync_status must be PENDING, SYNCED, FAILED, or CONFLICT when provided",
+        );
+      }
+
+      normalizedPrivacyAcknowledgment = {
+        consent_status,
+        notice_version: notice_version.trim(),
+        acknowledged_at,
+        acknowledged_by_name:
+          typeof acknowledged_by_name === "string" &&
+          acknowledged_by_name.trim()
+            ? acknowledged_by_name.trim()
+            : null,
+        representative_relationship:
+          typeof representative_relationship === "string" &&
+          representative_relationship.trim()
+            ? representative_relationship.trim()
+            : null,
+        device_id: device_id ?? null,
+        is_offline_encoded: is_offline_encoded === true,
+        sync_status:
+          typeof sync_status === "string" && sync_status.trim()
+            ? sync_status.trim().toUpperCase()
+            : null,
+      };
+    }
+
+    if (!Array.isArray(members)) {
+      throw createValidationError("members must be an array");
+    }
+
+    for (const member of members) {
+      if (
+        member.id !== undefined &&
+        member.id !== null &&
+        member.id !== "" &&
+        !isValidUuid(member.id)
+      ) {
+        throw createValidationError(
+          "Each member.id must be a valid UUID when provided",
+        );
+      }
+
+      if (!member.first_name || typeof member.first_name !== "string") {
+        throw createValidationError(
+          "Each member.first_name is required and must be a string",
+        );
+      }
+
+      if (
+        member.middle_name !== undefined &&
+        member.middle_name !== null &&
+        typeof member.middle_name !== "string"
+      ) {
+        throw createValidationError(
+          "Each member.middle_name must be a string or null",
+        );
+      }
+
+      if (!member.last_name || typeof member.last_name !== "string") {
+        throw createValidationError(
+          "Each member.last_name is required and must be a string",
+        );
+      }
+
+      if (
+        member.suffix !== undefined &&
+        member.suffix !== null &&
+        typeof member.suffix !== "string"
+      ) {
+        throw createValidationError("Each member.suffix must be a string or null");
+      }
+
+      if (!allowedSexValues.includes(member.sex)) {
+        throw createValidationError("Each member.sex must be MALE or FEMALE");
+      }
+
+      if (!Number.isInteger(member.age_value) || member.age_value < 0) {
+        throw createValidationError(
+          "Each member.age_value is required and must be a non-negative integer",
+        );
+      }
+
+      if (!ALLOWED_AGE_UNITS.includes(member.age_unit)) {
+        throw createValidationError(
+          "Each member.age_unit must be MONTHS or YEARS",
+        );
+      }
+
+      if (
+        !member.relationship_to_head ||
+        typeof member.relationship_to_head !== "string"
+      ) {
+        throw createValidationError(
+          "Each member.relationship_to_head is required and must be a string",
+        );
+      }
+
+      if (member.sector_ids !== undefined && !Array.isArray(member.sector_ids)) {
+        throw createValidationError(
+          "Each member.sector_ids must be an array when provided",
+        );
+      }
+
+      if (
+        Array.isArray(member.sector_ids) &&
+        !validateUuidArray(member.sector_ids)
+      ) {
+        throw createValidationError(
+          "Each member.sector_ids value must be a valid UUID",
+        );
+      }
+    }
+
+    if (
+      household_sector_ids !== undefined &&
+      !Array.isArray(household_sector_ids)
+    ) {
+      throw createValidationError(
+        "household_sector_ids must be an array when provided",
+      );
+    }
+
+    if (
+      Array.isArray(household_sector_ids) &&
+      !validateUuidArray(household_sector_ids)
+    ) {
+      throw createValidationError(
+        "Each household_sector_ids value must be a valid UUID",
+      );
+    }
+
+    const familyHeadComparableFullName = buildComparableFullName(family_head);
+    const seenMemberFullNames = new Map();
+
+    for (const [memberIndex, member] of members.entries()) {
+      const memberComparableFullName = buildComparableFullName(member);
+
+      if (!memberComparableFullName) {
+        continue;
+      }
+
+      if (memberComparableFullName === familyHeadComparableFullName) {
+        throw createValidationError(
+          "A household member cannot have the exact same full name as the family head.",
+        );
+      }
+
+      if (seenMemberFullNames.has(memberComparableFullName)) {
+        throw createValidationError(
+          "Household members cannot contain exact duplicate full names.",
+        );
+      }
+
+      seenMemberFullNames.set(memberComparableFullName, memberIndex);
+    }
+
+    const validatedBody = {
+      disaster_event_id,
+      barangay_id,
+      residency_status: normalizedResidencyStatus,
+      evacuation_center_id: evacuation_center_id ?? null,
+      family_head:
+        hasFamilyHeadField && family_head
+          ? {
+              first_name: family_head.first_name.trim(),
+              middle_name: family_head.middle_name ?? null,
+              last_name: family_head.last_name.trim(),
+              suffix: family_head.suffix ?? null,
+              sex: family_head.sex,
+              age_value: family_head.age_value,
+              age_unit: family_head.age_unit,
+              sector_ids: family_head.sector_ids ?? [],
+            }
+          : undefined,
+      current_stay_type,
+      household_size:
+        hasHouseholdSizeField || requireHouseholdSize ? household_size : undefined,
+      registered_by: registered_by ?? null,
+      contact_number:
+        typeof contact_number === "string" && contact_number.trim()
+          ? contact_number.trim()
+          : null,
+      current_address_details:
+        typeof current_address_details === "string" &&
+        current_address_details.trim()
+          ? current_address_details.trim()
+          : null,
+      family_head_photo_url:
+        hasFamilyHeadPhotoUrlField || requireFamilyHeadPhoto
+          ? typeof family_head_photo_url === "string" &&
+            family_head_photo_url.trim()
+            ? family_head_photo_url.trim()
+            : null
+          : undefined,
+      photo_verification_notes:
+        hasPhotoVerificationNotesField
+          ? typeof photo_verification_notes === "string" &&
+            photo_verification_notes.trim()
+            ? photo_verification_notes.trim()
+            : null
+          : undefined,
+      privacy_acknowledgment: normalizedPrivacyAcknowledgment,
+      registration_operation: normalizedRegistrationOperation,
+      re_admission_source_household_id:
+        typeof re_admission_source_household_id === "string" &&
+        re_admission_source_household_id.trim()
+          ? re_admission_source_household_id.trim()
+          : null,
+      members: members.map((member) => ({
+        id:
+          typeof member.id === "string" && member.id.trim()
+            ? member.id.trim()
+            : null,
+        first_name: member.first_name.trim(),
+        middle_name: member.middle_name ?? null,
+        last_name: member.last_name.trim(),
+        suffix: member.suffix ?? null,
+        sex: member.sex,
+        age_value: member.age_value,
+        age_unit: member.age_unit,
+        relationship_to_head: member.relationship_to_head.trim(),
+        sector_ids: member.sector_ids ?? [],
+      })),
+      household_sector_ids: household_sector_ids ?? [],
+    };
+
+    const hasInvalidFamilyHeadManualSector =
+      Array.isArray(validatedBody.family_head?.sector_ids) &&
+      validatedBody.family_head.sector_ids.some((value) => !isValidUuid(value));
+
+    if (hasInvalidFamilyHeadManualSector) {
+      throw createValidationError(
+        "Each family_head.sector_ids value must be a valid UUID",
+      );
+    }
+
+    const hasInvalidMemberSectorShape = validatedBody.members.some((member) =>
+      member.sector_ids.some((value) => !isValidUuid(value)),
+    );
+
+    if (hasInvalidMemberSectorShape) {
+      throw createValidationError(
+        "Each member.sector_ids value must be a valid UUID",
+      );
+    }
+
+    return validatedBody;
+};
+
+const validateHouseholdRegistrationRequest = (req, res, next, options = {}) => {
+  try {
+    req.validatedBody = validateAndNormalizeHouseholdRegistrationPayload(
+      req.body,
+      options,
+    );
+
+    return next();
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+
+    return res.status(statusCode).json({
+      message:
+        error.message || "Failed to validate household registration request",
+    });
+  }
+};
+
+const validateCreateHouseholdRegistration = (req, res, next) => {
+  return validateHouseholdRegistrationRequest(req, res, next, {
+    requirePrivacyAcknowledgment: true,
+  });
+};
+
+const validateDuplicateRegistrationSuggestions = (req, res, next) => {
+  try {
+    const {
+      household_id,
+      disaster_event_id,
+      barangay_id,
+      registered_by,
+      contact_number,
+      family_head,
+      members,
+    } = req.body || {};
+
+    if (
+      household_id !== undefined &&
+      household_id !== null &&
+      household_id !== "" &&
+      !isValidUuid(household_id)
+    ) {
+      return res.status(400).json({
+        message: "household_id must be a valid UUID when provided",
+      });
+    }
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id is required and must be a valid UUID",
+      });
+    }
+
+    if (!isValidUuid(barangay_id)) {
+      return res.status(400).json({
+        message: "barangay_id is required and must be a valid handling barangay",
+      });
+    }
+
+    if (
+      registered_by !== undefined &&
+      registered_by !== null &&
+      !isValidUuid(registered_by)
+    ) {
+      return res.status(400).json({
+        message: "registered_by must be a valid UUID or null",
+      });
+    }
+
+    if (
+      contact_number !== undefined &&
+      contact_number !== null &&
+      typeof contact_number !== "string"
+    ) {
+      return res.status(400).json({
+        message: "contact_number must be a string or null",
+      });
+    }
+
+    if (!family_head || typeof family_head !== "object") {
+      return res.status(400).json({
+        message: "family_head is required",
+      });
+    }
+
+    if (!Array.isArray(members)) {
+      return res.status(400).json({
+        message: "members must be an array",
+      });
+    }
+
+    req.validatedBody = {
+      household_id:
+        typeof household_id === "string" && household_id.trim()
+          ? household_id.trim()
+          : null,
+      disaster_event_id,
+      barangay_id,
+      registered_by: registered_by ?? null,
+      contact_number:
+        typeof contact_number === "string" && contact_number.trim()
+          ? contact_number.trim()
+          : null,
+      family_head: {
+        first_name:
+          typeof family_head.first_name === "string"
+            ? family_head.first_name.trim()
+            : "",
+        middle_name:
+          typeof family_head.middle_name === "string"
+            ? family_head.middle_name.trim()
+            : null,
+        last_name:
+          typeof family_head.last_name === "string"
+            ? family_head.last_name.trim()
+            : "",
+        suffix:
+          typeof family_head.suffix === "string"
+            ? family_head.suffix.trim()
+            : null,
+        sex: family_head.sex || null,
+        age_value: Number.isInteger(family_head.age_value)
+          ? family_head.age_value
+          : null,
+        age_unit: family_head.age_unit || null,
+      },
+      members: members.map((member) => ({
+        first_name:
+          typeof member?.first_name === "string" ? member.first_name.trim() : "",
+        middle_name:
+          typeof member?.middle_name === "string"
+            ? member.middle_name.trim()
+            : null,
+        last_name:
+          typeof member?.last_name === "string" ? member.last_name.trim() : "",
+        suffix:
+          typeof member?.suffix === "string" ? member.suffix.trim() : null,
+        sex: member?.sex || null,
+        age_value: Number.isInteger(member?.age_value) ? member.age_value : null,
+        age_unit: member?.age_unit || null,
+        relationship_to_head:
+          typeof member?.relationship_to_head === "string"
+            ? member.relationship_to_head.trim()
+            : null,
+      })),
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate duplicate registration suggestion request",
+      error: error.message,
+    });
+  }
+};
+
+const validateDepartHousehold = (req, res, next) => {
+  try {
+    const { householdId } = req.params;
+    const { remarks, recorded_by } = req.body || {};
+
+    if (!isValidUuid(householdId)) {
+      return res.status(400).json({
+        message: "householdId must be a valid UUID",
+      });
+    }
+
+    if (
+      remarks !== undefined &&
+      remarks !== null &&
+      typeof remarks !== "string"
+    ) {
+      return res.status(400).json({
+        message: "remarks must be a string or null",
+      });
+    }
+
+    if (
+      recorded_by !== undefined &&
+      recorded_by !== null &&
+      !isValidUuid(recorded_by)
+    ) {
+      return res.status(400).json({
+        message: "recorded_by must be a valid UUID or null",
+      });
+    }
+
+    req.validatedParams = {
+      householdId,
+    };
+
+    req.validatedBody = {
+      remarks: remarks ?? null,
+      recorded_by: recorded_by ?? null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate household departure request",
+      error: error.message,
+    });
+  }
+};
+
+const validateGetHouseholdDetails = (req, res, next) => {
+  try {
+    const { householdId } = req.params;
+    const rawEvacuationLogId = req.query?.evacuation_log_id;
+    const evacuationLogId =
+      typeof rawEvacuationLogId === "string" && rawEvacuationLogId.trim()
+        ? rawEvacuationLogId.trim()
+        : null;
+
+    if (!isValidUuid(householdId)) {
+      return res.status(400).json({
+        message: "householdId must be a valid UUID",
+      });
+    }
+
+    if (evacuationLogId && !isValidUuid(evacuationLogId)) {
+      return res.status(400).json({
+        message: "evacuation_log_id must be a valid UUID",
+      });
+    }
+
+    req.validatedParams = {
+      householdId,
+    };
+
+    req.validatedQuery = {
+      evacuationLogId,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate household detail request",
+      error: error.message,
+    });
+  }
+};
+
+const validateArchiveHousehold = (req, res, next) => {
+  try {
+    const { householdId } = req.params;
+    const { archive_remarks } = req.body || {};
+
+    if (!isValidUuid(householdId)) {
+      return res.status(400).json({
+        message: "householdId must be a valid UUID",
+      });
+    }
+
+    if (
+      archive_remarks !== undefined &&
+      archive_remarks !== null &&
+      typeof archive_remarks !== "string"
+    ) {
+      return res.status(400).json({
+        message: "archive_remarks must be a string or null",
+      });
+    }
+
+    if (
+      typeof archive_remarks === "string" &&
+      archive_remarks.length > MAX_CORRECTION_REMARKS_LENGTH
+    ) {
+      return res.status(400).json({
+        message: "archive_remarks must be 1000 characters or fewer",
+      });
+    }
+
+    req.validatedParams = {
+      householdId,
+    };
+
+    req.validatedBody = {
+      archive_remarks:
+        typeof archive_remarks === "string" && archive_remarks.trim()
+          ? archive_remarks.trim()
+          : null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate household archive request",
+      error: error.message,
+    });
+  }
+};
+
+const validateRestoreHousehold = (req, res, next) => {
+  try {
+    const { householdId } = req.params;
+    const { restore_mode } = req.body || {};
+    const normalizedRestoreMode =
+      typeof restore_mode === "string" && restore_mode.trim()
+        ? restore_mode.trim().toUpperCase()
+        : "RETURN_TO_EVAC_CENTER";
+
+    if (!isValidUuid(householdId)) {
+      return res.status(400).json({
+        message: "householdId must be a valid UUID",
+      });
+    }
+
+    if (normalizedRestoreMode !== "RETURN_TO_EVAC_CENTER") {
+      return res.status(400).json({
+        message: "restore_mode must be RETURN_TO_EVAC_CENTER",
+      });
+    }
+
+    req.validatedParams = {
+      householdId,
+    };
+
+    req.validatedBody = {
+      restore_mode: normalizedRestoreMode,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate household restore request",
+      error: error.message,
+    });
+  }
+};
+
+const validateCorrectEvacuationLog = (req, res, next) => {
+  try {
+    const { householdId, evacuationLogId } = req.params;
+    const { evacuation_center_id, status, correction_remarks } = req.body || {};
+
+    if (!isValidUuid(householdId)) {
+      return res.status(400).json({
+        message: "householdId must be a valid UUID",
+      });
+    }
+
+    if (!isValidUuid(evacuationLogId)) {
+      return res.status(400).json({
+        message: "evacuationLogId must be a valid UUID",
+      });
+    }
+
+    if (
+      evacuation_center_id !== undefined &&
+      evacuation_center_id !== null &&
+      !isValidUuid(evacuation_center_id)
+    ) {
+      return res.status(400).json({
+        message: "evacuation_center_id must be a valid UUID or null",
+      });
+    }
+
+    if (!["PRESENT", "LEFT"].includes(status)) {
+      return res.status(400).json({
+        message: "status must be PRESENT or LEFT",
+      });
+    }
+
+    if (
+      correction_remarks !== undefined &&
+      correction_remarks !== null &&
+      typeof correction_remarks !== "string"
+    ) {
+      return res.status(400).json({
+        message: "correction_remarks must be a string or null",
+      });
+    }
+
+    if (
+      typeof correction_remarks === "string" &&
+      correction_remarks.length > MAX_CORRECTION_REMARKS_LENGTH
+    ) {
+      return res.status(400).json({
+        message: "correction_remarks must be 1000 characters or fewer",
+      });
+    }
+
+    req.validatedParams = {
+      householdId,
+      evacuationLogId,
+    };
+
+    req.validatedBody = {
+      evacuation_center_id: evacuation_center_id ?? null,
+      status,
+      correction_remarks:
+        typeof correction_remarks === "string" && correction_remarks.trim()
+          ? correction_remarks.trim()
+          : null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate evacuation correction request",
+      error: error.message,
+    });
+  }
+};
+
+const validateUpdateHouseholdDetails = (req, res, next) => {
+  try {
+    const { householdId } = req.params;
+
+    if (!isValidUuid(householdId)) {
+      return res.status(400).json({
+        message: "householdId must be a valid UUID",
+      });
+    }
+
+    req.params.householdId = householdId;
+
+    return validateHouseholdRegistrationRequest(req, res, () => {
+      req.validatedParams = {
+        householdId,
+      };
+
+      return next();
+    }, {
+      requirePrivacyAcknowledgment: false,
+      requireFamilyHead: false,
+      requireFamilyHeadPhoto: false,
+      requireHouseholdSize: false,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate household update request",
+      error: error.message,
+    });
+  }
+};
+
+module.exports = {
+  isValidFamilyHeadPhotoDataUrl,
+  validateAndNormalizeHouseholdRegistrationPayload,
+  validateCreateHouseholdRegistration,
+  validateDuplicateRegistrationSuggestions,
+  validateDepartHousehold,
+  validateGetHouseholdDetails,
+  validateUpdateHouseholdDetails,
+  validateArchiveHousehold,
+  validateRestoreHousehold,
+  validateCorrectEvacuationLog,
+};
+

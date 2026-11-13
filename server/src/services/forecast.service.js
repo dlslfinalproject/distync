@@ -1,0 +1,2252 @@
+const path = require("path");
+const crypto = require("crypto");
+require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
+
+const pool = require("../config/db");
+const forecastRepository = require("../repositories/forecast.repository");
+const forecastReportExport = require("../utils/forecastReportExport");
+const {
+  AUTO_BACKTEST,
+  FIXED_MODEL,
+  getEffectiveSelectedModel,
+  getForecastSelectionMode,
+} = require("../utils/forecastModelSelection");
+const { logErrorSafely } = require("../utils/systemLog");
+
+const FORECAST_MODELS = {
+  MOVING_AVERAGE: "MOVING_AVERAGE",
+  EXPONENTIAL_SMOOTHING: "EXPONENTIAL_SMOOTHING",
+  TREND_PROJECTION: "TREND_PROJECTION",
+};
+
+const DEFAULT_FORECAST_MODEL = FORECAST_MODELS.MOVING_AVERAGE;
+const FORECAST_HORIZON_DAYS = 14;
+const LOOKBACK_DAYS = 30;
+const MOVING_AVERAGE_WINDOW = 7;
+const EXPONENTIAL_SMOOTHING_ALPHA = 0.4;
+const FORECAST_ELIGIBLE_SOURCE_TYPES = Object.freeze(["LGU", "DONATED"]);
+const FORECAST_NEAR_EXPIRY_EXCLUSION_DAYS = 30;
+const FORECAST_HISTORY_TIME_ZONE = "Asia/Manila";
+const FORECAST_EVALUATION_METHOD = "ROLLING_ORIGIN_ONE_STEP";
+const LEGACY_FORECAST_INVENTORY_ITEM_COUNT_KEY = "active_inventory_item_count";
+const ANALYTICS_SERVICE_URL =
+  process.env.ANALYTICS_SERVICE_URL || "http://localhost:8000";
+const ANALYTICS_TIMEOUT_MS = Number.parseInt(
+  process.env.ANALYTICS_TIMEOUT_MS || "15000",
+  10,
+);
+
+if (process.env.NODE_ENV === "production" && !process.env.ANALYTICS_SERVICE_URL) {
+  throw new Error(
+    "ANALYTICS_SERVICE_URL is required in production so forecasting does not target localhost.",
+  );
+}
+
+const resolveInventoryItemCount = (eventContext, fallbackCount = null) => {
+  if (fallbackCount !== null && fallbackCount !== undefined) {
+    return Number(fallbackCount || 0);
+  }
+
+  const canonicalCount = eventContext?.inventory_item_count;
+
+  if (canonicalCount !== undefined && canonicalCount !== null) {
+    return Number(canonicalCount || 0);
+  }
+
+  return Number(eventContext?.[LEGACY_FORECAST_INVENTORY_ITEM_COUNT_KEY] || 0);
+};
+
+const buildInventoryItemCountCompatibility = (
+  eventContext,
+  fallbackCount = null,
+) => {
+  const inventoryItemCount = resolveInventoryItemCount(
+    eventContext,
+    fallbackCount,
+  );
+
+  return {
+    inventory_item_count: inventoryItemCount,
+    [LEGACY_FORECAST_INVENTORY_ITEM_COUNT_KEY]: inventoryItemCount,
+  };
+};
+
+const normalizeAnalyticsServiceUrl = (value) => {
+  const normalizedValue = String(value || "").trim().replace(/\/+$/, "");
+
+  if (!normalizedValue) {
+    return normalizedValue;
+  }
+
+  try {
+    const parsedUrl = new URL(normalizedValue);
+
+    // Uvicorn is commonly started on 127.0.0.1 in local Windows setups.
+    // Normalizing localhost here avoids loopback resolution mismatches.
+    if (parsedUrl.hostname === "localhost") {
+      parsedUrl.hostname = "127.0.0.1";
+    }
+
+    return parsedUrl.toString().replace(/\/+$/, "");
+  } catch (_error) {
+    return normalizedValue;
+  }
+};
+
+const normalizeDateOnlyKey = (value, label = "date") => {
+  const dateKey =
+    value instanceof Date
+      ? `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
+      : String(value || "");
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+
+  if (!match) {
+    throw new TypeError(`${label} must be a YYYY-MM-DD date`);
+  }
+
+  const parsed = new Date(`${dateKey}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== dateKey) {
+    throw new TypeError(`${label} must be a valid YYYY-MM-DD date`);
+  }
+
+  return dateKey;
+};
+
+const addCalendarDays = (dateKey, dayOffset) => {
+  const parsed = new Date(`${normalizeDateOnlyKey(dateKey)}T00:00:00.000Z`);
+  parsed.setUTCDate(parsed.getUTCDate() + dayOffset);
+  return parsed.toISOString().slice(0, 10);
+};
+
+const getManilaDateKey = (instant = new Date()) => {
+  const parsedInstant = instant instanceof Date ? instant : new Date(instant);
+  if (Number.isNaN(parsedInstant.getTime())) {
+    throw new TypeError("reference instant must be a valid date");
+  }
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: FORECAST_HISTORY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(parsedInstant);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+
+  return `${values.year}-${values.month}-${values.day}`;
+};
+
+const buildEligibleHistoryWindow = ({
+  eventStartDate,
+  lookbackDays = LOOKBACK_DAYS,
+  referenceInstant = new Date(),
+}) => {
+  if (!Number.isInteger(lookbackDays) || lookbackDays < 1) {
+    throw new TypeError("lookbackDays must be a positive integer");
+  }
+
+  const normalizedEventStartDate = normalizeDateOnlyKey(
+    eventStartDate,
+    "eventStartDate",
+  );
+  const currentManilaDate = getManilaDateKey(referenceInstant);
+  const eligibleEndDate = addCalendarDays(currentManilaDate, -1);
+  const lookbackStartDate = addCalendarDays(
+    eligibleEndDate,
+    -(lookbackDays - 1),
+  );
+  const eligibleStartDate =
+    normalizedEventStartDate > lookbackStartDate
+      ? normalizedEventStartDate
+      : lookbackStartDate;
+  const dayKeys = [];
+
+  for (
+    let dateKey = eligibleStartDate;
+    dateKey <= eligibleEndDate;
+    dateKey = addCalendarDays(dateKey, 1)
+  ) {
+    dayKeys.push(dateKey);
+  }
+
+  return {
+    time_zone: FORECAST_HISTORY_TIME_ZONE,
+    current_manila_date: currentManilaDate,
+    eligible_start_date: eligibleStartDate,
+    eligible_end_date: eligibleEndDate,
+    lookback_start_date: lookbackStartDate,
+    configured_lookback_days: lookbackDays,
+    eligible_day_count: dayKeys.length,
+    current_incomplete_day_excluded: true,
+    day_keys: dayKeys,
+  };
+};
+
+const buildEligibleHistoricalSeries = (usageRows, itemIds, dayKeys) => {
+  const dayIndexByKey = new Map(dayKeys.map((dayKey, index) => [dayKey, index]));
+  const usageSeriesByItemId = new Map(
+    itemIds.map((itemId) => [itemId, new Array(dayKeys.length).fill(0)]),
+  );
+
+  (usageRows || []).forEach((row) => {
+    const targetSeries = usageSeriesByItemId.get(row.inventory_item_id);
+    const usageDateKey = normalizeDateOnlyKey(row.usage_date, "usage_date");
+    const targetIndex = dayIndexByKey.get(usageDateKey);
+
+    if (!targetSeries || targetIndex === undefined) {
+      return;
+    }
+
+    const quantity = Number(row.total_quantity || 0);
+    if (!Number.isFinite(quantity) || quantity < 0) {
+      throw new TypeError("historical usage quantity must be finite and nonnegative");
+    }
+
+    targetSeries[targetIndex] += quantity;
+  });
+
+  return usageSeriesByItemId;
+};
+
+const buildUsageSeries = (usageRows, itemIds) => {
+  const today = new Date();
+  const dayKeys = [];
+
+  for (let offset = LOOKBACK_DAYS - 1; offset >= 0; offset -= 1) {
+    const bucketDate = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate() - offset,
+    );
+    dayKeys.push(bucketDate.toISOString().slice(0, 10));
+  }
+
+  const usageMap = new Map(
+    itemIds.map((itemId) => [itemId, new Array(dayKeys.length).fill(0)]),
+  );
+  const dayIndexMap = new Map(dayKeys.map((dayKey, index) => [dayKey, index]));
+
+  usageRows.forEach((row) => {
+    const rowItemId = row.inventory_item_id;
+    const usageDateKey = new Date(row.usage_date).toISOString().slice(0, 10);
+    const targetSeries = usageMap.get(rowItemId);
+    const targetIndex = dayIndexMap.get(usageDateKey);
+
+    if (!targetSeries || targetIndex === undefined) {
+      return;
+    }
+
+    targetSeries[targetIndex] = Number(row.total_quantity || 0);
+  });
+
+  return usageMap;
+};
+
+const buildDemandMap = (demandRows) => {
+  return new Map(
+    (demandRows || []).map((row) => [
+      row.inventory_item_id,
+      {
+        quantity_per_household: Number(row.quantity_per_household || 0),
+        projected_household_demand: Number(row.projected_household_demand || 0),
+      },
+    ]),
+  );
+};
+
+const formatUsageTrend = (trendRows) => {
+  return (trendRows || []).map((row) => ({
+    usage_date: row.usage_date,
+    total_quantity: Number(row.total_quantity || 0),
+  }));
+};
+
+const buildForecastReadinessWarnings = ({
+  eventContext,
+  demandRows = [],
+  forecastItems = null,
+}) => {
+  const warnings = [];
+  const inventoryItemCount = Array.isArray(forecastItems)
+    ? forecastItems.length
+    : resolveInventoryItemCount(eventContext);
+  const unclaimedEligibleHouseholdCount = Number(
+    eventContext?.unclaimed_eligible_household_count || 0,
+  );
+  const activeStandardPackCount = Number(
+    eventContext?.active_standard_pack_count || 0,
+  );
+  const demandRowCount = Array.isArray(demandRows) ? demandRows.length : 0;
+
+  if (inventoryItemCount <= 0) {
+    warnings.push({
+      code: "NO_INVENTORY_ITEMS",
+      severity: "WARNING",
+      message:
+        "No inventory items are available, so the forecast has no item targets.",
+    });
+  }
+
+  if (unclaimedEligibleHouseholdCount <= 0) {
+    warnings.push({
+      code: "NO_UNCLAIMED_ELIGIBLE_FAMILIES",
+      severity: "INFO",
+      message:
+        "There are no eligible evacuation-center families marked as not yet received.",
+    });
+  }
+
+  if (activeStandardPackCount <= 0) {
+    warnings.push({
+      code: "NO_ACTIVE_STANDARD_RELIEF_PACKS",
+      severity: "WARNING",
+      message:
+        "No active standard relief pack templates are available for planned relief demand.",
+    });
+  }
+
+  if (unclaimedEligibleHouseholdCount > 0 && demandRowCount <= 0) {
+    warnings.push({
+      code: "NO_ASSIGNED_PACK_ITEM_DEMAND",
+      severity: "WARNING",
+      message:
+        "Eligible not-yet-received families exist, but no active assigned relief pack items were found.",
+    });
+  }
+
+  return warnings;
+};
+
+const getResolvedForecastedUsage = ({
+  analyticsForecastedUsage,
+  projectedHouseholdDemand,
+}) => {
+  return Math.max(
+    Number(analyticsForecastedUsage || 0),
+    Number(projectedHouseholdDemand || 0),
+  );
+};
+
+const getResolvedRiskLevel = ({
+  currentAvailableStock,
+  forecastedUsage,
+  projectedHouseholdDemand,
+  daysUntilDepletion,
+}) => {
+  if (currentAvailableStock <= 0) {
+    return "CRITICAL";
+  }
+
+  if (daysUntilDepletion !== null && daysUntilDepletion <= 7) {
+    return "CRITICAL";
+  }
+
+  if (daysUntilDepletion !== null && daysUntilDepletion <= 14) {
+    return "HIGH";
+  }
+
+  if (
+    forecastedUsage > currentAvailableStock ||
+    projectedHouseholdDemand > currentAvailableStock
+  ) {
+    return "HIGH";
+  }
+
+  return "LOW";
+};
+
+const getRiskPriority = (riskLevel) => {
+  const priorities = {
+    CRITICAL: 4,
+    HIGH: 3,
+    MEDIUM: 2,
+    LOW: 1,
+  };
+
+  return priorities[String(riskLevel || "").toUpperCase()] || 0;
+};
+
+const getRecommendedReorderQuantity = ({
+  currentAvailableStock,
+  forecastedUsage,
+  reorderLevel,
+  analyticsRecommendedReorderQuantity,
+}) => {
+  const reorderBuffer = Math.max(0, Number(reorderLevel || 0));
+  const forecastWithBufferShortfall = Math.ceil(
+    Math.max(
+      0,
+      Number(forecastedUsage || 0) + reorderBuffer - Number(currentAvailableStock || 0),
+    ),
+  );
+
+  return Math.max(
+    Number(analyticsRecommendedReorderQuantity || 0),
+    forecastWithBufferShortfall,
+  );
+};
+
+const enrichForecastResult = ({
+  result,
+  demandContext,
+  stockContext,
+  forecastHorizonDays,
+  fallbackModelName,
+}) => {
+  const currentAvailableStock = Number(
+    result.current_available_stock ?? stockContext?.current_available_stock ?? 0,
+  );
+  const currentLguAvailableStock = Number(
+    stockContext?.current_lgu_available_stock ??
+      result.current_lgu_available_stock ??
+      0,
+  );
+  const currentDonatedAvailableStock = Number(
+    stockContext?.current_donated_available_stock ??
+      result.current_donated_available_stock ??
+      0,
+  );
+  const reorderLevel = Number(result.reorder_level || 0);
+  const averageDailyUsage = Number(result.average_daily_usage || 0);
+  const analyticsForecastedUsage = Number(result.forecasted_usage || 0);
+  const projectedHouseholdDemand = Number(
+    demandContext?.projected_household_demand || 0,
+  );
+  const quantityPerHousehold = Number(demandContext?.quantity_per_household || 0);
+  const resolvedForecastedUsage = getResolvedForecastedUsage({
+    analyticsForecastedUsage,
+    projectedHouseholdDemand,
+  });
+  const projectedRemainingStock = Math.max(
+    0,
+    currentAvailableStock - resolvedForecastedUsage,
+  );
+  const recommendedReorderQuantity = getRecommendedReorderQuantity({
+    currentAvailableStock,
+    forecastedUsage: resolvedForecastedUsage,
+    reorderLevel,
+    analyticsRecommendedReorderQuantity: result.recommended_reorder_quantity,
+  });
+  const dailyForecast = Number(
+    result.daily_forecast ||
+      (forecastHorizonDays > 0 ? resolvedForecastedUsage / forecastHorizonDays : 0),
+  );
+  const daysUntilDepletion =
+    currentAvailableStock <= 0
+      ? 0
+      : dailyForecast > 0
+        ? Math.ceil(currentAvailableStock / dailyForecast)
+        : null;
+  const projectedDepletionDate =
+    result.projected_depletion_date ||
+    (daysUntilDepletion !== null
+      ? new Date(
+          Date.now() + daysUntilDepletion * 24 * 60 * 60 * 1000,
+        )
+          .toISOString()
+          .slice(0, 10)
+      : null);
+
+  return {
+    ...result,
+    current_available_stock: currentAvailableStock,
+    current_lgu_available_stock: currentLguAvailableStock,
+    current_donated_available_stock: currentDonatedAvailableStock,
+    reorder_level: reorderLevel,
+    average_daily_usage: averageDailyUsage,
+    forecasted_usage: resolvedForecastedUsage,
+    projected_depletion_date: projectedDepletionDate,
+    recommended_reorder_quantity: recommendedReorderQuantity,
+    projected_household_demand: projectedHouseholdDemand,
+    quantity_per_household: quantityPerHousehold,
+    projected_remaining_stock: projectedRemainingStock,
+    days_until_depletion: daysUntilDepletion,
+    shortage_within_seven_days:
+      daysUntilDepletion !== null && daysUntilDepletion <= 7,
+    risk_level: getResolvedRiskLevel({
+      currentAvailableStock,
+      forecastedUsage: resolvedForecastedUsage,
+      projectedHouseholdDemand,
+      daysUntilDepletion,
+    }),
+    selected_model: result.selected_model || fallbackModelName || DEFAULT_FORECAST_MODEL,
+    daily_forecast: dailyForecast,
+  };
+};
+
+const buildForecastDashboard = ({
+  disasterEvent,
+  forecastResults,
+  eventContext,
+  usageTrend,
+  readinessWarnings = [],
+  inventoryItemCount = null,
+}) => {
+  const enrichedResults = [...(forecastResults || [])].sort(
+    (left, right) => right.forecasted_usage - left.forecasted_usage,
+  );
+  const criticalItems = enrichedResults.filter(
+    (result) => result.risk_level === "CRITICAL" || result.risk_level === "HIGH",
+  );
+  const totalForecastedDemand = enrichedResults.reduce(
+    (sum, result) => sum + Number(result.forecasted_usage || 0),
+    0,
+  );
+  const totalRecommendedReorder = enrichedResults.reduce(
+    (sum, result) => sum + Number(result.recommended_reorder_quantity || 0),
+    0,
+  );
+  const shortageItems = enrichedResults.filter(
+    (result) => Number(result.recommended_reorder_quantity || 0) > 0,
+  );
+  const demandPreview = enrichedResults.slice(0, 6).map((result) => ({
+    inventory_item_id: result.inventory_item_id,
+    item_name: result.item_name,
+    item_code: result.item_code,
+    projected_household_demand: Number(result.projected_household_demand || 0),
+    forecasted_usage: Number(result.forecasted_usage || 0),
+    recommended_reorder_quantity: Number(result.recommended_reorder_quantity || 0),
+    unit_of_measure: result.unit_of_measure,
+  }));
+  const projectedStockLevels = [...enrichedResults]
+    .sort((left, right) => {
+      const riskDifference =
+        getRiskPriority(right.risk_level) - getRiskPriority(left.risk_level);
+
+      if (riskDifference !== 0) {
+        return riskDifference;
+      }
+
+      return (
+        Number(left.projected_remaining_stock || 0) -
+        Number(right.projected_remaining_stock || 0)
+      );
+    })
+    .slice(0, 8)
+    .map((result) => ({
+      inventory_item_id: result.inventory_item_id,
+      item_name: result.item_name,
+      current_available_stock: Number(result.current_available_stock || 0),
+      current_lgu_available_stock: Number(
+        result.current_lgu_available_stock || 0,
+      ),
+      current_donated_available_stock: Number(
+        result.current_donated_available_stock || 0,
+      ),
+      projected_remaining_stock: Number(result.projected_remaining_stock || 0),
+      forecasted_usage: Number(result.forecasted_usage || 0),
+      risk_level: result.risk_level,
+      unit_of_measure: result.unit_of_measure,
+    }));
+
+  return {
+    disaster_event: {
+      id: disasterEvent?.id || null,
+      event_code: disasterEvent?.event_code || "",
+      title: disasterEvent?.title || "",
+      status: disasterEvent?.status || "",
+      start_date: disasterEvent?.start_date || null,
+      end_date: disasterEvent?.end_date || null,
+      ended_at: disasterEvent?.ended_at || null,
+    },
+    summary: {
+      evacuee_count: Number(eventContext?.evacuee_count || 0),
+      household_count: Number(eventContext?.household_count || 0),
+      attendance_record_count: Number(eventContext?.attendance_record_count || 0),
+      present_evacuee_count: Number(eventContext?.present_evacuee_count || 0),
+      eligible_household_count: Number(
+        eventContext?.eligible_household_count || 0,
+      ),
+      eligible_evacuee_count: Number(eventContext?.eligible_evacuee_count || 0),
+      claimed_household_count: Number(eventContext?.claimed_household_count || 0),
+      unclaimed_eligible_household_count: Number(
+        eventContext?.unclaimed_eligible_household_count || 0,
+      ),
+      distribution_transaction_count: Number(
+        eventContext?.distribution_transaction_count || 0,
+      ),
+      total_released_quantity: Number(eventContext?.total_released_quantity || 0),
+      ...buildInventoryItemCountCompatibility(eventContext, inventoryItemCount),
+      active_standard_pack_count: Number(
+        eventContext?.active_standard_pack_count || 0,
+      ),
+      total_forecasted_demand: totalForecastedDemand,
+      total_recommended_reorder: totalRecommendedReorder,
+      critical_item_count: criticalItems.length,
+      shortage_item_count: shortageItems.length,
+      seven_day_shortage_count: enrichedResults.filter(
+        (result) => result.shortage_within_seven_days,
+      ).length,
+    },
+    charts: {
+      inventory_usage_trend: formatUsageTrend(usageTrend),
+      forecasted_demand: demandPreview,
+      projected_stock_levels: projectedStockLevels,
+    },
+    recommendations: shortageItems.slice(0, 8).map((result) => ({
+      inventory_item_id: result.inventory_item_id,
+      item_name: result.item_name,
+      recommended_reorder_quantity: Number(
+        result.recommended_reorder_quantity || 0,
+      ),
+      risk_level: result.risk_level,
+      projected_depletion_date: result.projected_depletion_date,
+      shortage_within_seven_days: Boolean(result.shortage_within_seven_days),
+      unit_of_measure: result.unit_of_measure,
+    })),
+    readiness_warnings: readinessWarnings,
+  };
+};
+
+const createPublicKey = (prefix, value) =>
+  `${prefix}-${crypto
+    .createHash("sha256")
+    .update(String(value || ""))
+    .digest("hex")
+    .slice(0, 16)}`;
+
+const resolvePublicForecastPriority = (riskLevel) => {
+  const normalizedRiskLevel = String(riskLevel || "").toUpperCase();
+
+  if (normalizedRiskLevel === "CRITICAL" || normalizedRiskLevel === "HIGH") {
+    return "HIGH";
+  }
+
+  if (normalizedRiskLevel === "MEDIUM") {
+    return "MEDIUM";
+  }
+
+  return "LOW";
+};
+
+const buildPublicForecastSuggestionNote = (result) => {
+  if (result.shortage_within_seven_days) {
+    return "Recommended because stock may run short within the next seven days.";
+  }
+
+  if (Number(result.projected_remaining_stock || 0) <= 0) {
+    return "Recommended because projected demand may exceed available stock.";
+  }
+
+  return null;
+};
+
+const resolvePublicSuggestedQuantity = (result) => {
+  return Math.max(0, Number(result.recommended_reorder_quantity || 0));
+};
+
+const buildPublicForecastSuggestions = (storedForecast) => {
+  const forecastedAt = storedForecast?.forecast_run?.run_at || null;
+  const results = Array.isArray(storedForecast?.results)
+    ? storedForecast.results
+    : [];
+
+  return [...results]
+    .filter((result) => resolvePublicSuggestedQuantity(result) > 0)
+    .sort((left, right) => {
+      const quantityDifference =
+        resolvePublicSuggestedQuantity(right) -
+        resolvePublicSuggestedQuantity(left);
+
+      if (quantityDifference !== 0) {
+        return quantityDifference;
+      }
+
+      return String(left.item_name || "").localeCompare(
+        String(right.item_name || ""),
+      );
+    })
+    .map((result) => ({
+      public_key: createPublicKey("forecast-item", result.inventory_item_id),
+      item_name: result.item_name,
+      category: result.category,
+      unit_of_measure: result.unit_of_measure || "items",
+      suggested_quantity: Math.ceil(resolvePublicSuggestedQuantity(result)),
+      priority_level: resolvePublicForecastPriority(result.risk_level),
+      note: buildPublicForecastSuggestionNote(result),
+      forecasted_at: forecastedAt,
+    }));
+};
+
+const mapStoredForecastRun = (forecastRun, resultRows) => {
+  const selectionMode = getForecastSelectionMode(forecastRun);
+  const mappedResults = resultRows.map((row) => {
+    let parsedNotes = {};
+
+    try {
+      parsedNotes = row.confidence_notes ? JSON.parse(row.confidence_notes) : {};
+    } catch (_error) {
+      parsedNotes = {};
+    }
+
+    const selectedModelName = getEffectiveSelectedModel(forecastRun, row);
+
+    return {
+      inventory_item_id: row.inventory_item_id,
+      item_name: row.item_name,
+      item_code: row.item_code,
+      category: row.category,
+      unit_of_measure: row.unit_of_measure,
+      current_available_stock: Number(parsedNotes.current_available_stock || 0),
+      current_lgu_available_stock: Number(
+        parsedNotes.current_lgu_available_stock || 0,
+      ),
+      current_donated_available_stock: Number(
+        parsedNotes.current_donated_available_stock || 0,
+      ),
+      reorder_level: Number(parsedNotes.reorder_level || 0),
+      average_daily_usage: Number(parsedNotes.average_daily_usage || 0),
+      forecasted_usage: Number(row.predicted_quantity_needed || 0),
+      projected_depletion_date: row.predicted_depletion_date,
+      recommended_reorder_quantity: Number(row.recommended_reorder_quantity || 0),
+      projected_household_demand: Number(
+        parsedNotes.projected_household_demand || 0,
+      ),
+      quantity_per_household: Number(parsedNotes.quantity_per_household || 0),
+      projected_remaining_stock: Number(
+        parsedNotes.projected_remaining_stock || 0,
+      ),
+      days_until_depletion:
+        parsedNotes.days_until_depletion === null ||
+        parsedNotes.days_until_depletion === undefined
+          ? null
+          : Number(parsedNotes.days_until_depletion || 0),
+      shortage_within_seven_days: Boolean(
+        parsedNotes.shortage_within_seven_days || false,
+      ),
+      risk_level: parsedNotes.risk_level || "LOW",
+      selected_model_name: selectedModelName,
+      model_evaluation: normalizeStoredModelEvaluation(row.model_evaluation),
+      selected_model: selectedModelName,
+      daily_forecast: Number(parsedNotes.daily_forecast || 0),
+    };
+  });
+  const eventContext = forecastRun.parameters_json?.event_context || {};
+
+  return {
+    forecast_run: {
+      id: forecastRun.id,
+      disaster_event_id: forecastRun.disaster_event_id,
+      disaster_event: {
+        event_code: forecastRun.event_code,
+        title: forecastRun.disaster_event_title,
+      },
+      run_type: forecastRun.run_type,
+      selection_mode: selectionMode,
+      run_by: forecastRun.run_by,
+      run_at: forecastRun.run_at,
+      model_name:
+        selectionMode === AUTO_BACKTEST ? null : forecastRun.model_name,
+      parameters_json: forecastRun.parameters_json || {},
+    },
+    dashboard: {
+      disaster_event: {
+        id: forecastRun.disaster_event_id,
+        event_code: forecastRun.event_code,
+        title: forecastRun.disaster_event_title,
+      },
+      summary: {
+        evacuee_count: Number(
+          forecastRun.parameters_json?.event_context?.evacuee_count || 0,
+        ),
+        household_count: Number(
+          forecastRun.parameters_json?.event_context?.household_count || 0,
+        ),
+        attendance_record_count: Number(
+          forecastRun.parameters_json?.event_context?.attendance_record_count || 0,
+        ),
+        present_evacuee_count: Number(
+          forecastRun.parameters_json?.event_context?.present_evacuee_count || 0,
+        ),
+        eligible_household_count: Number(
+          forecastRun.parameters_json?.event_context?.eligible_household_count || 0,
+        ),
+        eligible_evacuee_count: Number(
+          forecastRun.parameters_json?.event_context?.eligible_evacuee_count || 0,
+        ),
+        claimed_household_count: Number(
+          forecastRun.parameters_json?.event_context?.claimed_household_count || 0,
+        ),
+        unclaimed_eligible_household_count: Number(
+          forecastRun.parameters_json?.event_context
+            ?.unclaimed_eligible_household_count || 0,
+        ),
+        distribution_transaction_count: Number(
+          forecastRun.parameters_json?.event_context?.distribution_transaction_count || 0,
+        ),
+        total_released_quantity: Number(
+          forecastRun.parameters_json?.event_context?.total_released_quantity || 0,
+        ),
+        ...buildInventoryItemCountCompatibility(eventContext),
+        active_standard_pack_count: Number(
+          forecastRun.parameters_json?.event_context?.active_standard_pack_count || 0,
+        ),
+        total_forecasted_demand: mappedResults.reduce(
+          (sum, result) => sum + Number(result.forecasted_usage || 0),
+          0,
+        ),
+        total_recommended_reorder: mappedResults.reduce(
+          (sum, result) =>
+            sum + Number(result.recommended_reorder_quantity || 0),
+          0,
+        ),
+        critical_item_count: mappedResults.filter(
+          (result) =>
+            result.risk_level === "CRITICAL" || result.risk_level === "HIGH",
+        ).length,
+        shortage_item_count: mappedResults.filter(
+          (result) => Number(result.recommended_reorder_quantity || 0) > 0,
+        ).length,
+        seven_day_shortage_count: mappedResults.filter(
+          (result) => result.shortage_within_seven_days,
+        ).length,
+      },
+      charts: {
+        inventory_usage_trend:
+          forecastRun.parameters_json?.inventory_usage_trend || [],
+        forecasted_demand: [...mappedResults]
+          .sort((left, right) => right.forecasted_usage - left.forecasted_usage)
+          .slice(0, 6)
+          .map((result) => ({
+            inventory_item_id: result.inventory_item_id,
+            item_name: result.item_name,
+            item_code: result.item_code,
+            projected_household_demand: Number(
+              result.projected_household_demand || 0,
+            ),
+            forecasted_usage: Number(result.forecasted_usage || 0),
+            recommended_reorder_quantity: Number(
+              result.recommended_reorder_quantity || 0,
+            ),
+            unit_of_measure: result.unit_of_measure,
+          })),
+        projected_stock_levels: [...mappedResults]
+          .sort((left, right) => right.forecasted_usage - left.forecasted_usage)
+          .slice(0, 8)
+          .map((result) => ({
+            inventory_item_id: result.inventory_item_id,
+            item_name: result.item_name,
+            current_available_stock: Number(
+              result.current_available_stock || 0,
+            ),
+            projected_remaining_stock: Number(
+              result.projected_remaining_stock || 0,
+            ),
+            forecasted_usage: Number(result.forecasted_usage || 0),
+          })),
+      },
+      recommendations: [...mappedResults]
+        .filter((result) => Number(result.recommended_reorder_quantity || 0) > 0)
+        .sort(
+          (left, right) =>
+            Number(right.recommended_reorder_quantity || 0) -
+            Number(left.recommended_reorder_quantity || 0),
+        )
+        .slice(0, 8)
+        .map((result) => ({
+          inventory_item_id: result.inventory_item_id,
+          item_name: result.item_name,
+          recommended_reorder_quantity: Number(
+            result.recommended_reorder_quantity || 0,
+          ),
+          risk_level: result.risk_level,
+          projected_depletion_date: result.projected_depletion_date,
+          shortage_within_seven_days: Boolean(
+            result.shortage_within_seven_days,
+          ),
+          unit_of_measure: result.unit_of_measure,
+        })),
+      readiness_warnings: forecastRun.parameters_json?.readiness_warnings || [],
+    },
+    results: mappedResults,
+  };
+};
+
+const normalizeStoredModelEvaluation = (value) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  let parsedValue = value;
+
+  if (typeof value === "string") {
+    try {
+      parsedValue = JSON.parse(value);
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  return parsedValue &&
+    typeof parsedValue === "object" &&
+    !Array.isArray(parsedValue)
+    ? parsedValue
+    : null;
+};
+
+const ensureDisasterEvent = async (disasterEventId, dbClient = pool) => {
+  const disasterEvent = await forecastRepository.getDisasterEventById(
+    disasterEventId,
+    dbClient,
+  );
+
+  if (!disasterEvent) {
+    const error = new Error(
+      "disaster_event_id does not refer to an existing disaster event",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return disasterEvent;
+};
+
+const ensureForecastableDisasterEvent = async (disasterEventId, dbClient = pool) => {
+  const disasterEvent = await ensureDisasterEvent(disasterEventId, dbClient);
+
+  if (disasterEvent.status !== "ACTIVE") {
+    const error = new Error(
+      "Inventory forecasting can only be run for active disaster events.",
+    );
+    error.statusCode = 400;
+    error.code = "DISASTER_EVENT_NOT_ACTIVE_FOR_FORECAST";
+    throw error;
+  }
+
+  return disasterEvent;
+};
+
+const buildAnalyticsPayload = ({ forecastItems, usageSeriesMap, modelName }) => {
+  return {
+    model_name: modelName,
+    forecast_horizon_days: FORECAST_HORIZON_DAYS,
+    lookback_days: LOOKBACK_DAYS,
+    moving_average_window: MOVING_AVERAGE_WINDOW,
+    exponential_smoothing_alpha: EXPONENTIAL_SMOOTHING_ALPHA,
+    items: forecastItems.map((item) => ({
+      inventory_item_id: item.id,
+      item_name: item.item_name,
+      item_code: item.item_code,
+      category: item.category,
+      unit_of_measure: item.unit_of_measure,
+      current_available_stock: Number(item.current_available_stock || 0),
+      reorder_level: Number(item.reorder_level || 0),
+      usage_series: usageSeriesMap.get(item.id) || new Array(LOOKBACK_DAYS).fill(0),
+    })),
+  };
+};
+
+const buildAutoBacktestAnalyticsPayload = ({
+  forecastItems,
+  usageSeriesMap,
+}) => ({
+  selection_mode: AUTO_BACKTEST,
+  model_name: DEFAULT_FORECAST_MODEL,
+  forecast_horizon_days: FORECAST_HORIZON_DAYS,
+  lookback_days: LOOKBACK_DAYS,
+  moving_average_window: MOVING_AVERAGE_WINDOW,
+  exponential_smoothing_alpha: EXPONENTIAL_SMOOTHING_ALPHA,
+  items: forecastItems.map((item) => ({
+    inventory_item_id: item.id,
+    item_name: item.item_name,
+    item_code: item.item_code,
+    category: item.category,
+    unit_of_measure: item.unit_of_measure,
+    current_available_stock: Number(item.current_available_stock || 0),
+    reorder_level: Number(item.reorder_level || 0),
+    usage_series: usageSeriesMap.get(item.id) || [],
+  })),
+});
+
+const buildForecastEventContextSummary = (eventContext) => ({
+  household_count: Number(eventContext?.household_count || 0),
+  evacuee_count: Number(eventContext?.evacuee_count || 0),
+  attendance_record_count: Number(eventContext?.attendance_record_count || 0),
+  present_evacuee_count: Number(eventContext?.present_evacuee_count || 0),
+  eligible_household_count: Number(
+    eventContext?.eligible_household_count || 0,
+  ),
+  eligible_evacuee_count: Number(eventContext?.eligible_evacuee_count || 0),
+  claimed_household_count: Number(eventContext?.claimed_household_count || 0),
+  unclaimed_eligible_household_count: Number(
+    eventContext?.unclaimed_eligible_household_count || 0,
+  ),
+  distribution_transaction_count: Number(
+    eventContext?.distribution_transaction_count || 0,
+  ),
+  total_released_quantity: Number(eventContext?.total_released_quantity || 0),
+  ...buildInventoryItemCountCompatibility(eventContext),
+  active_standard_pack_count: Number(
+    eventContext?.active_standard_pack_count || 0,
+  ),
+});
+
+const buildAnalyticsUnavailableError = (message) => {
+  const error = new Error(message);
+  error.statusCode = 503;
+  return error;
+};
+
+const mapForecastRunSummary = (forecastRun) => {
+  const selectionMode = getForecastSelectionMode(forecastRun);
+
+  return {
+    id: forecastRun.id,
+    disaster_event_id: forecastRun.disaster_event_id,
+    disaster_event: {
+      event_code: forecastRun.event_code,
+      title: forecastRun.disaster_event_title,
+    },
+    run_type: forecastRun.run_type,
+    run_by: forecastRun.run_by,
+    generated_by:
+      [forecastRun.run_by_first_name, forecastRun.run_by_last_name]
+        .filter(Boolean)
+        .join(" ")
+        .trim() ||
+      forecastRun.run_by_email ||
+      forecastRun.run_by ||
+      "Unknown User",
+    run_at: forecastRun.run_at,
+    model_name:
+      selectionMode === AUTO_BACKTEST ? null : forecastRun.model_name,
+    selection_mode: selectionMode,
+    status: "COMPLETED",
+    parameters_json: forecastRun.parameters_json || {},
+  };
+};
+
+const callAnalyticsInventoryForecast = async (payload, actor = null) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ANALYTICS_TIMEOUT_MS);
+  const analyticsUrl = `${normalizeAnalyticsServiceUrl(
+    ANALYTICS_SERVICE_URL,
+  )}/forecasting/inventory-demand`;
+
+  try {
+    const response = await fetch(analyticsUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    const responseData = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      const detail =
+        typeof responseData?.detail === "string"
+          ? responseData.detail
+          : typeof responseData?.message === "string"
+            ? responseData.message
+            : "Analytics service failed to compute the inventory forecast.";
+
+      console.error("Inventory forecasting analytics error:", detail);
+
+      await logErrorSafely({
+        actor,
+        moduleName: "forecasting",
+        errorCode: "ANALYTICS_FORECAST_REQUEST_FAILED",
+        errorMessage: detail,
+        severity: response.status >= 500 ? "ERROR" : "WARNING",
+      });
+
+      const error = new Error(detail);
+      error.statusCode = response.status >= 500 ? 503 : response.status;
+      throw error;
+    }
+
+    if (!responseData || !Array.isArray(responseData.results)) {
+      console.error(
+        "Inventory forecasting analytics returned an invalid response shape.",
+        responseData,
+      );
+      const error = new Error(
+        "Analytics service returned an invalid forecast response.",
+      );
+      error.statusCode = 502;
+
+      await logErrorSafely({
+        actor,
+        moduleName: "forecasting",
+        errorCode: "INVALID_FORECAST_RESPONSE",
+        errorMessage: error.message,
+        error,
+      });
+
+      throw error;
+    }
+
+    return responseData;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      console.error(
+        `Inventory forecasting analytics timed out after ${ANALYTICS_TIMEOUT_MS}ms.`,
+      );
+
+      await logErrorSafely({
+        actor,
+        moduleName: "forecasting",
+        errorCode: "ANALYTICS_FORECAST_TIMEOUT",
+        errorMessage: "Analytics service timed out while computing the inventory forecast.",
+        error,
+      });
+
+      throw buildAnalyticsUnavailableError(
+        "Analytics service timed out while computing the inventory forecast.",
+      );
+    }
+
+    if (error.statusCode) {
+      throw error;
+    }
+
+    console.error("Inventory forecasting analytics request failed:", error.message);
+
+    await logErrorSafely({
+      actor,
+      moduleName: "forecasting",
+      errorCode: "ANALYTICS_SERVICE_UNAVAILABLE",
+      errorMessage: error.message || "Analytics service is unavailable.",
+      error,
+    });
+
+    throw buildAnalyticsUnavailableError(
+      "Analytics service is unavailable. Please make sure the analytics server is running.",
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+const buildInvalidAutoForecastResponseError = () => {
+  const error = new Error(
+    "Analytics service returned an invalid AUTO_BACKTEST forecast response.",
+  );
+  error.statusCode = 502;
+  error.code = "INVALID_FORECAST_RESPONSE";
+  return error;
+};
+
+const isFiniteNonnegativeNumber = (value) =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+const isNonnegativeInteger = (value) =>
+  Number.isInteger(value) && value >= 0;
+
+const validateAutoBacktestAnalyticsResponse = (
+  response,
+  forecastItems,
+  usageSeriesMap,
+) => {
+  const fail = () => {
+    throw buildInvalidAutoForecastResponseError();
+  };
+  const expectedItemIds = new Set(forecastItems.map((item) => item.id));
+  const expectedModels = Object.keys(FORECAST_MODELS);
+
+  if (
+    expectedItemIds.size !== forecastItems.length ||
+    !response ||
+    response.forecast_horizon_days !== FORECAST_HORIZON_DAYS ||
+    response.lookback_days !== LOOKBACK_DAYS ||
+    !Array.isArray(response.results) ||
+    response.results.length !== forecastItems.length
+  ) {
+    fail();
+  }
+
+  const resultsByItemId = new Map();
+  response.results.forEach((result) => {
+    if (
+      !result ||
+      typeof result.inventory_item_id !== "string" ||
+      !expectedItemIds.has(result.inventory_item_id) ||
+      resultsByItemId.has(result.inventory_item_id) ||
+      !FORECAST_MODELS[result.selected_model] ||
+      !(result.recommended_model === null || FORECAST_MODELS[result.recommended_model]) ||
+      !["EVALUATED", "INSUFFICIENT_HISTORY"].includes(result.evaluation_status) ||
+      typeof result.evaluation_method !== "string" ||
+      !result.evaluation_method ||
+      !isNonnegativeInteger(result.initial_training_points) ||
+      !isNonnegativeInteger(result.available_observations) ||
+      result.available_observations !==
+        (usageSeriesMap.get(result.inventory_item_id) || []).length ||
+      !isNonnegativeInteger(result.backtest_points) ||
+      result.backtest_points !==
+        Math.max(0, result.available_observations - result.initial_training_points) ||
+      !isFiniteNonnegativeNumber(result.current_available_stock) ||
+      !isFiniteNonnegativeNumber(result.reorder_level) ||
+      !isFiniteNonnegativeNumber(result.average_daily_usage) ||
+      !isFiniteNonnegativeNumber(result.forecasted_usage) ||
+      !isFiniteNonnegativeNumber(result.daily_forecast) ||
+      !isNonnegativeInteger(result.recommended_reorder_quantity) ||
+      (result.projected_depletion_date !== null &&
+        (typeof result.projected_depletion_date !== "string" ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(result.projected_depletion_date))) ||
+      !["CRITICAL", "HIGH", "MEDIUM", "LOW"].includes(result.risk_level) ||
+      !["RECOMMENDED", "NO_RECOMMENDATION", "NOT_EVALUATED"].includes(
+        result.recommendation_status,
+      ) ||
+      typeof result.recommendation_reason !== "string" ||
+      !result.recommendation_reason
+    ) {
+      fail();
+    }
+
+    if (result.recommended_model !== null) {
+      if (
+        result.selected_model !== result.recommended_model ||
+        result.recommendation_status !== "RECOMMENDED" ||
+        result.selection_reason !== "HISTORICALLY_RECOMMENDED"
+      ) {
+        fail();
+      }
+    } else if (
+      result.selected_model !== DEFAULT_FORECAST_MODEL ||
+      result.recommendation_status === "RECOMMENDED" ||
+      result.selection_reason !== "OPERATIONAL_FALLBACK"
+    ) {
+      fail();
+    }
+
+    const hasEnoughHistory =
+      result.available_observations >= 2 * result.initial_training_points;
+    if (
+      (result.evaluation_status === "INSUFFICIENT_HISTORY" && hasEnoughHistory) ||
+      (result.evaluation_status === "EVALUATED" && !hasEnoughHistory) ||
+      (result.evaluation_status === "INSUFFICIENT_HISTORY" &&
+        result.recommendation_status !== "NOT_EVALUATED") ||
+      (result.evaluation_status === "EVALUATED" &&
+        result.recommendation_status === "NOT_EVALUATED")
+    ) {
+      fail();
+    }
+
+    if (
+      !Array.isArray(result.candidate_evaluations) ||
+      result.candidate_evaluations.length !== expectedModels.length
+    ) {
+      fail();
+    }
+
+    const candidatesByModel = new Map();
+    result.candidate_evaluations.forEach((candidate) => {
+      if (
+        !candidate ||
+        !FORECAST_MODELS[candidate.model_name] ||
+        candidatesByModel.has(candidate.model_name) ||
+        !["EVALUATED", "NOT_EVALUATED", "UNAVAILABLE"].includes(candidate.status) ||
+        !isNonnegativeInteger(candidate.backtest_point_count)
+      ) {
+        fail();
+      }
+
+      if (
+        (candidate.mae !== null && !isFiniteNonnegativeNumber(candidate.mae)) ||
+        (candidate.rmse !== null && !isFiniteNonnegativeNumber(candidate.rmse))
+      ) {
+        fail();
+      }
+
+      if (candidate.status === "EVALUATED") {
+        if (
+          !isFiniteNonnegativeNumber(candidate.mae) ||
+          !isFiniteNonnegativeNumber(candidate.rmse) ||
+          candidate.backtest_point_count < 1 ||
+          candidate.backtest_point_count !== result.backtest_points
+        ) {
+          fail();
+        }
+      }
+
+      if (candidate.current_forecast !== null) {
+        if (
+          !candidate.current_forecast ||
+          candidate.current_forecast.model_name !== candidate.model_name ||
+          !isFiniteNonnegativeNumber(candidate.current_forecast.daily_forecast) ||
+          !isFiniteNonnegativeNumber(candidate.current_forecast.forecasted_usage)
+        ) {
+          fail();
+        }
+      }
+
+      candidatesByModel.set(candidate.model_name, candidate);
+    });
+
+    if (expectedModels.some((modelName) => !candidatesByModel.has(modelName))) {
+      fail();
+    }
+
+    if (
+      result.recommended_model !== null &&
+      expectedModels.some(
+        (modelName) => candidatesByModel.get(modelName).status !== "EVALUATED",
+      )
+    ) {
+      fail();
+    }
+
+    const selectedCandidate = candidatesByModel.get(result.selected_model);
+    const rawForecast = result.raw_statistical_forecast;
+    if (
+      !selectedCandidate?.current_forecast ||
+      !rawForecast ||
+      rawForecast.model_name !== result.selected_model ||
+      !isFiniteNonnegativeNumber(rawForecast.daily_forecast) ||
+      !isFiniteNonnegativeNumber(rawForecast.forecasted_usage) ||
+      rawForecast.daily_forecast !==
+        selectedCandidate.current_forecast.daily_forecast ||
+      rawForecast.forecasted_usage !==
+        selectedCandidate.current_forecast.forecasted_usage
+    ) {
+      fail();
+    }
+
+    resultsByItemId.set(result.inventory_item_id, result);
+  });
+
+  if (resultsByItemId.size !== expectedItemIds.size) {
+    fail();
+  }
+
+  return resultsByItemId;
+};
+
+const evaluateInventoryForecastModels = async ({
+  disaster_event_id,
+  run_by,
+  referenceInstant = new Date(),
+}) => {
+  const disasterEvent = await ensureForecastableDisasterEvent(disaster_event_id);
+  const forecastItems = await forecastRepository.getInventoryForecastItems(
+    disaster_event_id,
+  );
+  const eventContext = await forecastRepository.getForecastEventContext(
+    disaster_event_id,
+  );
+  if (!eventContext?.start_date) {
+    throw new Error(
+      "Disaster event start_date is required for automatic historical evaluation.",
+    );
+  }
+
+  const historyWindow = buildEligibleHistoryWindow({
+    eventStartDate: eventContext.start_date,
+    lookbackDays: LOOKBACK_DAYS,
+    referenceInstant,
+  });
+  const demandRows = await forecastRepository.getReliefPackDemandByEvent(
+    disaster_event_id,
+  );
+  const usageRows = historyWindow.day_keys.length
+    ? await forecastRepository.getEligibleInventoryUsageSeries(
+        disaster_event_id,
+        historyWindow.eligible_start_date,
+        historyWindow.eligible_end_date,
+      )
+    : [];
+  const usageSeriesMap = buildEligibleHistoricalSeries(
+    usageRows,
+    forecastItems.map((item) => item.id),
+    historyWindow.day_keys,
+  );
+  const demandMap = buildDemandMap(demandRows);
+  const stockByItemId = new Map(
+    forecastItems.map((item) => [item.id, item]),
+  );
+  const analyticsPayload = buildAutoBacktestAnalyticsPayload({
+    forecastItems,
+    usageSeriesMap,
+  });
+  const analyticsForecast = await callAnalyticsInventoryForecast(
+    analyticsPayload,
+    {
+      userId: run_by,
+      roleCode: "MAYOR",
+    },
+  );
+  const analyticsResultsByItemId = validateAutoBacktestAnalyticsResponse(
+    analyticsForecast,
+    forecastItems,
+    usageSeriesMap,
+  );
+  const enrichedResults = forecastItems.map((item) => {
+    const analyticsResult = analyticsResultsByItemId.get(item.id);
+    const stockContext = stockByItemId.get(item.id);
+    const rawStatisticalForecast = analyticsResult.raw_statistical_forecast;
+    const resultForEnrichment = {
+      ...analyticsResult,
+      current_available_stock: Number(stockContext.current_available_stock || 0),
+      reorder_level: Number(stockContext.reorder_level || 0),
+      forecasted_usage: rawStatisticalForecast.forecasted_usage,
+      daily_forecast: rawStatisticalForecast.daily_forecast,
+      raw_statistical_forecast: { ...rawStatisticalForecast },
+    };
+
+    const enrichedResult = enrichForecastResult({
+      result: resultForEnrichment,
+      demandContext: demandMap.get(item.id),
+      stockContext,
+      forecastHorizonDays: analyticsForecast.forecast_horizon_days,
+      fallbackModelName: DEFAULT_FORECAST_MODEL,
+    });
+
+    return {
+      ...enrichedResult,
+      resolved_operational_usage: enrichedResult.forecasted_usage,
+    };
+  });
+
+  return {
+    selection_mode: AUTO_BACKTEST,
+    disaster_event_id,
+    event: {
+      id: disasterEvent.id,
+      event_code: disasterEvent.event_code,
+      title: disasterEvent.title,
+      status: disasterEvent.status,
+      start_date: eventContext.start_date,
+    },
+    event_context: buildForecastEventContextSummary(eventContext),
+    historical_window: historyWindow,
+    forecast_horizon_days: FORECAST_HORIZON_DAYS,
+    results: enrichedResults,
+  };
+};
+
+const buildInvalidAutoForecastPersistenceInputError = () => {
+  const error = new Error(
+    "AUTO_BACKTEST evaluation is invalid and cannot be persisted.",
+  );
+  error.statusCode = 502;
+  error.code = "INVALID_FORECAST_RESPONSE";
+  return error;
+};
+
+const assertJsonSerializable = (value) => {
+  const visited = new Set();
+
+  const visit = (current) => {
+    if (current === undefined || typeof current === "function" ||
+        typeof current === "symbol" || typeof current === "bigint") {
+      throw buildInvalidAutoForecastPersistenceInputError();
+    }
+
+    if (typeof current === "number") {
+      if (!Number.isFinite(current)) {
+        throw buildInvalidAutoForecastPersistenceInputError();
+      }
+      return;
+    }
+
+    if (current === null || typeof current !== "object") {
+      return;
+    }
+
+    if (visited.has(current)) {
+      throw buildInvalidAutoForecastPersistenceInputError();
+    }
+    visited.add(current);
+
+    if (Array.isArray(current)) {
+      current.forEach(visit);
+    } else {
+      const prototype = Object.getPrototypeOf(current);
+      if (prototype !== Object.prototype && prototype !== null) {
+        throw buildInvalidAutoForecastPersistenceInputError();
+      }
+      Object.entries(current).forEach(([, nestedValue]) => visit(nestedValue));
+    }
+
+    visited.delete(current);
+  };
+
+  visit(value);
+  try {
+    JSON.stringify(value);
+  } catch (_error) {
+    throw buildInvalidAutoForecastPersistenceInputError();
+  }
+};
+
+const buildPersistedModelEvaluation = (result, historicalWindow) => {
+  const fail = () => {
+    throw buildInvalidAutoForecastPersistenceInputError();
+  };
+  const selectedModelName = result?.selected_model;
+  const recommendedModelName = result?.recommended_model;
+
+  if (
+    !result ||
+    !FORECAST_MODELS[selectedModelName] ||
+    !(recommendedModelName === null || FORECAST_MODELS[recommendedModelName]) ||
+    !["RECOMMENDED", "NO_RECOMMENDATION", "NOT_EVALUATED"].includes(
+      result.recommendation_status,
+    ) ||
+    typeof result.recommendation_reason !== "string" ||
+    !result.recommendation_reason ||
+    typeof result.selection_reason !== "string" ||
+    !["EVALUATED", "INSUFFICIENT_HISTORY"].includes(result.evaluation_status) ||
+    result.evaluation_method !== FORECAST_EVALUATION_METHOD ||
+    !Number.isInteger(result.initial_training_points) ||
+    result.initial_training_points < 1 ||
+    !Number.isInteger(result.available_observations) ||
+    result.available_observations < 0 ||
+    !Number.isInteger(result.backtest_points) ||
+    result.backtest_points < 0 ||
+    !result.raw_statistical_forecast ||
+    result.raw_statistical_forecast.model_name !== selectedModelName ||
+    !isFiniteNonnegativeNumber(result.raw_statistical_forecast.daily_forecast) ||
+    !isFiniteNonnegativeNumber(result.raw_statistical_forecast.forecasted_usage) ||
+    !historicalWindow ||
+    historicalWindow.time_zone !== FORECAST_HISTORY_TIME_ZONE ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(historicalWindow.eligible_start_date || "") ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(historicalWindow.eligible_end_date || "")
+  ) {
+    fail();
+  }
+
+  if (recommendedModelName === null) {
+    if (
+      selectedModelName !== DEFAULT_FORECAST_MODEL ||
+      result.selection_reason !== "OPERATIONAL_FALLBACK"
+    ) {
+      fail();
+    }
+  } else if (
+    selectedModelName !== recommendedModelName ||
+    result.recommendation_status !== "RECOMMENDED" ||
+    result.selection_reason !== "HISTORICALLY_RECOMMENDED"
+  ) {
+    fail();
+  }
+
+  if (
+    !isFiniteNonnegativeNumber(result.resolved_operational_usage) ||
+    !isFiniteNonnegativeNumber(result.daily_forecast) ||
+    !Number.isInteger(result.recommended_reorder_quantity) ||
+    result.recommended_reorder_quantity < 0
+  ) {
+    fail();
+  }
+
+  const candidatesByModel = new Map();
+  if (
+    !Array.isArray(result.candidate_evaluations) ||
+    result.candidate_evaluations.length !== Object.keys(FORECAST_MODELS).length
+  ) {
+    fail();
+  }
+
+  result.candidate_evaluations.forEach((candidate) => {
+    if (
+      !candidate ||
+      !FORECAST_MODELS[candidate.model_name] ||
+      candidatesByModel.has(candidate.model_name) ||
+      !["EVALUATED", "NOT_EVALUATED", "UNAVAILABLE"].includes(candidate.status) ||
+      !Number.isInteger(candidate.backtest_point_count) ||
+      candidate.backtest_point_count < 0 ||
+      (candidate.mae !== null &&
+        !isFiniteNonnegativeNumber(candidate.mae)) ||
+      (candidate.rmse !== null &&
+        !isFiniteNonnegativeNumber(candidate.rmse)) ||
+      (candidate.failure_reason !== null &&
+        typeof candidate.failure_reason !== "string")
+    ) {
+      fail();
+    }
+
+    if (
+      candidate.status === "EVALUATED" &&
+      (!isFiniteNonnegativeNumber(candidate.mae) ||
+        !isFiniteNonnegativeNumber(candidate.rmse) ||
+        candidate.backtest_point_count < 1)
+    ) {
+      fail();
+    }
+
+    if (candidate.current_forecast !== null) {
+      if (
+        !candidate.current_forecast ||
+        !isFiniteNonnegativeNumber(candidate.current_forecast.daily_forecast) ||
+        !isFiniteNonnegativeNumber(candidate.current_forecast.forecasted_usage)
+      ) {
+        fail();
+      }
+    }
+
+    candidatesByModel.set(candidate.model_name, candidate);
+  });
+
+  const expectedModelNames = Object.keys(FORECAST_MODELS);
+  if (expectedModelNames.some((modelName) => !candidatesByModel.has(modelName))) {
+    fail();
+  }
+
+  const modelEvaluation = {
+    version: 1,
+    evaluation_method: result.evaluation_method,
+    timezone: historicalWindow.time_zone,
+    eligible_start_date: historicalWindow.eligible_start_date,
+    eligible_end_date: historicalWindow.eligible_end_date,
+    evaluation_status: result.evaluation_status,
+    available_observations: result.available_observations,
+    initial_training_points: result.initial_training_points,
+    backtest_points: result.backtest_points,
+    recommendation_status: result.recommendation_status,
+    recommendation_reason: result.recommendation_reason,
+    recommended_model: recommendedModelName,
+    selected_model: selectedModelName,
+    selection_reason: result.selection_reason,
+    raw_statistical_forecast: {
+      model_name: result.raw_statistical_forecast.model_name,
+      daily_forecast: result.raw_statistical_forecast.daily_forecast,
+      forecasted_usage: result.raw_statistical_forecast.forecasted_usage,
+    },
+    candidates: expectedModelNames.map((modelName) => {
+      const candidate = candidatesByModel.get(modelName);
+      return {
+        model_name: candidate.model_name,
+        status: candidate.status,
+        mae: candidate.mae,
+        rmse: candidate.rmse,
+        backtest_points: candidate.backtest_point_count,
+        daily_forecast: candidate.current_forecast?.daily_forecast ?? null,
+        forecasted_usage:
+          candidate.current_forecast?.forecasted_usage ?? null,
+        failure_reason: candidate.failure_reason ?? null,
+      };
+    }),
+  };
+
+  assertJsonSerializable(modelEvaluation);
+  return modelEvaluation;
+};
+
+const buildAutoForecastRunParameters = (evaluation) => {
+  const firstResult = evaluation.results[0] || null;
+  const initialTrainingPoints =
+    firstResult?.initial_training_points ?? MOVING_AVERAGE_WINDOW;
+  if (
+    evaluation.selection_mode !== AUTO_BACKTEST ||
+    evaluation.forecast_horizon_days !== FORECAST_HORIZON_DAYS ||
+    !evaluation.historical_window ||
+    (firstResult &&
+      evaluation.results.some(
+        (result) =>
+          result.initial_training_points !== initialTrainingPoints ||
+          result.evaluation_method !== firstResult.evaluation_method,
+      ))
+  ) {
+    throw buildInvalidAutoForecastPersistenceInputError();
+  }
+
+  return {
+    selection_mode: AUTO_BACKTEST,
+    forecast_horizon_days: evaluation.forecast_horizon_days,
+    lookback_days: LOOKBACK_DAYS,
+    moving_average_window: MOVING_AVERAGE_WINDOW,
+    exponential_smoothing_alpha: EXPONENTIAL_SMOOTHING_ALPHA,
+    evaluation_method:
+      firstResult?.evaluation_method || FORECAST_EVALUATION_METHOD,
+    initial_training_points: initialTrainingPoints,
+    minimum_backtest_points: initialTrainingPoints,
+    minimum_history_points: initialTrainingPoints * 2,
+    timezone: evaluation.historical_window.time_zone,
+    completed_day_policy: "COMPLETED_EVENT_DAYS",
+    current_day_exclusion_policy: "EXCLUDE_CURRENT_MANILA_DAY",
+    current_incomplete_day_excluded:
+      evaluation.historical_window.current_incomplete_day_excluded === true,
+    event_context: evaluation.event_context,
+  };
+};
+
+const runAndPersistAutoInventoryForecast = async ({
+  disaster_event_id,
+  run_by,
+  referenceInstant = new Date(),
+}) => {
+  const evaluation = await evaluateInventoryForecastModels({
+    disaster_event_id,
+    run_by,
+    referenceInstant,
+  });
+  const parametersJson = buildAutoForecastRunParameters(evaluation);
+  const resultInserts = evaluation.results.map((result) => {
+    const modelEvaluation = buildPersistedModelEvaluation(
+      result,
+      evaluation.historical_window,
+    );
+    return {
+      item: result,
+      selected_model_name: result.selected_model,
+      model_evaluation: modelEvaluation,
+      predicted_quantity_needed: result.resolved_operational_usage,
+      predicted_depletion_date: result.projected_depletion_date,
+      recommended_reorder_quantity: result.recommended_reorder_quantity,
+      confidence_notes: buildResultConfidenceNotes({
+        analyticsResult: result,
+        forecastHorizonDays: evaluation.forecast_horizon_days,
+        lookbackDays: parametersJson.lookback_days,
+      }),
+    };
+  });
+
+  const client = await pool.connect();
+  let createdForecastRun;
+  const persistedRows = [];
+
+  try {
+    await client.query("BEGIN");
+    createdForecastRun = await forecastRepository.insertForecastRun(
+      {
+        disaster_event_id,
+        run_type: "INVENTORY_DEMAND",
+        selection_mode: AUTO_BACKTEST,
+        run_by,
+        model_name: null,
+        parameters_json: parametersJson,
+      },
+      client,
+    );
+
+    if (!createdForecastRun?.id) {
+      throw new Error("Failed to persist AUTO_BACKTEST forecast run.");
+    }
+
+    for (const resultInsert of resultInserts) {
+      const item = resultInsert.item;
+      const createdResult = await forecastRepository.insertForecastResult(
+        {
+          forecast_run_id: createdForecastRun.id,
+          inventory_item_id: item.inventory_item_id,
+          predicted_quantity_needed:
+            resultInsert.predicted_quantity_needed,
+          predicted_depletion_date: resultInsert.predicted_depletion_date,
+          recommended_reorder_quantity:
+            resultInsert.recommended_reorder_quantity,
+          confidence_notes: resultInsert.confidence_notes,
+          selected_model_name: resultInsert.selected_model_name,
+          model_evaluation: resultInsert.model_evaluation,
+        },
+        client,
+      );
+
+      if (!createdResult?.id) {
+        throw new Error("Failed to persist AUTO_BACKTEST forecast result.");
+      }
+
+      persistedRows.push({
+        id: createdResult.id,
+        forecast_run_id: createdForecastRun.id,
+        inventory_item_id: item.inventory_item_id,
+        predicted_quantity_needed: resultInsert.predicted_quantity_needed,
+        predicted_depletion_date: resultInsert.predicted_depletion_date,
+        recommended_reorder_quantity:
+          resultInsert.recommended_reorder_quantity,
+        confidence_notes: resultInsert.confidence_notes,
+        selected_model_name: resultInsert.selected_model_name,
+        model_evaluation: resultInsert.model_evaluation,
+        item_name: item.item_name,
+        item_code: item.item_code,
+        category: item.category,
+        unit_of_measure: item.unit_of_measure,
+      });
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      error.rollbackError = rollbackError;
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  return mapStoredForecastRun(
+    {
+      ...createdForecastRun,
+      disaster_event_id,
+      event_code: evaluation.event.event_code,
+      disaster_event_title: evaluation.event.title,
+      selection_mode: AUTO_BACKTEST,
+      model_name: null,
+      parameters_json: parametersJson,
+    },
+    persistedRows,
+  );
+};
+
+const getAnalyticsServiceHealth = async () => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ANALYTICS_TIMEOUT_MS);
+  const analyticsUrl = `${normalizeAnalyticsServiceUrl(
+    ANALYTICS_SERVICE_URL,
+  )}/health`;
+
+  try {
+    const response = await fetch(analyticsUrl, {
+      method: "GET",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      return {
+        status: "UNAVAILABLE",
+        is_available: false,
+        service_url: normalizeAnalyticsServiceUrl(ANALYTICS_SERVICE_URL),
+      };
+    }
+
+    const responseData = await response.json().catch(() => null);
+
+    return {
+      status:
+        String(responseData?.status || "").toLowerCase() === "online"
+          ? "ONLINE"
+          : "UNAVAILABLE",
+      is_available: String(responseData?.status || "").toLowerCase() === "online",
+      service_url: normalizeAnalyticsServiceUrl(ANALYTICS_SERVICE_URL),
+    };
+  } catch (error) {
+    if (error.name === "AbortError") {
+      return {
+        status: "OFFLINE",
+        is_available: false,
+        service_url: normalizeAnalyticsServiceUrl(ANALYTICS_SERVICE_URL),
+      };
+    }
+
+    return {
+      status: "OFFLINE",
+      is_available: false,
+      service_url: normalizeAnalyticsServiceUrl(ANALYTICS_SERVICE_URL),
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+const buildResultConfidenceNotes = ({
+  analyticsResult,
+  forecastHorizonDays,
+  lookbackDays,
+}) => {
+  return JSON.stringify({
+    risk_level: analyticsResult.risk_level || "LOW",
+    current_available_stock: Number(analyticsResult.current_available_stock || 0),
+    current_lgu_available_stock: Number(
+      analyticsResult.current_lgu_available_stock || 0,
+    ),
+    current_donated_available_stock: Number(
+      analyticsResult.current_donated_available_stock || 0,
+    ),
+    reorder_level: Number(analyticsResult.reorder_level || 0),
+    average_daily_usage: Number(analyticsResult.average_daily_usage || 0),
+    forecasted_usage: Number(analyticsResult.forecasted_usage || 0),
+    daily_forecast: Number(analyticsResult.daily_forecast || 0),
+    forecast_horizon_days: forecastHorizonDays,
+    lookback_days: lookbackDays,
+    projected_household_demand: Number(
+      analyticsResult.projected_household_demand || 0,
+    ),
+    quantity_per_household: Number(analyticsResult.quantity_per_household || 0),
+    projected_remaining_stock: Number(
+      analyticsResult.projected_remaining_stock || 0,
+    ),
+    days_until_depletion:
+      analyticsResult.days_until_depletion === null ||
+      analyticsResult.days_until_depletion === undefined
+        ? null
+        : Number(analyticsResult.days_until_depletion || 0),
+    shortage_within_seven_days: Boolean(
+      analyticsResult.shortage_within_seven_days || false,
+    ),
+    model_name: analyticsResult.selected_model || DEFAULT_FORECAST_MODEL,
+  });
+};
+
+const buildResponseResults = (analyticsResults) => {
+  return analyticsResults.map((result) => ({
+    inventory_item_id: result.inventory_item_id,
+    item_name: result.item_name,
+    item_code: result.item_code,
+    category: result.category,
+    unit_of_measure: result.unit_of_measure,
+    current_available_stock: Number(result.current_available_stock || 0),
+    current_lgu_available_stock: Number(
+      result.current_lgu_available_stock || 0,
+    ),
+    current_donated_available_stock: Number(
+      result.current_donated_available_stock || 0,
+    ),
+    reorder_level: Number(result.reorder_level || 0),
+    average_daily_usage: Number(result.average_daily_usage || 0),
+    forecasted_usage: Number(result.forecasted_usage || 0),
+    projected_depletion_date: result.projected_depletion_date,
+    recommended_reorder_quantity: Number(result.recommended_reorder_quantity || 0),
+    projected_household_demand: Number(result.projected_household_demand || 0),
+    quantity_per_household: Number(result.quantity_per_household || 0),
+    projected_remaining_stock: Number(result.projected_remaining_stock || 0),
+    days_until_depletion:
+      result.days_until_depletion === null || result.days_until_depletion === undefined
+        ? null
+        : Number(result.days_until_depletion || 0),
+    shortage_within_seven_days: Boolean(result.shortage_within_seven_days || false),
+    risk_level: result.risk_level || "LOW",
+    selected_model: result.selected_model || DEFAULT_FORECAST_MODEL,
+    daily_forecast: Number(result.daily_forecast || 0),
+  }));
+};
+
+const runAndPersistFixedInventoryForecast = async ({
+  disaster_event_id,
+  model_name,
+  run_by,
+}) => {
+  const resolvedModelName = model_name || DEFAULT_FORECAST_MODEL;
+  const disasterEvent = await ensureForecastableDisasterEvent(disaster_event_id);
+  const forecastItems = await forecastRepository.getInventoryForecastItems(
+    disaster_event_id,
+  );
+  const forecastItemStockById = new Map(
+    forecastItems.map((item) => [item.id, item]),
+  );
+  const eventContext = await forecastRepository.getForecastEventContext(
+    disaster_event_id,
+  );
+  const demandRows = await forecastRepository.getReliefPackDemandByEvent(
+    disaster_event_id,
+  );
+  const usageRows = await forecastRepository.getInventoryUsageSeries(
+    disaster_event_id,
+    LOOKBACK_DAYS,
+  );
+  const usageTrendRows = await forecastRepository.getInventoryUsageTrend(
+    disaster_event_id,
+    LOOKBACK_DAYS,
+  );
+  const usageSeriesMap = buildUsageSeries(
+    usageRows,
+    forecastItems.map((item) => item.id),
+  );
+  const demandMap = buildDemandMap(demandRows);
+  const readinessWarnings = buildForecastReadinessWarnings({
+    eventContext,
+    demandRows,
+    forecastItems,
+  });
+
+  const analyticsPayload = buildAnalyticsPayload({
+    forecastItems,
+    usageSeriesMap,
+    modelName: resolvedModelName,
+  });
+  const analyticsForecast = await callAnalyticsInventoryForecast(analyticsPayload, {
+    userId: run_by,
+    roleCode: "MAYOR",
+  });
+  const enrichedResults = analyticsForecast.results.map((result) =>
+    enrichForecastResult({
+      result,
+      demandContext: demandMap.get(result.inventory_item_id),
+      stockContext: forecastItemStockById.get(result.inventory_item_id),
+      forecastHorizonDays: analyticsForecast.forecast_horizon_days,
+      fallbackModelName: resolvedModelName,
+    }),
+  );
+  const dashboard = buildForecastDashboard({
+    disasterEvent: {
+      ...disasterEvent,
+      start_date: eventContext?.start_date || null,
+      end_date: eventContext?.end_date || null,
+      ended_at: eventContext?.ended_at || null,
+    },
+    forecastResults: enrichedResults,
+    eventContext,
+    usageTrend: usageTrendRows,
+    readinessWarnings,
+    inventoryItemCount: forecastItems.length,
+  });
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const createdForecastRun = await forecastRepository.insertForecastRun(
+      {
+        disaster_event_id,
+        run_type: "INVENTORY_DEMAND",
+        selection_mode: FIXED_MODEL,
+        run_by,
+        model_name: resolvedModelName,
+        parameters_json: {
+          model_name: resolvedModelName,
+          recommended_default_model: DEFAULT_FORECAST_MODEL,
+          forecast_horizon_days: analyticsForecast.forecast_horizon_days,
+          lookback_days: analyticsForecast.lookback_days,
+          moving_average_window: MOVING_AVERAGE_WINDOW,
+          exponential_smoothing_alpha: EXPONENTIAL_SMOOTHING_ALPHA,
+          inventory_stock_basis: {
+            included_source_types: [...FORECAST_ELIGIBLE_SOURCE_TYPES],
+            included_batch_statuses: ["AVAILABLE", "LOW_STOCK"],
+            near_expiry_exclusion_days: FORECAST_NEAR_EXPIRY_EXCLUSION_DAYS,
+            donated_stock_scope:
+              "SELECTED_DISASTER_EVENT_WITH_CLOSED_EVENT_LOOSE_DONATION_ROLLOVER",
+          },
+          analytics_service_url: normalizeAnalyticsServiceUrl(ANALYTICS_SERVICE_URL),
+          event_context: {
+            household_count: Number(eventContext?.household_count || 0),
+            evacuee_count: Number(eventContext?.evacuee_count || 0),
+            attendance_record_count: Number(
+              eventContext?.attendance_record_count || 0,
+            ),
+            present_evacuee_count: Number(
+              eventContext?.present_evacuee_count || 0,
+            ),
+            eligible_household_count: Number(
+              eventContext?.eligible_household_count || 0,
+            ),
+            eligible_evacuee_count: Number(
+              eventContext?.eligible_evacuee_count || 0,
+            ),
+            claimed_household_count: Number(
+              eventContext?.claimed_household_count || 0,
+            ),
+            unclaimed_eligible_household_count: Number(
+              eventContext?.unclaimed_eligible_household_count || 0,
+            ),
+            distribution_transaction_count: Number(
+              eventContext?.distribution_transaction_count || 0,
+            ),
+            total_released_quantity: Number(
+              eventContext?.total_released_quantity || 0,
+            ),
+            ...buildInventoryItemCountCompatibility(
+              eventContext,
+              forecastItems.length,
+            ),
+            active_standard_pack_count: Number(
+              eventContext?.active_standard_pack_count || 0,
+            ),
+          },
+          readiness_warnings: readinessWarnings,
+          inventory_usage_trend: dashboard.charts.inventory_usage_trend,
+        },
+      },
+      client,
+    );
+
+    for (const analyticsResult of enrichedResults) {
+      await forecastRepository.insertForecastResult(
+        {
+          forecast_run_id: createdForecastRun.id,
+          inventory_item_id: analyticsResult.inventory_item_id,
+          predicted_quantity_needed: Number(analyticsResult.forecasted_usage || 0),
+          predicted_depletion_date: analyticsResult.projected_depletion_date,
+          recommended_reorder_quantity: Number(
+            analyticsResult.recommended_reorder_quantity || 0,
+          ),
+          confidence_notes: buildResultConfidenceNotes({
+            analyticsResult,
+            forecastHorizonDays: analyticsForecast.forecast_horizon_days,
+            lookbackDays: analyticsForecast.lookback_days,
+          }),
+        },
+        client,
+      );
+    }
+
+    await client.query("COMMIT");
+
+    return {
+      forecast_run: {
+        id: createdForecastRun.id,
+        disaster_event_id,
+        disaster_event: {
+          event_code: disasterEvent.event_code,
+          title: disasterEvent.title,
+        },
+        run_type: createdForecastRun.run_type,
+        selection_mode: FIXED_MODEL,
+        run_by,
+        run_at: createdForecastRun.run_at,
+        model_name: resolvedModelName,
+        parameters_json: createdForecastRun.parameters_json || {},
+      },
+      dashboard,
+      results: buildResponseResults(enrichedResults),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const runInventoryForecast = async (payload = {}) => {
+  if (payload.selection_mode === AUTO_BACKTEST) {
+    return runAndPersistAutoInventoryForecast({
+      disaster_event_id: payload.disaster_event_id,
+      run_by: payload.run_by,
+    });
+  }
+
+  return runAndPersistFixedInventoryForecast(payload);
+};
+
+const exportPersistedInventoryForecast = async ({ forecast_run_id }) => {
+  const forecastPayload = await getInventoryForecastRunDetails(forecast_run_id);
+  return forecastReportExport.buildExportFile(forecastPayload);
+};
+
+const getLatestInventoryForecast = async (disasterEventId) => {
+  await ensureDisasterEvent(disasterEventId);
+
+  const latestRun = await forecastRepository.getLatestForecastRunByDisasterEvent(
+    disasterEventId,
+  );
+
+  if (!latestRun) {
+    return null;
+  }
+
+  const resultRows = await forecastRepository.getForecastResultsByRunId(latestRun.id);
+  return mapStoredForecastRun(latestRun, resultRows);
+};
+
+const getLatestInventoryForecastOverall = async () => {
+  const latestRun = await forecastRepository.getLatestForecastRun();
+
+  if (!latestRun) {
+    return null;
+  }
+
+  const resultRows = await forecastRepository.getForecastResultsByRunId(latestRun.id);
+  return mapStoredForecastRun(latestRun, resultRows);
+};
+
+const getInventoryForecastContext = async (disasterEventId) => {
+  const disasterEvent = await ensureDisasterEvent(disasterEventId);
+  const eventContext = await forecastRepository.getForecastEventContext(
+    disasterEventId,
+  );
+  const demandRows = await forecastRepository.getReliefPackDemandByEvent(
+    disasterEventId,
+  );
+  const usageTrendRows = await forecastRepository.getInventoryUsageTrend(
+    disasterEventId,
+    LOOKBACK_DAYS,
+  );
+  const readinessWarnings = buildForecastReadinessWarnings({
+    eventContext,
+    demandRows,
+  });
+
+  return {
+    disaster_event: {
+      id: disasterEvent.id,
+      event_code: disasterEvent.event_code,
+      title: disasterEvent.title,
+      status: disasterEvent.status,
+      start_date: eventContext?.start_date || null,
+      end_date: eventContext?.end_date || null,
+      ended_at: eventContext?.ended_at || null,
+    },
+    summary: {
+      household_count: Number(eventContext?.household_count || 0),
+      evacuee_count: Number(eventContext?.evacuee_count || 0),
+      attendance_record_count: Number(eventContext?.attendance_record_count || 0),
+      present_evacuee_count: Number(eventContext?.present_evacuee_count || 0),
+      eligible_household_count: Number(
+        eventContext?.eligible_household_count || 0,
+      ),
+      eligible_evacuee_count: Number(eventContext?.eligible_evacuee_count || 0),
+      claimed_household_count: Number(eventContext?.claimed_household_count || 0),
+      unclaimed_eligible_household_count: Number(
+        eventContext?.unclaimed_eligible_household_count || 0,
+      ),
+      distribution_transaction_count: Number(
+        eventContext?.distribution_transaction_count || 0,
+      ),
+      total_released_quantity: Number(eventContext?.total_released_quantity || 0),
+      ...buildInventoryItemCountCompatibility(eventContext),
+      active_standard_pack_count: Number(
+        eventContext?.active_standard_pack_count || 0,
+      ),
+    },
+    demand_preview: (demandRows || []).slice(0, 8).map((row) => ({
+      inventory_item_id: row.inventory_item_id,
+      item_code: row.item_code,
+      item_name: row.item_name,
+      category: row.category,
+      unit_of_measure: row.unit_of_measure,
+      quantity_per_household: Number(row.quantity_per_household || 0),
+      projected_household_demand: Number(row.projected_household_demand || 0),
+    })),
+    usage_trend: formatUsageTrend(usageTrendRows),
+    readiness_warnings: readinessWarnings,
+  };
+};
+
+const getInventoryForecastHistory = async ({
+  disaster_event_id = null,
+  limit = 10,
+} = {}) => {
+  const historyRows = await forecastRepository.getForecastRunHistory({
+    disasterEventId: disaster_event_id,
+    limit,
+  });
+
+  return historyRows.map(mapForecastRunSummary);
+};
+
+const getInventoryForecastRunDetails = async (forecastRunId) => {
+  const forecastRun = await forecastRepository.getForecastRunById(forecastRunId);
+
+  if (!forecastRun) {
+    const error = new Error("Forecast run not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const resultRows = await forecastRepository.getForecastResultsByRunId(forecastRunId);
+  const mappedResults = mapStoredForecastRun(forecastRun, resultRows);
+
+  return {
+    forecast_run: {
+      ...mapForecastRunSummary(forecastRun),
+      parameters_json: forecastRun.parameters_json || {},
+    },
+    dashboard: mappedResults.dashboard,
+    results: mappedResults.results,
+  };
+};
+
+module.exports = {
+  FORECAST_MODELS,
+  DEFAULT_FORECAST_MODEL,
+  FORECAST_HORIZON_DAYS,
+  LOOKBACK_DAYS,
+  FORECAST_HISTORY_TIME_ZONE,
+  getManilaDateKey,
+  buildEligibleHistoryWindow,
+  buildEligibleHistoricalSeries,
+  evaluateInventoryForecastModels,
+  runAndPersistAutoInventoryForecast,
+  runInventoryForecast,
+  exportPersistedInventoryForecast,
+  getLatestInventoryForecast,
+  getLatestInventoryForecastOverall,
+  getInventoryForecastContext,
+  getAnalyticsServiceHealth,
+  getInventoryForecastHistory,
+  getInventoryForecastRunDetails,
+  buildPublicForecastSuggestions,
+};

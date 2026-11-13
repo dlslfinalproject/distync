@@ -1,0 +1,423 @@
+import React, { useEffect, useState } from "react";
+import { FiAlertCircle, FiEdit2, FiEye } from "react-icons/fi";
+import { formatNumericValue } from "../../features/inventory-items/inventoryItemFormatting";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
+import TableActionsMenu from "../shared/TableActionsMenu";
+import StatusPill from "../shared/StatusPill";
+import SyncStatusIcon from "../shared/SyncStatusIcon";
+import TablePagination from "../shared/TablePagination";
+
+const styles = {
+  tableWrap: {
+    marginTop: "0",
+    overflowX: "auto",
+    maxWidth: "100%",
+    WebkitOverflowScrolling: "touch",
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    background: "transparent",
+    tableLayout: "fixed",
+    minWidth: "760px",
+  },
+  th: {
+    textAlign: "center",
+    padding: "14px 10px",
+    fontSize: "12px",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: "#66809c",
+    fontWeight: 700,
+    borderBottom: "1px solid #e0eaf4",
+    whiteSpace: "nowrap",
+  },
+  td: {
+    padding: "16px 10px",
+    fontSize: "14px",
+    color: "#21405f",
+    verticalAlign: "middle",
+    borderBottom: "1px solid #edf3f8",
+    lineHeight: 1.5,
+    wordBreak: "break-word",
+    textAlign: "center",
+  },
+  centerCell: {
+    textAlign: "center",
+  },
+  leftCell: {
+    textAlign: "left",
+  },
+  actionCell: {
+    width: "88px",
+    minWidth: "88px",
+    textAlign: "center",
+    whiteSpace: "nowrap",
+  },
+  emptyStateCell: {
+    padding: "18px 16px",
+    fontSize: "14px",
+    color: "#5f7690",
+    borderBottom: "none",
+  },
+  secondaryText: {
+    marginTop: "4px",
+    color: "#5f7690",
+    fontSize: "13px",
+    textAlign: "left",
+  },
+  pillWrap: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: "8px",
+  },
+  infoPill: {
+    display: "inline-block",
+    minWidth: "36px",
+    textAlign: "center",
+    padding: "6px 10px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: 700,
+    backgroundColor: "#e5f1fb",
+    color: "#356592",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+  },
+  itemCellContent: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    textAlign: "left",
+    width: "100%",
+    minWidth: 0,
+  },
+  itemNameText: {
+    minWidth: 0,
+    fontWeight: 700,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  itemNameRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    width: "100%",
+    minWidth: 0,
+  },
+};
+
+const tableHeaders = [
+  "Item",
+  "Category",
+  "Total Stock",
+  "Stock Forms",
+  "Reorder Level",
+  "Stock Status",
+  "Actions",
+];
+
+const centeredHeaders = new Set([
+  "Category",
+  "Total Stock",
+  "Stock Forms",
+  "Reorder Level",
+  "Stock Status",
+  "Actions",
+]);
+
+const formatInventoryCategoryLabel = (category) => {
+  if (typeof category !== "string") {
+    return category || "--";
+  }
+
+  const trimmedCategory = category.trim();
+  const normalizedCategory = trimmedCategory.toLowerCase();
+
+  if (normalizedCategory === "perishable") {
+    return "Perishable";
+  }
+
+  if (normalizedCategory === "non-perishable") {
+    return "Non-Perishable";
+  }
+
+  return trimmedCategory || "--";
+};
+
+const InventoryItemsTable = ({
+  rows,
+  paginationResetKey = "",
+  isLoading,
+  errorMessage,
+  onEditItem,
+  onViewDetails,
+  onLogStatus,
+  isOffline = false,
+}) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const pagination = getTablePaginationState({
+    totalItems: safeRows.length,
+    currentPage,
+    pageSize,
+    pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+  });
+  const paginatedRows = safeRows.slice(
+    (pagination.currentPage - 1) * pagination.pageSize,
+    pagination.currentPage * pagination.pageSize,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [paginationResetKey]);
+
+  useEffect(() => {
+    setCurrentPage((previousPage) => {
+      if (pagination.totalPages === 0) {
+        return 1;
+      }
+
+      return Math.min(Math.max(previousPage, 1), pagination.totalPages);
+    });
+  }, [pagination.totalPages]);
+
+  const handlePageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+      return;
+    }
+
+    setPageSize(nextPageSize);
+    setCurrentPage(1);
+  };
+
+  const showPagination =
+    !isLoading && !errorMessage && pagination.totalItems > 0;
+  const paginationBar = (
+    <TablePagination
+      totalItems={pagination.totalItems}
+      currentPage={pagination.currentPage}
+      pageSize={pagination.pageSize}
+      pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+      onPageChange={setCurrentPage}
+      onPageSizeChange={handlePageSizeChange}
+      isVisible={showPagination}
+      ariaLabel="Inventory items pagination"
+      previousAriaLabel="Go to previous inventory items page"
+      nextAriaLabel="Go to next inventory items page"
+    />
+  );
+
+  return (
+    <>
+      {paginationBar}
+      <div className="inventory-items-table-scroll" style={styles.tableWrap}>
+        <table className="inventory-items-table" style={styles.table}>
+          <thead>
+            <tr>
+              {tableHeaders.map((header) => (
+                <th
+                  key={header}
+                  className="inventory-items-table-header-cell"
+                  style={{
+                    ...styles.th,
+                    ...(header === "Item" ? styles.leftCell : null),
+                    ...(centeredHeaders.has(header) ? styles.centerCell : null),
+                    ...(header === "Actions" ? styles.actionCell : null),
+                  }}
+                >
+                  {header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+
+          <tbody>
+            {isLoading ? (
+              <tr>
+                <td
+                  className="inventory-items-empty-state-cell"
+                  colSpan="7"
+                  style={styles.emptyStateCell}
+                >
+                  Loading inventory items...
+                </td>
+              </tr>
+            ) : errorMessage ? (
+              <tr>
+                <td
+                  className="inventory-items-empty-state-cell"
+                  colSpan="7"
+                  style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
+                >
+                  {errorMessage}
+                </td>
+              </tr>
+            ) : safeRows.length === 0 ? (
+              <tr>
+                <td
+                  className="inventory-items-empty-state-cell"
+                  colSpan="7"
+                  style={styles.emptyStateCell}
+                >
+                  No inventory items found
+                </td>
+              </tr>
+            ) : (
+              paginatedRows.map((item, index) => {
+                const stockStatuses = Array.isArray(item.stock_statuses)
+                  ? item.stock_statuses
+                  : [{ key: item.stock_status_label || "Available", label: item.stock_status_label || "Available" }];
+                const stockForms = Array.isArray(item.stock_form_labels)
+                  ? item.stock_form_labels
+                  : [];
+
+                const itemName =
+                  item.item_name ??
+                  item.name ??
+                  item.product_name ??
+                  "Unnamed Item";
+                const statusLogUnavailable =
+                  isOffline || typeof onLogStatus !== "function";
+
+                return (
+                  <tr className="inventory-items-table-row" key={item.id || index}>
+                    <td
+                      className="inventory-items-table-cell inventory-items-item-cell"
+                      style={{ ...styles.td, ...styles.leftCell }}
+                    >
+                      <div style={styles.itemCellContent}>
+                        <div style={styles.itemNameRow}>
+                          <div
+                            className="inventory-items-item-name-text"
+                            style={styles.itemNameText}
+                            title={itemName}
+                          >
+                            {itemName}
+                          </div>
+                          {item.sync_status &&
+                          (item.sync_status !== "SYNCED" || isOffline) ? (
+                            <SyncStatusIcon status={item.sync_status} />
+                          ) : null}
+                        </div>
+                      </div>
+                    </td>
+                    <td
+                      className="inventory-items-table-cell"
+                      style={{ ...styles.td, ...styles.centerCell }}
+                    >
+                      {formatInventoryCategoryLabel(item.category)}
+                    </td>
+                    <td
+                      className="inventory-items-table-cell"
+                      style={{ ...styles.td, ...styles.centerCell }}
+                    >
+                      {formatNumericValue(Number(item.total_stock_on_hand || 0))}
+                    </td>
+                    <td
+                      className="inventory-items-table-cell"
+                      style={{ ...styles.td, ...styles.centerCell }}
+                    >
+                      <div style={styles.pillWrap}>
+                        {stockForms.length === 0 ? (
+                          <span style={styles.infoPill}>--</span>
+                        ) : (
+                          stockForms.map((stockFormLabel) => (
+                            <span key={stockFormLabel} style={styles.infoPill}>
+                              {stockFormLabel}
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    </td>
+                    <td
+                      className="inventory-items-table-cell"
+                      style={{ ...styles.td, ...styles.centerCell }}
+                    >
+                      {item.reorder_level_display ?? item.reorder_level ?? "--"}
+                    </td>
+                    <td
+                      className="inventory-items-table-cell"
+                      style={{ ...styles.td, ...styles.centerCell }}
+                    >
+                      <div style={styles.pillWrap}>
+                        {stockStatuses.map((stockStatus) => {
+                          return (
+                            <StatusPill
+                              key={`${item.id || index}-${stockStatus.key}`}
+                              status={stockStatus.key}
+                              label={stockStatus.label}
+                              style={{ fontSize: "12px" }}
+                            />
+                          );
+                        })}
+                      </div>
+                    </td>
+                    <td
+                      className="inventory-items-table-cell inventory-items-action-cell"
+                      style={{ ...styles.td, ...styles.actionCell }}
+                    >
+                      <TableActionsMenu
+                        row={item}
+                        menuId={item.id || `inventory-item-${index}`}
+                        buttonTitle="Actions"
+                        buttonAriaLabel="Actions"
+                        dataPrefix="inventory-item-action"
+                        menuWidth={168}
+                        variant="icon-grid"
+                        items={[
+                          {
+                            key: "view",
+                            label: "View Item Details",
+                            icon: <FiEye size={18} />,
+                            disabled: typeof onViewDetails !== "function",
+                            onClick: (selectedRow) =>
+                              onViewDetails?.(selectedRow.id),
+                          },
+                          {
+                            key: "edit",
+                            label: "Edit Item",
+                            icon: <FiEdit2 size={18} />,
+                            disabled:
+                              isOffline || typeof onEditItem !== "function",
+                            title: isOffline
+                              ? "Editing inventory items requires an internet connection."
+                              : "Edit Item Details",
+                            onClick: (selectedRow) => onEditItem?.(selectedRow),
+                          },
+                          {
+                            key: "status-log",
+                            label: "Log Status",
+                            icon: <FiAlertCircle size={18} />,
+                            disabled:
+                              statusLogUnavailable || item.can_log_status === false,
+                            title: isOffline
+                              ? "Status changes require an internet connection."
+                              : item.status_log_disabled_reason || "Log Status",
+                            onClick: (selectedRow) => onLogStatus?.(selectedRow),
+                          },
+                        ]}
+                      />
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+};
+
+export default InventoryItemsTable;

@@ -1,0 +1,8822 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const servicePath = require.resolve("../src/services/sync.service");
+const familyHeadPhotoStoragePath = require.resolve(
+  "../src/services/familyHeadPhotoStorage.service",
+);
+const claimProofPhotoStoragePath = require.resolve(
+  "../src/services/claimProofPhotoStorage.service",
+);
+const syncRepositoryPath = require.resolve("../src/repositories/sync.repository");
+const deviceServicePath = require.resolve("../src/services/device.service");
+const householdRegistrationRepositoryPath = require.resolve(
+  "../src/repositories/householdRegistration.repository",
+);
+const householdRegistrationServicePath = require.resolve(
+  "../src/services/householdRegistration.service",
+);
+const stubServicePath = require.resolve("../src/services/stub.service");
+const distributionTransactionServicePath = require.resolve(
+  "../src/services/distributionTransaction.service",
+);
+const inventoryTransactionServicePath = require.resolve(
+  "../src/services/inventoryTransaction.service",
+);
+const inventoryTransactionRepositoryPath = require.resolve(
+  "../src/repositories/inventoryTransaction.repository",
+);
+const inventoryItemServicePath = require.resolve("../src/services/inventoryItem.service");
+const inventoryItemRepositoryPath = require.resolve(
+  "../src/repositories/inventoryItem.repository",
+);
+const inventoryItemStockFormRepositoryPath = require.resolve(
+  "../src/repositories/inventoryItemStockForm.repository",
+);
+const inventoryBatchRepositoryPath = require.resolve(
+  "../src/repositories/inventoryBatch.repository",
+);
+const inventoryBatchServicePath = require.resolve("../src/services/inventoryBatch.service");
+const systemLogPath = require.resolve("../src/utils/systemLog");
+const systemLogRepositoryPath = require.resolve(
+  "../src/repositories/systemLog.repository",
+);
+const { validateProcessSyncEntries } = require("../src/validators/sync.validator");
+const notificationServicePath = require.resolve(
+  "../src/modules/notifications/notification.service",
+);
+const inventoryStateBasisPath = require.resolve("../src/utils/inventoryStateBasis");
+
+const withStubbedSyncService = async (stubs, runTest) => {
+  const effectiveStubs = {
+    [deviceServicePath]: {
+      resolveCanonicalDeviceId: async ({ clientDeviceUuid }) =>
+        clientDeviceUuid || null,
+    },
+    ...stubs,
+  };
+  const dependencyPaths = Object.keys(effectiveStubs);
+  const originalEntries = new Map(
+    dependencyPaths.map((modulePath) => [modulePath, require.cache[modulePath]]),
+  );
+
+  delete require.cache[servicePath];
+
+  try {
+    dependencyPaths.forEach((modulePath) => {
+      delete require.cache[modulePath];
+      require.cache[modulePath] = {
+        id: modulePath,
+        filename: modulePath,
+        loaded: true,
+        exports: effectiveStubs[modulePath],
+      };
+    });
+
+    const syncService = require(servicePath);
+    await runTest(syncService);
+  } finally {
+    delete require.cache[servicePath];
+
+    dependencyPaths.forEach((modulePath) => {
+      const originalEntry = originalEntries.get(modulePath);
+
+      if (originalEntry) {
+        require.cache[modulePath] = originalEntry;
+      } else {
+        delete require.cache[modulePath];
+      }
+    });
+  }
+};
+
+test("getSyncStatusSummary returns unresolved conflict count and last successful sync for the current user", async () => {
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        countOpenSyncConflictsByUser: async ({ userId }) => {
+          assert.equal(userId, "user-1");
+          return 3;
+        },
+        getLastSuccessfulSyncAtByUser: async ({ userId }) => {
+          assert.equal(userId, "user-1");
+          return "2026-08-05T14:45:00.000Z";
+        },
+      },
+    },
+    async ({ getSyncStatusSummary }) => {
+      const summary = await getSyncStatusSummary({
+        auth: {
+          userId: "user-1",
+        },
+      });
+
+      assert.deepEqual(summary, {
+        conflictCount: 3,
+        lastSuccessfulSyncAt: "2026-08-05T14:45:00.000Z",
+        backendReachable: true,
+      });
+    },
+  );
+});
+
+test("MSWDO Sync Center history uses municipality-scoped repository reads and optional Barangay filtering", async () => {
+  const barangayId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  let transactionRead = false;
+  let conflictRead = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByMunicipality: async (args) => {
+          transactionRead = true;
+          assert.deepEqual(args, {
+            syncStatus: "FAILED",
+            barangayId,
+            limit: 20,
+          });
+          return [{ id: "transaction-1", entity_type: "HOUSEHOLD" }];
+        },
+        getSyncConflictsByMunicipality: async (args) => {
+          conflictRead = true;
+          assert.deepEqual(args, {
+            status: "OPEN",
+            barangayId,
+            limit: 20,
+          });
+          return [];
+        },
+        getSyncTransactionsByUser: async () => {
+          throw new Error("MSWDO history must not use user-scoped transactions");
+        },
+        getSyncConflictsByUser: async () => {
+          throw new Error("MSWDO history must not use user-scoped conflicts");
+        },
+      },
+    },
+    async ({ getSyncHistory }) => {
+      const result = await getSyncHistory({
+        auth: {
+          userId: "mswdo-user-1",
+          roleCode: "MSWDO",
+        },
+        syncStatus: "FAILED",
+        conflictStatus: "OPEN",
+        barangayId,
+        limit: 20,
+      });
+
+      assert.equal(result.transactions[0].id, "transaction-1");
+      assert.deepEqual(result.conflicts, []);
+    },
+  );
+
+  assert.equal(transactionRead, true);
+  assert.equal(conflictRead, true);
+});
+
+test("Sync Center history redacts family-head photo values from transaction and conflict payloads", async () => {
+  const privatePhoto =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=";
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByMunicipality: async () => [
+          {
+            id: "transaction-photo",
+            payload_json: {
+              action_key: "HOUSEHOLD_REGISTER",
+              payload: { family_head_photo_url: privatePhoto },
+            },
+          },
+        ],
+        getSyncConflictsByMunicipality: async () => [
+          {
+            id: "conflict-photo",
+            entity_type: "HOUSEHOLD",
+            local_payload_json: {
+              payload: { family_head_photo_url: privatePhoto },
+            },
+            server_payload_json: {
+              household: { family_head_photo_data_url: privatePhoto },
+            },
+          },
+        ],
+      },
+    },
+    async ({ getSyncHistory }) => {
+      const result = await getSyncHistory({
+        auth: { userId: "mswdo-user-1", roleCode: "MSWDO" },
+        limit: 20,
+      });
+
+      assert.equal(
+        result.transactions[0].payload_json.payload.family_head_photo_url,
+        null,
+      );
+      assert.equal(
+        result.conflicts[0].local_payload_json.payload.family_head_photo_url,
+        null,
+      );
+      assert.equal(
+        result.conflicts[0].server_payload_json.household.family_head_photo_data_url,
+        null,
+      );
+      assert.equal(JSON.stringify(result).includes(privatePhoto), false);
+    },
+  );
+});
+
+test("MSWDO Sync Center health summary uses municipality-wide conflict and sync reads", async () => {
+  let municipalityReads = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        countOpenSyncConflictsByMunicipality: async (args) => {
+          municipalityReads += 1;
+          assert.deepEqual(args, {});
+          return 4;
+        },
+        getLastSuccessfulSyncAtForMunicipality: async (args) => {
+          municipalityReads += 1;
+          assert.deepEqual(args, {});
+          return "2026-08-20T01:02:03.000Z";
+        },
+        countOpenSyncConflictsByUser: async () => {
+          throw new Error("MSWDO status must not use user-scoped conflicts");
+        },
+        getLastSuccessfulSyncAtByUser: async () => {
+          throw new Error("MSWDO status must not use user-scoped sync time");
+        },
+      },
+    },
+    async ({ getSyncStatusSummary }) => {
+      const summary = await getSyncStatusSummary({
+        auth: {
+          userId: "mswdo-user-1",
+          roleCode: "MSWDO",
+        },
+      });
+
+      assert.deepEqual(summary, {
+        conflictCount: 4,
+        lastSuccessfulSyncAt: "2026-08-20T01:02:03.000Z",
+        backendReachable: true,
+      });
+    },
+  );
+
+  assert.equal(municipalityReads, 2);
+});
+
+test("MSWDO can view municipality operational conflict details without gaining resolution actions", async () => {
+  const conflictId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  let requestedId = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictByIdForMunicipality: async ({ id }) => {
+          requestedId = id;
+          return {
+            id: conflictId,
+            user_id: "foreign-user",
+            entity_type: "HOUSEHOLD",
+            status: "OPEN",
+            resolution_strategy: "LATEST_TIMESTAMP",
+            conflict_type: "HOUSEHOLD_UPDATE_CONFLICT",
+            local_payload_json: {
+              payload: {
+                family_head_photo_url:
+                  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=",
+              },
+            },
+            server_payload_json: {
+              family_head_photo_url:
+                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=",
+            },
+          };
+        },
+        getSyncConflictById: async () => {
+          throw new Error("MSWDO detail must use municipality-scoped conflict read");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      const detail = await getSyncConflictDetail({
+        auth: {
+          userId: "mswdo-user-1",
+          roleCode: "MSWDO",
+        },
+        conflictId,
+      });
+
+      assert.equal(detail.id, conflictId);
+      assert.deepEqual(detail.availableResolutionActions, []);
+      assert.equal(
+        detail.local_payload_json.payload.family_head_photo_url,
+        null,
+      );
+      assert.equal(detail.server_payload_json.family_head_photo_url, null);
+    },
+  );
+
+  assert.equal(requestedId, conflictId);
+});
+
+test("viewing a sync conflict does not create a separate review audit record", async () => {
+  let reviewAuditCalls = 0;
+  const conflictId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictById: async ({ id }) => ({
+          id,
+          user_id: "mayor-user",
+          entity_type: "INVENTORY_BATCH",
+          status: "OPEN",
+          resolution_strategy: "MANUAL_REVIEW",
+          conflict_type: "DUPLICATE_INVENTORY_BATCH",
+          local_payload_json: { payload: { item_name: "Rice" } },
+          server_payload_json: { item_name: "Rice" },
+        }),
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {
+          reviewAuditCalls += 1;
+        },
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      const detail = await getSyncConflictDetail({
+        auth: { userId: "mayor-user", roleCode: "MAYOR" },
+        conflictId,
+      });
+
+      assert.equal(detail.id, conflictId);
+    },
+  );
+
+  assert.equal(reviewAuditCalls, 0);
+});
+
+test("MSWDO cannot view a foreign Mayor manual inventory stock-drift conflict", async () => {
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictByIdForMunicipality: async () => ({
+          id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          user_id: "mayor-user",
+          entity_type: "INVENTORY_TRANSACTION",
+          status: "OPEN",
+          resolution_strategy: "MANUAL_REVIEW",
+          conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+        }),
+        getSyncConflictById: async () => {
+          throw new Error("MSWDO detail must use municipality-scoped conflict read");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      await assert.rejects(
+        getSyncConflictDetail({
+          auth: {
+            userId: "mswdo-user-1",
+            roleCode: "MSWDO",
+          },
+          conflictId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        }),
+        (error) => error.statusCode === 404,
+      );
+    },
+  );
+});
+
+test("Barangay Sync Center history keeps its existing user-scoped read path", async () => {
+  let userRead = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByUser: async ({ userId, syncStatus, limit }) => {
+          userRead = true;
+          assert.deepEqual({ userId, syncStatus, limit }, {
+            userId: "barangay-user-1",
+            syncStatus: "SYNCED",
+            limit: 20,
+          });
+          return [];
+        },
+        getSyncConflictsByUser: async () => [],
+        getSyncTransactionsByMunicipality: async () => {
+          throw new Error("Barangay history must not use municipality-scoped reads");
+        },
+        getSyncConflictsByMunicipality: async () => {
+          throw new Error("Barangay history must not use municipality-scoped reads");
+        },
+      },
+    },
+    async ({ getSyncHistory }) => {
+      await getSyncHistory({
+        auth: {
+          userId: "barangay-user-1",
+          roleCode: "BARANGAY",
+        },
+        syncStatus: "SYNCED",
+        conflictStatus: "RESOLVED",
+        barangayId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        limit: 20,
+      });
+    },
+  );
+
+  assert.equal(userRead, true);
+});
+
+const createBaseSyncRepositoryStub = (overrides = {}) => ({
+  claimSyncTransaction: async (payload) => ({
+    decision: "CLAIMED_NEW",
+    transaction: {
+      id: "sync-transaction-1",
+      ...payload,
+    },
+  }),
+  insertSyncTransaction: async () => ({
+    id: "sync-transaction-1",
+  }),
+  updateSyncTransaction: async (id, payload) => ({
+    id,
+    ...payload,
+  }),
+  insertSyncConflict: async (payload) => ({
+    id: "sync-conflict-1",
+    ...payload,
+  }),
+  recordConflictAndUpdateSyncTransaction: async ({
+    syncTransactionId,
+    conflictPayload,
+    transactionPayload,
+  }) => ({
+    syncTransaction: {
+      id: syncTransactionId,
+      ...transactionPayload,
+    },
+    conflictRecord: {
+      id: "sync-conflict-1",
+      ...conflictPayload,
+    },
+  }),
+  countOpenSyncConflictsByUser: async () => 0,
+  getLastSuccessfulSyncAtByUser: async () => null,
+  ...overrides,
+});
+
+const baseAuth = {
+  userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  roleCode: "BARANGAY",
+  defaultBarangayId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+};
+
+test("distribution sync actions defer audit side effects until the sync transaction commits", async () => {
+  const transactionEvents = [];
+  const capturedRequests = {};
+  const auditSideEffects = [];
+  const dbClient = {
+    query: async () => ({ rows: [] }),
+  };
+
+  const captureDeferredAudit = (actionKey, request) => {
+    capturedRequests[actionKey] = request;
+    request.deferDomainSideEffect(async () => {
+      auditSideEffects.push({
+        actionKey,
+        afterCommit: transactionEvents.at(-1) === "COMMIT",
+        requester: request.requester,
+      });
+    });
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          transactionEvents.push("BEGIN");
+          const result = await callback(dbClient);
+          transactionEvents.push("COMMIT");
+          return result;
+        },
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async (request) => {
+          captureDeferredAudit("STUB_CLAIM", request);
+          return { data: { id: "stub-1" } };
+        },
+      },
+      [distributionTransactionServicePath]: {
+        createDistributionTransaction: async (request) => {
+          captureDeferredAudit("DISTRIBUTION_CREATE", request);
+          return { distribution_transaction_id: "distribution-1" };
+        },
+        claimDistributionTransactionFromQr: async (request) => {
+          captureDeferredAudit("DISTRIBUTION_QR_CLAIM", request);
+          return { distribution_transaction_id: "distribution-2" };
+        },
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async () => {},
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "distribution-audit-stub",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-1",
+            device_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              disaster_event_id: "event-1",
+            },
+          },
+          {
+            client_sync_id: "distribution-audit-create",
+            action_key: "DISTRIBUTION_CREATE",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            device_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-08-08T01:01:00.000Z",
+            payload: {
+              stub_id: "stub-2",
+              disaster_event_id: "event-1",
+            },
+          },
+          {
+            client_sync_id: "distribution-audit-qr",
+            action_key: "DISTRIBUTION_QR_CLAIM",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            device_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-08-08T01:02:00.000Z",
+            payload: {
+              stub_id: "stub-3",
+              disaster_event_id: "event-1",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(
+        results.map((result) => result.sync_status),
+        ["SYNCED", "SYNCED", "SYNCED"],
+      );
+    },
+  );
+
+  assert.deepEqual(transactionEvents, [
+    "BEGIN",
+    "COMMIT",
+    "BEGIN",
+    "COMMIT",
+    "BEGIN",
+    "COMMIT",
+  ]);
+  assert.deepEqual(
+    Object.keys(capturedRequests),
+    ["STUB_CLAIM", "DISTRIBUTION_CREATE", "DISTRIBUTION_QR_CLAIM"],
+  );
+  for (const request of Object.values(capturedRequests)) {
+    assert.equal(request.requester.userId, baseAuth.userId);
+    assert.equal(request.requester.roleCode, baseAuth.roleCode);
+    assert.equal(
+      request.requester.deviceId,
+      "99999999-9999-4999-8999-999999999999",
+    );
+    assert.equal(typeof request.deferDomainSideEffect, "function");
+  }
+  assert.deepEqual(
+    auditSideEffects.map(({ actionKey, afterCommit }) => ({ actionKey, afterCommit })),
+    [
+      { actionKey: "STUB_CLAIM", afterCommit: true },
+      { actionKey: "DISTRIBUTION_CREATE", afterCommit: true },
+      { actionKey: "DISTRIBUTION_QR_CLAIM", afterCommit: true },
+    ],
+  );
+});
+
+const buildValidHouseholdRegisterSyncPayload = (overrides = {}) => ({
+  disaster_event_id: "11111111-1111-4111-8111-111111111111",
+  barangay_id: baseAuth.defaultBarangayId,
+  residency_status: "RESIDENT",
+  evacuation_center_id: "22222222-2222-4222-8222-222222222222",
+  family_head: {
+    first_name: "Ana",
+    middle_name: null,
+    last_name: "Dela Cruz",
+    suffix: null,
+    sex: "FEMALE",
+    age_value: 34,
+    age_unit: "YEARS",
+    sector_ids: [],
+  },
+  current_stay_type: "EVAC_CENTER",
+  household_size: 2,
+  contact_number: " 09171234567 ",
+  current_address_details: " Poblacion, Malvar ",
+  family_head_photo_url:
+    " data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII= ",
+  photo_verification_notes: " Verified offline ",
+  privacy_acknowledgment: {
+    consent_status: "ACKNOWLEDGED",
+    notice_version: "2026-07-30-v2",
+    acknowledged_at: "2026-08-08T00:45:00.000Z",
+    acknowledged_by_name: " Ana Dela Cruz ",
+    representative_relationship: null,
+    device_id: null,
+    is_offline_encoded: true,
+    sync_status: "PENDING",
+  },
+  members: [
+    {
+      id: null,
+      first_name: "Marco",
+      middle_name: null,
+      last_name: "Dela Cruz",
+      suffix: null,
+      sex: "MALE",
+      age_value: 12,
+      age_unit: "YEARS",
+      relationship_to_head: "SON",
+      sector_ids: [],
+    },
+  ],
+  household_sector_ids: [],
+  ...overrides,
+});
+
+test("HOUSEHOLD_RE_ADMISSION sync creates a new occurrence instead of updating the archived source", async () => {
+  let registrationArguments = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async (...args) => {
+          registrationArguments = args;
+          return {
+            household: {
+              id: "99999999-9999-4999-8999-999999999999",
+            },
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "re-admission-create-1",
+            action_key: "HOUSEHOLD_RE_ADMISSION",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-re-admission-1",
+            entity_server_id: null,
+            client_timestamp: "2026-08-25T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload({
+              registration_operation: "CREATE_NEW_HOUSEHOLD_OCCURRENCE",
+              re_admission_source_household_id:
+                "88888888-8888-4888-8888-888888888888",
+            }),
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(registrationArguments[0].registration_operation, "CREATE_NEW_HOUSEHOLD_OCCURRENCE");
+      assert.equal(
+        registrationArguments[0].re_admission_source_household_id,
+        "88888888-8888-4888-8888-888888888888",
+      );
+      assert.equal(registrationArguments[1].operation, "RE_ADMISSION");
+      assert.equal(
+        registrationArguments[1].sourceHouseholdId,
+        "88888888-8888-4888-8888-888888888888",
+      );
+    },
+  );
+});
+
+test("HOUSEHOLD_RESTORE sync keeps the existing restore flow inside the sync transaction", async () => {
+  let restoreArguments = null;
+  const dbClient = { query: async () => ({ rows: [] }) };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => callback(dbClient),
+      }),
+      [householdRegistrationServicePath]: {
+        restoreHousehold: async (args) => {
+          restoreArguments = args;
+          return {
+            household_id: "77777777-7777-4777-8777-777777777777",
+            household: {
+              id: "77777777-7777-4777-8777-777777777777",
+            },
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "restore-household-1",
+            action_key: "HOUSEHOLD_RESTORE",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-restore-household-1",
+            entity_server_id: "66666666-6666-4666-8666-666666666666",
+            client_timestamp: "2026-08-25T01:00:00.000Z",
+            payload: {
+              disaster_event_id: "11111111-1111-4111-8111-111111111111",
+              restore_mode: "RETURN_TO_EVAC_CENTER",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(restoreArguments.householdId, "66666666-6666-4666-8666-666666666666");
+      assert.equal(restoreArguments.requester.userId, baseAuth.userId);
+      assert.equal(restoreArguments.requester.roleCode, baseAuth.roleCode);
+      assert.equal(
+        restoreArguments.restoreData.synced_client_timestamp,
+        "2026-08-25T01:00:00.000Z",
+      );
+      assert.equal(restoreArguments.dbClient, dbClient);
+    },
+  );
+});
+
+test("BRG-SC-03 TEST A rejects foreign Barangay HOUSEHOLD_UPDATE before conflict evidence is stored", async () => {
+  const foreignHousehold = {
+    id: "11111111-1111-4111-8111-111111111111",
+    barangay_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    family_head_first_name: "Foreign",
+    contact_number: "09170000000",
+    household_size: 6,
+    updated_at: "2026-08-08T02:00:00.000Z",
+  };
+  let conflictCalls = 0;
+  let updateCalled = false;
+  let failedTransactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async ({ conflictPayload }) => {
+          conflictCalls += 1;
+          assert.notDeepEqual(conflictPayload.server_payload_json, foreignHousehold);
+          throw new Error("Unauthorized household must not become conflict evidence");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failedTransactionPayload = payload;
+          }
+
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async ({ requester }) => {
+          assert.equal(requester.roleCode, "BARANGAY");
+          assert.equal(requester.defaultBarangayId, baseAuth.defaultBarangayId);
+          const error = new Error("You do not have access to update this household");
+          error.statusCode = 403;
+          throw error;
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("Foreign household update must not execute");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-foreign-older",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: foreignHousehold.id,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              barangay_id: baseAuth.defaultBarangayId,
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(result.message, "You do not have access to update this household");
+      assert.equal(conflictCalls, 0);
+      assert.equal(updateCalled, false);
+      assert.equal(failedTransactionPayload.sync_status, "FAILED");
+      assert.doesNotMatch(JSON.stringify(result), /Foreign|09170000000|household_size/);
+    },
+  );
+});
+
+test("BRG-SC-03 TEST B preserves same-Barangay older timestamp conflict handling", async () => {
+  let conflictPayload = null;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "brg-sc-03-same-barangay-conflict",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "22222222-2222-4222-8222-222222222222",
+          barangay_id: baseAuth.defaultBarangayId,
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T02:00:00.000Z",
+        }),
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("Server-newer conflict should keep server copy");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-same-older",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.id, "brg-sc-03-same-barangay-conflict");
+      assert.equal(result.data.family_head_first_name, "Server");
+      assert.equal(conflictPayload.server_payload_json.family_head_first_name, "Server");
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+      assert.equal(updateCalled, false);
+    },
+  );
+});
+
+test("BRG-SC-03 TEST C preserves same-Barangay non-conflicting HOUSEHOLD_UPDATE", async () => {
+  let conflictCalls = 0;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Non-conflicting update should not create conflict");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "33333333-3333-4333-8333-333333333333",
+          barangay_id: baseAuth.defaultBarangayId,
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T01:00:00.000Z",
+        }),
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          return {
+            id: "33333333-3333-4333-8333-333333333333",
+            family_head_first_name: "Local",
+            updated_at: "2026-08-08T01:00:00.000Z",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-same-valid",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "33333333-3333-4333-8333-333333333333",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.data.family_head_first_name, "Local");
+      assert.equal(updateCalled, true);
+      assert.equal(conflictCalls, 0);
+    },
+  );
+});
+
+test("BRG-SC-03 TEST D rejects foreign Barangay HOUSEHOLD_UPDATE without mutation on non-conflicting timestamp", async () => {
+  let conflictCalls = 0;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Unauthorized update should not create conflict");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => {
+          const error = new Error("You do not have access to update this household");
+          error.statusCode = 403;
+          throw error;
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("Foreign household update must not execute");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-foreign-non-conflict",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "44444444-4444-4444-8444-444444444444",
+            client_timestamp: "2026-08-08T02:00:00.000Z",
+            client_updated_at: "2026-08-08T02:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(conflictCalls, 0);
+      assert.equal(updateCalled, false);
+    },
+  );
+});
+
+test("HOUSEHOLD_UPDATE sync preserves archived-occurrence rejection without conflict application", async () => {
+  let conflictCalls = 0;
+  let updateCalled = false;
+  let failedTransactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Archived household rejection must not become conflict evidence");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failedTransactionPayload = payload;
+          }
+
+          return { id, ...payload };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "archived-household-sync",
+          disaster_event_id: "event-1",
+          disaster_event_status: "ACTIVE",
+          barangay_id: baseAuth.defaultBarangayId,
+          current_stay_type: "EVAC_CENTER",
+          is_active: false,
+          updated_at: "2026-08-08T01:00:00.000Z",
+        }),
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          const error = new Error("Archived households cannot be edited");
+          error.statusCode = 400;
+          error.code = "HISTORICAL_HOUSEHOLD_IMMUTABLE";
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "archived-household-sync-update",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "archived-household-sync",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              disaster_event_id: "event-1",
+              barangay_id: baseAuth.defaultBarangayId,
+              contact_number: "09999999999",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(result.error_code, "HISTORICAL_HOUSEHOLD_IMMUTABLE");
+      assert.equal(result.message, "Archived households cannot be edited");
+      assert.equal(updateCalled, true);
+      assert.equal(conflictCalls, 0);
+      assert.equal(failedTransactionPayload.sync_status, "FAILED");
+      assert.equal(
+        failedTransactionPayload.error_message,
+        "Archived households cannot be edited",
+      );
+    },
+  );
+});
+
+test("BRG-SC-03 TEST F preserves MSWDO HOUSEHOLD_UPDATE access", async () => {
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async ({ requester }) => {
+          assert.equal(requester.roleCode, "MSWDO");
+          return {
+            id: "55555555-5555-4555-8555-555555555555",
+            barangay_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            family_head_first_name: "Server",
+            updated_at: "2026-08-08T01:00:00.000Z",
+          };
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          return {
+            id: "55555555-5555-4555-8555-555555555555",
+            family_head_first_name: "MSWDO Local",
+            updated_at: "2026-08-08T01:00:00.000Z",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MSWDO",
+          defaultBarangayId: null,
+        },
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-mswdo-valid",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "55555555-5555-4555-8555-555555555555",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "MSWDO Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.data.family_head_first_name, "MSWDO Local");
+      assert.equal(updateCalled, true);
+    },
+  );
+});
+
+test("BRG-SC-06-H01 TEST F foreign Barangay HOUSEHOLD_DEPART sync fails without conflict evidence", async () => {
+  let conflictCalls = 0;
+  let departCall = null;
+  let failedTransactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Unauthorized departure must not become a conflict");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failedTransactionPayload = payload;
+          }
+
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (
+          entityServerId,
+          departureDetails,
+          requester,
+        ) => {
+          departCall = { entityServerId, departureDetails, requester };
+          const error = new Error("You do not have access to depart this household");
+          error.statusCode = 403;
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-06-h01-foreign-depart",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "66666666-6666-4666-8666-666666666666",
+            client_timestamp: "2026-08-09T03:00:00.000Z",
+            payload: {
+              barangay_id: baseAuth.defaultBarangayId,
+              departure_time: "2026-08-09T03:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(result.message, "You do not have access to depart this household");
+      assert.equal(conflictCalls, 0);
+      assert.equal(departCall.requester.roleCode, "BARANGAY");
+      assert.equal(departCall.requester.defaultBarangayId, baseAuth.defaultBarangayId);
+      assert.equal(departCall.departureDetails.allow_duplicate_departure_resolution, true);
+      assert.equal(failedTransactionPayload.sync_status, "FAILED");
+      assert.doesNotMatch(JSON.stringify(result), /time_out|serverPayload|FIRST_ACCEPTED/);
+    },
+  );
+});
+
+test("BRG-SC-06-H01 TEST G same-Barangay HOUSEHOLD_DEPART sync remains SYNCED", async () => {
+  let departCall = null;
+  let conflictCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Successful departure should not create conflict");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (
+          entityServerId,
+          departureDetails,
+          requester,
+        ) => {
+          departCall = { entityServerId, departureDetails, requester };
+          return {
+            household_id: entityServerId,
+            affected_logs_count: 1,
+            archived_members_count: 2,
+            latest_departure_time: departureDetails.departure_time,
+            status: "ARCHIVED",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-06-h01-same-depart",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "77777777-7777-4777-8777-777777777777",
+            client_timestamp: "2026-08-09T03:00:00.000Z",
+            payload: {
+              departure_time: "2026-08-09T03:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.data.status, "ARCHIVED");
+      assert.equal(result.conflict, null);
+      assert.equal(conflictCalls, 0);
+      assert.equal(departCall.requester.defaultBarangayId, baseAuth.defaultBarangayId);
+    },
+  );
+});
+
+test("BRG-SC-06-H01 TEST H MSWDO HOUSEHOLD_DEPART sync access remains broad", async () => {
+  let requesterRole = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (
+          entityServerId,
+          _departureDetails,
+          requester,
+        ) => {
+          requesterRole = requester.roleCode;
+          return {
+            household_id: entityServerId,
+            affected_logs_count: 1,
+            archived_members_count: 1,
+            status: "ARCHIVED",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MSWDO",
+          defaultBarangayId: null,
+        },
+        entries: [
+          {
+            client_sync_id: "brg-sc-06-h01-mswdo-depart",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "88888888-8888-4888-8888-888888888888",
+            client_timestamp: "2026-08-09T03:00:00.000Z",
+            payload: {
+              departure_time: "2026-08-09T03:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.conflict, null);
+      assert.equal(requesterRole, "MSWDO");
+    },
+  );
+});
+
+test("BRG-SC-06-H02 later-arriving earlier departure remains a first-accepted conflict", async () => {
+  let departCall = null;
+  let conflictPayload = null;
+  let transactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+       [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          transactionPayload = payload.transactionPayload;
+          conflictPayload = payload.conflictPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-household-depart-first-accepted",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (
+          entityServerId,
+          departureDetails,
+          requester,
+        ) => {
+          departCall = { entityServerId, departureDetails, requester };
+          const error = new Error(
+            "Duplicate household departure detected. Accepted server departure time was kept.",
+          );
+          error.statusCode = 409;
+          error.code = "DUPLICATE_HOUSEHOLD_DEPARTURE";
+           error.entityServerId = entityServerId;
+           error.incomingDepartureWasEarlier = true;
+           error.incomingDepartureTime = departureDetails.departure_time;
+          error.serverPayload = {
+            id: "accepted-log-1",
+            household_id: entityServerId,
+            status: "LEFT",
+            time_in: "2026-08-09T01:00:00.000Z",
+            time_out: "2026-08-09T03:00:00.000Z",
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-06-h02-earlier-depart",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-08-09T02:30:00.000Z",
+            payload: {
+              departure_time: "2026-08-09T02:30:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.id, "conflict-household-depart-first-accepted");
+      assert.equal(result.conflict.conflict_type, "DUPLICATE_HOUSEHOLD_DEPARTURE");
+      assert.equal(result.conflict.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(result.conflict.status, "RESOLVED");
+      assert.equal(result.conflict.resolved_payload_json.winner, "SERVER");
+      assert.equal(
+        result.conflict.server_payload_json.time_out,
+        "2026-08-09T03:00:00.000Z",
+      );
+      assert.equal(transactionPayload.sync_status, "CONFLICT");
+      assert.equal(departCall.departureDetails.allow_duplicate_departure_resolution, true);
+      assert.equal(departCall.requester.defaultBarangayId, baseAuth.defaultBarangayId);
+      assert.equal(conflictPayload.local_payload_json.departure_time, "2026-08-09T02:30:00.000Z");
+    },
+  );
+});
+
+test("BRG-SC-06-H02 earlier late departure does not supersede the first accepted attempt", async () => {
+  const priorUpdates = [];
+  const priorConflicts = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        updateSyncTransaction: async (id, payload) => {
+          priorUpdates.push({ id, payload });
+          return { id, ...payload };
+        },
+        recordSyncConflictOnly: async (payload) => {
+          priorConflicts.push(payload);
+          return { id: "prior-conflict", ...payload };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (entityServerId, departureDetails) => {
+          const error = new Error("Earlier departure timestamp retained automatically.");
+          error.statusCode = 409;
+          error.code = "DUPLICATE_HOUSEHOLD_DEPARTURE";
+          error.entityServerId = entityServerId;
+          error.incomingDepartureWasEarlier = true;
+          error.incomingDepartureTime = departureDetails.departure_time;
+          error.serverPayload = {
+            id: "accepted-log-1",
+            household_id: entityServerId,
+            status: "LEFT",
+            time_in: "2026-08-09T01:00:00.000Z",
+            time_out: "2026-08-09T03:00:00.000Z",
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "late-earlier-departure",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-08-09T02:30:00.000Z",
+            payload: {
+              disaster_event_id: "11111111-1111-4111-8111-111111111111",
+              barangay_id: baseAuth.defaultBarangayId,
+              departure_time: "2026-08-09T02:30:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(
+        result.conflict.server_payload_json.time_out,
+        "2026-08-09T03:00:00.000Z",
+      );
+      assert.deepEqual(priorUpdates, []);
+      assert.deepEqual(priorConflicts, []);
+      assert.equal(result.conflict.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(result.conflict.resolved_payload_json.winner, "SERVER");
+    },
+  );
+});
+
+test("BRG-SC-06-H02 reverse-order iPad/iPhone departures keep the first accepted operation authoritative", async () => {
+  const householdId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const eventId = "11111111-1111-4111-8111-111111111111";
+  let authoritativeDeparture = "2026-09-08T14:52:00.000Z";
+  const executedQueries = [];
+  const fakeDbClient = {
+    query: async (query) => {
+      executedQueries.push(String(query));
+      return { rows: [] };
+    },
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => callback(fakeDbClient),
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async ({
+          syncTransactionId,
+          transactionPayload,
+          conflictPayload,
+        }) => ({
+          syncTransaction: { id: syncTransactionId, ...transactionPayload },
+          conflictRecord: { id: "iphone-earlier-conflict", ...conflictPayload },
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (entityServerId, departureDetails) => {
+          if (departureDetails.departure_time === "2026-09-08T14:52:00.000Z") {
+            authoritativeDeparture = departureDetails.departure_time;
+            return {
+              household_id: entityServerId,
+              latest_departure_time: authoritativeDeparture,
+              status: "ARCHIVED",
+            };
+          }
+
+          const error = new Error(
+            "Duplicate household departure detected. Accepted server departure time was kept.",
+          );
+          error.statusCode = 409;
+          error.code = "DUPLICATE_HOUSEHOLD_DEPARTURE";
+          error.entityServerId = entityServerId;
+          error.serverPayload = {
+            household_id: entityServerId,
+            status: "LEFT",
+            time_out: authoritativeDeparture,
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "sync-ipad-1052",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: householdId,
+            client_timestamp: "2026-09-08T14:52:00.000Z",
+            payload: {
+              disaster_event_id: eventId,
+              barangay_id: baseAuth.defaultBarangayId,
+              departure_time: "2026-09-08T14:52:00.000Z",
+            },
+          },
+          {
+            client_sync_id: "sync-iphone-1049",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: householdId,
+            client_timestamp: "2026-09-08T14:49:00.000Z",
+            payload: {
+              disaster_event_id: eventId,
+              barangay_id: baseAuth.defaultBarangayId,
+              departure_time: "2026-09-08T14:49:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(results.map((result) => result.sync_status), ["SYNCED", "CONFLICT"]);
+      assert.equal(authoritativeDeparture, "2026-09-08T14:52:00.000Z");
+      assert.equal(
+        results[1].conflict.resolution_strategy,
+        "FIRST_ACCEPTED",
+      );
+      assert.equal(results[1].conflict.resolved_payload_json.winner, "SERVER");
+      assert.equal(
+        executedQueries.some((query) => query.includes("ROLLBACK TO SAVEPOINT")),
+        true,
+      );
+    },
+  );
+});
+
+test("INV-M-01 insufficient stock with trusted stale basis becomes OPEN manual-review conflict", async () => {
+  const previousSecret = process.env.INVENTORY_STATE_BASIS_SECRET;
+  process.env.INVENTORY_STATE_BASIS_SECRET = "unit-test-inventory-state-basis-secret";
+  delete require.cache[inventoryStateBasisPath];
+  const { createInventoryStateBasis } = require(inventoryStateBasisPath);
+  const basis = createInventoryStateBasis(
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      inventory_item_id: "22222222-2222-4222-8222-222222222222",
+      stock_version: 1,
+      quantity_available: 10,
+      status: "AVAILABLE",
+      expiration_date: null,
+    },
+    "2026-08-09T01:00:00.000Z",
+  );
+  const recordedConflicts = [];
+  const processedOutbox = [];
+
+  try {
+    await withStubbedSyncService(
+      {
+        [syncRepositoryPath]: createBaseSyncRepositoryStub({
+          withSyncProcessingTransaction: async (callback) => callback({ id: "tx-client" }),
+          recordConflictAndUpdateSyncTransaction: async ({
+            syncTransactionId,
+            conflictPayload,
+            transactionPayload,
+          }) => {
+            recordedConflicts.push({ conflictPayload, transactionPayload });
+            return {
+              syncTransaction: {
+                id: syncTransactionId,
+                ...transactionPayload,
+              },
+              conflictRecord: {
+                id: "sync-conflict-inv-m01",
+                ...conflictPayload,
+              },
+              notificationOutboxEvent: {
+                id: "outbox-inv-m01",
+              },
+            };
+          },
+        }),
+        [inventoryTransactionServicePath]: {
+          createInventoryTransaction: async () => {
+            const error = new Error(
+              "Insufficient quantity_available for batch BATCH-1",
+            );
+            error.statusCode = 400;
+            throw error;
+          },
+        },
+        [inventoryTransactionRepositoryPath]: {
+          getInventoryBatchByIdForUpdate: async () => ({
+            id: "11111111-1111-4111-8111-111111111111",
+            inventory_item_id: "22222222-2222-4222-8222-222222222222",
+            stock_version: 2,
+            quantity_available: 4,
+            status: "LOW_STOCK",
+            expiration_date: null,
+          }),
+        },
+        [notificationServicePath]: {
+          processNotificationOutboxEventById: async (eventId) => {
+            processedOutbox.push(eventId);
+          },
+        },
+        [systemLogPath]: {
+          logAuditSafely: async () => {},
+          logErrorSafely: async () => {},
+          pickDefined: () => ({}),
+        },
+      },
+      async ({ processSyncEntries }) => {
+        const [result] = await processSyncEntries({
+          auth: {
+            ...baseAuth,
+            roleCode: "MAYOR",
+          },
+          entries: [
+            {
+              client_sync_id: "inv-m01-state-drift",
+              action_key: "INVENTORY_TRANSACTION_CREATE",
+              entity_type: "INVENTORY_TRANSACTION",
+              entity_local_id: "local-inv-m01",
+              entity_server_id: null,
+              client_timestamp: "2026-08-09T01:05:00.000Z",
+              payload: {
+                inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+                transaction_type: "OUTFLOW",
+                quantity: 8,
+                inventoryTransactionReferenceNo: "ITR-2026-000555",
+                inventoryStateBasis: basis,
+              },
+            },
+          ],
+        });
+
+        assert.equal(result.sync_status, "CONFLICT");
+        assert.equal(result.conflict.conflict_type, "INVENTORY_STOCK_STATE_DRIFT");
+        assert.equal(result.conflict.resolution_strategy, "MANUAL_REVIEW");
+        assert.equal(result.conflict.status, "OPEN");
+        assert.equal(result.conflict.resolved_by, null);
+        assert.equal(result.conflict.resolved_at, null);
+        assert.equal(result.conflict.resolved_payload_json, null);
+        assert.equal(recordedConflicts[0].transactionPayload.entity_server_id, null);
+        assert.equal(recordedConflicts[0].conflictPayload.entity_server_id, null);
+        assert.deepEqual(processedOutbox, ["outbox-inv-m01"]);
+      },
+    );
+  } finally {
+    if (previousSecret === undefined) {
+      delete process.env.INVENTORY_STATE_BASIS_SECRET;
+    } else {
+      process.env.INVENTORY_STATE_BASIS_SECRET = previousSecret;
+    }
+    delete require.cache[inventoryStateBasisPath];
+  }
+});
+
+test("M02-04 normal conflict processes notification intent after sync transaction commit", async () => {
+  const processedIntentIds = [];
+  const transactionEvents = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          transactionEvents.push("BEGIN");
+          const result = await callback({ id: "tx-client" });
+          transactionEvents.push("COMMIT");
+          return result;
+        },
+        recordConflictAndUpdateSyncTransaction: async ({
+          syncTransactionId,
+          conflictPayload,
+          transactionPayload,
+        }) => ({
+          syncTransaction: {
+            id: syncTransactionId,
+            ...transactionPayload,
+          },
+          conflictRecord: {
+            id: "sync-conflict-post-commit",
+            user_id: baseAuth.userId,
+            ...conflictPayload,
+          },
+          notificationOutboxEvent: {
+            id: "outbox-post-commit",
+          },
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "33333333-3333-4333-8333-333333333333",
+          barangay_id: baseAuth.defaultBarangayId,
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T02:00:00.000Z",
+        }),
+        updateHouseholdDetails: async () => {
+          throw new Error("Server-newer conflict should not execute update");
+        },
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async (eventId) => {
+          processedIntentIds.push({
+            eventId,
+            afterCommit: transactionEvents.includes("COMMIT"),
+          });
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "m02-conflict-post-commit",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "33333333-3333-4333-8333-333333333333",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.deepEqual(transactionEvents, ["BEGIN", "COMMIT"]);
+      assert.deepEqual(processedIntentIds, [
+        {
+          eventId: "outbox-post-commit",
+          afterCommit: true,
+        },
+      ]);
+    },
+  );
+});
+
+test("M02-05 genuine FAILED transition persists notification intent and processes it after commit", async () => {
+  const processedIntentIds = [];
+  let registerHouseholdCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordSyncFailureAndNotificationIntent: async ({
+          syncTransactionId,
+          transactionPayload,
+        }) => ({
+          syncTransaction: {
+            id: syncTransactionId,
+            sync_status: "FAILED",
+            ...transactionPayload,
+          },
+          notificationOutboxEvent: {
+            id: "outbox-failed-sync",
+          },
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          registerHouseholdCalls += 1;
+          throw new Error("missing-photo sync must not reach business mutation");
+        },
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async (eventId) => {
+          processedIntentIds.push(eventId);
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "m02-failed-sync",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-m02-failed",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload({
+              family_head_photo_url: " ",
+            }),
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.match(result.message, /Family head photo is required/i);
+      assert.equal(result.conflict, null);
+      assert.equal(registerHouseholdCalls, 0);
+      assert.deepEqual(processedIntentIds, ["outbox-failed-sync"]);
+    },
+  );
+});
+
+test("EE-FIX-01 HOUSEHOLD_REGISTER non-ACTIVE event business failure becomes FAILED, not CONFLICT", async () => {
+  let conflictCalls = 0;
+  let failedTransactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("non-ACTIVE registration must not create conflict");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failedTransactionPayload = payload;
+          }
+
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error(
+            "Household registration cannot be completed because the disaster event is not active.",
+          );
+          error.statusCode = 400;
+          error.code = "DISASTER_EVENT_NOT_ACTIVE";
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-01-non-active-register",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-ee-fix-01",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.match(result.message, /disaster event is not active/i);
+      assert.equal(conflictCalls, 0);
+      assert.equal(
+        failedTransactionPayload.error_message,
+        "Household registration cannot be completed because the disaster event is not active.",
+      );
+    },
+  );
+});
+
+test("EE-FIX-02 HOUSEHOLD_UPDATE non-ACTIVE events fail before LATEST_TIMESTAMP conflict handling", async () => {
+  const cases = [
+    {
+      label: "closed-client-newer",
+      disaster_event_status: "CLOSED",
+      serverUpdatedAt: "2026-08-08T01:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    },
+    {
+      label: "closed-server-newer",
+      disaster_event_status: "CLOSED",
+      serverUpdatedAt: "2026-08-08T03:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    },
+    {
+      label: "closed-equal",
+      disaster_event_status: "CLOSED",
+      serverUpdatedAt: "2026-08-08T02:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    },
+    {
+      label: "closed-non-admitted-resident",
+      disaster_event_status: "CLOSED",
+      serverUpdatedAt: "2026-08-08T01:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "RELATIVES",
+      residency_status: "RESIDENT",
+      is_active: false,
+    },
+    {
+      label: "planned",
+      disaster_event_status: "PLANNED",
+      serverUpdatedAt: "2026-08-08T01:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    },
+  ];
+
+  for (const currentCase of cases) {
+    let conflictCalls = 0;
+    let updateCalled = false;
+    let failedTransactionPayload = null;
+
+    await withStubbedSyncService(
+      {
+        [syncRepositoryPath]: createBaseSyncRepositoryStub({
+          recordConflictAndUpdateSyncTransaction: async () => {
+            conflictCalls += 1;
+            throw new Error("non-ACTIVE HOUSEHOLD_UPDATE must not create conflict");
+          },
+          updateSyncTransaction: async (id, payload) => {
+            if (payload.sync_status === "FAILED") {
+              failedTransactionPayload = payload;
+            }
+
+            return {
+              id,
+              ...payload,
+            };
+          },
+        }),
+        [householdRegistrationServicePath]: {
+          getAuthorizedHouseholdSummaryForUpdate: async () => ({
+            id: `household-${currentCase.label}`,
+            disaster_event_id: "event-1",
+            disaster_event_status: currentCase.disaster_event_status,
+            barangay_id: baseAuth.defaultBarangayId,
+            residency_status: currentCase.residency_status || "RESIDENT",
+            current_stay_type: currentCase.current_stay_type,
+            is_active: currentCase.is_active,
+            family_head_first_name: "Server",
+            updated_at: currentCase.serverUpdatedAt,
+          }),
+          updateHouseholdDetails: async () => {
+            updateCalled = true;
+            throw new Error("non-ACTIVE HOUSEHOLD_UPDATE must not mutate");
+          },
+        },
+        [systemLogPath]: {
+          logAuditSafely: async () => {},
+          logErrorSafely: async () => {},
+          pickDefined: () => ({}),
+        },
+      },
+      async ({ processSyncEntries }) => {
+        const [result] = await processSyncEntries({
+          auth: baseAuth,
+          entries: [
+            {
+              client_sync_id: `ee-fix-02-${currentCase.label}`,
+              action_key: "HOUSEHOLD_UPDATE",
+              entity_type: "HOUSEHOLD",
+              entity_server_id: `household-${currentCase.label}`,
+              client_timestamp: currentCase.clientUpdatedAt,
+              client_updated_at: currentCase.clientUpdatedAt,
+              payload: {
+                disaster_event_id: "event-1",
+                barangay_id: baseAuth.defaultBarangayId,
+                family_head_first_name: "Local",
+              },
+            },
+          ],
+        });
+
+        assert.equal(result.sync_status, "FAILED", currentCase.label);
+        assert.equal(result.conflict, null, currentCase.label);
+        assert.equal(result.data, null, currentCase.label);
+        assert.match(result.message, /disaster event is not active/i);
+        assert.equal(conflictCalls, 0, currentCase.label);
+        assert.equal(updateCalled, false, currentCase.label);
+        assert.equal(failedTransactionPayload.sync_status, "FAILED");
+        assert.equal(
+          failedTransactionPayload.error_message,
+          "Household registration cannot be completed because the disaster event is not active.",
+        );
+      },
+    );
+  }
+});
+
+test("EE-FIX-02 foreign Barangay CLOSED HOUSEHOLD_UPDATE remains authorization failure without lifecycle evidence", async () => {
+  let conflictCalls = 0;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("foreign non-ACTIVE household must not create conflict");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => {
+          const error = new Error("You do not have access to update this household");
+          error.statusCode = 403;
+          throw error;
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("foreign non-ACTIVE household must not mutate");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-02-foreign-closed",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "foreign-closed-household",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(result.message, "You do not have access to update this household");
+      assert.doesNotMatch(JSON.stringify(result), /DISASTER_EVENT_NOT_ACTIVE|CLOSED|Foreign/);
+      assert.equal(conflictCalls, 0);
+      assert.equal(updateCalled, false);
+    },
+  );
+});
+
+test("EE-FIX-02 same-ID HOUSEHOLD_UPDATE replay after closure returns terminal result without lifecycle recheck", async () => {
+  let authorizationLookupCalled = false;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REPLAY_TERMINAL",
+          transaction: {
+            id: "sync-replay-after-close",
+            sync_status: "SYNCED",
+            entity_server_id: "household-replay",
+            error_message: null,
+          },
+          conflictRecord: null,
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => {
+          authorizationLookupCalled = true;
+          throw new Error("terminal replay must not reauthorize or recheck lifecycle");
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("terminal replay must not mutate");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-02-replay-after-close",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "household-replay",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Previously Accepted",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.replayed, true);
+      assert.equal(result.conflict, null);
+      assert.equal(authorizationLookupCalled, false);
+      assert.equal(updateCalled, false);
+    },
+  );
+});
+
+test("M02-06 post-commit notification processing failure does not change committed sync result", async () => {
+  const loggedErrors = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordSyncFailureAndNotificationIntent: async ({
+          syncTransactionId,
+          transactionPayload,
+        }) => ({
+          syncTransaction: {
+            id: syncTransactionId,
+            sync_status: "FAILED",
+            ...transactionPayload,
+          },
+          notificationOutboxEvent: {
+            id: "outbox-processing-fails",
+          },
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          throw new Error("business validation failed");
+        },
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async () => {
+          throw new Error("notification processor unavailable");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async (entry) => {
+          loggedErrors.push(entry);
+        },
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "m02-post-commit-failure",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-m02-post-commit-failure",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.match(result.message, /business validation failed/);
+      assert.equal(
+        loggedErrors.some(
+          (entry) =>
+            entry.errorCode === "SYNC_NOTIFICATION_OUTBOX_PROCESSING_FAILED",
+        ),
+        true,
+      );
+    },
+  );
+});
+
+test("INV-M-02 successful offline inventory sync runs domain audit and alerts after commit", async () => {
+  const transactionEvents = [];
+  const domainSideEffects = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          transactionEvents.push("BEGIN");
+          const result = await callback({ id: "tx-client" });
+          transactionEvents.push("COMMIT");
+          return result;
+        },
+      }),
+      [inventoryTransactionServicePath]: {
+        createInventoryTransaction: async (payload) => {
+          assert.equal(payload.performed_by, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+          assert.equal(payload.auditActor.userId, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+          assert.equal(payload.auditActor.roleCode, "MAYOR");
+          assert.equal(payload.auditActor.deviceId, "99999999-9999-4999-8999-999999999999");
+          assert.equal(payload.syncTransactionId, "sync-transaction-1");
+          assert.equal(typeof payload.deferDomainSideEffect, "function");
+
+          payload.deferDomainSideEffect(async () => {
+            domainSideEffects.push({
+              afterCommit: transactionEvents.includes("COMMIT"),
+              actor: payload.auditActor,
+            });
+          });
+
+          return {
+            transaction_id: "22222222-2222-4222-8222-222222222222",
+            inventory_transaction_reference_no: "ITR-2026-000777",
+            inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+            transaction_type: "OUTFLOW",
+            quantity: 2,
+            new_quantity_available: 8,
+            new_batch_status: "LOW_STOCK",
+          };
+        },
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async () => {
+          throw new Error("No sync notification outbox event expected");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+          defaultBarangayId: null,
+        },
+        entries: [
+          {
+            client_sync_id: "inv-m02-success",
+            action_key: "INVENTORY_TRANSACTION_CREATE",
+            entity_type: "INVENTORY_TRANSACTION",
+            entity_local_id: "local-inv-m02",
+            entity_server_id: null,
+            device_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+              transaction_type: "OUTFLOW",
+              quantity: 2,
+              inventoryTransactionReferenceNo: "ITR-2026-000777",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.deepEqual(transactionEvents, ["BEGIN", "COMMIT"]);
+      assert.deepEqual(domainSideEffects, [
+        {
+          afterCommit: true,
+          actor: {
+            userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            roleCode: "MAYOR",
+            deviceId: "99999999-9999-4999-8999-999999999999",
+          },
+        },
+      ]);
+    },
+  );
+});
+
+test("MAYOR-OFFLINE-ITEM-01 item creation queue reaches the supported sync handler", async () => {
+  let receivedPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [inventoryItemServicePath]: {
+        createInventoryItem: async (payload, auth, options) => {
+          receivedPayload = { payload, auth, options };
+          return { id: "33333333-3333-4333-8333-333333333333" };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "mayor-offline-item-create-1",
+            action_key: "INVENTORY_ITEM_CREATE",
+            entity_type: "INVENTORY_ITEM",
+            entity_local_id: "Offline Rice",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T01:00:00.000Z",
+            payload: {
+              item_name: "Offline Rice",
+              category: "non-perishable",
+              unit_of_measure: "pc",
+              unit_of_measure_value: "1",
+              packaging: "piece",
+              packaging_count: "10",
+              quantity: "1",
+              reorder_level: "5",
+              barcode: null,
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+    },
+  );
+
+  assert.equal(receivedPayload.payload.item_name, "Offline Rice");
+  assert.equal(receivedPayload.auth.roleCode, "MAYOR");
+  assert.equal(
+    receivedPayload.options.clientTimestamp,
+    "2026-09-07T01:00:00.000Z",
+  );
+});
+
+test("MAYOR-OFFLINE-ITEM-UPDATE reuses the online inventory item update handler", async () => {
+  let receivedArguments = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemById: async () => ({
+          id: "33333333-3333-4333-8333-333333333333",
+          updated_at: null,
+        }),
+      },
+      [inventoryItemServicePath]: {
+        updateInventoryItem: async (...args) => {
+          receivedArguments = args;
+          return { id: args[0] };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "mayor-offline-item-update-1",
+            action_key: "INVENTORY_ITEM_UPDATE",
+            entity_type: "INVENTORY_ITEM",
+            entity_server_id: "33333333-3333-4333-8333-333333333333",
+            client_timestamp: "2026-09-07T02:00:00.000Z",
+            payload: {
+              item_name: "Offline Rice Updated",
+              category: "non-perishable",
+              unit_of_measure: "pc",
+              unit_of_measure_value: 1,
+              packaging: "box",
+              packaging_count: 1,
+              quantity: 12,
+              reorder_level: 5,
+              barcode: null,
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+    },
+  );
+
+  assert.equal(receivedArguments[0], "33333333-3333-4333-8333-333333333333");
+  assert.equal(receivedArguments[1].item_name, "Offline Rice Updated");
+  assert.equal(receivedArguments[2].roleCode, "MAYOR");
+  assert.equal(Object.prototype.hasOwnProperty.call(receivedArguments[3], "dbClient"), true);
+});
+
+test("legacy INVENTORY_ITEM_UPDATE expiration-only payload syncs through the compatibility handler", async () => {
+  let receivedArguments = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemById: async () => ({
+          id: "33333333-3333-4333-8333-333333333333",
+          updated_at: null,
+          expiration_date: "2027-01-01",
+        }),
+      },
+      [inventoryItemServicePath]: {
+        updateInventoryItem: async (...args) => {
+          receivedArguments = args;
+          return {
+            id: args[0],
+            expiration_date: "2027-01-01",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "mayor-offline-item-expiration-only-1",
+            action_key: "INVENTORY_ITEM_UPDATE",
+            entity_type: "INVENTORY_ITEM",
+            entity_server_id: "33333333-3333-4333-8333-333333333333",
+            client_timestamp: "2026-09-07T02:30:00.000Z",
+            payload: {
+              expiration_date: "2028-05-01",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.data.expiration_date, "2027-01-01");
+    },
+  );
+
+  assert.equal(receivedArguments[1].expiration_date, "2028-05-01");
+  assert.equal(receivedArguments[2].roleCode, "MAYOR");
+  assert.equal(Object.prototype.hasOwnProperty.call(receivedArguments[3], "dbClient"), true);
+});
+
+test("MAYOR-OFFLINE-ITEM-02 restock queued for a local item resolves after item creation sync", async () => {
+  let receivedPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        findSyncedEntityServerIdByLocalId: async (lookup) => {
+          assert.deepEqual(lookup, {
+            entityType: "INVENTORY_ITEM",
+            actionKey: "INVENTORY_ITEM_CREATE",
+            entityLocalId: "Offline Rice",
+            userId: baseAuth.userId,
+          });
+          return {
+            entity_server_id: "33333333-3333-4333-8333-333333333333",
+          };
+        },
+      }),
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          receivedPayload = payload;
+          return { id: "batch-1" };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "mayor-offline-item-restock-1",
+            action_key: "INVENTORY_BATCH_CREATE",
+            entity_type: "INVENTORY_BATCH",
+            entity_local_id: "Offline Rice-BATCH-002",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T01:05:00.000Z",
+            payload: {
+              inventory_item_id: "Offline Rice",
+              inventory_item_local_id: "Offline Rice",
+              inventory_item_stock_form_id: "local-stock-form:item-create-1",
+              stock_form_packaging: "sack",
+              stock_form_units_per_packaging: 25,
+              stock_form_unit_of_measure: "kg",
+              stock_form_unit_of_measure_value: 25,
+              batch_no: "RICE-BATCH-002",
+              quantity_received: 25,
+              source_type: "LGU",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+    },
+  );
+
+  assert.equal(
+    receivedPayload.inventory_item_id,
+    "33333333-3333-4333-8333-333333333333",
+  );
+  assert.equal(receivedPayload.inventory_item_stock_form_id, null);
+  assert.equal(receivedPayload.stock_form_packaging, "sack");
+});
+
+test("MAYOR-OFFLINE-03 child-first item and batch entries recover in one bounded second pass", async () => {
+  const parentLocalId = "Offline Rice";
+  const parentServerId = "33333333-3333-4333-8333-333333333333";
+  const claimPayloads = [];
+  const batchPayloads = [];
+  let itemIsSynced = false;
+  let itemMappingLookups = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => {
+          claimPayloads.push(payload);
+          return {
+            decision: "CLAIMED_NEW",
+            transaction: {
+              id: `sync-${claimPayloads.length}`,
+              ...payload,
+            },
+          };
+        },
+        findSyncedEntityServerIdByLocalId: async ({ entityLocalId }) => {
+          itemMappingLookups += 1;
+          return itemIsSynced && entityLocalId === parentLocalId
+            ? { entity_server_id: parentServerId }
+            : null;
+        },
+      }),
+      [inventoryItemServicePath]: {
+        createInventoryItem: async () => {
+          itemIsSynced = true;
+          return { id: parentServerId };
+        },
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          batchPayloads.push(payload);
+          return { id: "batch-1" };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const entries = [
+        {
+          client_sync_id: "mayor-offline-item-restock-child-first",
+          action_key: "INVENTORY_BATCH_CREATE",
+          entity_type: "INVENTORY_BATCH",
+          entity_local_id: "Offline Rice-BATCH-002",
+          entity_server_id: null,
+          client_timestamp: "2026-09-07T01:05:00.000Z",
+          payload: {
+            inventory_item_id: parentLocalId,
+            inventory_item_local_id: parentLocalId,
+            batch_no: "RICE-BATCH-002",
+            quantity_received: 25,
+            source_type: "LGU",
+          },
+        },
+        {
+          client_sync_id: "mayor-offline-item-create-parent-later",
+          action_key: "INVENTORY_ITEM_CREATE",
+          entity_type: "INVENTORY_ITEM",
+          entity_local_id: parentLocalId,
+          entity_server_id: null,
+          client_timestamp: "2026-09-07T01:00:00.000Z",
+          payload: {
+            item_name: parentLocalId,
+            category: "non-perishable",
+            unit_of_measure: "pc",
+            packaging: "piece",
+            quantity: 1,
+          },
+        },
+      ];
+      const results = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries,
+      });
+
+      assert.deepEqual(
+        results.map(({ client_sync_id, sync_status }) => ({
+          client_sync_id,
+          sync_status,
+        })),
+        [
+          {
+            client_sync_id: entries[0].client_sync_id,
+            sync_status: "SYNCED",
+          },
+          {
+            client_sync_id: entries[1].client_sync_id,
+            sync_status: "SYNCED",
+          },
+        ],
+      );
+    },
+  );
+
+  assert.equal(itemMappingLookups, 2);
+  assert.equal(batchPayloads.length, 1);
+  assert.equal(batchPayloads[0].inventory_item_id, parentServerId);
+  assert.equal(claimPayloads.length, 3);
+  assert.deepEqual(
+    claimPayloads[0].payload_json.payload,
+    claimPayloads[2].payload_json.payload,
+  );
+  assert.equal(claimPayloads[0].client_sync_id, claimPayloads[2].client_sync_id);
+});
+
+test("auto-resolved duplicate parent is SYNCED and unblocks its deferred child", async () => {
+  const parentServerId = "77777777-7777-4777-8777-777777777777";
+  let parentMappingAvailable = false;
+  let mappingLookups = 0;
+  const batchPayloads = [];
+  const existingItem = {
+    id: parentServerId,
+    item_code: "RICE",
+    item_name: "Rice",
+    category: "non-perishable",
+    is_perishable: false,
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    packaging: "sack",
+    quantity: 25,
+    barcode: null,
+  };
+  const existingStockForm = {
+    id: "77777777-7777-4777-8777-777777777778",
+    inventory_item_id: parentServerId,
+    packaging: "sack",
+    units_per_packaging: 25,
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    barcode: null,
+    is_active: true,
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        findSyncedEntityServerIdByLocalId: async () => {
+          mappingLookups += 1;
+          return parentMappingAvailable
+            ? { entity_server_id: parentServerId }
+            : null;
+        },
+        recordConflictAndUpdateSyncTransaction: async ({
+          syncTransactionId,
+          conflictPayload,
+          transactionPayload,
+        }) => {
+          if (
+            conflictPayload.conflict_type === "DUPLICATE_INVENTORY_ITEM" &&
+            transactionPayload.sync_status === "SYNCED"
+          ) {
+            parentMappingAvailable = true;
+          }
+
+          return {
+            syncTransaction: {
+              id: syncTransactionId,
+              ...transactionPayload,
+            },
+            conflictRecord: {
+              id: "sync-conflict-auto-merge",
+              ...conflictPayload,
+            },
+          };
+        },
+      }),
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemById: async () => existingItem,
+      },
+      [inventoryItemStockFormRepositoryPath]: {
+        getInventoryItemStockFormsByItemId: async () => [existingStockForm],
+      },
+      [inventoryBatchRepositoryPath]: {
+        getInventoryBatchesByItemIdForUpdate: async () => [
+          { batch_no: "RICE-BATCH-001" },
+        ],
+      },
+      [inventoryItemServicePath]: {
+        createInventoryItem: async () => {
+          const error = new Error("The item already exists.");
+          error.code = "DUPLICATE_INVENTORY_ITEM";
+          error.entityServerId = parentServerId;
+          error.serverPayload = existingItem;
+          throw error;
+        },
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          batchPayloads.push(payload);
+          return {
+            id: `batch-auto-${batchPayloads.length}`,
+            batch_no: payload.batch_no,
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "child-after-auto-merge-parent",
+            action_key: "INVENTORY_BATCH_CREATE",
+            entity_type: "INVENTORY_BATCH",
+            entity_local_id: "Rice-BATCH-002",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T01:05:00.000Z",
+            payload: {
+              inventory_item_id: "local-rice-auto",
+              inventory_item_local_id: "local-rice-auto",
+              batch_no: "RICE-BATCH-002",
+              quantity_received: 12,
+            },
+          },
+          {
+            client_sync_id: "auto-merge-parent-create",
+            action_key: "INVENTORY_ITEM_CREATE",
+            entity_type: "INVENTORY_ITEM",
+            entity_local_id: "local-rice-auto",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T01:00:00.000Z",
+            payload: {
+              item_name: "Rice",
+              category: "non-perishable",
+              is_perishable: false,
+              unit_of_measure: "pc",
+              unit_of_measure_value: 1,
+              packaging: "box",
+              quantity: 12,
+              packaging_count: 1,
+              barcode: null,
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(results.map((result) => result.sync_status), ["SYNCED", "SYNCED"]);
+      assert.equal(results[1].data.inventory_item.id, parentServerId);
+    },
+  );
+
+  assert.equal(mappingLookups, 2);
+  assert.equal(batchPayloads.length, 2);
+  assert.equal(batchPayloads[1].inventory_item_id, parentServerId);
+});
+
+test("same-cycle dependency retry processes parent-first children once without a third pass", async () => {
+  const parentLocalId = "Offline Beans";
+  const parentServerId = "44444444-4444-4444-8444-444444444444";
+  let itemIsSynced = false;
+  let itemMappingLookups = 0;
+  let batchCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        findSyncedEntityServerIdByLocalId: async ({ entityLocalId }) => {
+          itemMappingLookups += 1;
+          return itemIsSynced && entityLocalId === parentLocalId
+            ? { entity_server_id: parentServerId }
+            : null;
+        },
+      }),
+      [inventoryItemServicePath]: {
+        createInventoryItem: async () => {
+          itemIsSynced = true;
+          return { id: parentServerId };
+        },
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async () => {
+          batchCalls += 1;
+          return { id: "batch-beans-1" };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "mayor-offline-item-create-beans",
+            action_key: "INVENTORY_ITEM_CREATE",
+            entity_type: "INVENTORY_ITEM",
+            entity_local_id: parentLocalId,
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T02:00:00.000Z",
+            payload: { item_name: parentLocalId, packaging: "piece", quantity: 1 },
+          },
+          {
+            client_sync_id: "mayor-offline-batch-create-beans",
+            action_key: "INVENTORY_BATCH_CREATE",
+            entity_type: "INVENTORY_BATCH",
+            entity_local_id: "Offline Beans-BATCH-001",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T02:05:00.000Z",
+            payload: {
+              inventory_item_id: parentLocalId,
+              inventory_item_local_id: parentLocalId,
+              batch_no: "BEANS-BATCH-001",
+              quantity_received: 10,
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(results.map((result) => result.sync_status), ["SYNCED", "SYNCED"]);
+    },
+  );
+
+  assert.equal(itemMappingLookups, 1);
+  assert.equal(batchCalls, 1);
+});
+
+test("three child-first batches each retry once after one parent succeeds", async () => {
+  const parentLocalId = "Offline Flour";
+  const parentServerId = "88888888-8888-4888-8888-888888888888";
+  let parentIsSynced = false;
+  let mappingLookups = 0;
+  const batchPayloads = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        findSyncedEntityServerIdByLocalId: async () => {
+          mappingLookups += 1;
+          return parentIsSynced ? { entity_server_id: parentServerId } : null;
+        },
+      }),
+      [inventoryItemServicePath]: {
+        createInventoryItem: async () => {
+          parentIsSynced = true;
+          return { id: parentServerId };
+        },
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          batchPayloads.push(payload);
+          return { id: `flour-batch-${batchPayloads.length}` };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const childEntries = [1, 2, 3].map((sequence) => ({
+        client_sync_id: `flour-child-${sequence}`,
+        action_key: "INVENTORY_BATCH_CREATE",
+        entity_type: "INVENTORY_BATCH",
+        entity_local_id: `${parentLocalId}-BATCH-00${sequence}`,
+        entity_server_id: null,
+        client_timestamp: `2026-09-07T01:0${sequence}:00.000Z`,
+        payload: {
+          inventory_item_id: parentLocalId,
+          inventory_item_local_id: parentLocalId,
+          batch_no: `FLOUR-BATCH-00${sequence}`,
+          quantity_received: sequence,
+        },
+      }));
+      const parentEntry = {
+        client_sync_id: "flour-parent-later",
+        action_key: "INVENTORY_ITEM_CREATE",
+        entity_type: "INVENTORY_ITEM",
+        entity_local_id: parentLocalId,
+        entity_server_id: null,
+        client_timestamp: "2026-09-07T01:00:00.000Z",
+        payload: { item_name: parentLocalId, packaging: "piece", quantity: 1 },
+      };
+      const results = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [...childEntries, parentEntry],
+      });
+
+      assert.deepEqual(results.map((result) => result.sync_status), [
+        "SYNCED",
+        "SYNCED",
+        "SYNCED",
+        "SYNCED",
+      ]);
+      assert.deepEqual(
+        results.map((result) => result.client_sync_id),
+        [...childEntries, parentEntry].map((entry) => entry.client_sync_id),
+      );
+    },
+  );
+
+  assert.equal(mappingLookups, 6);
+  assert.equal(batchPayloads.length, 3);
+  assert.deepEqual(
+    batchPayloads.map((payload) => payload.inventory_item_id),
+    [parentServerId, parentServerId, parentServerId],
+  );
+});
+
+test("missing parent leaves the child failed after exactly one dependency retry", async () => {
+  let itemMappingLookups = 0;
+  let claimCalls = 0;
+  let batchCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => {
+          claimCalls += 1;
+          return {
+            decision: "CLAIMED_NEW",
+            transaction: { id: `sync-missing-${claimCalls}`, ...payload },
+          };
+        },
+        findSyncedEntityServerIdByLocalId: async () => {
+          itemMappingLookups += 1;
+          return null;
+        },
+      }),
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async () => {
+          batchCalls += 1;
+          return { id: "never-created" };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "mayor-offline-batch-missing-parent",
+            action_key: "INVENTORY_BATCH_CREATE",
+            entity_type: "INVENTORY_BATCH",
+            entity_local_id: "Missing Parent-BATCH-001",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T03:00:00.000Z",
+            payload: {
+              inventory_item_id: "missing-parent",
+              inventory_item_local_id: "missing-parent",
+              batch_no: "MISSING-BATCH-001",
+              quantity_received: 10,
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.error_code, "INVENTORY_ITEM_PENDING_SYNC");
+    },
+  );
+
+  assert.equal(itemMappingLookups, 2);
+  assert.equal(claimCalls, 2);
+  assert.equal(batchCalls, 0);
+});
+
+test("parent failure or conflict never makes a dependent child eligible beyond its bounded retry", async () => {
+  const runScenario = async ({ parentError, expectedParentStatus }) => {
+    let itemMappingLookups = 0;
+    let batchCalls = 0;
+
+    await withStubbedSyncService(
+      {
+        [syncRepositoryPath]: createBaseSyncRepositoryStub({
+          findSyncedEntityServerIdByLocalId: async () => {
+            itemMappingLookups += 1;
+            return null;
+          },
+        }),
+        [inventoryItemServicePath]: {
+          createInventoryItem: async () => {
+            throw parentError;
+          },
+        },
+        [inventoryBatchServicePath]: {
+          createInventoryBatch: async () => {
+            batchCalls += 1;
+            return { id: "should-not-create" };
+          },
+        },
+        [systemLogPath]: {
+          logAuditSafely: async () => {},
+          logErrorSafely: async () => {},
+          pickDefined: () => ({}),
+        },
+      },
+      async ({ processSyncEntries }) => {
+        const [childResult, parentResult] = await processSyncEntries({
+          auth: { ...baseAuth, roleCode: "MAYOR" },
+          entries: [
+            {
+              client_sync_id: `child-for-${expectedParentStatus}`,
+              action_key: "INVENTORY_BATCH_CREATE",
+              entity_type: "INVENTORY_BATCH",
+              entity_local_id: "Blocked Parent-BATCH-001",
+              entity_server_id: null,
+              client_timestamp: "2026-09-07T04:05:00.000Z",
+              payload: {
+                inventory_item_id: "blocked-parent",
+                inventory_item_local_id: "blocked-parent",
+                batch_no: "BLOCKED-BATCH-001",
+                quantity_received: 5,
+              },
+            },
+            {
+              client_sync_id: `parent-${expectedParentStatus}`,
+              action_key: "INVENTORY_ITEM_CREATE",
+              entity_type: "INVENTORY_ITEM",
+              entity_local_id: "blocked-parent",
+              entity_server_id: null,
+              client_timestamp: "2026-09-07T04:00:00.000Z",
+              payload: { item_name: "Blocked Parent", packaging: "piece", quantity: 1 },
+            },
+          ],
+        });
+
+        assert.equal(childResult.sync_status, "FAILED");
+        assert.equal(parentResult.sync_status, expectedParentStatus);
+        if (expectedParentStatus === "CONFLICT") {
+          assert.equal(parentResult.error_code, undefined);
+        }
+      },
+    );
+
+    assert.equal(itemMappingLookups, 2);
+    assert.equal(batchCalls, 0);
+  };
+
+  const validationError = new Error("The item payload is invalid.");
+  validationError.code = "INVENTORY_ITEM_VALIDATION";
+  await runScenario({ parentError: validationError, expectedParentStatus: "FAILED" });
+
+  const conflictError = new Error("The item barcode is already registered.");
+  conflictError.code = "DUPLICATE_INVENTORY_BARCODE";
+  conflictError.entityServerId = "55555555-5555-4555-8555-555555555555";
+  conflictError.serverPayload = { id: conflictError.entityServerId };
+  await runScenario({ parentError: conflictError, expectedParentStatus: "CONFLICT" });
+});
+
+test("non-dependency failures and idempotency mismatches never enter dependency retry", async () => {
+  let itemMappingLookups = 0;
+  let batchCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        findSyncedEntityServerIdByLocalId: async () => {
+          itemMappingLookups += 1;
+          return { entity_server_id: "66666666-6666-4666-8666-666666666666" };
+        },
+      }),
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async () => {
+          batchCalls += 1;
+          const error = new Error("Batch validation rejected the request.");
+          error.code = "INVENTORY_BATCH_VALIDATION";
+          error.statusCode = 409;
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: [
+          {
+            client_sync_id: "mayor-offline-batch-generic-409",
+            action_key: "INVENTORY_BATCH_CREATE",
+            entity_type: "INVENTORY_BATCH",
+            entity_local_id: "Generic-409-BATCH-001",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T05:00:00.000Z",
+            payload: {
+              inventory_item_id: "existing-parent",
+              inventory_item_local_id: "existing-parent",
+              batch_no: "GENERIC-409-BATCH-001",
+              quantity_received: 5,
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.error_code, "INVENTORY_BATCH_VALIDATION");
+    },
+  );
+
+  assert.equal(itemMappingLookups, 1);
+  assert.equal(batchCalls, 1);
+
+  let mismatchClaims = 0;
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => {
+          mismatchClaims += 1;
+          return {
+            decision: "REUSE_MISMATCH",
+            transaction: { id: "sync-mismatch" },
+          };
+        },
+      }),
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      await assert.rejects(
+        processSyncEntries({
+          auth: { ...baseAuth, roleCode: "MAYOR" },
+          entries: [
+            {
+              client_sync_id: "mayor-offline-batch-idempotency-mismatch",
+              action_key: "INVENTORY_BATCH_CREATE",
+              entity_type: "INVENTORY_BATCH",
+              entity_local_id: "Mismatch-BATCH-001",
+              entity_server_id: null,
+              client_timestamp: "2026-09-07T06:00:00.000Z",
+              payload: {
+                inventory_item_id: "mismatch-parent",
+                inventory_item_local_id: "mismatch-parent",
+                batch_no: "MISMATCH-BATCH-001",
+                quantity_received: 1,
+              },
+            },
+          ],
+        }),
+        (error) => error.code === "IDEMPOTENCY_KEY_REUSE_MISMATCH",
+      );
+    },
+  );
+
+  assert.equal(mismatchClaims, 1);
+});
+
+test("M02-18 H-05 duplicate QR claim conflict carries SYNC_CONFLICT notification intent", async () => {
+  const processedIntentIds = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async ({
+          syncTransactionId,
+          conflictPayload,
+          transactionPayload,
+        }) => ({
+          syncTransaction: {
+            id: syncTransactionId,
+            ...transactionPayload,
+          },
+          conflictRecord: {
+            id: "sync-conflict-h05-m02",
+            ...conflictPayload,
+          },
+          notificationOutboxEvent: {
+            id: "outbox-h05-conflict",
+          },
+        }),
+      }),
+      [distributionTransactionServicePath]: {
+        claimDistributionTransactionFromQr: async () => {
+          const error = new Error("Stub was already claimed.");
+          error.code = "STUB_ALREADY_CLAIMED";
+          error.entityServerId = "distribution-server-h05";
+          error.serverPayload = { id: "distribution-server-h05" };
+          throw error;
+        },
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async (eventId) => {
+          processedIntentIds.push(eventId);
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "m02-h05-duplicate-claim",
+            action_key: "DISTRIBUTION_QR_CLAIM",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h05",
+              disaster_event_id: "event-h05",
+              household_id: "household-h05",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.resolution_strategy, "FIRST_ACCEPTED");
+      assert.deepEqual(processedIntentIds, ["outbox-h05-conflict"]);
+    },
+  );
+});
+
+test("processSyncEntries returns a terminal SYNCED replay without rerunning the handler", async () => {
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REPLAY_TERMINAL",
+          transaction: {
+            id: "sync-transaction-replay",
+            client_sync_id: "client-replay-1",
+            entity_server_id: "11111111-1111-4111-8111-111111111111",
+            sync_status: "SYNCED",
+            error_message: null,
+          },
+          conflictRecord: null,
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          handlerCalls += 1;
+          throw new Error("handler must not run for terminal replay");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-replay-1",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-household-replay",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(handlerCalls, 0);
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.sync_transaction_id, "sync-transaction-replay");
+      assert.equal(result.data.id, "11111111-1111-4111-8111-111111111111");
+      assert.equal(result.replayed, true);
+    },
+  );
+});
+
+test("processSyncEntries returns an existing CONFLICT replay without writing another conflict", async () => {
+  let conflictWrites = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REPLAY_TERMINAL",
+          transaction: {
+            id: "sync-transaction-conflict",
+            client_sync_id: "client-conflict-1",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            sync_status: "CONFLICT",
+            error_message: "Duplicate offline action was ignored",
+          },
+          conflictRecord: {
+            id: "sync-conflict-existing",
+            sync_transaction_id: "sync-transaction-conflict",
+            resolution_strategy: "FIRST_ACCEPTED",
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictWrites += 1;
+          throw new Error("conflict must not be written for replay");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          throw new Error("handler must not run for conflict replay");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-conflict-1",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-household-conflict",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(conflictWrites, 0);
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.id, "sync-conflict-existing");
+      assert.equal(result.replayed, true);
+    },
+  );
+});
+
+test("processSyncEntries returns PENDING for duplicate in-progress same-key submission", async () => {
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "IN_PROGRESS",
+          transaction: {
+            id: "sync-transaction-pending",
+            client_sync_id: "client-pending-1",
+            entity_server_id: null,
+            sync_status: "PENDING",
+            error_message: null,
+          },
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          handlerCalls += 1;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-pending-1",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-household-pending",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(handlerCalls, 0);
+      assert.equal(result.sync_status, "PENDING");
+      assert.equal(result.sync_transaction_id, "sync-transaction-pending");
+      assert.equal(result.replayed, true);
+    },
+  );
+});
+
+test("processSyncEntries rejects same client_sync_id reused for a changed request", async () => {
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REUSE_MISMATCH",
+          transaction: {
+            id: "sync-transaction-mismatch",
+          },
+        }),
+      }),
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      await assert.rejects(
+        () =>
+          processSyncEntries({
+            auth: baseAuth,
+            entries: [
+              {
+                client_sync_id: "client-mismatch-1",
+                action_key: "HOUSEHOLD_REGISTER",
+                entity_type: "HOUSEHOLD",
+                entity_local_id: "local-household-mismatch",
+                client_timestamp: "2026-08-08T01:00:00.000Z",
+                payload: {
+                  family_head_first_name: "Changed",
+                },
+              },
+            ],
+          }),
+        (error) => {
+          assert.equal(error.code, "IDEMPOTENCY_KEY_REUSE_MISMATCH");
+          assert.equal(error.statusCode, 409);
+          return true;
+        },
+      );
+    },
+  );
+});
+
+test("household photo sync persists only server-computed hash metadata and fingerprints a changed image", async () => {
+  const persistedPhotoPayloads = [];
+  const cleanupPaths = [];
+  const makeImageMetadata = (dataUrl) => {
+    const imageBytes = Buffer.from(dataUrl.split(",")[1], "base64");
+    return {
+      photo_present: true,
+      photo_sha256: crypto.createHash("sha256").update(imageBytes).digest("hex"),
+      photo_mime_type: "image/png",
+      photo_size_bytes: imageBytes.length,
+    };
+  };
+  const familyHeadPhotoStorageStub = {
+    getFamilyHeadPhotoMetadata: makeImageMetadata,
+    parseFamilyHeadPhotoDataUrl: (dataUrl) => ({
+      ...makeImageMetadata(dataUrl),
+      sha256: makeImageMetadata(dataUrl).photo_sha256,
+      fileExtension: "png",
+    }),
+    buildFamilyHeadPhotoPath: ({ sha256 }) => `event/barangay/operations/sync/${sha256}.png`,
+    removeUnreferencedFamilyHeadPhoto: async ({ path }) => cleanupPaths.push(path),
+  };
+  const imageA =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=";
+  const imageBytesB = Buffer.from(imageA.split(",")[1], "base64");
+  imageBytesB[42] ^= 1;
+  const imageB = `data:image/png;base64,${imageBytesB.toString("base64")}`;
+
+  await withStubbedSyncService(
+    {
+      [familyHeadPhotoStoragePath]: familyHeadPhotoStorageStub,
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => {
+          persistedPhotoPayloads.push(payload.payload_json.payload);
+          return {
+            decision: "REUSE_MISMATCH",
+            transaction: { id: "sync-transaction-photo-mismatch" },
+          };
+        },
+      }),
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      for (const familyHeadPhotoUrl of [imageA, imageB]) {
+        await assert.rejects(
+          processSyncEntries({
+            auth: baseAuth,
+            entries: [
+              {
+                client_sync_id: "stable-photo-operation-id",
+                action_key: "HOUSEHOLD_REGISTER",
+                entity_type: "HOUSEHOLD",
+                entity_local_id: "local-photo-household",
+                client_timestamp: "2026-09-24T10:00:00.000Z",
+                payload: {
+                  disaster_event_id: "event-1",
+                  barangay_id: baseAuth.defaultBarangayId,
+                  family_head_photo_url: familyHeadPhotoUrl,
+                },
+              },
+            ],
+          }),
+          { code: "IDEMPOTENCY_KEY_REUSE_MISMATCH", statusCode: 409 },
+        );
+      }
+    },
+  );
+
+  assert.equal(persistedPhotoPayloads.length, 2);
+  for (const payload of persistedPhotoPayloads) {
+    assert.equal(payload.family_head_photo_url, null);
+    assert.match(payload.family_head_photo_metadata.photo_sha256, /^[a-f0-9]{64}$/);
+    assert.equal(JSON.stringify(payload).includes("data:image/"), false);
+  }
+  assert.notEqual(
+    persistedPhotoPayloads[0].family_head_photo_metadata.photo_sha256,
+    persistedPhotoPayloads[1].family_head_photo_metadata.photo_sha256,
+  );
+  assert.equal(cleanupPaths.length, 2);
+});
+
+test("claim-photo sync persists only safe photo metadata and rejects changed-photo reuse of an operation ID", async () => {
+  const persistedClaimPayloads = [];
+  const uploadedDataUrls = [];
+  const objectPath = "event-1/barangay-1/claims/operations/0123456789abcdef0123456789abcdef/photo.jpg";
+  const photoA = "data:image/jpeg;base64,aW1hZ2UtYQ==";
+  const photoB = "data:image/jpeg;base64,aW1hZ2UtYg==";
+  let claimCount = 0;
+
+  const proofPhotoStorageStub = {
+    getClaimProofPhotoMetadata: (dataUrl) => {
+      if (!dataUrl) return null;
+      const bytes = Buffer.from(dataUrl.split(",")[1], "base64");
+      return {
+        proof_photo_present: true,
+        proof_photo_sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+        proof_photo_mime_type: "image/jpeg",
+        proof_photo_size_bytes: bytes.length,
+        valid: true,
+      };
+    },
+    uploadClaimProofPhoto: async ({ dataUrl }) => {
+      uploadedDataUrls.push(dataUrl);
+      return {
+        path: objectPath,
+        sha256: crypto.createHash("sha256").update(Buffer.from(dataUrl.split(",")[1], "base64")).digest("hex"),
+        mimeType: "image/jpeg",
+        sizeBytes: 6,
+      };
+    },
+    removeUnreferencedClaimProofPhoto: async () => false,
+  };
+
+  await withStubbedSyncService(
+    {
+      [claimProofPhotoStoragePath]: proofPhotoStorageStub,
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => {
+          persistedClaimPayloads.push(payload.payload_json.payload);
+          claimCount += 1;
+          return claimCount === 1
+            ? {
+                decision: "CLAIMED_NEW",
+                transaction: { id: "claim-sync-transaction-1", ...payload },
+              }
+            : {
+                decision: "REUSE_MISMATCH",
+                transaction: { id: "claim-sync-transaction-1", ...payload },
+              };
+        },
+        withSyncProcessingTransaction: async (callback) =>
+          callback({ query: async () => ({ rows: [] }) }),
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async (request) => {
+          await request.prepareClaimProofPhoto({
+            stub: {
+              id: request.id,
+              disaster_event_id: "event-1",
+              barangay_id: baseAuth.defaultBarangayId,
+            },
+          });
+          return {
+            message: "Claim completed",
+            data: { id: request.id, distribution_transaction_id: "distribution-1" },
+          };
+        },
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async () => {},
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const result = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "stable-photo-claim-operation",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_local_id: "stub-1",
+            entity_server_id: "stub-1",
+            device_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-09-24T03:00:00.000Z",
+            payload: {
+              disaster_event_id: "event-1",
+              household_id: "household-1",
+              proof_type: "PHOTO",
+              proof_photo_data_url: photoA,
+              proof_photo_captured_at: "2026-09-24T03:00:00.000Z",
+            },
+          },
+        ],
+      });
+      assert.equal(result[0].sync_status, "SYNCED");
+      assert.equal(JSON.stringify(result).includes(photoA), false);
+      assert.equal(JSON.stringify(result).includes(objectPath), false);
+
+      await assert.rejects(
+        () => processSyncEntries({
+          auth: baseAuth,
+          entries: [
+            {
+              client_sync_id: "stable-photo-claim-operation",
+              action_key: "STUB_CLAIM",
+              entity_type: "STUB",
+              entity_local_id: "stub-1",
+              entity_server_id: "stub-1",
+              device_id: "99999999-9999-4999-8999-999999999999",
+              client_timestamp: "2026-09-24T03:00:00.000Z",
+              payload: {
+                disaster_event_id: "event-1",
+                household_id: "household-1",
+                proof_type: "PHOTO",
+                proof_photo_data_url: photoB,
+                proof_photo_captured_at: "2026-09-24T03:00:01.000Z",
+              },
+            },
+          ],
+        }),
+        { code: "IDEMPOTENCY_KEY_REUSE_MISMATCH", statusCode: 409 },
+      );
+    },
+  );
+
+  assert.equal(persistedClaimPayloads.length, 2);
+  for (const payload of persistedClaimPayloads) {
+    assert.equal(payload.proof_photo_data_url, null);
+    assert.equal(payload.proof_photo_path, null);
+    assert.equal(payload.proof_photo_metadata.valid, true);
+    assert.equal(JSON.stringify(payload).includes("data:image/"), false);
+    assert.equal(JSON.stringify(payload).includes("signed-claim-proof"), false);
+  }
+  assert.notEqual(
+    persistedClaimPayloads[0].proof_photo_metadata.proof_photo_sha256,
+    persistedClaimPayloads[1].proof_photo_metadata.proof_photo_sha256,
+  );
+  assert.deepEqual(uploadedDataUrls, [photoA]);
+});
+
+test("processSyncEntries retries a FAILED row using the existing sync transaction", async () => {
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "CLAIMED_RETRY",
+          transaction: {
+            id: "sync-transaction-retry",
+          },
+        }),
+        updateSyncTransaction: async (id, payload) => ({
+          id,
+          ...payload,
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          handlerCalls += 1;
+          return {
+            household: {
+              id: "33333333-3333-4333-8333-333333333333",
+            },
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-retry-1",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-household-retry",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(handlerCalls, 1);
+      assert.equal(result.sync_transaction_id, "sync-transaction-retry");
+      assert.equal(result.sync_status, "SYNCED");
+    },
+  );
+});
+
+test("processSyncEntries rolls back post-business bookkeeping failures instead of committing FAILED", async () => {
+  const loggedErrors = [];
+  const txEvents = [];
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          txEvents.push("BEGIN");
+          try {
+            const result = await callback({ query: async () => ({ rows: [] }) });
+            txEvents.push("COMMIT");
+            return result;
+          } catch (error) {
+            txEvents.push("ROLLBACK");
+            throw error;
+          }
+        },
+        updateSyncTransaction: async () => {
+          throw new Error("database unavailable after effect");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          handlerCalls += 1;
+          return {
+            household: {
+              id: "44444444-4444-4444-8444-444444444444",
+            },
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async (entry) => {
+          loggedErrors.push(entry);
+        },
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      await assert.rejects(
+        () =>
+          processSyncEntries({
+            auth: baseAuth,
+            entries: [
+              {
+                client_sync_id: "client-post-effect-1",
+                action_key: "HOUSEHOLD_REGISTER",
+                entity_type: "HOUSEHOLD",
+                entity_local_id: "local-household-post-effect",
+                client_timestamp: "2026-08-08T01:00:00.000Z",
+                payload: buildValidHouseholdRegisterSyncPayload(),
+              },
+            ],
+          }),
+        /database unavailable after effect/,
+      );
+
+      assert.deepEqual(txEvents, ["BEGIN", "ROLLBACK"]);
+      assert.equal(handlerCalls, 1);
+      assert.equal(loggedErrors[0].errorCode, "SYNC_POST_EFFECT_BOOKKEEPING_FAILED");
+    },
+  );
+});
+
+test("H03F-01/H03F-03/H03F-04 covered handlers roll back when terminal sync update fails after business SQL", async () => {
+  const cases = [
+    {
+      id: "H03F-01",
+      actionKey: "HOUSEHOLD_REGISTER",
+      entityType: "HOUSEHOLD",
+      servicePath: householdRegistrationServicePath,
+      serviceStub: {
+        registerHousehold: async () => ({
+          household: { id: "11111111-1111-4111-8111-111111111111" },
+        }),
+      },
+      auth: baseAuth,
+    },
+    {
+      id: "H03F-03",
+      actionKey: "INVENTORY_TRANSACTION_CREATE",
+      entityType: "INVENTORY_TRANSACTION",
+      servicePath: inventoryTransactionServicePath,
+      serviceStub: {
+        createInventoryTransaction: async () => ({
+          transaction_id: "22222222-2222-4222-8222-222222222222",
+          new_quantity_available: 150,
+        }),
+      },
+      auth: {
+        ...baseAuth,
+        roleCode: "MAYOR",
+        defaultBarangayId: null,
+      },
+    },
+    {
+      id: "H03F-04",
+      actionKey: "DISTRIBUTION_CREATE",
+      entityType: "DISTRIBUTION_TRANSACTION",
+      servicePath: distributionTransactionServicePath,
+      serviceStub: {
+        createDistributionTransaction: async () => ({
+          distribution_transaction_id: "33333333-3333-4333-8333-333333333333",
+          stub: { id: "44444444-4444-4444-8444-444444444444", status: "CLAIMED" },
+          items: [{ inventory_item_id: "55555555-5555-4555-8555-555555555555" }],
+        }),
+      },
+      auth: baseAuth,
+    },
+  ];
+
+  for (const faultCase of cases) {
+    const txEvents = [];
+    let handlerCalls = 0;
+    let failedStatusWrites = 0;
+
+    const serviceStub = Object.fromEntries(
+      Object.entries(faultCase.serviceStub).map(([methodName, handler]) => [
+        methodName,
+        async (...args) => {
+          handlerCalls += 1;
+          return handler(...args);
+        },
+      ]),
+    );
+
+    await withStubbedSyncService(
+      {
+        [syncRepositoryPath]: createBaseSyncRepositoryStub({
+          withSyncProcessingTransaction: async (callback) => {
+            txEvents.push("BEGIN");
+            try {
+              const result = await callback({ query: async () => ({ rows: [] }) });
+              txEvents.push("COMMIT");
+              return result;
+            } catch (error) {
+              txEvents.push("ROLLBACK");
+              throw error;
+            }
+          },
+          updateSyncTransaction: async (_id, payload) => {
+            if (payload.sync_status === "FAILED") {
+              failedStatusWrites += 1;
+            }
+
+            throw new Error(`${faultCase.id} forced terminal failure`);
+          },
+        }),
+        [faultCase.servicePath]: serviceStub,
+        [systemLogPath]: {
+          logAuditSafely: async () => {},
+          logErrorSafely: async () => {},
+          pickDefined: () => ({}),
+        },
+      },
+      async ({ processSyncEntries }) => {
+        await assert.rejects(
+          () =>
+            processSyncEntries({
+              auth: faultCase.auth,
+              entries: [
+                {
+                  client_sync_id: `${faultCase.id.toLowerCase()}-rollback`,
+                  action_key: faultCase.actionKey,
+                  entity_type: faultCase.entityType,
+                  entity_local_id: `${faultCase.id.toLowerCase()}-local`,
+                  client_timestamp: "2026-08-08T01:00:00.000Z",
+                  payload:
+                    faultCase.actionKey === "HOUSEHOLD_REGISTER"
+                      ? buildValidHouseholdRegisterSyncPayload()
+                      : {},
+                },
+              ],
+            }),
+          new RegExp(`${faultCase.id} forced terminal failure`),
+        );
+      },
+    );
+
+    assert.equal(handlerCalls, 1);
+    assert.equal(failedStatusWrites, 0);
+    assert.deepEqual(txEvents, ["BEGIN", "ROLLBACK"]);
+  }
+});
+
+test("H03F-02 same client_sync_id retry after rollback can claim one logical row and commit once", async () => {
+  const txEvents = [];
+  const claimIds = [];
+  let handlerCalls = 0;
+  let terminalWrites = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          txEvents.push("BEGIN");
+          const result = await callback({ query: async () => ({ rows: [] }) });
+          txEvents.push("COMMIT");
+          return result;
+        },
+        claimSyncTransaction: async () => {
+          claimIds.push("sync-household-retry");
+          return {
+            decision: "CLAIMED_NEW",
+            transaction: {
+              id: "sync-household-retry",
+            },
+          };
+        },
+        updateSyncTransaction: async (id, payload) => {
+          terminalWrites += 1;
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          handlerCalls += 1;
+          return {
+            household: { id: "88888888-8888-4888-8888-888888888888" },
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h03f-02-household-retry",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-household-retry",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.sync_transaction_id, "sync-household-retry");
+    },
+  );
+
+  assert.deepEqual(claimIds, ["sync-household-retry"]);
+  assert.equal(handlerCalls, 1);
+  assert.equal(terminalWrites, 1);
+  assert.deepEqual(txEvents, ["BEGIN", "COMMIT"]);
+});
+
+test("H03F-05 rolls back local-newer conflict when conflict persistence fails after business update", async () => {
+  const txEvents = [];
+  let updateCalled = false;
+  let failedStatusWrites = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          txEvents.push("BEGIN");
+          try {
+            const result = await callback({ query: async () => ({ rows: [] }) });
+            txEvents.push("COMMIT");
+            return result;
+          } catch (error) {
+            txEvents.push("ROLLBACK");
+            throw error;
+          }
+        },
+        recordConflictAndUpdateSyncTransaction: async () => {
+          throw new Error("conflict persistence unavailable after update");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failedStatusWrites += 1;
+          }
+
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [householdRegistrationRepositoryPath]: {
+        getHouseholdSummaryById: async () => ({
+          id: "66666666-6666-4666-8666-666666666666",
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T01:00:00.000Z",
+        }),
+      },
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "66666666-6666-4666-8666-666666666666",
+          barangay_id: baseAuth.defaultBarangayId,
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T01:00:00.000Z",
+        }),
+        updateHouseholdDetails: async (_payload) => {
+          updateCalled = true;
+          return {
+            id: "66666666-6666-4666-8666-666666666666",
+            family_head_first_name: "Local",
+            updated_at: "2026-08-08T02:00:00.000Z",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      await assert.rejects(
+        () =>
+          processSyncEntries({
+            auth: baseAuth,
+            entries: [
+              {
+                client_sync_id: "h03f-05-local-newer",
+                action_key: "HOUSEHOLD_UPDATE",
+                entity_type: "HOUSEHOLD",
+                entity_server_id: "66666666-6666-4666-8666-666666666666",
+                client_timestamp: "2026-08-08T02:00:00.000Z",
+                client_updated_at: "2026-08-08T02:00:00.000Z",
+                payload: {
+                  family_head_first_name: "Local",
+                },
+              },
+            ],
+          }),
+        /Sync conflict could not be recorded safely/,
+      );
+
+      assert.equal(updateCalled, true);
+      assert.equal(failedStatusWrites, 0);
+      assert.deepEqual(txEvents, ["BEGIN", "ROLLBACK"]);
+    },
+  );
+});
+
+test("OQ-ERR-01 rolls back to the savepoint before recording the first sync failure", async () => {
+  const statements = [];
+  let transactionAborted = false;
+  let failureMessage = null;
+  const rootError = new Error(
+    "duplicate key value violates unique constraint household_identity_unique",
+  );
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          const dbClient = {
+            query: async (query) => {
+              statements.push(query);
+
+              if (query === "INSERT household") {
+                transactionAborted = true;
+                throw rootError;
+              }
+
+              if (transactionAborted && !String(query).startsWith("ROLLBACK TO SAVEPOINT")) {
+                throw new Error("current transaction is aborted");
+              }
+
+              if (String(query).startsWith("ROLLBACK TO SAVEPOINT")) {
+                transactionAborted = false;
+              }
+
+              return { rows: [] };
+            },
+          };
+
+          const result = await callback(dbClient);
+          statements.push("COMMIT");
+          return result;
+        },
+        recordSyncFailureAndNotificationIntent: async ({
+          syncTransactionId,
+          transactionPayload,
+          dbClient,
+        }) => {
+          await dbClient.query("UPDATE sync failure");
+          failureMessage = transactionPayload.error_message;
+          return {
+            syncTransaction: {
+              id: syncTransactionId,
+              sync_status: "FAILED",
+              ...transactionPayload,
+            },
+            notificationOutboxEvent: null,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async ({ dbClient }) => dbClient.query("INSERT household"),
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async () => {},
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "oq-root-error-01",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "oq-root-error-local",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(failureMessage, rootError.message);
+      assert.match(
+        statements.find((statement) => /SAVEPOINT sync_business_action/.test(statement)),
+        /^SAVEPOINT sync_business_action$/,
+      );
+      assert.match(
+        statements.find((statement) => /ROLLBACK TO SAVEPOINT sync_business_action/.test(statement)),
+        /^ROLLBACK TO SAVEPOINT sync_business_action$/,
+      );
+      assert.equal(statements.at(-1), "COMMIT");
+      assert.doesNotMatch(statements.join("\n"), /current transaction is aborted/);
+      assert.doesNotMatch(result.message, /current transaction is aborted/);
+    },
+  );
+});
+
+test("H03F-06 response-loss replay returns stored terminal result without handler rerun", async () => {
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REPLAY_TERMINAL",
+          transaction: {
+            id: "sync-response-loss",
+            client_sync_id: "h03f-06-response-loss",
+            entity_server_id: "77777777-7777-4777-8777-777777777777",
+            sync_status: "SYNCED",
+            error_message: null,
+            processing_protocol_version: 2,
+          },
+          conflictRecord: null,
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          handlerCalls += 1;
+          throw new Error("handler must not run on terminal replay");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h03f-06-response-loss",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-response-loss",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(handlerCalls, 0);
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.replayed, true);
+      assert.equal(result.sync_transaction_id, "sync-response-loss");
+    },
+  );
+});
+
+test("processSyncEntries records duplicate accepted-server conflicts with FIRST_ACCEPTED", async () => {
+  const captured = {};
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          captured.transactionPayload = payload.transactionPayload;
+          captured.conflictPayload = payload.conflictPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-first-accepted",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error("Household is already registered.");
+          error.code = "DUPLICATE_HOUSEHOLD_REGISTRATION";
+          error.entityServerId = "11111111-1111-4111-8111-111111111111";
+          error.serverPayload = {
+            id: "11111111-1111-4111-8111-111111111111",
+            family_head_first_name: "Server",
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-1",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-household-1",
+            entity_server_id: null,
+            device_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.id, "conflict-first-accepted");
+      assert.equal(captured.conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(captured.conflictPayload.resolved_payload_json.winner, "SERVER");
+      assert.equal(captured.conflictPayload.local_payload_json.family_head.first_name, "Ana");
+      assert.equal(captured.conflictPayload.server_payload_json.family_head_first_name, "Server");
+      assert.equal(captured.transactionPayload.sync_status, "CONFLICT");
+    },
+  );
+});
+
+test("processSyncEntries classifies the Stage-3 open-attendance race as a deterministic server-wins conflict", async () => {
+  let conflictPayload = null;
+  let transactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+          transactionPayload = payload.transactionPayload;
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-open-attendance",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error(
+            "raw duplicate detail: attendance_log_id=secret-value",
+          );
+          error.code = "23505";
+          error.constraint = "uq_evacuation_logs_open_evacuee";
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "stage3-open-attendance-race",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-stage3-open-attendance",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.client_sync_id, "stage3-open-attendance-race");
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.conflict_type, "OPEN_ATTENDANCE_CONFLICT");
+      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+      assert.equal(transactionPayload.sync_status, "CONFLICT");
+      assert.match(result.message, /open attendance/i);
+      assert.doesNotMatch(result.message, /secret-value|duplicate detail/i);
+    },
+  );
+});
+
+test("processSyncEntries classifies Stage-3 relationship violations as permanent manual-review failures", async () => {
+  let failurePayload = null;
+  let conflictCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Stage-3 relationship failure must not be a conflict retry");
+        },
+        recordSyncFailureAndNotificationIntent: async ({
+          syncTransactionId,
+          transactionPayload,
+        }) => {
+          failurePayload = transactionPayload;
+          return {
+            syncTransaction: {
+              id: syncTransactionId,
+              sync_status: "FAILED",
+              ...transactionPayload,
+            },
+            notificationOutboxEvent: null,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error(
+            "raw foreign key detail: household_id=secret-value",
+          );
+          error.code = "23503";
+          error.constraint = "fk_evacuation_logs_evacuee_household";
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "stage3-relationship-failure",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-stage3-relationship",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:01:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.client_sync_id, "stage3-relationship-failure");
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.resolution_status, "MANUAL_REVIEW_REQUIRED");
+      assert.equal(result.error_code, "ATTENDANCE_EVACUEE_HOUSEHOLD_CONFLICT");
+      assert.match(result.message, /does not belong to the selected household/i);
+      assert.doesNotMatch(result.message, /secret-value|foreign key detail/i);
+      assert.equal(failurePayload.error_message, result.message);
+      assert.equal(conflictCalls, 0);
+    },
+  );
+});
+
+test("H05-01 processSyncEntries records claimed-stub duplicates with FIRST_ACCEPTED", async () => {
+  let conflictPayload;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-manual-review",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async () => {
+          const error = new Error("Stub already claimed.");
+          error.code = "STUB_ALREADY_CLAIMED";
+          error.entityServerId = "22222222-2222-4222-8222-222222222222";
+          error.serverPayload = {
+            id: "22222222-2222-4222-8222-222222222222",
+            status: "CLAIMED",
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-2",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "22222222-2222-4222-8222-222222222222",
+              claimed_by_name: "Local Claimant",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(conflictPayload.status, "RESOLVED");
+      assert.equal(conflictPayload.resolved_by, baseAuth.userId);
+      assert.ok(conflictPayload.resolved_at);
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+    },
+  );
+});
+
+test("H05-13 different client_sync_id QR duplicate claim becomes CONFLICT with FIRST_ACCEPTED", async () => {
+  let conflictPayload;
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-h05-13",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [distributionTransactionServicePath]: {
+        claimDistributionTransactionFromQr: async ({ dbClient: _dbClient, ...payload }) => {
+          handlerCalls += 1;
+
+          if (handlerCalls === 1) {
+            return {
+              distribution_transaction_id: "dist-first",
+              stub: {
+                id: "stub-h05",
+                status: "CLAIMED",
+              },
+            };
+          }
+
+          const error = new Error("This stub has already been used for distribution");
+          error.code = "STUB_ALREADY_CLAIMED";
+          error.statusCode = 409;
+          error.entityServerId = "stub-h05";
+          error.serverPayload = {
+            stub: {
+              id: "stub-h05",
+              status: "CLAIMED",
+            },
+            distribution_transaction: {
+              id: "dist-first",
+              stub_id: "stub-h05",
+            },
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h05-a",
+            action_key: "DISTRIBUTION_QR_CLAIM",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h05",
+              disaster_event_id: "event-h05",
+              household_id: "household-h05",
+              claimed_by_name: "Local A",
+            },
+          },
+          {
+            client_sync_id: "h05-b",
+            action_key: "DISTRIBUTION_QR_CLAIM",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:01:00.000Z",
+            payload: {
+              stub_id: "stub-h05",
+              disaster_event_id: "event-h05",
+              household_id: "household-h05",
+              claimed_by_name: "Local B",
+            },
+          },
+        ],
+      });
+
+      assert.equal(results[0].sync_status, "SYNCED");
+      assert.equal(results[1].sync_status, "CONFLICT");
+      assert.equal(conflictPayload.conflict_type, "STUB_ALREADY_CLAIMED");
+      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(conflictPayload.status, "RESOLVED");
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+      assert.equal(handlerCalls, 2);
+    },
+  );
+});
+
+test("EE-FIX-03 STUB_CLAIM lifecycle failure becomes FAILED without FIRST_ACCEPTED conflict", async () => {
+  let conflictCalls = 0;
+  let failurePayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("lifecycle failure must not create a conflict");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failurePayload = payload;
+          }
+
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async () => {
+          const error = new Error(
+            "Relief claim cannot be completed because the disaster event is not active.",
+          );
+          error.code = "DISASTER_EVENT_NOT_ACTIVE";
+          error.statusCode = 400;
+          error.entityServerId = "22222222-2222-4222-8222-222222222222";
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-03-closed-stub",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "22222222-2222-4222-8222-222222222222",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(conflictCalls, 0);
+      assert.equal(failurePayload.sync_status, "FAILED");
+      assert.equal(failurePayload.entity_server_id, "22222222-2222-4222-8222-222222222222");
+    },
+  );
+});
+
+test("EE-FIX-03 same-ID STUB_CLAIM terminal replay bypasses lifecycle handler", async () => {
+  let handlerCalls = 0;
+  let persistedLegacyClaimPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => {
+          persistedLegacyClaimPayload = payload.payload_json.payload;
+          return {
+            decision: "REPLAY_TERMINAL",
+            transaction: {
+              id: "sync-terminal-stub-claim",
+              sync_status: "SYNCED",
+              entity_server_id: "22222222-2222-4222-8222-222222222222",
+              error_message: null,
+            },
+            conflictRecord: null,
+          };
+        },
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async () => {
+          handlerCalls += 1;
+          throw new Error("terminal replay must not run handler");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-03-replay-stub",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "22222222-2222-4222-8222-222222222222",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.replayed, true);
+      assert.equal(handlerCalls, 0);
+      assert.deepEqual(persistedLegacyClaimPayload, {
+        stub_id: "22222222-2222-4222-8222-222222222222",
+      });
+    },
+  );
+});
+
+test("DEPLOY-MSWDO-RGD-01 MSWDO STUB_CLAIM sync forwards barangay_id without override", async () => {
+  let capturedClaimParams = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [stubServicePath]: {
+        claimBarangayStub: async (params) => {
+          capturedClaimParams = params;
+          return {
+            data: {
+              id: params.id,
+              status: "CLAIMED",
+            },
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MSWDO",
+          defaultBarangayId: null,
+        },
+        entries: [
+          {
+            client_sync_id: "deploy-mswdo-rgd-01-stub-claim",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              barangay_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+              disaster_event_id: "11111111-1111-4111-8111-111111111111",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+    },
+  );
+
+  assert.equal(capturedClaimParams.user_id, null);
+  assert.equal(
+    capturedClaimParams.barangay_id,
+    "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  );
+  assert.equal(capturedClaimParams.override_barangay_id, null);
+  assert.deepEqual(capturedClaimParams.requester, {
+    userId: baseAuth.userId,
+    roleCode: "MSWDO",
+    defaultBarangayId: null,
+    deviceId: baseAuth.deviceId || null,
+  });
+  assert.equal(capturedClaimParams.verified_by, baseAuth.userId);
+  assert.equal(
+    capturedClaimParams.disaster_event_id,
+    "11111111-1111-4111-8111-111111111111",
+  );
+});
+
+test("BRG-SC-10-H01 Test A keeps same-stub STUB_CLAIM processing in received order despite inverted client_timestamp", async () => {
+  const callOrder = [];
+  let conflictPayload;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-h01-a",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async ({ id, claimed_at }) => {
+          callOrder.push({ id, claimed_at });
+
+          if (callOrder.length === 1) {
+            return {
+              id,
+              status: "CLAIMED",
+              claimed_at,
+              winner: "input-later-timestamp",
+            };
+          }
+
+          const error = new Error("Only unclaimed stubs can be marked as claimed.");
+          error.code = "STUB_ALREADY_CLAIMED";
+          error.statusCode = 409;
+          error.entityServerId = id;
+          error.serverPayload = {
+            stub: {
+              id,
+              status: "CLAIMED",
+            },
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-stub-later",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01",
+            client_timestamp: "2026-08-08T05:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01",
+              claimed_by_name: "Later Timestamp",
+            },
+          },
+          {
+            client_sync_id: "h01-stub-earlier",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01",
+              claimed_by_name: "Earlier Timestamp",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(
+        callOrder.map((call) => call.claimed_at),
+        ["2026-08-08T05:00:00.000Z", "2026-08-08T01:00:00.000Z"],
+      );
+      assert.equal(results[0].client_sync_id, "h01-stub-later");
+      assert.equal(results[0].sync_status, "SYNCED");
+      assert.equal(results[0].data.winner, "input-later-timestamp");
+      assert.equal(results[1].client_sync_id, "h01-stub-earlier");
+      assert.equal(results[1].sync_status, "CONFLICT");
+      assert.equal(conflictPayload.conflict_type, "STUB_ALREADY_CLAIMED");
+      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test B keeps reverse same-stub STUB_CLAIM input order without timestamp priority", async () => {
+  const callOrder = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async ({ id, claimed_at }) => {
+          callOrder.push(claimed_at);
+
+          if (callOrder.length === 1) {
+            return {
+              id,
+              status: "CLAIMED",
+              claimed_at,
+            };
+          }
+
+          const error = new Error("Only unclaimed stubs can be marked as claimed.");
+          error.code = "STUB_ALREADY_CLAIMED";
+          error.statusCode = 409;
+          error.entityServerId = id;
+          error.serverPayload = {
+            stub: {
+              id,
+              status: "CLAIMED",
+            },
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-stub-earlier-first",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-reverse",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-reverse",
+            },
+          },
+          {
+            client_sync_id: "h01-stub-later-second",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-reverse",
+            client_timestamp: "2026-08-08T05:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-reverse",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(callOrder, [
+        "2026-08-08T01:00:00.000Z",
+        "2026-08-08T05:00:00.000Z",
+      ]);
+      assert.equal(results[0].client_sync_id, "h01-stub-earlier-first");
+      assert.equal(results[0].sync_status, "SYNCED");
+      assert.equal(results[1].client_sync_id, "h01-stub-later-second");
+      assert.equal(results[1].sync_status, "CONFLICT");
+      assert.equal(results[1].conflict.resolution_strategy, "FIRST_ACCEPTED");
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test C far-past critical timestamp cannot jump ahead in one batch", async () => {
+  const callOrder = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async ({ id, claimed_at }) => {
+          callOrder.push(claimed_at);
+
+          if (callOrder.length === 1) {
+            return {
+              id,
+              status: "CLAIMED",
+              claimed_at,
+            };
+          }
+
+          const error = new Error("Only unclaimed stubs can be marked as claimed.");
+          error.code = "STUB_ALREADY_CLAIMED";
+          error.entityServerId = id;
+          error.serverPayload = {
+            stub: {
+              id,
+              status: "CLAIMED",
+            },
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-normal-clock",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-skew",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-skew",
+            },
+          },
+          {
+            client_sync_id: "h01-far-past-clock",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-skew",
+            client_timestamp: "1970-01-01T00:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-skew",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(callOrder, [
+        "2026-08-08T01:00:00.000Z",
+        "1970-01-01T00:00:00.000Z",
+      ]);
+      assert.equal(results[0].client_sync_id, "h01-normal-clock");
+      assert.equal(results[0].sync_status, "SYNCED");
+      assert.equal(results[1].client_sync_id, "h01-far-past-clock");
+      assert.equal(results[1].sync_status, "CONFLICT");
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test D keeps STUB_CLAIM and DISTRIBUTION_CREATE cross-action ordering in received order", async () => {
+  const callOrder = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async ({ id }) => {
+          callOrder.push("STUB_CLAIM");
+          return {
+            id,
+            status: "CLAIMED",
+          };
+        },
+      },
+      [distributionTransactionServicePath]: {
+        createDistributionTransaction: async ({ stub_id }) => {
+          callOrder.push("DISTRIBUTION_CREATE");
+          const error = new Error("This stub has already been used for distribution");
+          error.code = "STUB_ALREADY_CLAIMED";
+          error.statusCode = 409;
+          error.entityServerId = stub_id;
+          error.serverPayload = {
+            stub: {
+              id: stub_id,
+              status: "CLAIMED",
+            },
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-cross-stub",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-cross",
+            client_timestamp: "2026-08-08T05:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-cross",
+            },
+          },
+          {
+            client_sync_id: "h01-cross-distribution",
+            action_key: "DISTRIBUTION_CREATE",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-cross",
+              disaster_event_id: "event-h01-cross",
+              household_id: "household-h01-cross",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(callOrder, ["STUB_CLAIM", "DISTRIBUTION_CREATE"]);
+      assert.equal(results[0].client_sync_id, "h01-cross-stub");
+      assert.equal(results[0].sync_status, "SYNCED");
+      assert.equal(results[1].client_sync_id, "h01-cross-distribution");
+      assert.equal(results[1].sync_status, "CONFLICT");
+      assert.equal(results[1].conflict.resolution_strategy, "FIRST_ACCEPTED");
+    },
+  );
+});
+
+test("BRG-SC-10-H01-V01-A keeps reverse DISTRIBUTION_CREATE then STUB_CLAIM order despite inverted timestamps", async () => {
+  const callOrder = [];
+  let stubConsumed = false;
+  const conflictPayloads = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayloads.push(payload.conflictPayload);
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: `conflict-${payload.syncTransactionId}`,
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async ({ id, claimed_at }) => {
+          callOrder.push({
+            action: "STUB_CLAIM",
+            client_timestamp: claimed_at,
+            stub_id: id,
+          });
+
+          if (stubConsumed) {
+            const error = new Error("Only unclaimed stubs can be marked as claimed.");
+            error.code = "STUB_ALREADY_CLAIMED";
+            error.statusCode = 409;
+            error.entityServerId = id;
+            error.serverPayload = {
+              stub: {
+                id,
+                status: "CLAIMED",
+              },
+            };
+            throw error;
+          }
+
+          stubConsumed = true;
+          return {
+            id,
+            status: "CLAIMED",
+            claimed_at,
+          };
+        },
+      },
+      [distributionTransactionServicePath]: {
+        createDistributionTransaction: async ({ stub_id }) => {
+          callOrder.push({
+            action: "DISTRIBUTION_CREATE",
+            client_timestamp: "2026-08-10T20:00:00.000Z",
+            stub_id,
+          });
+
+          if (stubConsumed) {
+            const error = new Error("This stub has already been used for distribution");
+            error.code = "STUB_ALREADY_CLAIMED";
+            error.statusCode = 409;
+            error.entityServerId = stub_id;
+            error.serverPayload = {
+              stub: {
+                id: stub_id,
+                status: "CLAIMED",
+              },
+            };
+            throw error;
+          }
+
+          stubConsumed = true;
+          return {
+            id: "distribution-h01-v01-a",
+            stub_id,
+            status: "RELEASED",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-v01-a-distribution-first",
+            action_key: "DISTRIBUTION_CREATE",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-10T20:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-v01-a",
+              disaster_event_id: "event-h01-v01-a",
+              household_id: "household-h01-v01-a",
+            },
+          },
+          {
+            client_sync_id: "h01-v01-a-stub-second",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-v01-a",
+            client_timestamp: "2026-08-10T02:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-v01-a",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(
+        callOrder.map((call) => call.action),
+        ["DISTRIBUTION_CREATE", "STUB_CLAIM"],
+      );
+      assert.deepEqual(
+        callOrder.map((call) => call.stub_id),
+        ["stub-h01-v01-a", "stub-h01-v01-a"],
+      );
+      assert.equal(results.length, 2);
+      assert.equal(results[0].client_sync_id, "h01-v01-a-distribution-first");
+      assert.equal(results[0].sync_status, "SYNCED");
+      assert.equal(results[1].client_sync_id, "h01-v01-a-stub-second");
+      assert.equal(results[1].sync_status, "CONFLICT");
+      assert.equal(results[1].conflict.resolution_strategy, "FIRST_ACCEPTED");
+      assert.deepEqual(
+        conflictPayloads.map((payload) => payload.resolution_strategy),
+        ["FIRST_ACCEPTED"],
+      );
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test F invalid first critical entry does not reserve FIRST_ACCEPTED winner", async () => {
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async ({ id }) => {
+          handlerCalls += 1;
+
+          if (handlerCalls === 1) {
+            const error = new Error("Stub not found for this barangay");
+            error.statusCode = 404;
+            error.code = "STUB_NOT_FOUND";
+            throw error;
+          }
+
+          return {
+            id,
+            status: "CLAIMED",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-invalid-first",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-invalid-first",
+            client_timestamp: "2026-08-08T05:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-invalid-first",
+            },
+          },
+          {
+            client_sync_id: "h01-valid-second",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-valid-second",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-valid-second",
+            },
+          },
+        ],
+      });
+
+      assert.equal(results[0].client_sync_id, "h01-invalid-first");
+      assert.equal(results[0].sync_status, "FAILED");
+      assert.equal(results[1].client_sync_id, "h01-valid-second");
+      assert.equal(results[1].sync_status, "SYNCED");
+      assert.equal(handlerCalls, 2);
+    },
+  );
+});
+
+test("ITR duplicate with different client_sync_id becomes resolved FIRST_ACCEPTED conflict", async () => {
+  let conflictPayload;
+  let transactionPayload;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+          transactionPayload = payload.transactionPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-itr",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [inventoryTransactionServicePath]: {
+        createInventoryTransaction: async () => {
+          const error = new Error(
+            "This Inventory Transaction Reference No. has already been recorded. Check the written inventory transaction before trying again.",
+          );
+          error.code = "DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO";
+          error.statusCode = 409;
+          error.entityServerId = "33333333-3333-4333-8333-333333333333";
+          error.serverPayload = {
+            id: "33333333-3333-4333-8333-333333333333",
+            inventory_transaction_reference_no: "ITR-2026-000123",
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+        },
+        entries: [
+          {
+            client_sync_id: "itr-b",
+            action_key: "INVENTORY_TRANSACTION_CREATE",
+            entity_type: "INVENTORY_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+              transaction_type: "OUTFLOW",
+              quantity: 1,
+              inventoryTransactionReferenceNo: "ITR-2026-000123",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(transactionPayload.sync_status, "CONFLICT");
+      assert.equal(
+        transactionPayload.entity_server_id,
+        "33333333-3333-4333-8333-333333333333",
+      );
+      assert.equal(
+        conflictPayload.conflict_type,
+        "DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO",
+      );
+      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(conflictPayload.status, "RESOLVED");
+      assert.equal(conflictPayload.resolved_by, null);
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+    },
+  );
+});
+
+test("EE-FIX-04 INVENTORY_TRANSACTION_CREATE lifecycle failure is FAILED without conflict", async () => {
+  let transactionPayload;
+  let serviceCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        updateSyncTransaction: async (id, payload) => {
+          transactionPayload = payload;
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [inventoryTransactionServicePath]: {
+        createInventoryTransaction: async (payload) => {
+          serviceCalls += 1;
+          assert.equal(payload.transaction_type, "OUTFLOW");
+          assert.equal(payload.disaster_event_id, "event-closed");
+          assert.equal(payload.inventoryTransactionReferenceNo, "ITR-2026-000124");
+          const error = new Error(
+            "Inventory outflow cannot be completed because the disaster event is not active.",
+          );
+          error.code = "DISASTER_EVENT_NOT_ACTIVE";
+          error.statusCode = 400;
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+        },
+        entries: [
+          {
+            client_sync_id: "itr-closed-unique",
+            action_key: "INVENTORY_TRANSACTION_CREATE",
+            entity_type: "INVENTORY_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              disaster_event_id: "event-closed",
+              inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+              transaction_type: "OUTFLOW",
+              quantity: 1,
+              inventoryTransactionReferenceNo: "ITR-2026-000124",
+              client_event_status: "ACTIVE",
+            },
+          },
+        ],
+      });
+
+      assert.equal(serviceCalls, 1);
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.match(result.message, /disaster event is not active/);
+      assert.equal(transactionPayload.sync_status, "FAILED");
+      assert.equal(transactionPayload.entity_server_id, null);
+    },
+  );
+});
+
+test("EE-FIX-04 same-ID accepted inventory replay after closure does not rerun service or change ITR", async () => {
+  let serviceCalls = 0;
+  let updateCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REPLAY_TERMINAL",
+          transaction: {
+            id: "sync-inventory-replay",
+            client_sync_id: "itr-replay",
+            entity_server_id: "tx-accepted",
+            sync_status: "SYNCED",
+            error_message: null,
+          },
+          conflictRecord: null,
+        }),
+        updateSyncTransaction: async () => {
+          updateCalls += 1;
+          throw new Error("terminal replay must not update sync transaction");
+        },
+      }),
+      [inventoryTransactionServicePath]: {
+        createInventoryTransaction: async () => {
+          serviceCalls += 1;
+          throw new Error("terminal replay must not rerun inventory service");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+        },
+        entries: [
+          {
+            client_sync_id: "itr-replay",
+            action_key: "INVENTORY_TRANSACTION_CREATE",
+            entity_type: "INVENTORY_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              disaster_event_id: "event-now-closed",
+              inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+              transaction_type: "OUTFLOW",
+              quantity: 1,
+              inventoryTransactionReferenceNo: "ITR-2026-000125",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.replayed, true);
+      assert.equal(result.data.id, "tx-accepted");
+      assert.equal(serviceCalls, 0);
+      assert.equal(updateCalls, 0);
+    },
+  );
+});
+
+test("duplicate offline item with different packaging is merged into a new batch automatically", async () => {
+  let conflictPayload = null;
+  let transactionPayload = null;
+  let createdBatchPayload = null;
+  const existingItem = {
+    id: "existing-item",
+    item_code: "RICE001",
+    item_name: "Offline Rice",
+    category: "Non-Perishable",
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    packaging: "piece",
+    is_perishable: false,
+    barcode: null,
+  };
+  const existingStockForm = {
+    id: "existing-piece-form",
+    inventory_item_id: existingItem.id,
+    barcode: null,
+    packaging: "piece",
+    units_per_packaging: 1,
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    is_active: true,
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async ({
+          conflictPayload: nextConflictPayload,
+          transactionPayload: nextTransactionPayload,
+        }) => {
+          conflictPayload = nextConflictPayload;
+          transactionPayload = nextTransactionPayload;
+
+          return {
+            syncTransaction: {
+              id: "sync-item-duplicate",
+              ...nextTransactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-item-merged",
+              ...nextConflictPayload,
+            },
+          };
+        },
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: "sync-item-duplicate",
+            created_at: "2026-09-07T02:00:00.000Z",
+            ...payload,
+          },
+        }),
+      }),
+      [inventoryItemServicePath]: {
+        createInventoryItem: async () => {
+          const error = new Error("An inventory item with this name already exists");
+          error.code = "DUPLICATE_INVENTORY_ITEM";
+          error.statusCode = 409;
+          error.entityServerId = existingItem.id;
+          error.serverPayload = {
+            id: existingItem.id,
+            item_name: existingItem.item_name,
+          };
+          throw error;
+        },
+      },
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemByIdForUpdate: async () => existingItem,
+      },
+      [inventoryItemStockFormRepositoryPath]: {
+        getInventoryItemStockFormsByItemId: async () => [existingStockForm],
+      },
+      [inventoryBatchRepositoryPath]: {
+        getInventoryBatchesByItemIdForUpdate: async () => [
+          {
+            id: "opening-batch",
+            inventory_item_id: existingItem.id,
+            batch_no: "RICE001-OPEN-100",
+            received_at: "2026-09-07T01:00:00.000Z",
+            created_at: "2026-09-07T01:00:00.000Z",
+          },
+        ],
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          createdBatchPayload = payload;
+          return {
+            id: "merged-batch",
+            batch_no: payload.batch_no,
+            inventory_item_id: payload.inventory_item_id,
+          };
+        },
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+        },
+        entries: [
+          {
+            client_sync_id: "item-duplicate-different-packaging",
+            action_key: "INVENTORY_ITEM_CREATE",
+            entity_type: "INVENTORY_ITEM",
+            entity_local_id: "Offline Rice",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T01:05:00.000Z",
+            payload: {
+              item_name: "Offline Rice",
+              category: "Non-Perishable",
+              unit_of_measure: "pc",
+              unit_of_measure_value: "1",
+              packaging: "sack",
+              packaging_count: "2",
+              quantity: "25",
+              reorder_level: "5",
+              barcode: null,
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.resolution_status, "RESOLVED_AUTOMATICALLY");
+      assert.equal(result.conflict.status, "RESOLVED");
+      assert.equal(transactionPayload.sync_status, "SYNCED");
+      assert.equal(transactionPayload.entity_server_id, existingItem.id);
+      assert.equal(conflictPayload.resolution_strategy, "MERGED");
+      assert.equal(conflictPayload.resolved_payload_json.winner, "MERGED");
+      assert.equal(
+        conflictPayload.resolved_payload_json.result,
+        "PACKAGING_ADDED_AS_BATCH",
+      );
+      assert.equal(createdBatchPayload.inventory_item_id, existingItem.id);
+      assert.equal(createdBatchPayload.inventory_item_stock_form_id, null);
+      assert.equal(createdBatchPayload.batch_no, "RICE001-BATCH-002");
+      assert.equal(createdBatchPayload.quantity_received, 50);
+      assert.equal(createdBatchPayload.stock_form_packaging, "sack");
+      assert.equal(
+        createdBatchPayload.received_at,
+        "2026-09-07T02:00:00.000Z",
+      );
+    },
+  );
+});
+
+test("duplicate offline item with the same packaging can be accepted as another batch", async () => {
+  let updatedTransactionPayload = null;
+  let createdBatchPayload = null;
+  const existingItem = {
+    id: "existing-item",
+    item_code: "RICE001",
+    item_name: "Offline Rice",
+    category: "Non-Perishable",
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    packaging: "piece",
+    is_perishable: false,
+    barcode: null,
+  };
+  const existingStockForm = {
+    id: "existing-piece-form",
+    inventory_item_id: existingItem.id,
+    barcode: null,
+    packaging: "piece",
+    units_per_packaging: 1,
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    is_active: true,
+  };
+  const baseConflict = {
+    id: "conflict-duplicate-item",
+    sync_transaction_id: "sync-duplicate-item",
+    user_id: "origin-mayor",
+    entity_type: "INVENTORY_ITEM",
+    entity_server_id: existingItem.id,
+    conflict_type: "DUPLICATE_INVENTORY_ITEM",
+    local_payload_json: {
+      item_name: "Offline Rice",
+      item_code: "RICE-OFFLINE-002",
+      category: "Non-Perishable",
+      unit_of_measure: "pc",
+      unit_of_measure_value: "1",
+      packaging: "piece",
+      packaging_count: "10",
+      quantity: "1",
+      barcode: null,
+    },
+    server_payload_json: {
+      ...existingItem,
+      inventory_item_stock_forms: [existingStockForm],
+    },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "CREATE",
+    client_timestamp: "2026-09-07T01:05:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        getSyncConflictByIdForMayor: async () => baseConflict,
+        lockSyncConflictById: async () => baseConflict,
+        updateSyncTransaction: async (id, payload) => {
+          updatedTransactionPayload = { id, ...payload };
+          return updatedTransactionPayload;
+        },
+        markSyncConflictResolved: async (payload) => ({
+          ...baseConflict,
+          status: "RESOLVED",
+          resolution_action: payload.resolutionAction,
+          resolution_reason: payload.resolutionReason,
+          resolved_payload_json: payload.resolvedPayloadJson,
+          resolved_by: payload.resolvedBy,
+          resolved_at: "2026-09-07T02:00:00.000Z",
+        }),
+      },
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemByIdForUpdate: async () => existingItem,
+      },
+      [inventoryItemStockFormRepositoryPath]: {
+        getInventoryItemStockFormsByItemId: async () => [existingStockForm],
+      },
+      [inventoryBatchRepositoryPath]: {
+        getInventoryBatchesByItemIdForUpdate: async () => [
+          {
+            id: "opening-batch",
+            inventory_item_id: existingItem.id,
+            batch_no: "RICE001-OPEN-100",
+            received_at: "2026-09-07T01:00:00.000Z",
+            created_at: "2026-09-07T01:00:00.000Z",
+          },
+        ],
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          createdBatchPayload = payload;
+          return {
+            id: "accepted-batch",
+            batch_no: payload.batch_no,
+          };
+        },
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async () => null,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail, resolveSyncConflict }) => {
+      const detail = await getSyncConflictDetail({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, [
+        "KEEP_SERVER",
+        "ACCEPT_BOTH",
+      ]);
+
+      const resolved = await resolveSyncConflict({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+        action: "ACCEPT_BOTH",
+        reason: "Both offline receipts use the same packaging.",
+      });
+
+      assert.equal(updatedTransactionPayload.sync_status, "SYNCED");
+      assert.equal(updatedTransactionPayload.entity_server_id, existingItem.id);
+      assert.equal(createdBatchPayload.inventory_item_id, existingItem.id);
+      assert.equal(
+        createdBatchPayload.inventory_item_stock_form_id,
+        existingStockForm.id,
+      );
+      assert.equal(createdBatchPayload.batch_no, "RICE001-BATCH-002");
+      assert.equal(createdBatchPayload.quantity_received, 10);
+      assert.equal(resolved.status, "RESOLVED");
+      assert.equal(resolved.sync_status, "SYNCED");
+      assert.equal(resolved.entity_server_id, existingItem.id);
+      assert.equal(
+        resolved.resolved_payload_json.batchNumberOrdering.localEntryOrder,
+        "NEXT_BATCH",
+      );
+    },
+  );
+});
+
+test("duplicate offline item with a barcode packaging mismatch stays open", async () => {
+  let conflictPayload = null;
+  let createBatchCalled = false;
+  const existingItem = {
+    id: "existing-item",
+    item_code: "RICE001",
+    item_name: "Offline Rice",
+    category: "Non-Perishable",
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    packaging: "piece",
+    is_perishable: false,
+    barcode: null,
+  };
+  const existingStockForm = {
+    id: "existing-piece-form",
+    inventory_item_id: existingItem.id,
+    barcode: "48000000",
+    packaging: "piece",
+    units_per_packaging: 1,
+    unit_of_measure: "pc",
+    unit_of_measure_value: 1,
+    is_active: true,
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async ({ conflictPayload: nextConflict }) => {
+          conflictPayload = nextConflict;
+
+          return {
+            syncTransaction: {
+              id: "sync-item-barcode-conflict",
+              sync_status: "CONFLICT",
+            },
+            conflictRecord: {
+              id: "conflict-item-barcode",
+              ...nextConflict,
+            },
+          };
+        },
+      }),
+      [inventoryItemServicePath]: {
+        createInventoryItem: async () => {
+          const error = new Error("An inventory item with this name already exists");
+          error.code = "DUPLICATE_INVENTORY_ITEM";
+          error.statusCode = 409;
+          error.entityServerId = existingItem.id;
+          throw error;
+        },
+      },
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemByIdForUpdate: async () => existingItem,
+      },
+      [inventoryItemStockFormRepositoryPath]: {
+        getInventoryItemStockFormsByItemId: async () => [existingStockForm],
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async () => {
+          createBatchCalled = true;
+          throw new Error("Barcode mismatch must not create a batch");
+        },
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+        },
+        entries: [
+          {
+            client_sync_id: "item-duplicate-barcode-packaging",
+            action_key: "INVENTORY_ITEM_CREATE",
+            entity_type: "INVENTORY_ITEM",
+            entity_local_id: "Offline Rice",
+            entity_server_id: null,
+            client_timestamp: "2026-09-07T01:05:00.000Z",
+            payload: {
+              item_name: "Offline Rice",
+              category: "Non-Perishable",
+              unit_of_measure: "pc",
+              unit_of_measure_value: "1",
+              packaging: "sack",
+              packaging_count: "2",
+              quantity: "25",
+              barcode: "48000000",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.status, "OPEN");
+      assert.equal(createBatchCalled, false);
+      assert.deepEqual(
+        conflictPayload.server_payload_json.inventory_item_stock_forms,
+        [existingStockForm],
+      );
+    },
+  );
+});
+
+test("INVENTORY_BATCH_CREATE duplicate stays open for packaging-aware review", async () => {
+  let conflictPayload;
+  let transactionPayload;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+          transactionPayload = payload.transactionPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-inventory-batch",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async () => {
+          const error = new Error(
+            "This batch number already exists for the selected inventory item.",
+          );
+          error.code = "DUPLICATE_INVENTORY_BATCH";
+          error.statusCode = 409;
+          error.entityServerId = "44444444-4444-4444-8444-444444444444";
+          error.serverPayload = {
+            id: "44444444-4444-4444-8444-444444444444",
+            inventory_item_id: "11111111-1111-4111-8111-111111111111",
+            batch_no: "LOT-A",
+            quantity_received: 10,
+            quantity_available: 10,
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+        },
+        entries: [
+          {
+            client_sync_id: "batch-duplicate-b",
+            action_key: "INVENTORY_BATCH_CREATE",
+            entity_type: "INVENTORY_BATCH",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              inventory_item_id: "11111111-1111-4111-8111-111111111111",
+              batch_no: "LOT-A",
+              source_type: "LGU",
+              quantity_received: 20,
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(transactionPayload.sync_status, "CONFLICT");
+      assert.equal(
+        transactionPayload.entity_server_id,
+        "44444444-4444-4444-8444-444444444444",
+      );
+      assert.equal(conflictPayload.conflict_type, "DUPLICATE_INVENTORY_BATCH");
+      assert.equal(conflictPayload.entity_server_id, "44444444-4444-4444-8444-444444444444");
+      assert.equal(conflictPayload.resolution_strategy, "MANUAL_REVIEW");
+      assert.equal(conflictPayload.status, "OPEN");
+      assert.equal(conflictPayload.resolved_by, null);
+      assert.equal(conflictPayload.local_payload_json.quantity_received, 20);
+      assert.equal(conflictPayload.server_payload_json.quantity_available, 10);
+      assert.equal(conflictPayload.resolved_payload_json, null);
+    },
+  );
+});
+
+test("H05-09 generic 409 without canonical duplicate code remains FAILED", async () => {
+  let conflictWrites = 0;
+  const updates = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictWrites += 1;
+          throw new Error("generic 409 must not be persisted as conflict");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          updates.push({ id, payload });
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [distributionTransactionServicePath]: {
+        createDistributionTransaction: async () => {
+          const error = new Error("Distribution action is already complete.");
+          error.statusCode = 409;
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h05-generic-409",
+            action_key: "DISTRIBUTION_CREATE",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h05",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(conflictWrites, 0);
+      assert.equal(updates.at(-1).payload.sync_status, "FAILED");
+    },
+  );
+});
+
+test("processSyncEntries does not return successful CONFLICT when duplicate conflict persistence fails", async () => {
+  const updates = [];
+  const loggedErrors = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          throw new Error("violates check constraint sync_conflicts_resolution_strategy_check");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          updates.push({ id, payload });
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error("Household is already registered.");
+          error.code = "DUPLICATE_HOUSEHOLD_REGISTRATION";
+          error.serverPayload = { family_head_first_name: "Server" };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async (entry) => {
+          loggedErrors.push(entry);
+        },
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-3",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-household-3",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.error_code, "SYNC_CONFLICT_PERSISTENCE_FAILED");
+      assert.match(result.message, /could not be recorded safely/i);
+      assert.doesNotMatch(result.message, /constraint/i);
+      assert.equal(updates.at(-1).payload.sync_status, "FAILED");
+      assert.equal(loggedErrors[0].errorCode, "SYNC_DUPLICATE_CONFLICT_RECORD_FAILED");
+    },
+  );
+});
+
+test("processSyncEntries marks timestamp conflict persistence failures as failed instead of CONFLICT null", async () => {
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          throw new Error("database unavailable");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "33333333-3333-4333-8333-333333333333",
+          barangay_id: baseAuth.defaultBarangayId,
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T02:00:00.000Z",
+        }),
+        updateHouseholdDetails: async () => {
+          throw new Error("Local change should not be applied");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-4",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "33333333-3333-4333-8333-333333333333",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.error_code, "SYNC_CONFLICT_PERSISTENCE_FAILED");
+      assert.match(result.message, /could not be recorded safely/i);
+      assert.doesNotMatch(result.message, /database unavailable/i);
+    },
+  );
+});
+
+test("processSyncEntries records LATEST_TIMESTAMP only after a newer local update succeeds", async () => {
+  let conflictPayload;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-latest-valid",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "44444444-4444-4444-8444-444444444444",
+          barangay_id: baseAuth.defaultBarangayId,
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T01:00:00.000Z",
+        }),
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          return {
+            id: "44444444-4444-4444-8444-444444444444",
+            family_head_first_name: "Local",
+            updated_at: "2026-08-08T02:00:00.000Z",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-5",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "44444444-4444-4444-8444-444444444444",
+            client_timestamp: "2026-08-08T02:00:00.000Z",
+            client_updated_at: "2026-08-08T02:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(updateCalled, true);
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.id, "conflict-latest-valid");
+      assert.equal(conflictPayload.resolution_strategy, "LATEST_TIMESTAMP");
+      assert.equal(conflictPayload.resolved_payload_json.winner, "LOCAL");
+      assert.equal(
+        conflictPayload.resolved_payload_json.authoritative_payload.family_head_first_name,
+        "Local",
+      );
+    },
+  );
+});
+
+test("processSyncEntries does not record LATEST_TIMESTAMP when newer local update validation fails", async () => {
+  let recordConflictCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          recordConflictCalls += 1;
+          throw new Error("Conflict should not be recorded");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "55555555-5555-4555-8555-555555555555",
+          barangay_id: baseAuth.defaultBarangayId,
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T01:00:00.000Z",
+        }),
+        updateHouseholdDetails: async () => {
+          const error = new Error("Invalid household update.");
+          error.statusCode = 400;
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-6",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "55555555-5555-4555-8555-555555555555",
+            client_timestamp: "2026-08-08T02:00:00.000Z",
+            client_updated_at: "2026-08-08T02:00:00.000Z",
+            payload: {
+              family_head_first_name: "",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(recordConflictCalls, 0);
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test G HOUSEHOLD_UPDATE older then newer preserves latest valid authoritative state", async () => {
+  const conflictWinners = [];
+  let authoritativeHousehold = {
+    id: "66666666-6666-4666-8666-666666666666",
+    barangay_id: baseAuth.defaultBarangayId,
+    family_head_first_name: "Server",
+    updated_at: "2026-08-08T01:30:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictWinners.push(payload.conflictPayload.resolved_payload_json.winner);
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: `conflict-${payload.syncTransactionId}`,
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => authoritativeHousehold,
+        updateHouseholdDetails: async ({ requestData }) => {
+          authoritativeHousehold = {
+            ...authoritativeHousehold,
+            ...requestData,
+            updated_at: requestData.client_updated_at || "2026-08-08T02:00:00.000Z",
+          };
+          return authoritativeHousehold;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-household-older",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Older Local",
+              client_updated_at: "2026-08-08T01:00:00.000Z",
+            },
+          },
+          {
+            client_sync_id: "h01-household-newer",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-08T02:00:00.000Z",
+            client_updated_at: "2026-08-08T02:00:00.000Z",
+            payload: {
+              family_head_first_name: "Newer Local",
+              client_updated_at: "2026-08-08T02:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(
+        results.map((result) => result.client_sync_id),
+        ["h01-household-older", "h01-household-newer"],
+      );
+      assert.deepEqual(conflictWinners, ["SERVER", "LOCAL"]);
+      assert.equal(authoritativeHousehold.family_head_first_name, "Newer Local");
+      assert.equal(authoritativeHousehold.updated_at, "2026-08-08T02:00:00.000Z");
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test H HOUSEHOLD_UPDATE newer then older still preserves latest valid authoritative state", async () => {
+  const conflictWinners = [];
+  let authoritativeHousehold = {
+    id: "77777777-7777-4777-8777-777777777777",
+    barangay_id: baseAuth.defaultBarangayId,
+    family_head_first_name: "Server",
+    updated_at: "2026-08-08T01:30:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictWinners.push(payload.conflictPayload.resolved_payload_json.winner);
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: `conflict-${payload.syncTransactionId}`,
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => authoritativeHousehold,
+        updateHouseholdDetails: async ({ requestData }) => {
+          authoritativeHousehold = {
+            ...authoritativeHousehold,
+            ...requestData,
+            updated_at: requestData.client_updated_at,
+          };
+          return authoritativeHousehold;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-household-newer-first",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-08T02:00:00.000Z",
+            client_updated_at: "2026-08-08T02:00:00.000Z",
+            payload: {
+              family_head_first_name: "Newer First",
+              client_updated_at: "2026-08-08T02:00:00.000Z",
+            },
+          },
+          {
+            client_sync_id: "h01-household-older-second",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Older Second",
+              client_updated_at: "2026-08-08T01:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(
+        results.map((result) => result.client_sync_id),
+        ["h01-household-newer-first", "h01-household-older-second"],
+      );
+      assert.deepEqual(conflictWinners, ["LOCAL", "SERVER"]);
+      assert.equal(authoritativeHousehold.family_head_first_name, "Newer First");
+      assert.equal(authoritativeHousehold.updated_at, "2026-08-08T02:00:00.000Z");
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test I invalid newer HOUSEHOLD_UPDATE does not override latest valid state", async () => {
+  const conflictWinners = [];
+  let authoritativeHousehold = {
+    id: "88888888-8888-4888-8888-888888888888",
+    barangay_id: baseAuth.defaultBarangayId,
+    family_head_first_name: "Server",
+    updated_at: "2026-08-08T01:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictWinners.push(payload.conflictPayload.resolved_payload_json.winner);
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: `conflict-${payload.syncTransactionId}`,
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => authoritativeHousehold,
+        updateHouseholdDetails: async ({ requestData }) => {
+          if (!requestData.family_head_first_name) {
+            const error = new Error("Invalid household update.");
+            error.statusCode = 400;
+            throw error;
+          }
+
+          authoritativeHousehold = {
+            ...authoritativeHousehold,
+            ...requestData,
+            updated_at: requestData.client_updated_at,
+          };
+          return authoritativeHousehold;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-household-invalid-newer",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-08T03:00:00.000Z",
+            client_updated_at: "2026-08-08T03:00:00.000Z",
+            payload: {
+              family_head_first_name: "",
+              client_updated_at: "2026-08-08T03:00:00.000Z",
+            },
+          },
+          {
+            client_sync_id: "h01-household-valid-older",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-08T02:00:00.000Z",
+            client_updated_at: "2026-08-08T02:00:00.000Z",
+            payload: {
+              family_head_first_name: "Valid Older",
+              client_updated_at: "2026-08-08T02:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(results[0].client_sync_id, "h01-household-invalid-newer");
+      assert.equal(results[0].sync_status, "FAILED");
+      assert.equal(results[1].client_sync_id, "h01-household-valid-older");
+      assert.equal(results[1].sync_status, "CONFLICT");
+      assert.deepEqual(conflictWinners, ["LOCAL"]);
+      assert.equal(authoritativeHousehold.family_head_first_name, "Valid Older");
+      assert.equal(authoritativeHousehold.updated_at, "2026-08-08T02:00:00.000Z");
+    },
+  );
+});
+
+test("BRG-SC-10-H01-V01-B preserves one mixed critical and noncritical batch without global timestamp sorting", async () => {
+  const processingOrder = [];
+  const actionOrder = [];
+  const claimOrder = [];
+  const conflictWinners = [];
+  let householdLookupCount = 0;
+  let stubConsumed = false;
+  let authoritativeHousehold = {
+    id: "99999999-9999-4999-8999-999999999999",
+    barangay_id: baseAuth.defaultBarangayId,
+    family_head_first_name: "Server",
+    updated_at: "2026-08-10T14:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => {
+          claimOrder.push(payload.client_sync_id);
+          actionOrder.push(payload.payload_json.action_key);
+
+          return {
+            decision: "CLAIMED_NEW",
+            transaction: {
+              id: `sync-${payload.client_sync_id}`,
+              ...payload,
+            },
+          };
+        },
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictWinners.push(payload.conflictPayload.resolved_payload_json.winner);
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: `conflict-${payload.syncTransactionId}`,
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => {
+          householdLookupCount += 1;
+          processingOrder.push(`HOUSEHOLD_UPDATE_${householdLookupCount}`);
+          return authoritativeHousehold;
+        },
+        updateHouseholdDetails: async ({ requestData }) => {
+          authoritativeHousehold = {
+            ...authoritativeHousehold,
+            ...requestData,
+            updated_at: requestData.client_updated_at,
+          };
+          return authoritativeHousehold;
+        },
+      },
+      [stubServicePath]: {
+        claimBarangayStub: async ({ id, claimed_at }) => {
+          processingOrder.push("STUB_CLAIM");
+
+          if (stubConsumed) {
+            const error = new Error("Only unclaimed stubs can be marked as claimed.");
+            error.code = "STUB_ALREADY_CLAIMED";
+            error.statusCode = 409;
+            error.entityServerId = id;
+            error.serverPayload = {
+              stub: {
+                id,
+                status: "CLAIMED",
+              },
+            };
+            throw error;
+          }
+
+          stubConsumed = true;
+          return {
+            id,
+            status: "CLAIMED",
+            claimed_at,
+          };
+        },
+      },
+      [distributionTransactionServicePath]: {
+        createDistributionTransaction: async ({ stub_id }) => {
+          processingOrder.push("DISTRIBUTION_CREATE");
+
+          if (stubConsumed) {
+            const error = new Error("This stub has already been used for distribution");
+            error.code = "STUB_ALREADY_CLAIMED";
+            error.statusCode = 409;
+            error.entityServerId = stub_id;
+            error.serverPayload = {
+              stub: {
+                id: stub_id,
+                status: "CLAIMED",
+              },
+            };
+            throw error;
+          }
+
+          stubConsumed = true;
+          return {
+            id: "distribution-h01-v01-b",
+            stub_id,
+            status: "RELEASED",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-v01-b-household-older-a",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-10T12:00:00.000Z",
+            client_updated_at: "2026-08-10T12:00:00.000Z",
+            payload: {
+              family_head_first_name: "HOUSEHOLD_UPDATE_A",
+              client_updated_at: "2026-08-10T12:00:00.000Z",
+            },
+          },
+          {
+            client_sync_id: "h01-v01-b-stub-claim",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-v01-b",
+            client_timestamp: "2026-08-10T20:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-v01-b",
+            },
+          },
+          {
+            client_sync_id: "h01-v01-b-household-newer-b",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-10T16:00:00.000Z",
+            client_updated_at: "2026-08-10T16:00:00.000Z",
+            payload: {
+              family_head_first_name: "HOUSEHOLD_UPDATE_B",
+              client_updated_at: "2026-08-10T16:00:00.000Z",
+            },
+          },
+          {
+            client_sync_id: "h01-v01-b-distribution",
+            action_key: "DISTRIBUTION_CREATE",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-10T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-v01-b",
+              disaster_event_id: "event-h01-v01-b",
+              household_id: authoritativeHousehold.id,
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(processingOrder, [
+        "HOUSEHOLD_UPDATE_1",
+        "STUB_CLAIM",
+        "HOUSEHOLD_UPDATE_2",
+        "DISTRIBUTION_CREATE",
+      ]);
+      assert.deepEqual(actionOrder, [
+        "HOUSEHOLD_UPDATE",
+        "STUB_CLAIM",
+        "HOUSEHOLD_UPDATE",
+        "DISTRIBUTION_CREATE",
+      ]);
+      assert.deepEqual(claimOrder, [
+        "h01-v01-b-household-older-a",
+        "h01-v01-b-stub-claim",
+        "h01-v01-b-household-newer-b",
+        "h01-v01-b-distribution",
+      ]);
+      assert.deepEqual(
+        results.map((result) => result.client_sync_id),
+        [
+          "h01-v01-b-household-older-a",
+          "h01-v01-b-stub-claim",
+          "h01-v01-b-household-newer-b",
+          "h01-v01-b-distribution",
+        ],
+      );
+      assert.deepEqual(
+        results.map((result) => result.sync_status),
+        ["CONFLICT", "SYNCED", "CONFLICT", "CONFLICT"],
+      );
+      assert.deepEqual(conflictWinners, ["SERVER", "LOCAL", "SERVER"]);
+      assert.equal(authoritativeHousehold.family_head_first_name, "HOUSEHOLD_UPDATE_B");
+      assert.equal(authoritativeHousehold.updated_at, "2026-08-10T16:00:00.000Z");
+      assert.equal(results.length, 4);
+      assert.equal(new Set(processingOrder).size, 4);
+      assert.equal(results[0].conflict.resolution_strategy, "LATEST_TIMESTAMP");
+      assert.equal(results[2].conflict.resolution_strategy, "LATEST_TIMESTAMP");
+      assert.equal(results[3].conflict.resolution_strategy, "FIRST_ACCEPTED");
+    },
+  );
+});
+
+test("sync conflict strategy migration and schema use the canonical H-02 vocabulary", () => {
+  const repoRoot = path.resolve(__dirname, "../..");
+  const migrationSql = fs.readFileSync(
+    path.join(
+      repoRoot,
+      "database/migrations/2026-08-08_align_sync_conflict_resolution_strategy.sql",
+    ),
+    "utf8",
+  );
+  const schemaSql = fs.readFileSync(
+    path.join(repoRoot, "database/schema/distync_schema.sql"),
+    "utf8",
+  );
+
+  for (const strategy of [
+    "FIRST_ACCEPTED",
+    "LATEST_TIMESTAMP",
+    "MANUAL_REVIEW",
+    "MERGED",
+  ]) {
+    assert.match(migrationSql, new RegExp(`'${strategy}'`));
+    assert.match(schemaSql, new RegExp(`'${strategy}'`));
+  }
+
+  assert.match(migrationSql, /MANUAL_REVIEW_REQUIRED[\s\S]*MANUAL_REVIEW/);
+  assert.match(migrationSql, /EARLIEST_TIMESTAMP[\s\S]*FIRST_ACCEPTED/);
+  assert.doesNotMatch(
+    schemaSql,
+    /MANUAL_REVIEW_REQUIRED|EARLIEST_TIMESTAMP/,
+  );
+});
+
+test("M04-01 stock drift detail exposes only Mayor MARK_REVIEWED and KEEP_SERVER actions", async () => {
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictByIdForMayor: async ({ id }) => ({
+          id,
+          sync_transaction_id: "sync-1",
+          user_id: "mayor-1",
+          entity_type: "INVENTORY_TRANSACTION",
+          entity_server_id: null,
+          conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+          local_payload_json: { payload: { quantity: 10 } },
+          server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+          resolution_strategy: "MANUAL_REVIEW",
+          resolved_payload_json: null,
+          resolved_by: null,
+          resolved_at: null,
+          status: "OPEN",
+          sync_status: "CONFLICT",
+          operation_type: "INVENTORY_ADJUSTMENT",
+        }),
+        getSyncConflictById: async () => {
+          throw new Error("Mayor detail must use the Mayor-scoped conflict read");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: (payload, keys) =>
+          keys.reduce((summary, key) => {
+            if (payload?.[key] !== undefined) summary[key] = payload[key];
+            return summary;
+          }, {}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      const detail = await getSyncConflictDetail({
+        auth: {
+          userId: "mayor-1",
+          roleCode: "MAYOR",
+        },
+        conflictId: "conflict-stock-drift",
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, [
+        "MARK_REVIEWED",
+        "KEEP_SERVER",
+      ]);
+    },
+  );
+});
+
+test("MAYOR Sync Center history uses municipality-wide inventory scope", async () => {
+  let transactionRead = false;
+  let conflictRead = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByMayor: async (args) => {
+          transactionRead = true;
+          assert.deepEqual(args, {
+            syncStatus: null,
+            limit: 100,
+          });
+          return [
+            {
+              id: "mayor-inventory-transaction",
+              entity_type: "INVENTORY_TRANSACTION",
+            },
+          ];
+        },
+        getSyncConflictsByMayor: async (args) => {
+          conflictRead = true;
+          assert.deepEqual(args, {
+            status: null,
+            limit: 100,
+          });
+          return [
+            {
+              id: "mayor-stock-conflict",
+              entity_type: "INVENTORY_TRANSACTION",
+              conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+              resolution_strategy: "MANUAL_REVIEW",
+              status: "OPEN",
+              created_at: "2026-08-09T02:00:00.000Z",
+            },
+          ];
+        },
+        getSyncTransactionsByUser: async () => {
+          throw new Error("Mayor history must not use user-scoped transactions");
+        },
+        getSyncConflictsByUser: async () => {
+          throw new Error("Mayor history must not use user-scoped conflicts");
+        },
+      },
+    },
+    async ({ getSyncHistory }) => {
+      const history = await getSyncHistory({
+        auth: {
+          userId: "mayor-b",
+          roleCode: "MAYOR",
+        },
+        syncStatus: null,
+        conflictStatus: null,
+        barangayId: "should-not-be-used",
+        limit: 100,
+      });
+
+      assert.deepEqual(
+        history.transactions.map((transaction) => transaction.id),
+        ["mayor-inventory-transaction"],
+      );
+      assert.deepEqual(
+        history.conflicts.map((conflict) => conflict.id),
+        ["mayor-stock-conflict"],
+      );
+      assert.deepEqual(history.conflicts[0].availableResolutionActions, [
+        "MARK_REVIEWED",
+        "KEEP_SERVER",
+      ]);
+    },
+  );
+
+  assert.equal(transactionRead, true);
+  assert.equal(conflictRead, true);
+});
+
+test("BRG-SC-04B non-Mayor history excludes peer review workload", async () => {
+  let reviewableQueryCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByUser: async ({ userId }) => {
+          assert.equal(userId, "barangay-b");
+          return [];
+        },
+        getSyncConflictsByUser: async ({ userId }) => {
+          assert.equal(userId, "barangay-b");
+          return [];
+        },
+        getReviewableManualInventoryConflicts: async () => {
+          reviewableQueryCalled = true;
+          return [];
+        },
+      },
+    },
+    async ({ getSyncHistory }) => {
+      const history = await getSyncHistory({
+        auth: {
+          userId: "barangay-b",
+          roleCode: "BARANGAY",
+        },
+        syncStatus: null,
+        conflictStatus: null,
+        limit: 100,
+      });
+
+      assert.deepEqual(history.conflicts, []);
+      assert.equal(reviewableQueryCalled, false);
+    },
+  );
+});
+
+test("BRG-SC-EVENT-01 getSyncHistory enriches event IDs with scoped titles in one batch", async () => {
+  let eventLookupCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByUser: async ({ userId }) => {
+          assert.equal(userId, "barangay-b");
+          return [
+            {
+              id: "sync-event-1",
+              payload_json: {
+                action_key: "HOUSEHOLD_REGISTER",
+                payload: {
+                  disaster_event_id: "11111111-1111-4111-8111-111111111111",
+                },
+              },
+            },
+            {
+              id: "sync-event-2",
+              payload_json: {
+                action_key: "DISTRIBUTION_CREATE",
+                payload: {
+                  disaster_event_id: "11111111-1111-4111-8111-111111111111",
+                },
+              },
+            },
+          ];
+        },
+        getSyncConflictsByUser: async () => [],
+        getDisasterEventTitlesByIds: async ({
+          eventIds,
+          roleCode,
+          defaultBarangayId,
+        }) => {
+          eventLookupCalls += 1;
+          assert.deepEqual(eventIds, [
+            "11111111-1111-4111-8111-111111111111",
+            "11111111-1111-4111-8111-111111111111",
+          ]);
+          assert.equal(roleCode, "BARANGAY");
+          assert.equal(defaultBarangayId, "barangay-1");
+          return {
+            "11111111-1111-4111-8111-111111111111": "Typhoon Response Maymay",
+          };
+        },
+      },
+    },
+    async ({ getSyncHistory }) => {
+      const history = await getSyncHistory({
+        auth: {
+          userId: "barangay-b",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-1",
+        },
+        syncStatus: null,
+        conflictStatus: null,
+        limit: 50,
+      });
+
+      assert.equal(eventLookupCalls, 1);
+      assert.equal(
+        history.transactions[0].sync_history_disaster_event_title,
+        "Typhoon Response Maymay",
+      );
+      assert.equal(
+        history.transactions[1].sync_history_disaster_event_title,
+        "Typhoon Response Maymay",
+      );
+    },
+  );
+});
+
+test("BRG-SC-EVENT-02 unresolved or deleted event IDs do not fail or expose title fields", async () => {
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByUser: async () => [
+          {
+            id: "sync-missing-event",
+            payload_json: {
+              action_key: "HOUSEHOLD_REGISTER",
+              payload: {
+                disaster_event_id: "22222222-2222-4222-8222-222222222222",
+              },
+            },
+          },
+          {
+            id: "sync-legacy-no-event",
+            payload_json: {
+              action_key: "HOUSEHOLD_DEPART",
+              payload: {
+                remarks: "Legacy row",
+              },
+            },
+          },
+        ],
+        getSyncConflictsByUser: async () => [],
+        getDisasterEventTitlesByIds: async () => ({}),
+      },
+    },
+    async ({ getSyncHistory }) => {
+      const history = await getSyncHistory({
+        auth: {
+          userId: "barangay-b",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-1",
+        },
+        syncStatus: null,
+        conflictStatus: null,
+        limit: 50,
+      });
+
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(
+          history.transactions[0],
+          "sync_history_disaster_event_title",
+        ),
+        false,
+      );
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(
+          history.transactions[1],
+          "sync_history_disaster_event_title",
+        ),
+        false,
+      );
+    },
+  );
+});
+
+test("MAYOR Sync Center health summary uses municipality-wide inventory reads", async () => {
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        countOpenSyncConflictsByMayor: async (args) => {
+          assert.deepEqual(args, {});
+          return 3;
+        },
+        getLastSuccessfulSyncAtForMayor: async (args) => {
+          assert.deepEqual(args, {});
+          return "2026-08-09T02:00:00.000Z";
+        },
+        countOpenSyncConflictsByUser: async () => {
+          throw new Error("Mayor status must not use user-scoped conflicts");
+        },
+        getLastSuccessfulSyncAtByUser: async () => {
+          throw new Error("Mayor status must not use user-scoped sync time");
+        },
+      },
+    },
+    async ({ getSyncStatusSummary }) => {
+      const summary = await getSyncStatusSummary({
+        auth: {
+          userId: "mayor-b",
+          roleCode: "MAYOR",
+        },
+      });
+
+      assert.deepEqual(summary, {
+        conflictCount: 3,
+        lastSuccessfulSyncAt: "2026-08-09T02:00:00.000Z",
+        backendReachable: true,
+      });
+    },
+  );
+});
+
+test("MAYOR Sync Center detail is municipality-scoped to inventory conflicts", async () => {
+  const conflictsById = {
+    "mayor-stock-drift": {
+      id: "mayor-stock-drift",
+      sync_transaction_id: "sync-1",
+      user_id: "mayor-a",
+      entity_type: "INVENTORY_TRANSACTION",
+      entity_server_id: null,
+      conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+      local_payload_json: { payload: { quantity: 10 } },
+      server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+      resolution_strategy: "MANUAL_REVIEW",
+      resolved_payload_json: null,
+      resolved_by: null,
+      resolved_at: null,
+      status: "OPEN",
+      sync_status: "CONFLICT",
+      operation_type: "INVENTORY_ADJUSTMENT",
+    },
+    "unrelated-household": {
+      id: "unrelated-household",
+      sync_transaction_id: "sync-2",
+      user_id: "mayor-a",
+      entity_type: "HOUSEHOLD",
+      entity_server_id: null,
+      conflict_type: "HOUSEHOLD_UPDATE_CONFLICT",
+      local_payload_json: {},
+      server_payload_json: {},
+      resolution_strategy: "LATEST_TIMESTAMP",
+      resolved_payload_json: null,
+      resolved_by: null,
+      resolved_at: null,
+      status: "OPEN",
+      sync_status: "CONFLICT",
+      operation_type: "CREATE",
+    },
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictByIdForMayor: async ({ id }) => conflictsById[id] || null,
+        getSyncConflictById: async () => {
+          throw new Error("Mayor detail must not use the generic conflict read");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+        const detail = await getSyncConflictDetail({
+        auth: {
+          userId: "mayor-b",
+          roleCode: "MAYOR",
+        },
+          conflictId: "mayor-stock-drift",
+        });
+
+      assert.equal(detail.id, "mayor-stock-drift");
+      assert.deepEqual(detail.availableResolutionActions, [
+        "MARK_REVIEWED",
+        "KEEP_SERVER",
+      ]);
+
+      await assert.rejects(
+        () =>
+          getSyncConflictDetail({
+            auth: {
+              userId: "mayor-b",
+              roleCode: "MAYOR",
+            },
+            conflictId: "unrelated-household",
+          }),
+        /Sync conflict not found/,
+      );
+    },
+  );
+});
+
+test("BRG-SC-04B Barangay and MSWDO cannot view eligible peer stock-drift detail", async () => {
+  const conflict = {
+    id: "peer-stock-drift",
+    sync_transaction_id: "sync-1",
+    user_id: "mayor-a",
+    entity_type: "INVENTORY_TRANSACTION",
+    entity_server_id: null,
+    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+    local_payload_json: { payload: { quantity: 10 } },
+    server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "INVENTORY_ADJUSTMENT",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictById: async () => conflict,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      for (const roleCode of ["BARANGAY", "MSWDO"]) {
+        await assert.rejects(
+          () =>
+            getSyncConflictDetail({
+              auth: {
+                userId: `${roleCode.toLowerCase()}-user`,
+                roleCode,
+              },
+              conflictId: "peer-stock-drift",
+            }),
+          /Sync conflict not found/,
+        );
+      }
+    },
+  );
+});
+
+test("M04-02 KEEP_SERVER resolves stock drift without changing original sync status", async () => {
+  const auditRows = [];
+  const outboxEvents = [];
+  const processedEvents = [];
+  const baseConflict = {
+    id: "conflict-stock-drift",
+    sync_transaction_id: "sync-1",
+    user_id: "origin-user",
+    entity_type: "INVENTORY_TRANSACTION",
+    entity_server_id: null,
+    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+    local_payload_json: { payload: { quantity: 10 } },
+    server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "INVENTORY_ADJUSTMENT",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        lockSyncConflictById: async () => baseConflict,
+        markSyncConflictResolved: async (payload) => ({
+          ...baseConflict,
+          status: "RESOLVED",
+          resolution_action: payload.resolutionAction,
+          resolution_reason: payload.resolutionReason,
+          resolved_payload_json: payload.resolvedPayloadJson,
+          resolved_by: payload.resolvedBy,
+          resolved_at: "2026-08-09T05:00:00.000Z",
+        }),
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async (payload) => {
+          outboxEvents.push(payload);
+          return { id: "outbox-resolution-1" };
+        },
+        processNotificationOutboxEventById: async (eventId) => {
+          processedEvents.push(eventId);
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async (payload) => {
+          auditRows.push(payload);
+          return payload;
+        },
+      },
+    },
+    async ({ resolveSyncConflict }) => {
+      const resolved = await resolveSyncConflict({
+        auth: {
+          userId: "mayor-1",
+          roleCode: "MAYOR",
+        },
+        conflictId: "conflict-stock-drift",
+        action: "KEEP_SERVER",
+        reason: "Server inventory stock is authoritative.",
+      });
+
+      assert.equal(resolved.status, "RESOLVED");
+      assert.equal(resolved.sync_status, "CONFLICT");
+      assert.equal(resolved.resolution_action, "KEEP_SERVER");
+      assert.equal(resolved.resolved_by, "mayor-1");
+      assert.equal(resolved.user_id, "origin-user");
+      assert.equal(outboxEvents[0].eventType, "SYNC_CONFLICT_RESOLVED");
+      assert.deepEqual(processedEvents, ["outbox-resolution-1"]);
+      assert.equal(auditRows[0].action, "SYNC_CONFLICT_RESOLUTION");
+    },
+  );
+});
+
+test("Mayor can accept both same-packaging batch entries in offline capture order", async () => {
+  let updatedTransactionPayload = null;
+  let resolvedConflictPayload = null;
+  let createdBatchPayload = null;
+  let resequencePayload = null;
+  const baseConflict = {
+    id: "conflict-duplicate-batch",
+    sync_transaction_id: "sync-duplicate-batch",
+    user_id: "origin-mayor",
+    entity_type: "INVENTORY_BATCH",
+    entity_server_id: "existing-batch",
+    conflict_type: "DUPLICATE_INVENTORY_BATCH",
+    local_payload_json: {
+      inventory_item_id: "item-1",
+      inventory_item_stock_form_id: "stock-form-1",
+      batch_no: "LOT-A",
+      quantity_received: 20,
+    },
+    server_payload_json: {
+      id: "existing-batch",
+      inventory_item_id: "item-1",
+      inventory_item_stock_form_id: "stock-form-1",
+      batch_no: "LOT-A",
+      quantity_received: 10,
+      received_at: "2026-08-09T02:00:00.000Z",
+    },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "CREATE",
+    client_timestamp: "2026-08-09T01:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        getSyncConflictByIdForMayor: async () => baseConflict,
+        lockSyncConflictById: async () => baseConflict,
+        updateSyncTransaction: async (id, payload) => {
+          updatedTransactionPayload = { id, ...payload };
+          return updatedTransactionPayload;
+        },
+        markSyncConflictResolved: async (payload) => {
+          resolvedConflictPayload = payload;
+          return {
+            ...baseConflict,
+            status: "RESOLVED",
+            resolution_action: payload.resolutionAction,
+            resolution_reason: payload.resolutionReason,
+            resolved_payload_json: payload.resolvedPayloadJson,
+            resolved_by: payload.resolvedBy,
+            resolved_at: "2026-08-09T05:00:00.000Z",
+          };
+        },
+      },
+      [inventoryBatchServicePath]: {
+        resequenceInventoryBatchForAcceptBoth: async (payload) => {
+          resequencePayload = payload;
+          return {
+            inventoryItemId: "item-1",
+            existingBatchId: "existing-batch",
+            requestedBatchNumber: "LOT-A",
+            existingBatchNumberBefore: "LOT-A",
+            existingBatchNumberAfter: "LOT-A-2",
+            orderingBasis: "OFFLINE_CAPTURE_TIME",
+            reordered: true,
+            batchNumberChanges: [
+              {
+                batchId: "existing-batch",
+                from: "LOT-A",
+                to: "LOT-A-2",
+              },
+            ],
+          };
+        },
+        createInventoryBatch: async (payload) => {
+          createdBatchPayload = payload;
+          return {
+            id: "new-batch-2",
+            batch_no: "LOT-A",
+          };
+        },
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async () => null,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail, resolveSyncConflict }) => {
+      const detail = await getSyncConflictDetail({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, [
+        "KEEP_SERVER",
+        "ACCEPT_BOTH",
+      ]);
+
+      const resolved = await resolveSyncConflict({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+        action: "ACCEPT_BOTH",
+        reason: "These are separate receipts of the same packaging.",
+      });
+
+      assert.deepEqual(resequencePayload, {
+        existingBatchId: "existing-batch",
+        requestedBatchNo: "LOT-A",
+        localCapturedAt: "2026-08-09T01:00:00.000Z",
+        dbClient: {},
+      });
+      assert.equal(createdBatchPayload.inventory_item_id, "item-1");
+      assert.equal(
+        createdBatchPayload.received_at,
+        "2026-08-09T01:00:00.000Z",
+      );
+      assert.equal(createdBatchPayload.forceBatchNumberReassignment, false);
+      assert.equal(createdBatchPayload.created_by, "origin-mayor");
+      assert.equal(updatedTransactionPayload.sync_status, "SYNCED");
+      assert.equal(updatedTransactionPayload.entity_server_id, "new-batch-2");
+      assert.equal(resolvedConflictPayload.resolvedPayloadJson.winner, "BOTH");
+      assert.equal(
+        resolvedConflictPayload.resolvedPayloadJson.batchNumberOrdering
+          .localEntryOrder,
+        "EARLIER",
+      );
+      assert.deepEqual(
+        resolvedConflictPayload.resolvedPayloadJson.batchNumberOrdering.changes,
+        [
+          {
+            batchId: "existing-batch",
+            from: "LOT-A",
+            to: "LOT-A-2",
+          },
+        ],
+      );
+      assert.equal(resolved.status, "RESOLVED");
+      assert.equal(resolved.sync_status, "SYNCED");
+      assert.equal(resolved.entity_server_id, "new-batch-2");
+    },
+  );
+});
+
+test("Mayor can apply a barcode conflict with a replacement barcode", async () => {
+  let updatedTransactionPayload = null;
+  let createdItemPayload = null;
+  const baseConflict = {
+    id: "conflict-duplicate-barcode",
+    sync_transaction_id: "sync-duplicate-barcode",
+    user_id: "origin-mayor",
+    entity_type: "INVENTORY_ITEM",
+    entity_server_id: "saved-item",
+    conflict_type: "DUPLICATE_INVENTORY_BARCODE",
+    local_payload_json: {
+      item_name: "Rice Offline",
+      item_code: "RICE-OFFLINE",
+      barcode: "0748485100081",
+      packaging: "sack",
+      packaging_count: 1,
+      quantity: 10,
+      skip_opening_stock: true,
+    },
+    server_payload_json: {
+      id: "saved-item",
+      item_name: "Rice",
+      barcode: "0748485100081",
+      packaging: "box",
+    },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "CREATE",
+    client_timestamp: "2026-08-09T01:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        getSyncConflictByIdForMayor: async () => baseConflict,
+        lockSyncConflictById: async () => baseConflict,
+        updateSyncTransaction: async (id, payload) => {
+          updatedTransactionPayload = { id, ...payload };
+          return updatedTransactionPayload;
+        },
+        markSyncConflictResolved: async (payload) => ({
+          ...baseConflict,
+          status: "RESOLVED",
+          resolution_action: payload.resolutionAction,
+          resolution_reason: payload.resolutionReason,
+          resolved_payload_json: payload.resolvedPayloadJson,
+          resolved_by: payload.resolvedBy,
+          resolved_at: "2026-08-09T05:00:00.000Z",
+        }),
+      },
+      [inventoryItemServicePath]: {
+        createInventoryItem: async (payload) => {
+          createdItemPayload = payload;
+          return { id: "new-item" };
+        },
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async () => null,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail, resolveSyncConflict }) => {
+      const detail = await getSyncConflictDetail({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, [
+        "KEEP_SERVER",
+        "APPLY_LOCAL",
+      ]);
+
+      const resolved = await resolveSyncConflict({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+        action: "APPLY_LOCAL",
+        reason: "The device entry is a separate item.",
+        replacementBarcode: "0748485100099",
+      });
+
+      assert.equal(createdItemPayload.barcode, "0748485100099");
+      assert.equal(updatedTransactionPayload.sync_status, "SYNCED");
+      assert.equal(updatedTransactionPayload.entity_server_id, "new-item");
+      assert.equal(resolved.sync_status, "SYNCED");
+      assert.equal(resolved.entity_server_id, "new-item");
+      assert.equal(
+        resolved.resolved_payload_json.acceptedPayload.barcode,
+        "0748485100099",
+      );
+    },
+  );
+});
+
+test("Mayor can accept a barcode conflict as a corrected manual item", async () => {
+  let createdItemPayload = null;
+  const baseConflict = {
+    id: "conflict-duplicate-barcode-manual",
+    sync_transaction_id: "sync-duplicate-barcode-manual",
+    user_id: "origin-mayor",
+    entity_type: "INVENTORY_ITEM",
+    entity_server_id: "saved-item",
+    conflict_type: "DUPLICATE_INVENTORY_BARCODE",
+    local_payload_json: {
+      item_name: "Rice Offline",
+      item_code: "RICE-OFFLINE-MANUAL",
+      barcode: "0748485100081",
+      category: "Perishable",
+      is_perishable: true,
+      unit_of_measure: "pc",
+      unit_of_measure_value: 1,
+      packaging: "sack",
+      packaging_count: 1,
+      quantity: 10,
+      reorder_level: 5,
+      expiration_date: "2027-01-01",
+      skip_opening_stock: true,
+    },
+    server_payload_json: {
+      id: "saved-item",
+      item_name: "Rice",
+      barcode: "0748485100081",
+      packaging: "box",
+    },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "CREATE",
+    client_timestamp: "2026-08-09T01:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        lockSyncConflictById: async () => baseConflict,
+        updateSyncTransaction: async () => ({
+          sync_status: "SYNCED",
+          entity_server_id: "new-manual-item",
+        }),
+        markSyncConflictResolved: async (payload) => ({
+          ...baseConflict,
+          status: "RESOLVED",
+          resolution_action: payload.resolutionAction,
+          resolution_reason: payload.resolutionReason,
+          resolved_payload_json: payload.resolvedPayloadJson,
+          resolved_by: payload.resolvedBy,
+          resolved_at: "2026-08-09T05:00:00.000Z",
+        }),
+      },
+      [inventoryItemServicePath]: {
+        createInventoryItem: async (payload) => {
+          createdItemPayload = payload;
+          return { id: "new-manual-item", barcode: null };
+        },
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async () => null,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ resolveSyncConflict }) => {
+      const resolved = await resolveSyncConflict({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+        action: "APPLY_LOCAL",
+        reason: "This device record is the correct manual item.",
+        resolutionPayload: {
+          item_name: "Rice Manual",
+          category: "Non-Perishable",
+          is_perishable: false,
+          barcode: null,
+        },
+      });
+
+      assert.equal(createdItemPayload.item_name, "Rice Manual");
+      assert.equal(createdItemPayload.category, "Non-Perishable");
+      assert.equal(createdItemPayload.is_perishable, false);
+      assert.equal(createdItemPayload.barcode, null);
+      assert.equal(resolved.sync_status, "SYNCED");
+      assert.equal(
+        resolved.resolved_payload_json.savedWithoutBarcode,
+        true,
+      );
+      assert.equal(
+        resolved.resolved_payload_json.acceptedPayload.item_name,
+        "Rice Manual",
+      );
+      assert.equal(resolved.resolved_payload_json.acceptedPayload.barcode, null);
+    },
+  );
+});
+
+test("Mayor can correct a barcode conflict for a packaging batch", async () => {
+  let updatedTransactionPayload = null;
+  let createdBatchPayload = null;
+  const baseConflict = {
+    id: "conflict-duplicate-barcode-batch",
+    sync_transaction_id: "sync-duplicate-barcode-batch",
+    user_id: "origin-mayor",
+    entity_type: "INVENTORY_BATCH",
+    entity_server_id: "saved-item",
+    conflict_type: "DUPLICATE_INVENTORY_BARCODE",
+    local_payload_json: {
+      inventory_item_id: "local-item-id",
+      item_name: "Salonpas",
+      batch_no: "SALONPAS-BATCH-002",
+      barcode: "987654321",
+      stock_form_barcode: "987654321",
+      stock_form_packaging: "pack",
+      stock_form_units_per_packaging: 10,
+      stock_form_unit_of_measure: "pc",
+      stock_form_unit_of_measure_value: 1,
+      quantity_received: 20,
+      source_type: "LGU",
+    },
+    server_payload_json: {
+      id: "saved-item",
+      item_name: "Salonpas",
+      barcode: "987654321",
+      inventory_item_stock_form: {
+        id: "saved-stock-form",
+        inventory_item_id: "saved-item",
+        barcode: "987654321",
+        packaging: "piece",
+        units_per_packaging: 1,
+        unit_of_measure: "pc",
+        unit_of_measure_value: 1,
+      },
+    },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "CREATE",
+    client_timestamp: "2026-08-09T01:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        getSyncConflictByIdForMayor: async () => baseConflict,
+        lockSyncConflictById: async () => baseConflict,
+        updateSyncTransaction: async (id, payload) => {
+          updatedTransactionPayload = { id, ...payload };
+          return updatedTransactionPayload;
+        },
+        markSyncConflictResolved: async (payload) => ({
+          ...baseConflict,
+          status: "RESOLVED",
+          resolution_action: payload.resolutionAction,
+          resolution_reason: payload.resolutionReason,
+          resolved_payload_json: payload.resolvedPayloadJson,
+          resolved_by: payload.resolvedBy,
+          resolved_at: "2026-08-09T05:00:00.000Z",
+        }),
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          createdBatchPayload = payload;
+          return {
+            id: "corrected-batch",
+            batch_no: payload.batch_no,
+          };
+        },
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async () => null,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail, resolveSyncConflict }) => {
+      const detail = await getSyncConflictDetail({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, [
+        "KEEP_SERVER",
+        "APPLY_LOCAL",
+      ]);
+
+      const resolved = await resolveSyncConflict({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+        action: "APPLY_LOCAL",
+        reason: "The pack uses its own barcode.",
+        resolutionPayload: {
+          inventory_item_id: "must-not-replace-saved-item",
+          inventory_item_stock_form_id: null,
+          batch_no: "SALONPAS-BATCH-002",
+          stock_form_barcode: "987654322",
+          stock_form_packaging: "pack",
+          stock_form_units_per_packaging: 10,
+          stock_form_unit_of_measure: "pc",
+          stock_form_unit_of_measure_value: 1,
+          quantity_received: 20,
+          source_type: "LGU",
+        },
+      });
+
+      assert.equal(createdBatchPayload.inventory_item_id, "saved-item");
+      assert.equal(createdBatchPayload.stock_form_barcode, "987654322");
+      assert.equal(createdBatchPayload.stock_form_packaging, "pack");
+      assert.equal(createdBatchPayload.quantity_received, 20);
+      assert.equal(createdBatchPayload.inventory_item_stock_form_id, null);
+      assert.equal(createdBatchPayload.created_by, "origin-mayor");
+      assert.equal(updatedTransactionPayload.sync_status, "SYNCED");
+      assert.equal(updatedTransactionPayload.entity_server_id, "corrected-batch");
+      assert.equal(resolved.status, "RESOLVED");
+      assert.equal(resolved.sync_status, "SYNCED");
+      assert.equal(resolved.entity_server_id, "corrected-batch");
+      assert.equal(
+        resolved.resolved_payload_json.acceptedPayload.stock_form_barcode,
+        "987654322",
+      );
+    },
+  );
+});
+
+test("Mayor can correct a duplicate-item barcode conflict as a new packaging batch", async () => {
+  let updatedTransactionPayload = null;
+  let createdBatchPayload = null;
+  const baseConflict = {
+    id: "conflict-duplicate-item-barcode",
+    sync_transaction_id: "sync-duplicate-item-barcode",
+    user_id: "origin-mayor",
+    entity_type: "INVENTORY_ITEM",
+    entity_server_id: "saved-item",
+    conflict_type: "DUPLICATE_INVENTORY_ITEM",
+    local_payload_json: {
+      item_name: "Salonpas",
+      item_code: "SALONPAS-OFFLINE",
+      category: "non-perishable",
+      is_perishable: false,
+      unit_of_measure: "pc",
+      unit_of_measure_value: 1,
+      barcode: "987654321",
+      packaging: "pack",
+      packaging_count: 2,
+      quantity: 10,
+      reorder_level: 5,
+    },
+    server_payload_json: {
+      id: "saved-item",
+      item_name: "Salonpas",
+      item_code: "SALONPAS",
+      category: "non-perishable",
+      is_perishable: false,
+      unit_of_measure: "pc",
+      unit_of_measure_value: 1,
+      barcode: "987654321",
+      inventory_item_stock_forms: [
+        {
+          id: "saved-stock-form",
+          inventory_item_id: "saved-item",
+          barcode: "987654321",
+          packaging: "piece",
+          units_per_packaging: 1,
+          unit_of_measure: "pc",
+          unit_of_measure_value: 1,
+          is_active: true,
+        },
+      ],
+    },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "CREATE",
+    client_timestamp: "2026-08-09T01:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        getSyncConflictByIdForMayor: async () => baseConflict,
+        lockSyncConflictById: async () => baseConflict,
+        updateSyncTransaction: async (id, payload) => {
+          updatedTransactionPayload = { id, ...payload };
+          return updatedTransactionPayload;
+        },
+        markSyncConflictResolved: async (payload) => ({
+          ...baseConflict,
+          status: "RESOLVED",
+          resolution_action: payload.resolutionAction,
+          resolution_reason: payload.resolutionReason,
+          resolved_payload_json: payload.resolvedPayloadJson,
+          resolved_by: payload.resolvedBy,
+          resolved_at: "2026-08-09T05:00:00.000Z",
+        }),
+      },
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemByIdForUpdate: async () => ({
+          id: "saved-item",
+          item_name: "Salonpas",
+          item_code: "SALONPAS",
+          category: "non-perishable",
+          is_perishable: false,
+          unit_of_measure: "pc",
+          unit_of_measure_value: 1,
+          barcode: "987654321",
+        }),
+        getInventoryItemById: async () => ({
+          id: "saved-item",
+          item_name: "Salonpas",
+          item_code: "SALONPAS",
+          category: "non-perishable",
+          is_perishable: false,
+          unit_of_measure: "pc",
+          unit_of_measure_value: 1,
+          barcode: "987654321",
+        }),
+      },
+      [inventoryItemStockFormRepositoryPath]: {
+        getInventoryItemStockFormsByItemId: async () =>
+          baseConflict.server_payload_json.inventory_item_stock_forms,
+      },
+      [inventoryBatchRepositoryPath]: {
+        getInventoryBatchesByItemIdForUpdate: async () => [
+          { id: "opening-batch", batch_no: "SALONPAS-BATCH-001" },
+        ],
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          createdBatchPayload = payload;
+          return {
+            id: "corrected-pack-batch",
+            batch_no: payload.batch_no,
+          };
+        },
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async () => null,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail, resolveSyncConflict }) => {
+      const detail = await getSyncConflictDetail({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, [
+        "KEEP_SERVER",
+        "APPLY_LOCAL",
+      ]);
+
+      const resolved = await resolveSyncConflict({
+        auth: { userId: "reviewer", roleCode: "MAYOR" },
+        conflictId: baseConflict.id,
+        action: "APPLY_LOCAL",
+        reason: "The pack needs its own barcode.",
+        resolutionPayload: {
+          inventory_item_id: "must-not-replace-saved-item",
+          inventory_item_stock_form_id: null,
+          stock_form_barcode: "987654322",
+          stock_form_packaging: "pack",
+          stock_form_units_per_packaging: 10,
+          stock_form_unit_of_measure: "pc",
+          stock_form_unit_of_measure_value: 1,
+          quantity_received: 20,
+        },
+      });
+
+      assert.equal(createdBatchPayload.inventory_item_id, "saved-item");
+      assert.equal(createdBatchPayload.stock_form_barcode, "987654322");
+      assert.equal(createdBatchPayload.stock_form_packaging, "pack");
+      assert.equal(createdBatchPayload.batch_no, "SALONPAS-BATCH-002");
+      assert.equal(createdBatchPayload.quantity_received, 20);
+      assert.equal(createdBatchPayload.inventory_item_stock_form_id, null);
+      assert.equal(updatedTransactionPayload.sync_status, "SYNCED");
+      assert.equal(updatedTransactionPayload.entity_server_id, "corrected-pack-batch");
+      assert.equal(resolved.status, "RESOLVED");
+      assert.equal(resolved.sync_status, "SYNCED");
+      assert.equal(resolved.entity_server_id, "corrected-pack-batch");
+      assert.equal(
+        resolved.resolved_payload_json.acceptedPayload.stock_form_barcode,
+        "987654322",
+      );
+    },
+  );
+});
+
+test("BRG-SC-04B APPLY_LOCAL remains rejected for eligible stock-drift conflict", async () => {
+  const baseConflict = {
+    id: "conflict-stock-drift",
+    sync_transaction_id: "sync-1",
+    user_id: "origin-user",
+    entity_type: "INVENTORY_TRANSACTION",
+    entity_server_id: null,
+    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+    local_payload_json: { payload: { quantity: 10 } },
+    server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "INVENTORY_ADJUSTMENT",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        lockSyncConflictById: async () => baseConflict,
+        markSyncConflictResolved: async () => {
+          throw new Error("APPLY_LOCAL must not persist resolution");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ resolveSyncConflict }) => {
+      await assert.rejects(
+        () =>
+          resolveSyncConflict({
+            auth: {
+              userId: "mayor-2",
+              roleCode: "MAYOR",
+            },
+            conflictId: "conflict-stock-drift",
+            action: "APPLY_LOCAL",
+            reason: "Force local",
+          }),
+        /not allowed/,
+      );
+    },
+  );
+});
+
+test("M04-03 FIRST_ACCEPTED resolved conflicts expose no actions and cannot be resolved again", async () => {
+  const firstAcceptedConflict = {
+    id: "conflict-first-accepted",
+    sync_transaction_id: "sync-1",
+    user_id: "origin-user",
+    entity_type: "STUB",
+    entity_server_id: "stub-1",
+    conflict_type: "STUB_ALREADY_CLAIMED",
+    local_payload_json: {},
+    server_payload_json: {},
+    resolution_strategy: "FIRST_ACCEPTED",
+    resolved_payload_json: { winner: "SERVER" },
+    resolved_by: null,
+    resolved_at: "2026-08-09T04:00:00.000Z",
+    status: "RESOLVED",
+    sync_status: "CONFLICT",
+    operation_type: "CLAIM",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictById: async () => firstAcceptedConflict,
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        lockSyncConflictById: async () => firstAcceptedConflict,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail, resolveSyncConflict }) => {
+      const detail = await getSyncConflictDetail({
+        auth: {
+          userId: "origin-user",
+          roleCode: "BARANGAY",
+        },
+        conflictId: "conflict-first-accepted",
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, []);
+
+      await assert.rejects(
+        () =>
+          resolveSyncConflict({
+            auth: {
+              userId: "origin-user",
+              roleCode: "BARANGAY",
+            },
+            conflictId: "conflict-first-accepted",
+            action: "MARK_REVIEWED",
+            reason: null,
+          }),
+        /already been resolved/,
+      );
+    },
+  );
+});
+
+test("RC1 cross-Barangay household registration remains an open review conflict", async () => {
+  let conflictPayload = null;
+  let transactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+          transactionPayload = payload.transactionPayload;
+          return {
+            syncTransaction: { id: payload.syncTransactionId, ...payload.transactionPayload },
+            conflictRecord: { id: "cross-conflict-1", ...payload.conflictPayload },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error("A similar household registration already exists under another Barangay and requires municipality-level review.");
+          error.code = "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE";
+          error.entityServerId = "33333333-3333-4333-8333-333333333333";
+          error.serverPayload = { barangay_name: "Santiago", household_size: 2 };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: { ...baseAuth, defaultBarangayId: "44444444-4444-4444-8444-444444444444" },
+        entries: [{
+          client_sync_id: "cross-barangay-registration-1",
+          action_key: "HOUSEHOLD_REGISTER",
+          entity_type: "HOUSEHOLD",
+          entity_local_id: "local-cross-1",
+          client_timestamp: "2026-08-29T02:05:00.000Z",
+          payload: buildValidHouseholdRegisterSyncPayload({
+            barangay_id: "44444444-4444-4444-8444-444444444444",
+          }),
+        }],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(conflictPayload.conflict_type, "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE");
+      assert.equal(conflictPayload.resolution_strategy, "MANUAL_REVIEW");
+      assert.equal(conflictPayload.status, "OPEN");
+      assert.equal(transactionPayload.entity_server_id, null);
+    },
+  );
+});
+
+test("HH-ATT-008 guarded earlier cross-Barangay reconciliation remains manual review", async () => {
+  let reconcileCalls = 0;
+  let conflictPayload = null;
+  let transactionPayload = null;
+  const incomingBarangayId = baseAuth.defaultBarangayId;
+  const existingBarangayId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const incomingRegistrationData = buildValidHouseholdRegisterSyncPayload({
+    barangay_id: incomingBarangayId,
+    registered_at: "2026-08-09T02:00:00.000Z",
+  });
+  const existingRegistrationData = buildValidHouseholdRegisterSyncPayload({
+    barangay_id: existingBarangayId,
+    registered_at: "2026-08-09T03:00:00.000Z",
+  });
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        findHouseholdRegistrationSyncTransaction: async () => ({
+          id: "existing-registration-sync",
+          payload_json: { payload: existingRegistrationData },
+        }),
+        getBarangayNamesByIds: async () => ({}),
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+          transactionPayload = payload.transactionPayload;
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "guarded-cross-conflict",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error(
+            "A similar household registration already exists under another Barangay and requires municipality-level review.",
+          );
+          error.code = "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE";
+          error.entityServerId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+          error.serverPayload = {
+            registered_at: existingRegistrationData.registered_at,
+            barangay_id: existingBarangayId,
+          };
+          error.duplicateRegistration = {
+            registration_data: incomingRegistrationData,
+          };
+          throw error;
+        },
+        reconcileCrossBarangayDuplicateWithEarlierRegistration: async () => {
+          reconcileCalls += 1;
+          return null;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "guarded-cross-barangay-registration",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-guarded-cross",
+            client_timestamp: "2026-08-09T02:00:00.000Z",
+            payload: incomingRegistrationData,
+          },
+        ],
+      });
+
+      assert.equal(reconcileCalls, 1);
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.status, "OPEN");
+      assert.equal(result.conflict.resolution_strategy, "MANUAL_REVIEW");
+      assert.equal(conflictPayload.status, "OPEN");
+      assert.equal(transactionPayload.entity_server_id, null);
+    },
+  );
+});
+
+test("RC1 cross-Barangay conflicts no longer expose manual MSWDO resolution", async () => {
+  const conflict = {
+    id: "cross-conflict-2",
+    sync_transaction_id: "sync-cross-2",
+    user_id: "origin-user",
+    entity_type: "HOUSEHOLD",
+    conflict_type: "POSSIBLE_CROSS_BARANGAY_HOUSEHOLD_DUPLICATE",
+    local_payload_json: { payload: buildValidHouseholdRegisterSyncPayload({ barangay_id: "44444444-4444-4444-8444-444444444444" }) },
+    server_payload_json: { household_id: "accepted-household-1", barangay_name: "Santiago" },
+    resolution_strategy: "MANUAL_REVIEW",
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    client_timestamp: "2026-08-29T02:05:00.000Z",
+    operation_type: "CREATE",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        lockSyncConflictById: async () => conflict,
+        updateSyncTransaction: async (_id, payload) => payload,
+      },
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => ({ household: { id: "accepted-household-2" } }),
+      },
+      [systemLogPath]: { logAuditSafely: async () => {}, logErrorSafely: async () => {}, pickDefined: () => ({}) },
+      [systemLogRepositoryPath]: { insertAuditLog: async () => ({}) },
+      [notificationServicePath]: { ensureSyncNotificationIntent: async () => null, processNotificationOutboxEventById: async () => {} },
+    },
+    async ({ resolveSyncConflict }) => {
+      await assert.rejects(
+        () => resolveSyncConflict({
+          auth: { userId: "mswdo-user", roleCode: "MSWDO" },
+          conflictId: conflict.id,
+          action: "APPLY_LOCAL",
+          reason: "Manual cross-Barangay actions are retired.",
+        }),
+        /not allowed/,
+      );
+    },
+  );
+});
+
+test("MAYOR-OFFLINE-DEVICE-01 processes the real client queue shape with a canonical device id and preserves retry identity", async () => {
+  const clientDeviceUuid = "66666666-6666-4666-8666-666666666666";
+  const canonicalDeviceId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const clientSyncId = "mayor-offline-stock-in-20260830-1";
+  const clientTimestamp = "2026-08-30T01:02:03.000Z";
+  const request = {
+    body: {
+      entries: [
+        {
+          client_sync_id: clientSyncId,
+          action_key: "INVENTORY_BATCH_CREATE",
+          entity_type: "INVENTORY_BATCH",
+          entity_local_id: "RICE-BATCH-004",
+          entity_server_id: null,
+          device_id: clientDeviceUuid,
+          client_timestamp: clientTimestamp,
+          client_updated_at: clientTimestamp,
+          payload: {
+            inventory_item_id: "item-1",
+            inventory_item_stock_form_id: "stock-form-1",
+            batch_no: "RICE-BATCH-004",
+            quantity_received: 100,
+            source_type: "LGU",
+            expiration_date: null,
+          },
+        },
+      ],
+    },
+  };
+  const validationResponse = {
+    statusCode: null,
+    payload: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      this.payload = payload;
+      return this;
+    },
+  };
+  let validatorNextCalled = false;
+
+  validateProcessSyncEntries(request, validationResponse, () => {
+    validatorNextCalled = true;
+  });
+
+  assert.equal(validatorNextCalled, true);
+  assert.equal(validationResponse.statusCode, null);
+
+  const fakeDbClient = { query: async () => ({ rows: [] }) };
+  const deviceResolutionCalls = [];
+  const claimPayloads = [];
+  const batchPayloads = [];
+  let claimCount = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => callback(fakeDbClient),
+        claimSyncTransaction: async (payload) => {
+          claimPayloads.push(payload);
+          claimCount += 1;
+
+          if (claimCount === 1) {
+            return {
+              decision: "CLAIMED_NEW",
+              transaction: {
+                id: "sync-mayor-device-1",
+                ...payload,
+              },
+            };
+          }
+
+          return {
+            decision: "REPLAY_TERMINAL",
+            transaction: {
+              id: "sync-mayor-device-1",
+              ...payload,
+              sync_status: "SYNCED",
+              entity_server_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+              error_message: null,
+            },
+            conflictRecord: null,
+          };
+        },
+      }),
+      [deviceServicePath]: {
+        resolveCanonicalDeviceId: async (args) => {
+          deviceResolutionCalls.push(args);
+          return canonicalDeviceId;
+        },
+      },
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async (payload) => {
+          batchPayloads.push(payload);
+          return {
+            id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+            ...payload,
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const firstResult = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: request.validatedBody.entries,
+      });
+      const replayResult = await processSyncEntries({
+        auth: { ...baseAuth, roleCode: "MAYOR" },
+        entries: request.validatedBody.entries,
+      });
+
+      assert.equal(firstResult[0].sync_status, "SYNCED");
+      assert.equal(replayResult[0].replayed, true);
+      assert.equal(replayResult[0].client_sync_id, clientSyncId);
+    },
+  );
+
+  assert.equal(deviceResolutionCalls.length, 2);
+  assert.ok(
+    deviceResolutionCalls.every(
+      ({ clientDeviceUuid: resolvedClientDeviceUuid, dbClient }) =>
+        resolvedClientDeviceUuid === clientDeviceUuid && dbClient === fakeDbClient,
+    ),
+  );
+  assert.equal(claimPayloads.length, 2);
+  assert.ok(claimPayloads.every((payload) => payload.device_id === canonicalDeviceId));
+  assert.ok(claimPayloads.every((payload) => payload.client_sync_id === clientSyncId));
+  assert.deepEqual(
+    claimPayloads[0].payload_json.payload,
+    request.validatedBody.entries[0].payload,
+  );
+  assert.equal(batchPayloads.length, 1);
+  assert.equal(batchPayloads[0].created_by, baseAuth.userId);
+  assert.equal(batchPayloads[0].received_at, clientTimestamp);
+  assert.equal(batchPayloads[0].allowBatchNumberReassignment, true);
+});
+
+test("device resolution does not bypass shared sync action authorization", async () => {
+  let deviceResolutionCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [deviceServicePath]: {
+        resolveCanonicalDeviceId: async () => {
+          deviceResolutionCalls += 1;
+          return "ffffffff-ffff-4fff-8fff-ffffffffffff";
+        },
+      },
+    },
+    async ({ processSyncEntries }) => {
+      await assert.rejects(
+        () =>
+          processSyncEntries({
+            auth: { ...baseAuth, roleCode: "BARANGAY" },
+            entries: [
+              {
+                client_sync_id: "mayor-action-auth-check-1",
+                action_key: "INVENTORY_BATCH_CREATE",
+                entity_type: "INVENTORY_BATCH",
+                entity_local_id: "batch-auth-check",
+                device_id: "66666666-6666-4666-8666-666666666666",
+                client_timestamp: "2026-08-30T01:02:03.000Z",
+                payload: {
+                  inventory_item_id: "item-1",
+                  batch_no: "BATCH-AUTH-CHECK",
+                  quantity_received: 1,
+                },
+              },
+            ],
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 403);
+          assert.match(error.message, /permission/i);
+          return true;
+        },
+      );
+    },
+  );
+
+  assert.equal(deviceResolutionCalls, 0);
+});

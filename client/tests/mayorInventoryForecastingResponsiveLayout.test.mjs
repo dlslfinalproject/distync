@@ -1,0 +1,150 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import path from "node:path";
+import test from "node:test";
+
+const sourcePath = (...segments) => path.join(process.cwd(), "src", ...segments);
+
+const readSource = (relativePath) =>
+  fs.readFile(sourcePath(...relativePath), "utf8");
+
+test("Mayor forecasting runs AUTO_BACKTEST and exports the exact displayed persisted run", async () => {
+  const [routesSource, pageSource, hookSource, serviceSource, panelSource, modalSource] =
+    await Promise.all([
+      readSource(["routes", "AppRoutes.jsx"]),
+      readSource(["pages", "inventory", "InventoryForecastsPage.jsx"]),
+      readSource(["features", "inventory-items", "useInventoryForecast.js"]),
+      readSource(["features", "inventory-items", "inventoryItemService.js"]),
+      readSource(["components", "inventory-items", "ForecastingPanel.jsx"]),
+      readSource(["components", "inventory-items", "InventoryForecastExportModal.jsx"]),
+    ]);
+
+  assert.match(routesSource, /path: "forecasts", element: <InventoryForecastsPage \/>/);
+  assert.match(pageSource, /title="INVENTORY FORECASTING MANAGEMENT"/);
+  assert.match(hookSource, /selection_mode: "AUTO_BACKTEST"/);
+  assert.doesNotMatch(hookSource, /selectedForecastModel|model_name|getForecastModelRecommendation|handleForecastModelChange/);
+  assert.match(hookSource, /handleForecastEventChange/);
+  assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/run/);
+  assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/latest/);
+  assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/context/);
+  assert.match(serviceSource, /\/api\/v1\/inventory-items\/forecast\/history/);
+  assert.match(pageSource, /exportInventoryForecast\(forecastRunId\)/);
+  assert.match(pageSource, /downloadExportFile\(file\)/);
+  assert.match(pageSource, /forecastToExport/);
+  assert.match(serviceSource, /\/forecast\/export/);
+  assert.match(serviceSource, /JSON\.stringify\(\{ forecast_run_id: forecastRunId \}\)/);
+  assert.match(panelSource, /onOpenExportModal\(displayedForecastData\)/);
+  assert.match(panelSource, /!displayedForecastRun\?\.id/);
+  assert.doesNotMatch(panelSource, /id="forecast-model"|onForecastModelChange|getForecastModelRecommendation|Suggested Model/);
+  assert.match(panelSource, /Selection Method: Historical Model Evaluation/);
+  assert.match(modalSource, /onSubmit\(runId\)/);
+  assert.doesNotMatch(modalSource, /forecast-export-event|disasterEvents|selectedDisasterEventId/);
+  assert.doesNotMatch(pageSource, /window\.open/);
+  assert.doesNotMatch(pageSource, /\.print\(\)/);
+  assert.doesNotMatch(pageSource, /text\/html|\.html/);
+  assert.doesNotMatch(panelSource, /fetch\(|axios|\/api\/v1/);
+  assert.doesNotMatch(panelSource, /FORECAST_HORIZON_DAYS|lookback_days|moving_average_window|exponential_smoothing_alpha/);
+  assert.doesNotMatch(panelSource, /onClearFilters|mayor-inventory-forecast-filter-actions|Clear filters/);
+  assert.match(panelSource, /inventory_item_count/);
+  assert.match(panelSource, /active_inventory_item_count/);
+  assert.match(
+    panelSource,
+    /canonicalCount !== undefined[\s\S]*canonicalCount !== null[\s\S]*\? canonicalCount[\s\S]*summary\?\.active_inventory_item_count/,
+  );
+  assert.doesNotMatch(panelSource, /No active inventory items/);
+});
+
+test("Mayor inventory forecasting controls, KPIs, charts, and tables expose mobile-safe layout primitives", async () => {
+  const [panelSource, modalSource, cssSource, validationSource] = await Promise.all([
+    readSource(["components", "inventory-items", "ForecastingPanel.jsx"]),
+    readSource(["components", "inventory-items", "InventoryForecastExportModal.jsx"]),
+    readSource(["index.css"]),
+    readSource(["components", "inventory-items", "ForecastModelValidation.jsx"]),
+  ]);
+
+  assert.match(panelSource, /gridTemplateColumns: "repeat\(auto-fit, minmax\(min\(100%, 220px\), 1fr\)\)"/);
+  assert.match(panelSource, /gridTemplateColumns: "repeat\(auto-fit, minmax\(min\(100%, 150px\), 1fr\)\)"/);
+  assert.match(panelSource, /className="mayor-inventory-forecast-stat-grid"/);
+  assert.match(panelSource, /label: "Total Need"[\s\S]*?icon: "need"/);
+  assert.doesNotMatch(panelSource, /Top Priority Items|topPriority|forecast-top-priorities/);
+  assert.doesNotMatch(cssSource, /mayor-inventory-forecast-priority-grid/);
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.mayor-inventory-forecast-stat-grid \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important;/,
+  );
+  assert.match(panelSource, /minHeight: "clamp\(220px, 46vw, 280px\)"/);
+  assert.match(panelSource, /aria-label="Inventory usage trend chart"/);
+  assert.match(panelSource, /role="img"/);
+  assert.match(panelSource, /className="mayor-inventory-forecast-input-summary-grid"/);
+  assert.match(panelSource, /className="mayor-inventory-forecast-usage-summary-grid"/);
+  assert.match(panelSource, /overflowX: "auto"/);
+  assert.doesNotMatch(panelSource, /overflowX:\s*"hidden"/);
+  assert.match(panelSource, /stockActionColumnWidths/);
+  assert.match(panelSource, /className="mayor-inventory-forecast-stock-actions-table"/);
+  assert.match(panelSource, />\s*Items\s*</);
+  assert.match(panelSource, /\["Items", "Request", "Urgency"\]/);
+  assert.match(panelSource, /className="mayor-inventory-forecast-detailed-results-table"/);
+  assert.match(panelSource, /\[\s*\["Items", panelStyles\.detailedColumnWidths\.item\]/);
+  assert.match(panelSource, /detailedColumnWidths/);
+  assert.match(panelSource, /Forecast Need/);
+  assert.match(panelSource, /After Forecast/);
+  assert.match(panelSource, /Detailed Results by Item/);
+  assert.match(panelSource, /Forecast Run History/);
+  assert.match(panelSource, /overflowWrap: "anywhere"/);
+  assert.match(
+    cssSource,
+    /\.mayor-inventory-forecast-stock-actions-table th \{[\s\S]*?white-space: nowrap !important;/,
+  );
+  assert.match(
+    cssSource,
+    /\.mayor-inventory-forecast-stock-actions-table td \{[\s\S]*?white-space: nowrap;[\s\S]*?word-break: normal;/,
+  );
+  assert.match(
+    cssSource,
+    /\.mayor-inventory-forecast-detailed-results-table \{[\s\S]*?min-width: 1440px !important;/,
+  );
+  assert.match(
+    cssSource,
+    /\.mayor-inventory-forecast-detailed-results-table th \{[\s\S]*?white-space: nowrap !important;/,
+  );
+  assert.match(
+    cssSource,
+    /\.mayor-inventory-forecast-detailed-results-table td \{[\s\S]*?white-space: nowrap;[\s\S]*?word-break: normal;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.mayor-inventory-forecast-stock-actions-table \{[\s\S]*?min-width: 760px !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.mayor-inventory-forecast-usage-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.mayor-inventory-forecast-input-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+  );
+  assert.match(panelSource, /id="forecast-model-validation"/);
+  assert.match(panelSource, /Historical Model Evaluation/);
+  assert.doesNotMatch(panelSource, /Suggested Model|Suggested model for this event|How the three models differ/);
+  assert.match(validationSource, /Candidate Model/);
+  assert.match(validationSource, /MAE/);
+  assert.match(validationSource, /RMSE/);
+  assert.match(validationSource, /Statistical Forecast/);
+  assert.match(validationSource, /Backtest Points/);
+  assert.match(validationSource, /METRIC_TIE/);
+  assert.match(validationSource, /NO_DISCRIMINATING_SIGNAL/);
+  assert.match(validationSource, /INSUFFICIENT_HISTORY/);
+  assert.match(validationSource, /CANDIDATE_UNAVAILABLE/);
+  assert.match(validationSource, /OPERATIONAL_FALLBACK/);
+  assert.match(validationSource, /Historical model evaluation evidence is unavailable for this item/);
+  assert.match(validationSource, /typeof value === "number" && Number\.isFinite\(value\)/);
+  assert.match(validationSource, /candidate\?\.mae/);
+
+  assert.match(modalSource, /padding: "clamp\(12px, 4vw, 24px\)"/);
+  assert.match(modalSource, /fontSize: "clamp\(21px, 5vw, 26px\)"/);
+  assert.match(modalSource, /maxHeight: "min\(90vh, 720px\)"/);
+  assert.doesNotMatch(modalSource, /forecast-export-event/);
+  assert.match(modalSource, /forecastRun\?\.id/);
+  assert.match(modalSource, /disabled=\{isDisabled\}/);
+});
+

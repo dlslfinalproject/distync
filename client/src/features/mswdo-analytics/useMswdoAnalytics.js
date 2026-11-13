@@ -1,0 +1,524 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "../../context/AuthContext.jsx";
+import {
+  fetchActiveDisasterEvents,
+  fetchBarangays,
+  fetchDisasterEvents,
+  fetchMasterlistOperationalAnalytics,
+} from "./mswdoAnalyticsService";
+import {
+  AGE_BASED_MEMBER_SECTOR_CODES,
+  DISPLAY_MEMBER_SECTOR_CODES,
+  HOUSEHOLD_CONDITION_CODES,
+  formatMasterlistFilterSectorLabel,
+  getCanonicalMemberSectorCode,
+} from "../../utils/registrationOptions";
+import { readOperationalDisasterEventContext, readOperationalDisasterEventId, persistOperationalDisasterEventSelection } from "../disaster-events/operationalDisasterEventSelection.js";
+import { readMswdoOfflineSnapshot } from "../offline/mswdoOfflinePreparation.js";
+import { mapBarangayCoverageDistribution } from "./barangayCoverage.mjs";
+import { useDashboardRevalidation } from "../../utils/dashboardRevalidation";
+
+const emptyOperationalPayload = {
+  disaster_event: null,
+  filters: {
+    disaster_event_id: null,
+    barangay_id: null,
+  },
+  summary_metrics: {
+    total_number_of_evacuees_individuals: 0,
+    total_number_of_families: 0,
+    average_household_size: 0,
+    currently_admitted_evacuees: 0,
+    total_departed_evacuees: 0,
+    total_barangays_covered: 0,
+  },
+  charts: {
+    per_barangay: [],
+    sex_distribution: [],
+    age_group_distribution: [],
+    sector_distribution: [],
+    stay_type_distribution: [],
+    evacuation_center_distribution: [],
+    relief_distribution_per_barangay: [],
+    daily_admission_trend: [],
+  },
+  has_data: false,
+};
+
+const sortByValueDescending = (items) => {
+  return [...items].sort((firstItem, secondItem) => secondItem.value - firstItem.value);
+};
+
+const mapPerBarangayDataset = (dashboardPayload) => {
+  const items = dashboardPayload.charts?.per_barangay || [];
+
+  return items.map((item) => ({
+    barangay_id: item.barangay_id,
+    barangay_name: item.barangay_name || "Unknown",
+    families_count: Number(item.families_count || 0),
+    evacuees_count: Number(item.evacuees_count || 0),
+    admitted_evacuees_count: Number(item.admitted_evacuees_count || 0),
+    departed_evacuees_count: Number(item.departed_evacuees_count || 0),
+  }));
+};
+
+const mapSummaryMetrics = (summary) => ({
+  totalEvacuees: Number(summary.total_number_of_evacuees_individuals || 0),
+  totalHouseholds: Number(summary.total_number_of_families || 0),
+  currentlyAdmitted: Number(summary.currently_admitted_evacuees || 0),
+  departed: Number(summary.total_departed_evacuees || 0),
+  totalBarangaysCovered: Number(summary.total_barangays_covered || 0),
+  averageHouseholdSize: Number(summary.average_household_size || 0),
+});
+
+const mapSimpleDistribution = (items = []) => {
+  return sortByValueDescending(
+    items.map((item) => ({
+      name: item.name || "Unknown",
+      value: Number(item.value || 0),
+    })),
+  );
+};
+
+const getSectorChartCode = (item) => {
+  return getCanonicalMemberSectorCode(item?.code || item?.name || "");
+};
+
+const mapSectorDistribution = (items = []) => {
+  return items
+    .map((item) => {
+      const code = getSectorChartCode(item);
+
+      return {
+        code,
+        name: formatMasterlistFilterSectorLabel(code) || item.name || "Unknown",
+        sectorGroup: item.sector_group || item.sectorGroup || "",
+        value: Number(item.value || 0),
+      };
+    })
+    .filter((item) => item.value > 0);
+};
+
+const orderSectorDistribution = (items, orderedCodes) => {
+  const orderIndexByCode = new Map(
+    orderedCodes.map((sectorCode, index) => [sectorCode, index]),
+  );
+
+  return [...items].sort((left, right) => {
+    const leftIndex = orderIndexByCode.get(left.code) ?? Number.MAX_SAFE_INTEGER;
+    const rightIndex = orderIndexByCode.get(right.code) ?? Number.MAX_SAFE_INTEGER;
+
+    if (leftIndex !== rightIndex) {
+      return leftIndex - rightIndex;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
+};
+
+const mapPerBarangayCounts = (items, valueKey) => {
+  return items
+    .map((item) => ({
+      name: item.barangay_name,
+      value: Number(item[valueKey] || 0),
+    }))
+    .sort((firstItem, secondItem) =>
+      firstItem.name.localeCompare(secondItem.name),
+    );
+};
+
+const mapAdmittedVsDepartedDistribution = (summary) => {
+  return [
+    {
+      name: "Admitted",
+      value: Number(summary.currently_admitted_evacuees || 0),
+    },
+    {
+      name: "Departed",
+      value: Number(summary.total_departed_evacuees || 0),
+    },
+  ].filter((item) => item.value > 0);
+};
+
+const getAffectedBarangayIds = (event) => {
+  const barangayRows = event?.affected_barangays || event?.barangays || [];
+  const barangayIds = event?.affected_barangay_ids || event?.barangay_ids || [];
+
+  if (Array.isArray(barangayIds) && barangayIds.length > 0) {
+    return barangayIds.filter(Boolean);
+  }
+
+  if (!Array.isArray(barangayRows)) {
+    return [];
+  }
+
+  return barangayRows
+    .map((barangay) => {
+      if (typeof barangay === "string") {
+        return barangay;
+      }
+
+      return barangay?.id || barangay?.barangay_id || barangay?.barangay?.id || "";
+    })
+    .filter(Boolean);
+};
+
+export const useMswdoAnalytics = () => {
+  const { authenticatedUser } = useAuth();
+  const userId = authenticatedUser?.id || "";
+  const [disasterEvents, setDisasterEvents] = useState([]);
+  const [barangays, setBarangays] = useState([]);
+  const [selectedDisasterEventId, setSelectedDisasterEventId] = useState(() => readOperationalDisasterEventId({ roleCode: "MSWDO", userId }));
+  const [selectedBarangayId, setSelectedBarangayId] = useState("");
+  const [operationalPayload, setOperationalPayload] = useState(emptyOperationalPayload);
+  const [isLoadingFilters, setIsLoadingFilters] = useState(true);
+  const [isRefreshingFilters, setIsRefreshingFilters] = useState(false);
+  const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
+  const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  const [filtersReloadKey, setFiltersReloadKey] = useState(0);
+  const backgroundFiltersReloadRef = useRef(false);
+  const backgroundDashboardReloadRef = useRef(false);
+  const hasLoadedFiltersRef = useRef(false);
+  const hasLoadedDashboardRef = useRef(false);
+
+  const reloadDashboard = (options = {}) => {
+    const isBackground = Boolean(options?.background);
+
+    backgroundFiltersReloadRef.current = isBackground;
+    backgroundDashboardReloadRef.current = isBackground;
+    if (isBackground) {
+      setFiltersReloadKey((value) => value + 1);
+    }
+    setReloadKey((value) => value + 1);
+  };
+
+  useDashboardRevalidation(
+    () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return;
+      }
+
+      reloadDashboard({ background: true });
+    },
+    { enabled: true },
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadInitialFilters = async () => {
+      const isBackgroundReload = backgroundFiltersReloadRef.current;
+      backgroundFiltersReloadRef.current = false;
+      const preserveExistingFilters =
+        isBackgroundReload && hasLoadedFiltersRef.current;
+
+      if (!preserveExistingFilters) {
+        setIsLoadingFilters(true);
+      }
+      setIsRefreshingFilters(preserveExistingFilters);
+      setErrorMessage("");
+
+      try {
+        const [eventsPayload, activePayload, barangaysPayload] = await Promise.all([
+          fetchDisasterEvents(),
+          fetchActiveDisasterEvents(),
+          fetchBarangays(),
+        ]);
+
+        if (!isMounted) {
+          return;
+        }
+
+        const restoredEvent = readOperationalDisasterEventContext({ roleCode: "MSWDO", userId });
+        const allEvents = Array.isArray(eventsPayload) ? eventsPayload : restoredEvent ? [restoredEvent] : [];
+        const activeEvents = Array.isArray(activePayload) ? activePayload : [];
+        const barangayRows = Array.isArray(barangaysPayload) ? barangaysPayload : [];
+
+        setDisasterEvents(allEvents);
+        setBarangays(barangayRows);
+        hasLoadedFiltersRef.current = true;
+
+        const storedEventId = readOperationalDisasterEventId({ roleCode: "MSWDO", userId });
+        const availableEventIds = new Set(allEvents.map((event) => event.id));
+        const nextEventId =
+          [selectedDisasterEventId, storedEventId].find((eventId) =>
+            availableEventIds.has(eventId),
+          ) || activeEvents[0]?.id || allEvents[0]?.id || "";
+
+        setSelectedDisasterEventId(nextEventId);
+      } catch (error) {
+        if (isMounted) {
+          const isOffline =
+            typeof navigator !== "undefined" && navigator.onLine === false;
+
+          if (isOffline) {
+            const restoredEvent = readOperationalDisasterEventContext({ roleCode: "MSWDO", userId });
+            const cached = restoredEvent ? await readMswdoOfflineSnapshot({ userId, eventId: restoredEvent.id }) : null;
+            if (cached) {
+              setDisasterEvents(cached.datasets.filters.events || [restoredEvent]);
+              setBarangays(cached.datasets.filters.barangays || []);
+              setSelectedDisasterEventId(restoredEvent.id);
+              setErrorMessage("");
+              return;
+            }
+          }
+
+          if (preserveExistingFilters) {
+            setErrorMessage("Unable to refresh analytics filters. Showing the last successful data.");
+          } else {
+            setErrorMessage(error.message || "Failed to load analytics filters");
+          }
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingFilters(false);
+          setIsRefreshingFilters(false);
+        }
+      }
+    };
+
+    loadInitialFilters();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [filtersReloadKey]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadDashboard = async () => {
+      if (!selectedDisasterEventId) {
+        setOperationalPayload(emptyOperationalPayload);
+        setIsRefreshingDashboard(false);
+        hasLoadedDashboardRef.current = false;
+        return;
+      }
+
+      const isBackgroundReload = backgroundDashboardReloadRef.current;
+      backgroundDashboardReloadRef.current = false;
+      const preserveExistingDashboard =
+        isBackgroundReload && hasLoadedDashboardRef.current;
+
+      if (!preserveExistingDashboard) {
+        setIsLoadingDashboard(true);
+      }
+      setIsRefreshingDashboard(preserveExistingDashboard);
+      setErrorMessage("");
+
+      try {
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+          const cached = await readMswdoOfflineSnapshot({ userId, eventId: selectedDisasterEventId });
+          if (!cached) {
+            throw new Error("Offline analytics snapshot is not ready");
+          }
+
+          setOperationalPayload(cached.datasets.dashboard.payload || emptyOperationalPayload);
+          hasLoadedDashboardRef.current = true;
+          return;
+        }
+
+        const payload = await fetchMasterlistOperationalAnalytics({
+          disasterEventId: selectedDisasterEventId,
+          barangayId: selectedBarangayId || null,
+        });
+
+        if (isMounted) {
+          setOperationalPayload(payload);
+          hasLoadedDashboardRef.current = true;
+        }
+      } catch (error) {
+        if (isMounted) {
+          if (preserveExistingDashboard) {
+            setErrorMessage("Unable to refresh analytics. Showing the last successful data.");
+            return;
+          }
+
+          setOperationalPayload(emptyOperationalPayload);
+          hasLoadedDashboardRef.current = false;
+          setErrorMessage(error.message || "Failed to load analytics dashboard");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingDashboard(false);
+          setIsRefreshingDashboard(false);
+        }
+      }
+    };
+
+    loadDashboard();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
+
+  useEffect(() => {
+    if (!selectedDisasterEventId || !userId) return;
+    const event = disasterEvents.find((row) => row.id === selectedDisasterEventId) || null;
+    persistOperationalDisasterEventSelection({ roleCode: "MSWDO", userId, eventId: selectedDisasterEventId, eventScope: event?.status === "ACTIVE" ? "active" : "ended", event });
+  }, [disasterEvents, selectedDisasterEventId, userId]);
+
+  const selectedDisasterEvent = useMemo(() => {
+    return disasterEvents.find((event) => event.id === selectedDisasterEventId) || null;
+  }, [disasterEvents, selectedDisasterEventId]);
+
+  const selectableBarangays = useMemo(() => {
+    const affectedBarangayIds = getAffectedBarangayIds(selectedDisasterEvent);
+
+    if (affectedBarangayIds.length === 0) {
+      return barangays;
+    }
+
+    const affectedBarangayIdSet = new Set(affectedBarangayIds);
+
+    return barangays.filter((barangay) => affectedBarangayIdSet.has(barangay.id));
+  }, [barangays, selectedDisasterEvent]);
+
+  useEffect(() => {
+    if (!selectedBarangayId) {
+      return;
+    }
+
+    const isSelectedBarangayAvailable = selectableBarangays.some(
+      (barangay) => barangay.id === selectedBarangayId,
+    );
+
+    if (!isSelectedBarangayAvailable) {
+      setSelectedBarangayId("");
+    }
+  }, [selectableBarangays, selectedBarangayId]);
+
+  const summaryMetrics = useMemo(() => {
+    return mapSummaryMetrics(operationalPayload.summary_metrics || {});
+  }, [operationalPayload.summary_metrics]);
+
+  const perBarangayDataset = useMemo(() => {
+    return mapPerBarangayDataset(operationalPayload);
+  }, [operationalPayload]);
+
+  const evacueesPerBarangay = useMemo(() => {
+    return mapPerBarangayCounts(perBarangayDataset, "evacuees_count");
+  }, [perBarangayDataset]);
+
+  const familiesPerBarangay = useMemo(() => {
+    return mapPerBarangayCounts(perBarangayDataset, "families_count");
+  }, [perBarangayDataset]);
+
+  const sexDistribution = useMemo(() => {
+    return mapSimpleDistribution(operationalPayload.charts?.sex_distribution);
+  }, [operationalPayload.charts?.sex_distribution]);
+
+  const ageGroupDistribution = useMemo(() => {
+    return (operationalPayload.charts?.age_group_distribution || []).map((item) => ({
+      name: item.name || "Unknown",
+      value: Number(item.value || 0),
+    }));
+  }, [operationalPayload.charts?.age_group_distribution]);
+
+  const sectorDistribution = useMemo(() => {
+    return mapSectorDistribution(operationalPayload.charts?.sector_distribution);
+  }, [operationalPayload.charts?.sector_distribution]);
+
+  const ageBasedSectorDistribution = useMemo(() => {
+    return orderSectorDistribution(
+      sectorDistribution.filter((item) =>
+        AGE_BASED_MEMBER_SECTOR_CODES.includes(item.code),
+      ),
+      AGE_BASED_MEMBER_SECTOR_CODES,
+    );
+  }, [sectorDistribution]);
+
+  const nonAgeBasedSectorDistribution = useMemo(() => {
+    const nonAgeBasedCodes = DISPLAY_MEMBER_SECTOR_CODES.filter(
+      (sectorCode) => !AGE_BASED_MEMBER_SECTOR_CODES.includes(sectorCode),
+    );
+
+    return orderSectorDistribution(
+      sectorDistribution.filter((item) => nonAgeBasedCodes.includes(item.code)),
+      nonAgeBasedCodes,
+    );
+  }, [sectorDistribution]);
+
+  const householdConditionDistribution = useMemo(() => {
+    return orderSectorDistribution(
+      sectorDistribution.filter((item) =>
+        HOUSEHOLD_CONDITION_CODES.includes(item.code),
+      ),
+      HOUSEHOLD_CONDITION_CODES,
+    );
+  }, [sectorDistribution]);
+
+  const stayTypeDistribution = useMemo(() => {
+    return mapSimpleDistribution(operationalPayload.charts?.stay_type_distribution);
+  }, [operationalPayload.charts?.stay_type_distribution]);
+
+  const admittedVsDepartedDistribution = useMemo(() => {
+    return mapAdmittedVsDepartedDistribution(
+      operationalPayload.summary_metrics || emptyOperationalPayload.summary_metrics,
+    );
+  }, [operationalPayload.summary_metrics]);
+
+  const eventAffectedBarangayIds = useMemo(() => {
+    return getAffectedBarangayIds(selectedDisasterEvent);
+  }, [selectedDisasterEvent]);
+
+  const barangayCoverageCount =
+    eventAffectedBarangayIds.length > 0
+      ? eventAffectedBarangayIds.length
+      : summaryMetrics.totalBarangaysCovered;
+
+  const barangayCoverageDistribution = useMemo(() => {
+    return mapBarangayCoverageDistribution({
+      barangays: selectableBarangays,
+      coveredCount: barangayCoverageCount,
+    });
+  }, [barangayCoverageCount, selectableBarangays]);
+
+  const evacuationCenterDistribution = useMemo(() => {
+    return mapSimpleDistribution(
+      operationalPayload.charts?.evacuation_center_distribution,
+    );
+  }, [operationalPayload.charts?.evacuation_center_distribution]);
+
+  return {
+    disasterEvents,
+    barangays: selectableBarangays,
+    allBarangays: barangays,
+    selectedDisasterEventId,
+    selectedBarangayId,
+    selectedDisasterEvent,
+    summaryMetrics,
+    barangayHeatmap:
+      operationalPayload.disaster_event?.id === selectedDisasterEventId &&
+      Array.isArray(operationalPayload.barangay_heatmap)
+        ? operationalPayload.barangay_heatmap
+        : null,
+    evacueesPerBarangay,
+    familiesPerBarangay,
+    sexDistribution,
+    ageGroupDistribution,
+    ageBasedSectorDistribution,
+    nonAgeBasedSectorDistribution,
+    householdConditionDistribution,
+    stayTypeDistribution,
+    admittedVsDepartedDistribution,
+    barangayCoverageDistribution,
+    barangayCoverageCount,
+    evacuationCenterDistribution,
+    isLoadingFilters,
+    isInitialLoadingFilters: isLoadingFilters && !isRefreshingFilters,
+    isRefreshingFilters,
+    isLoadingDashboard,
+    isInitialLoadingDashboard: isLoadingDashboard && !isRefreshingDashboard,
+    isRefreshingDashboard,
+    errorMessage,
+    hasSelectedEvent: Boolean(selectedDisasterEventId),
+    hasData: Boolean(operationalPayload.has_data),
+    setSelectedDisasterEventId,
+    setSelectedBarangayId,
+    reloadDashboard,
+  };
+};

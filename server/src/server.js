@@ -1,0 +1,117 @@
+const path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
+
+let app;
+let pool;
+let notificationService;
+let disasterEventService;
+let inventoryTransactionService;
+let inventoryBatchStatusService;
+let httpServer;
+
+try {
+  const {
+    AccessModeConfigurationError,
+    getServerAccessMode,
+    isDevelopmentBypassEnabled,
+  } = require("./config/accessMode");
+  const {
+    assertInventoryStateBasisSecretConfigured,
+  } = require("./utils/inventoryStateBasis");
+
+  getServerAccessMode();
+  isDevelopmentBypassEnabled();
+  assertInventoryStateBasisSecretConfigured();
+  pool = require("./config/db");
+  app = require("./app");
+  notificationService = require("./modules/notifications/notification.service");
+  disasterEventService = require("./services/disasterEvent.service");
+  inventoryTransactionService = require("./services/inventoryTransaction.service");
+  inventoryBatchStatusService = require("./services/inventoryBatchStatus.service");
+} catch (error) {
+  if (error.name === "AccessModeConfigurationError") {
+    console.error(error.message);
+    process.exit(1);
+  }
+
+  console.error("Failed to initialize server configuration:", error.message);
+  process.exit(1);
+}
+
+const PORT = process.env.PORT || 5000;
+const isStartupMaintenanceEnabled =
+  process.env.ENABLE_STARTUP_MAINTENANCE !== "false";
+const isInventoryBatchStatusMaintenanceEnabled =
+  process.env.ENABLE_INVENTORY_BATCH_STATUS_MAINTENANCE === "true";
+
+const startServer = async () => {
+  try {
+    await pool.verifyConnection();
+
+    if (isStartupMaintenanceEnabled) {
+      try {
+        await disasterEventService.syncOverdueActiveDisasterEvents();
+      } catch (disasterEventSyncError) {
+        console.error(
+          `Automatic disaster event closure sync failed: ${disasterEventSyncError.message}`,
+        );
+      }
+      disasterEventService.startDisasterEventLifecycleMaintenance();
+      try {
+        await notificationService.initializeNotificationInfrastructure();
+      } catch (notificationError) {
+        console.error(
+          `Notification infrastructure failed to initialize: ${notificationError.message}`,
+        );
+      }
+      try {
+        await inventoryTransactionService.initializeInventoryDomainEffectRecovery();
+      } catch (inventoryDomainEffectError) {
+        console.error(
+          `Inventory domain effect recovery failed: ${inventoryDomainEffectError.message}`,
+        );
+      }
+      if (isInventoryBatchStatusMaintenanceEnabled) {
+        try {
+          await inventoryBatchStatusService.initializeInventoryBatchStatusMaintenance();
+        } catch (inventoryBatchStatusMaintenanceError) {
+          console.error(
+            "Inventory batch status maintenance failed to initialize:",
+            inventoryBatchStatusMaintenanceError.message,
+          );
+        }
+      }
+    } else {
+      console.log("Startup maintenance disabled by ENABLE_STARTUP_MAINTENANCE=false.");
+    }
+
+    httpServer = app.listen(PORT, () => {
+      console.log(`DISTYNC server running on port ${PORT}`);
+    });
+
+    httpServer.on("error", (error) => {
+      console.error(`DISTYNC server listener error: ${error.message}`);
+    });
+
+    httpServer.on("close", () => {
+      console.error("DISTYNC server listener closed unexpectedly.");
+    });
+  } catch (error) {
+    const debugInfo = pool.getSafeDatabaseDebugInfo();
+
+    console.error(
+      `Failed to start server because PostgreSQL connection could not be established (host: ${debugInfo.host}, ssl: ${debugInfo.sslEnabled ? "enabled" : "disabled"})`,
+    );
+    console.error(`PostgreSQL startup error: ${error.message}`);
+
+    if (debugInfo.isSupabaseHost) {
+      console.error(
+        "If the direct Supabase host still fails locally, replace DATABASE_URL with the Supabase Session pooler connection string from the Supabase dashboard.",
+      );
+    }
+
+    process.exit(1);
+  }
+};
+
+startServer();

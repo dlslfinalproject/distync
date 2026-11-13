@@ -1,0 +1,411 @@
+import React, { useEffect, useState } from "react";
+import { shellStyles } from "../layout/BarangayLayout";
+import StatusPill from "../shared/StatusPill";
+import TableActionsMenu from "../shared/TableActionsMenu";
+import TablePagination from "../shared/TablePagination";
+import { FiEdit2, FiFileText } from "react-icons/fi";
+import {
+  formatDisasterEventDate,
+  getAffectedBarangayDisplayItems,
+} from "../../features/disaster-events/disasterEventFormatters";
+import {
+  DEFAULT_TABLE_PAGE_SIZE,
+  getTablePaginationState,
+  TABLE_PAGE_SIZE_OPTIONS,
+} from "../../features/pagination/pagination.mjs";
+
+const tableStyles = {
+  table: {
+    width: "100%",
+    maxWidth: "100%",
+    borderCollapse: "collapse",
+    tableLayout: "auto",
+  },
+  headerCell: {
+    padding: "14px 12px",
+    textAlign: "center",
+    fontSize: "12px",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: "#66809c",
+    borderBottom: "1px solid #e0eaf4",
+    whiteSpace: "nowrap",
+    lineHeight: 1.4,
+  },
+  bodyCell: {
+    padding: "16px 12px",
+    color: "#21405f",
+    borderBottom: "1px solid #edf3f8",
+    fontSize: "14px",
+    verticalAlign: "middle",
+    textAlign: "center",
+    lineHeight: 1.5,
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+    wordBreak: "normal",
+  },
+  dropdownButton: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "12px",
+    width: "40px",
+    height: "40px",
+    backgroundColor: "#f7fbfe",
+    color: "#24496e",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
+  endedRow: {
+    backgroundColor: "#f8fbfe",
+  },
+  endedBodyCell: {
+    color: "#5f7690",
+  },
+  affectedBarangayChip: {
+    display: "inline-block",
+    minWidth: "36px",
+    textAlign: "center",
+    padding: "6px 10px",
+    borderRadius: "999px",
+    backgroundColor: "#e5f1fb",
+    color: "#356592",
+    fontSize: "12px",
+    fontWeight: 700,
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+  },
+  endedAffectedBarangayChip: {
+    backgroundColor: "#eef5fb",
+    color: "#6a87a6",
+  },
+};
+
+const DisasterEventsTable = ({
+  rows,
+  isLoading,
+  errorMessage,
+  onViewEvent,
+  onEditEvent,
+  onExportEvent,
+  validBarangayCount = 0,
+}) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const pagination = getTablePaginationState({
+    totalItems: safeRows.length,
+    currentPage,
+    pageSize,
+    pageSizeOptions: TABLE_PAGE_SIZE_OPTIONS,
+  });
+  const paginatedRows = safeRows.slice(
+    (pagination.currentPage - 1) * pagination.pageSize,
+    pagination.currentPage * pagination.pageSize,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [rows]);
+
+  useEffect(() => {
+    setCurrentPage((previousPage) => {
+      if (pagination.totalPages === 0) {
+        return 1;
+      }
+
+      return Math.min(Math.max(previousPage, 1), pagination.totalPages);
+    });
+  }, [pagination.totalPages]);
+
+  const handlePageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+
+    if (!TABLE_PAGE_SIZE_OPTIONS.includes(nextPageSize)) {
+      return;
+    }
+
+    setPageSize(nextPageSize);
+    setCurrentPage(1);
+  };
+
+  if (isLoading) {
+    return (
+      <div style={{ width: "100%" }}>
+        <h3 style={{ marginTop: 0, color: "#17324d" }}>Disaster Events</h3>
+        <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
+          Loading disaster events...
+        </p>
+      </div>
+    );
+  }
+
+  if (errorMessage) {
+    return (
+      <div style={{ width: "100%" }}>
+        <h3 style={{ marginTop: 0, color: "#17324d" }}>Disaster Events</h3>
+        <p
+          style={{
+            ...shellStyles.mutedText,
+            marginTop: "10px",
+            color: "#a14d58",
+          }}
+        >
+          {errorMessage}
+        </p>
+      </div>
+    );
+  }
+
+  if (safeRows.length === 0) {
+    return (
+      <div style={{ width: "100%" }}>
+        <h3 style={{ marginTop: 0, color: "#17324d" }}>Disaster Events</h3>
+        <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
+          No matching records found. Try adjusting your search or filters.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ width: "100%" }}>
+      <div style={{ marginBottom: "18px" }}>
+        <h3 style={{ margin: 0, color: "#17324d" }}>Disaster Events</h3>
+      </div>
+
+      <TablePagination
+        totalItems={pagination.totalItems}
+        currentPage={pagination.currentPage}
+        pageSize={pagination.pageSize}
+        pageSizeOptions={TABLE_PAGE_SIZE_OPTIONS}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={handlePageSizeChange}
+        isVisible={!isLoading && !errorMessage && pagination.totalItems > 0}
+        ariaLabel="Disaster event management pagination"
+        previousAriaLabel="Go to previous disaster event page"
+        nextAriaLabel="Go to next disaster event page"
+      />
+
+      <div className="disaster-events-table-scroll" style={{ width: "100%", minWidth: 0 }}>
+        <table className="disaster-events-table" style={tableStyles.table}>
+          <thead>
+            <tr>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  width: "20%",
+                  textAlign: "left",
+                }}
+              >
+                Disaster Event
+              </th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  width: "13%",
+                  textAlign: "left",
+                }}
+              >
+                Disaster Type
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "22%" }}>
+                Affected Barangays
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "11%" }}>
+                Start Date
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "11%" }}>
+                End Date
+              </th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  width: "12%",
+                  textAlign: "center",
+                }}
+              >
+                Status
+              </th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  width: "10%",
+                  textAlign: "center",
+                }}
+              >
+                Action
+              </th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {paginatedRows.map((row) => {
+              const isEndedRow = row.status !== "ACTIVE";
+              const affectedBarangayDisplayItems =
+                getAffectedBarangayDisplayItems(
+                  row.affected_barangays,
+                  validBarangayCount,
+                );
+              const actionItems = [
+                {
+                  key: "edit",
+                  label: "Edit Disaster Event",
+                  icon: <FiEdit2 size={18} />,
+                  disabled: typeof onEditEvent !== "function",
+                  title: "Edit Disaster Event Details",
+                  onClick: (selectedRow) => onEditEvent?.(selectedRow.id),
+                },
+                {
+                  key: "export",
+                  label: "Export Disaster Event",
+                  icon: <FiFileText size={18} />,
+                  disabled: typeof onExportEvent !== "function",
+                  title: "Export Disaster Event",
+                  onClick: (selectedRow) => onExportEvent?.(selectedRow),
+                },
+              ];
+
+              return (
+                <tr
+                  key={row.id}
+                  style={{
+                    borderBottom: "1px solid #edf3f8",
+                    ...(isEndedRow ? tableStyles.endedRow : {}),
+                  }}
+                >
+                  <td
+                    className="disaster-events-text-cell"
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                      textAlign: "left",
+                    }}
+                  >
+                    {row.title}
+                  </td>
+
+                  <td
+                    className="disaster-events-text-cell"
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                      textAlign: "left",
+                    }}
+                  >
+                    {row.disaster_type}
+                  </td>
+
+                  <td
+                    className="disaster-events-barangays-cell"
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                    }}
+                  >
+                    {affectedBarangayDisplayItems.length ? (
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: "6px",
+                          maxWidth: "100%",
+                          justifyContent: "center",
+                        }}
+                      >
+                        {affectedBarangayDisplayItems.map((brgy, index) => (
+                          <span
+                            key={brgy.id || brgy.name || brgy || index}
+                            className="disaster-events-barangay-chip"
+                            style={{
+                              ...tableStyles.affectedBarangayChip,
+                              ...(isEndedRow
+                                ? tableStyles.endedAffectedBarangayChip
+                                : {}),
+                            }}
+                          >
+                            {brgy.name || brgy}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span style={{ color: "#9aa9b8" }}>-</span>
+                    )}
+                  </td>
+
+                  <td
+                    className="disaster-events-date-cell"
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {formatDisasterEventDate(row.start_date)}
+                  </td>
+
+                  <td
+                    className="disaster-events-date-cell"
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {formatDisasterEventDate(row.end_date)}
+                  </td>
+
+                  <td
+                    className="disaster-events-status-cell"
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                      textAlign: "center",
+                    }}
+                  >
+                    <StatusPill status={row.status} />
+                  </td>
+
+                  <td
+                    className="disaster-events-actions-cell"
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                      textAlign: "center",
+                      position: "relative",
+                    }}
+                  >
+                    {row.status === "ACTIVE" ? (
+                      <TableActionsMenu
+                        row={row}
+                        menuId={row.id}
+                        buttonTitle="Actions"
+                        buttonAriaLabel="Actions"
+                        dataPrefix="disaster-event-action"
+                        menuWidth={116}
+                        variant="icon-grid"
+                        items={actionItems}
+                      />
+                    ) : (
+                      <button
+                        className="disaster-events-ended-export-button"
+                        type="button"
+                        onClick={() => onExportEvent?.(row)}
+                        style={tableStyles.dropdownButton}
+                        title="Export Disaster Event"
+                      >
+                        <FiFileText size={18} />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+export default DisasterEventsTable;

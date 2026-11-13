@@ -1,0 +1,221 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import path from "node:path";
+import test from "node:test";
+
+const sourcePath = (...segments) => path.join(process.cwd(), "src", ...segments);
+
+const readSource = (relativePath) =>
+  fs.readFile(sourcePath(...relativePath), "utf8");
+
+const normalizeSource = (source) => source.replace(/\r\n/g, "\n");
+
+const assertOrdered = (source, markers) => {
+  let previousIndex = -1;
+
+  for (const marker of markers) {
+    const index = source.indexOf(marker, previousIndex + 1);
+
+    assert.ok(index >= 0, `Missing structural marker: ${marker}`);
+    assert.ok(index > previousIndex, `Expected marker after previous: ${marker}`);
+    previousIndex = index;
+  }
+};
+
+test("Distribution History requests authoritative server pages without old 500/1000 row caps", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+
+  assert.doesNotMatch(source, /limit:\s*filters\.disaster_event_id \? 500 : 1000/);
+  assert.match(source, /mode:\s*isSummaryMode \? "summary" : "detail"/);
+  assert.match(source, /search:\s*searchTerm\.trim\(\)/);
+  assert.match(source, /page,\s*\n\s*pageSize,/);
+  assert.doesNotMatch(source, /visibleHistoryRows\s*=\s*useMemo/);
+  assert.doesNotMatch(source, /visibleSummaryRows\s*=\s*useMemo/);
+});
+
+test("Distribution History resets pagination when filters, search, order, or page size change", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+
+  assert.match(source, /const updateFilters = \(updater\) => \{\s*setPage\(1\);/);
+  assert.match(source, /const handleSearchChange = \(value\) => \{\s*setPage\(1\);/);
+  assert.match(source, /const handleSortOrderChange = \(value\) => \{\s*setPage\(1\);/);
+  assert.match(source, /const handlePageSizeChange = \(value\) => \{\s*setPage\(1\);/);
+});
+
+test("Distribution History centers claim status summary values in all-events mode", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+  const normalizedSource = normalizeSource(source);
+
+  assert.match(
+    normalizedSource,
+    /<th style=\{\{ \.\.\.tableStyles\.th, textAlign: "center" \}\}>\s*Claim Status Summary\s*<\/th>/,
+  );
+  assert.match(
+    normalizedSource,
+    /<td\s+className="distribution-history-text-cell"\s+style=\{\{ \.\.\.tableStyles\.td, textAlign: "center" \}\}\s*>\s*<div>Claimed:/,
+  );
+});
+
+test("Distribution History centers stub numbers in selected-event detail mode", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+  const normalizedSource = normalizeSource(source);
+
+  assert.match(
+    normalizedSource,
+    /<th style=\{\{ \.\.\.tableStyles\.th, textAlign: "center" \}\}>\s*Stub Number\s*<\/th>/,
+  );
+  assert.match(
+    normalizedSource,
+    /<td\s+className="distribution-history-identifier-cell"\s+style=\{\{ \.\.\.tableStyles\.td, textAlign: "center" \}\}\s*>\s*\{formatDisplayStubNumber\(row\)\}/,
+  );
+});
+
+test("Distribution History displays relief pack names without released item contents", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+  const normalizedSource = normalizeSource(source);
+
+  assert.match(normalizedSource, /row\.relief_pack_summary/);
+  assert.match(
+    normalizedSource,
+    /\{row\.relief_pack_template_name \|\| "--"\}/,
+  );
+  assert.match(normalizedSource, /reliefPackCell: \{\s*whiteSpace: "pre-line"/);
+  assert.match(
+    normalizedSource,
+    /distribution-history-relief-pack-cell[\s\S]*row\.relief_pack_summary/,
+  );
+  assert.match(
+    normalizedSource,
+    /distribution-history-relief-pack-cell[\s\S]*row\.relief_pack_template_name/,
+  );
+  assert.doesNotMatch(normalizedSource, /row\.released_items_summary/);
+});
+
+test("Distribution History renders accessible pagination controls outside table scroll", async () => {
+  const [pageSource, paginationSource, cssSource] = await Promise.all([
+    readSource(["pages", "DistributionHistoryPage.jsx"]),
+    readSource(["components", "shared", "TablePagination.jsx"]),
+    readSource(["index.css"]),
+  ]);
+  const normalizedPageSource = normalizeSource(pageSource);
+  const normalizedCssSource = normalizeSource(cssSource);
+
+  assert.match(normalizedPageSource, /<TablePagination/);
+  assert.match(normalizedPageSource, /ariaLabel="Distribution history pagination"/);
+  assert.match(normalizedPageSource, /previousAriaLabel="Go to previous distribution history page"/);
+  assert.match(normalizedPageSource, /nextAriaLabel="Go to next distribution history page"/);
+  assert.match(paginationSource, /Rows per page/);
+  assert.match(paginationSource, /FiChevronLeft/);
+  assert.match(paginationSource, /FiChevronRight/);
+  assert.match(paginationSource, /Page \{pagination\.currentPage\} of \{pagination\.totalPages\}/);
+  assert.match(
+    normalizedPageSource,
+    /<TablePagination[\s\S]*?className="distribution-history-table-scroll distribution-history-summary-scroll"/,
+  );
+  assert.match(normalizedCssSource, /\.table-pagination-bar/);
+  assert.match(normalizedCssSource, /\.table-pagination-button/);
+});
+
+test("Distribution History uses one canonical paginator above the active table", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+  const normalizedSource = normalizeSource(source);
+
+  assert.match(normalizedSource, /<TablePagination/);
+  assert.match(normalizedSource, /isVisible=\{!isInitialLoadingHistory && !errorMessage\}/);
+  assert.doesNotMatch(normalizedSource, /HistoryPaginationMetadata|HistoryPaginationNavigation/);
+  assert.doesNotMatch(normalizedSource, /Showing \{firstVisibleItem\}-\{lastVisibleItem\} of \{totalItems\}/);
+  assertOrdered(normalizedSource, [
+    '<section className="distribution-history-records-card"',
+    '<h3 className="table-card-title">Distribution Records</h3>',
+    "<TablePagination",
+    'className="distribution-history-table-scroll',
+    "<table className=",
+    "<thead>",
+  ]);
+  assert.doesNotMatch(
+    normalizedSource,
+    /distribution-history-pagination-|distribution-history-records-(?:header|title-group)/,
+  );
+});
+
+test("Distribution History clamps the page when the authoritative result set shrinks", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+
+  assert.match(source, /const safePage =\s*totalPages > 0/);
+  assert.match(source, /if \(page !== safePage\) \{\s*setPage\(safePage\)/);
+});
+
+test("Distribution History stale responses cannot overwrite newer page results", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+
+  assert.match(source, /const historyRequestIdRef = useRef\(0\)/);
+  assert.match(source, /historyRequestIdRef\.current = requestId/);
+  assert.match(source, /historyRequestIdRef\.current !== requestId/);
+});
+
+test("Distribution History export includes current search and omits current page params", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+
+  assert.match(source, /search:\s*searchTerm\.trim\(\)/);
+  assert.match(source, /search:\s*exportFilters\.search/);
+  assert.doesNotMatch(source, /exportDistributionHistory\(\{[\s\S]*?page,/);
+  assert.doesNotMatch(source, /exportDistributionHistory\(\{[\s\S]*?pageSize,/);
+});
+
+test("Distribution History uses the authorized inventory detail route and hides unsupported Mayor export", async () => {
+  const source = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+
+  assert.match(source, /fetchInventoryDistributionDetail\(row\.stub_id\)/);
+  assert.doesNotMatch(source, /fetchStubDetails\(row\.stub_id\)/);
+  assert.match(source, /const isMayor = currentRole === ROLE_CODES\.MAYOR/);
+  assert.match(source, /const canExport = !isMayor/);
+  assert.match(source, /\{canExport \? \(/);
+});
+
+test("Distribution History export modal exposes its report customizations", async () => {
+  const [pageSource, modalSource] = await Promise.all([
+    readSource(["pages", "DistributionHistoryPage.jsx"]),
+    readSource(["components", "shared", "ExportModal.jsx"]),
+  ]);
+  const normalizedPageSource = normalizeSource(pageSource);
+
+  assert.match(normalizedPageSource, /<ExportModal[\s\S]*?hideReportType/);
+  assert.match(normalizedPageSource, /placeFormatLast/);
+  assert.match(normalizedPageSource, /id="distribution-history-export-event"/);
+  assert.match(normalizedPageSource, /id="distribution-history-export-barangay"/);
+  assert.match(normalizedPageSource, /id="distribution-history-export-date-from"/);
+  assert.match(normalizedPageSource, /id="distribution-history-export-date-to"/);
+  assert.match(normalizedPageSource, /id="distribution-history-export-order-list"/);
+  assert.match(normalizedPageSource, /disaster_event_id: exportFilters\.disaster_event_id/);
+  assert.match(normalizedPageSource, /barangay_id: isBarangay \? "" : exportFilters\.barangay_id/);
+  assert.match(normalizedPageSource, /date_from: exportFilters\.date_from/);
+  assert.match(normalizedPageSource, /date_to: exportFilters\.date_to/);
+  assert.match(normalizedPageSource, /sort_order: exportFilters\.sort_order/);
+  assert.match(normalizedPageSource, /format: selectedExportFormat/);
+  assert.match(modalSource, /selectedFormat/);
+  assert.match(modalSource, /disabled=\{isSubmitting\}/);
+  assert.match(modalSource, /placeFormatLast/);
+});
+
+test("Distribution History validates date ranges before loading or exporting", async () => {
+  const source = normalizeSource(
+    await readSource(["pages", "DistributionHistoryPage.jsx"]),
+  );
+
+  assert.match(source, /const getDateRangeError =/);
+  assert.match(source, /Date From must be on or before Date To\./);
+  assert.match(source, /if \(historyDateRangeError\)/);
+  assert.match(source, /if \(exportDateRangeError\) \{/);
+  assert.match(source, /timeZone: "Asia\/Manila"/);
+  assert.match(source, /role="alert"/);
+});
+
+test("Distribution History displays the same claim timestamp used by the date filter", async () => {
+  const source = normalizeSource(
+    await readSource(["pages", "DistributionHistoryPage.jsx"]),
+  );
+
+  assert.match(source, /row\.latest_claimed_at \|\| row\.latest_distribution_date/);
+  assert.match(source, /row\.claimed_at \|\| row\.distribution_date/);
+  assert.match(source, /<th style=\{tableStyles\.th\}>Claimed At<\/th>/);
+});

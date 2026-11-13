@@ -1,0 +1,57 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import test from "node:test";
+
+const readSource = (file) =>
+  fs.readFile(new URL(`../src/${file}`, import.meta.url), "utf8");
+
+test("Barangay offline notice is shared and reactive", async () => {
+  const notice = await readSource("components/layout/BarangayOfflineModeNotice.jsx");
+  const layout = await readSource("components/layout/BarangayLayout.jsx");
+
+  assert.match(notice, /Offline Mode Active/);
+  assert.match(notice, /register new evacuees/);
+  assert.match(notice, /record departures for saved evacuees/);
+  assert.match(notice, /scan QR codes or confirm relief goods distributions/);
+  assert.match(notice, /Other functions require an internet connection/);
+  assert.match(notice, /addEventListener\("offline"/);
+  assert.match(notice, /addEventListener\("online"/);
+  assert.match(notice, /return null/);
+  assert.match(layout, /<BarangayOfflineModeNotice \/>/);
+  assert.match(layout, /isBarangayPortal \? <BarangayOfflineModeNotice/);
+});
+
+test("offline readiness remains a separate Barangay layout concern", async () => {
+  const layout = await readSource("components/layout/BarangayLayout.jsx");
+
+  assert.match(layout, /<BarangayOfflineModeNotice \/>/);
+  assert.match(layout, /BARANGAY_OFFLINE_READINESS_ROUTES = new Set\(\[/);
+  assert.match(layout, /"\/barangay\/masterlist"/);
+  assert.match(layout, /"\/barangay\/stub-distribution"/);
+  assert.match(
+    layout,
+    /shouldShowBarangayOfflineReadiness \? \([\s\S]*?<OfflineDataReadiness \{\.\.\.offlinePreparation\} \/>/,
+  );
+});
+
+test("Mayor Inventory reuses the exact Barangay offline notice", async () => {
+  const inventory = await readSource("pages/inventory/InventoryItemsPage.jsx");
+  const notice = await readSource("components/layout/BarangayOfflineModeNotice.jsx");
+
+  assert.match(
+    inventory,
+    /<BarangayOfflineModeNotice[\s\S]*message=\{MAYOR_INVENTORY_OFFLINE_MESSAGE\}[\s\S]*secondaryMessage=\{MAYOR_INVENTORY_OFFLINE_SCOPE_MESSAGE\}/,
+  );
+  assert.match(inventory, /<SyncStatusBanner scope="mayor-inventory" showOffline=\{false\} \/>/);
+  assert.match(notice, /message = BARANGAY_OFFLINE_MODE_MESSAGE/);
+});
+
+test("Masterlist no longer emits the redundant page-level offline messages", async () => {
+  const hook = await readSource("features/masterlist/masterlistHooks.js");
+  const privacy = await readSource("features/household-registration/privacyNotice.mjs");
+  const modal = await readSource("components/household-registration/DataPrivacyConsentModal.jsx");
+
+  assert.doesNotMatch(hook, /Offline mode: showing the last saved Masterlist/);
+  assert.match(privacy, /HOUSEHOLD_PRIVACY_OFFLINE_MESSAGE/);
+  assert.match(modal, /Data Privacy|acknowledgment/i);
+});

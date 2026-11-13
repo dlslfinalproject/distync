@@ -1,0 +1,237 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+
+const stubDetailModalSourcePath = new URL(
+  "../src/components/stubs/StubDetailModal.jsx",
+  import.meta.url,
+);
+const stubClaimConfirmModalSourcePath = new URL(
+  "../src/components/stubs/StubClaimConfirmModal.jsx",
+  import.meta.url,
+);
+const inventoryDistributionDetailModalSourcePath = new URL(
+  "../src/components/inventory-distribution/InventoryDistributionDetailModal.jsx",
+  import.meta.url,
+);
+const barangayStubDistributionPageSourcePath = new URL(
+  "../src/pages/barangay/StubDistributionPage.jsx",
+  import.meta.url,
+);
+const mswdoStubDistributionPageSourcePath = new URL(
+  "../src/pages/mswdo/StubDistributionPage.jsx",
+  import.meta.url,
+);
+const verifyStubPageSourcePath = new URL(
+  "../src/pages/VerifyStubPage.jsx",
+  import.meta.url,
+);
+const stubPrintSheetModalSourcePath = new URL(
+  "../src/components/stubs/StubPrintSheetModal.jsx",
+  import.meta.url,
+);
+const distributionHistoryPageSourcePath = new URL(
+  "../src/pages/DistributionHistoryPage.jsx",
+  import.meta.url,
+);
+
+test("stub detail modal shows receipt number and authorized by from the selected stub distribution transaction", async () => {
+  const source = await fs.readFile(stubDetailModalSourcePath, "utf8");
+
+  assert.match(source, /const distributionTransaction = stubDetails\?\.distribution_transaction \|\| null;/);
+  assert.match(source, /Receipt Number/);
+  assert.match(source, /Authorized By/);
+  assert.match(source, /formatInfoValue\(distributionTransaction\?\.receipt_no\)/);
+  assert.match(source, /formatInfoValue\(distributionTransaction\?\.verified_by_name\)/);
+  assert.doesNotMatch(source, /formatInfoValue\(distributionTransaction\?\.claimed_by_name\)/);
+});
+
+test("inventory distribution detail modal shows authorized by beside receipt number in the QR stub section", async () => {
+  const source = await fs.readFile(
+    inventoryDistributionDetailModalSourcePath,
+    "utf8",
+  );
+
+  assert.match(source, /const distributionTransaction = stubDetails\?\.distribution_transaction \|\| null;/);
+  assert.match(source, /const authorizedByName =/);
+  assert.match(source, /label="Receipt Number"/);
+  assert.match(source, /label="Authorized By"/);
+  assert.match(source, /distributionTransaction\?\.verified_by_name/);
+  assert.match(source, /row\?\.authorized_by_name/);
+});
+
+test("inventory distribution detail modal renders simple received and assigned relief-pack cards", async () => {
+  const source = await fs.readFile(
+    inventoryDistributionDetailModalSourcePath,
+    "utf8",
+  );
+
+  assert.match(source, /const isClaimed =/);
+  assert.match(source, /stubDetails\?\.distribution_transaction_items/);
+  assert.match(source, /Relief Packs \/ Items Received/);
+  assert.match(source, /Relief Packs \/ Items Assigned/);
+  assert.match(source, /const buildReceivedPackSections =/);
+  assert.match(source, /const buildAssignedPackSections =/);
+  assert.match(source, /STANDARD_RELIEF_PACK/);
+  assert.match(source, /ADDITIONAL_RELIEF_PACK/);
+  assert.match(source, /relief_pack_type_snapshot/);
+  assert.match(source, /relief_pack_template_id_snapshot/);
+  assert.match(source, /standardPackGroups/);
+  assert.match(source, /additionalPackGroups/);
+  assert.match(source, /templateSnapshotsById/);
+  assert.match(source, /const ReliefPackCard =/);
+  assert.match(source, /styles\.packCardHeader/);
+  assert.match(source, /styles\.packCardName/);
+  assert.match(source, /styles\.readinessStatus/);
+  assert.match(source, /<th style=\{styles\.th\}>Item Name<\/th>/);
+  assert.match(source, /<th style=\{styles\.th\}>Category<\/th>/);
+  assert.match(source, /<th style=\{styles\.th\}>Quantity<\/th>/);
+  assert.match(source, /source: "Malvar LGU"/);
+  assert.match(source, /name: "Donated Items"/);
+  assert.match(source, /showItemDonorAttribution/);
+  assert.match(source, /styles\.itemAttribution/);
+  assert.match(source, /\(\{item\.donorName\}\)/);
+  assert.doesNotMatch(source, /\{item\.donorName\} Donated/);
+  assert.doesNotMatch(source, /Relief Pack\(s\) in Transaction/);
+  assert.doesNotMatch(source, /Items Recorded at Claim/);
+  assert.doesNotMatch(source, /Matching donated loose stock is used first \(FIFO\)/);
+  assert.doesNotMatch(source, /Additional Donated Loose Items/);
+  assert.doesNotMatch(
+    source,
+    /These values come from the transaction snapshot and are not\s+changed by later template updates\./,
+  );
+});
+
+test("stub detail modal keeps safe hyphen fallback for empty distribution transaction fields", async () => {
+  const source = await fs.readFile(stubDetailModalSourcePath, "utf8");
+
+  assert.match(source, /const formatInfoValue = \(value\) => \{/);
+  assert.match(source, /if \(value === null \|\| value === undefined\) \{\s+return "-";/);
+  assert.match(source, /return normalizedValue \? normalizedValue : "-";/);
+});
+
+test("stub detail modal hides raw QR text without changing the encoded value", async () => {
+  const [detailSource, qrPanelSource] = await Promise.all([
+    fs.readFile(stubDetailModalSourcePath, "utf8"),
+    fs.readFile(new URL("../src/components/stubs/QrCodePanel.jsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    detailSource,
+    /<QrCodePanel[\s\S]*?value=\{stubRecord\?\.qr_code_value \|\| ""\}[\s\S]*?showValue=\{false\}[\s\S]*?\/>/,
+  );
+  assert.match(detailSource, /const stubRecord = getCanonicalStubRecord\(stubDetails\);/);
+  assert.match(detailSource, /<p style=\{modalStyles\.label\}>Stub Number<\/p>/);
+  assert.match(detailSource, /\{getDisplayStubNumber\(stubRecord\)\}/);
+  assert.match(detailSource, /formatStatus\(stubRecord\?\.status\)/);
+  assert.match(detailSource, /formatDateTime\(stubRecord\?\.issued_at\)/);
+  assert.match(detailSource, /formatDateTime\(stubRecord\?\.claimed_at\)/);
+  assert.match(detailSource, /distributionTransaction\?\.proof_type === "PHOTO"/);
+  assert.match(detailSource, /\? "Verified QR"/);
+  assert.match(qrPanelSource, /const qrCodeValue = String\(value \|\| ""\)\.trim\(\);/);
+  assert.match(qrPanelSource, /const qrPayloadUrl = buildStubQrUrl\(qrCodeValue\);/);
+});
+
+test("distribution history maps the response Stub through the canonical row stub_id", async () => {
+  const source = await fs.readFile(distributionHistoryPageSourcePath, "utf8");
+
+  assert.match(source, /fetchInventoryDistributionDetail\(row\.stub_id\)/);
+  assert.match(
+    source,
+    /mapDistributionHistoryDetailForModal\(response\?\.data \|\| response, row\)/,
+  );
+  assert.match(source, /import \{ mapDistributionHistoryDetailForModal \} from/);
+});
+
+test("offline household hydration fallback keeps cached Stub information visible", async () => {
+  const source = await fs.readFile(stubDetailModalSourcePath, "utf8");
+
+  assert.match(source, /offline_household_details_unavailable/);
+  assert.match(source, /Cached Stub information is shown where available/);
+  assert.doesNotMatch(
+    source,
+    /:\s*stubDetails\?\.offline_household_details_unavailable\s*\?/,
+  );
+  assert.match(source, /value=\{stubRecord\?\.qr_code_value \|\| ""\}/);
+  assert.match(source, /formatDateTime\(stubRecord\?\.issued_at\)/);
+});
+
+test("shared claim modal summarizes the verified QR path and preserves its canonical payload", async () => {
+  const [claimSource, barangaySource, mswdoSource] = await Promise.all([
+    fs.readFile(stubClaimConfirmModalSourcePath, "utf8"),
+    fs.readFile(barangayStubDistributionPageSourcePath, "utf8"),
+    fs.readFile(mswdoStubDistributionPageSourcePath, "utf8"),
+  ]);
+
+  assert.doesNotMatch(claimSource, /<QrCodePanel/);
+  assert.match(claimSource, /\{getDisplayStubNumber\(stubDetails\)\}/);
+  assert.match(claimSource, /Stub QR Verified/);
+  assert.match(claimSource, /<dt>Proof Method<\/dt>[\s\S]*?QR Code/);
+  assert.match(claimSource, /qrReferenceValue: resolvedQrReferenceValue/);
+  assert.match(claimSource, /<dt>Relief Pack<\/dt>/);
+  assert.match(claimSource, /Donated:/);
+  assert.match(claimSource, /Registered Family Head Photo/);
+  assert.match(claimSource, /resolveFamilyHeadPhoto/);
+  assert.match(barangaySource, /<StubClaimConfirmModal/);
+  assert.match(mswdoSource, /<StubClaimConfirmModal/);
+});
+
+test("stub detail modal renders disaster event title only without exposing the event code", async () => {
+  const source = await fs.readFile(stubDetailModalSourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const getDisasterEventTitle = \(disasterEvent\) =>\s+formatInfoValue\(disasterEvent\?\.title\);/,
+  );
+  assert.match(source, /<p style=\{modalStyles\.label\}>Disaster Event<\/p>/);
+  assert.match(source, /getDisasterEventTitle\(disasterEvent\)/);
+  assert.doesNotMatch(source, /disasterEvent\.event_code,\s+disasterEvent\.title/);
+  assert.doesNotMatch(source, /\.join\(" - "\) \|\| "-"/);
+});
+
+test("barangay and mswdo relief distribution household views share the corrected stub detail modal", async () => {
+  const barangaySource = await fs.readFile(
+    barangayStubDistributionPageSourcePath,
+    "utf8",
+  );
+  const mswdoSource = await fs.readFile(mswdoStubDistributionPageSourcePath, "utf8");
+
+  assert.match(
+    barangaySource,
+    /import StubDetailModal from "\.\.\/\.\.\/components\/stubs\/StubDetailModal";/,
+  );
+  assert.match(barangaySource, /<StubDetailModal\s+isOpen=\{isStubDetailModalOpen\}/);
+  assert.match(barangaySource, /stubDetails=\{selectedStubDetails\}/);
+  assert.match(barangaySource, /const details = await fetchStubDetails\(row\.id,/);
+
+  assert.match(
+    mswdoSource,
+    /import StubDetailModal from "\.\.\/\.\.\/components\/stubs\/StubDetailModal";/,
+  );
+  assert.match(mswdoSource, /<StubDetailModal\s+isOpen=\{isStubDetailModalOpen\}/);
+  assert.match(mswdoSource, /stubDetails=\{selectedStubDetails\}/);
+  assert.match(mswdoSource, /const details = await fetchStubDetails\(row\.id\);/);
+});
+
+test("qr-supported scanned stub view also renders disaster event title only", async () => {
+  const source = await fs.readFile(verifyStubPageSourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const getDisasterEventTitle = \(disasterEvent\) =>\s+String\(disasterEvent\?\.title \|\| ""\)\.trim\(\) \|\| "--";/,
+  );
+  assert.match(source, /getDisasterEventTitle\(stubDetails\.disaster_event\)/);
+  assert.doesNotMatch(source, /stubDetails\.disaster_event\?\.event_code,\s+stubDetails\.disaster_event\?\.title/);
+});
+
+test("QR stub print event options show only the disaster name", async () => {
+  const source = await fs.readFile(stubPrintSheetModalSourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const title = String\(event\?\.title \|\| event\?\.event_name \|\| ""\)\.trim\(\);/,
+  );
+  assert.match(source, /titleWithoutBackendCode/);
+  assert.match(source, /\.replace\(\/\^DE-/);
+  assert.doesNotMatch(source, /\[event\?\.event_code, event\?\.title\]/);
+});

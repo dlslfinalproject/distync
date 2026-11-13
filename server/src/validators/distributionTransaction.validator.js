@@ -1,0 +1,613 @@
+const allowedSyncStatuses = ["PENDING", "SYNCED", "CONFLICT", "FAILED"];
+const allowedReceiptStatuses = [
+  "GENERATED",
+  "VOIDED",
+  "REISSUED",
+  "CANCELLED",
+];
+
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const calendarDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+const isValidUuid = (value) => {
+  return typeof value === "string" && uuidPattern.test(value);
+};
+
+const isValidCalendarDate = (value) => {
+  if (typeof value !== "string" || !calendarDatePattern.test(value)) {
+    return false;
+  }
+
+  const parsedDate = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    !Number.isNaN(parsedDate.getTime()) &&
+    parsedDate.toISOString().slice(0, 10) === value
+  );
+};
+
+const normalizeOptionalCalendarDate = (value, fieldName) => {
+  if (value === undefined || value === null || value === "") {
+    return { value: null };
+  }
+
+  const normalizedValue = typeof value === "string" ? value.trim() : "";
+
+  if (!isValidCalendarDate(normalizedValue)) {
+    return {
+      error: `${fieldName} must be a valid date in YYYY-MM-DD format`,
+    };
+  }
+
+  return { value: normalizedValue };
+};
+
+const validateCreateDistributionTransaction = (req, res, next) => {
+  try {
+    const {
+      disaster_event_id,
+      household_id,
+      stub_id,
+      claimed_by_name,
+      verified_by,
+      device_id,
+      is_offline_encoded,
+      sync_status,
+      remarks,
+      qr_reference_value,
+      receipt_status,
+      relief_pack_template_id,
+    } = req.body;
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id is required and must be a valid UUID",
+      });
+    }
+
+    if (!isValidUuid(household_id)) {
+      return res.status(400).json({
+        message: "household_id is required and must be a valid UUID",
+      });
+    }
+
+    if (!isValidUuid(stub_id)) {
+      return res.status(400).json({
+        message: "stub_id is required and must be a valid UUID",
+      });
+    }
+
+    if (!claimed_by_name || typeof claimed_by_name !== "string" || !claimed_by_name.trim()) {
+      return res.status(400).json({
+        message: "claimed_by_name is required and must be a non-empty string",
+      });
+    }
+
+    if (verified_by !== undefined && verified_by !== null && !isValidUuid(verified_by)) {
+      return res.status(400).json({
+        message: "verified_by must be a valid UUID or null",
+      });
+    }
+
+    if (device_id !== undefined && device_id !== null && !isValidUuid(device_id)) {
+      return res.status(400).json({
+        message: "device_id must be a valid UUID or null",
+      });
+    }
+
+    if (
+      is_offline_encoded !== undefined &&
+      typeof is_offline_encoded !== "boolean"
+    ) {
+      return res.status(400).json({
+        message: "is_offline_encoded must be a boolean when provided",
+      });
+    }
+
+    if (sync_status !== undefined && !allowedSyncStatuses.includes(sync_status)) {
+      return res.status(400).json({
+        message: "sync_status must be one of: PENDING, SYNCED, CONFLICT, FAILED",
+      });
+    }
+
+    if (remarks !== undefined && remarks !== null && typeof remarks !== "string") {
+      return res.status(400).json({
+        message: "remarks must be a string or null",
+      });
+    }
+
+    if (
+      qr_reference_value !== undefined &&
+      qr_reference_value !== null &&
+      typeof qr_reference_value !== "string"
+    ) {
+      return res.status(400).json({
+        message: "qr_reference_value must be a string or null",
+      });
+    }
+
+    if (
+      receipt_status !== undefined &&
+      !allowedReceiptStatuses.includes(receipt_status)
+    ) {
+      return res.status(400).json({
+        message:
+          "receipt_status must be one of: GENERATED, VOIDED, REISSUED, CANCELLED",
+      });
+    }
+
+    if (!isValidUuid(relief_pack_template_id)) {
+      return res.status(400).json({
+        message: "relief_pack_template_id is required and must be a valid UUID",
+      });
+    }
+
+    req.validatedBody = {
+      disaster_event_id,
+      household_id,
+      stub_id,
+      claimed_by_name: claimed_by_name.trim(),
+      verified_by: verified_by ?? null,
+      device_id: device_id ?? null,
+      is_offline_encoded: is_offline_encoded ?? false,
+      sync_status: sync_status ?? "SYNCED",
+      remarks: remarks ?? null,
+      qr_reference_value:
+        typeof qr_reference_value === "string" && qr_reference_value.trim()
+          ? qr_reference_value.trim()
+          : null,
+      receipt_status: receipt_status ?? "GENERATED",
+      relief_pack_template_id,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate distribution transaction request",
+      error: error.message,
+    });
+  }
+};
+
+const validateClaimDistributionFromQr = (req, res, next) => {
+  try {
+    const {
+      disaster_event_id,
+      household_id,
+      stub_id,
+      claimed_by_name,
+      qr_reference_value,
+      remarks,
+      client_sync_id,
+      device_id,
+    } = req.body;
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id is required and must be a valid UUID",
+      });
+    }
+
+    if (!isValidUuid(household_id)) {
+      return res.status(400).json({
+        message: "household_id is required and must be a valid UUID",
+      });
+    }
+
+    if (!isValidUuid(stub_id)) {
+      return res.status(400).json({
+        message: "stub_id is required and must be a valid UUID",
+      });
+    }
+
+    if (!claimed_by_name || typeof claimed_by_name !== "string" || !claimed_by_name.trim()) {
+      return res.status(400).json({
+        message: "claimed_by_name is required and must be a non-empty string",
+      });
+    }
+
+    if (
+      qr_reference_value !== undefined &&
+      qr_reference_value !== null &&
+      typeof qr_reference_value !== "string"
+    ) {
+      return res.status(400).json({
+        message: "qr_reference_value must be a string or null",
+      });
+    }
+
+    if (!isValidUuid(client_sync_id)) {
+      return res.status(400).json({
+        code: "DISTRIBUTION_OPERATION_ID_REQUIRED",
+        message: "A stable claim operation ID is required.",
+      });
+    }
+
+    if (device_id != null && device_id !== "" && !isValidUuid(device_id)) {
+      return res.status(400).json({
+        message: "device_id must be a valid UUID when provided",
+      });
+    }
+
+    if (!String(qr_reference_value || "").trim()) {
+      return res.status(400).json({
+        code: "DISTRIBUTION_QR_PROOF_REQUIRED",
+        message: "Scan and verify the active stub QR before confirming.",
+      });
+    }
+
+    if (remarks !== undefined && remarks !== null && typeof remarks !== "string") {
+      return res.status(400).json({
+        message: "remarks must be a string or null",
+      });
+    }
+
+    req.validatedBody = {
+      disaster_event_id,
+      household_id,
+      stub_id,
+      claimed_by_name: claimed_by_name.trim(),
+      qr_reference_value:
+        typeof qr_reference_value === "string" && qr_reference_value.trim()
+          ? qr_reference_value.trim()
+          : null,
+      remarks: remarks ?? null,
+      client_sync_id,
+      device_id: device_id || null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate QR stub claim request",
+      error: error.message,
+    });
+  }
+};
+
+const validateGetDistributionHistory = (req, res, next) => {
+  try {
+    const {
+      disaster_event_id,
+      barangay_id,
+      status,
+      date_from,
+      date_to,
+      sort_order,
+      limit,
+      page,
+      pageSize,
+      search,
+      mode,
+    } = req.query;
+
+    const allowedDistributionStatuses = ["CLAIMED"];
+    const allowedSortOrders = ["newest", "oldest", "az", "za"];
+    const allowedModes = ["detail", "summary"];
+
+    if (disaster_event_id && !isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID when provided",
+      });
+    }
+
+    if (barangay_id && !isValidUuid(barangay_id)) {
+      return res.status(400).json({
+        message: "barangay_id must be a valid UUID when provided",
+      });
+    }
+
+    if (status && !allowedDistributionStatuses.includes(status)) {
+      return res.status(400).json({
+        message: "status must be CLAIMED",
+      });
+    }
+
+    const normalizedDateFromResult = normalizeOptionalCalendarDate(
+      date_from,
+      "date_from",
+    );
+
+    if (normalizedDateFromResult.error) {
+      return res.status(400).json({
+        message: normalizedDateFromResult.error,
+      });
+    }
+
+    const normalizedDateToResult = normalizeOptionalCalendarDate(
+      date_to,
+      "date_to",
+    );
+
+    if (normalizedDateToResult.error) {
+      return res.status(400).json({
+        message: normalizedDateToResult.error,
+      });
+    }
+
+    const normalizedDateFrom = normalizedDateFromResult.value;
+    const normalizedDateTo = normalizedDateToResult.value;
+
+    if (
+      normalizedDateFrom &&
+      normalizedDateTo &&
+      normalizedDateFrom > normalizedDateTo
+    ) {
+      return res.status(400).json({
+        message: "date_from must be on or before date_to",
+      });
+    }
+
+    if (sort_order && !allowedSortOrders.includes(sort_order)) {
+      return res.status(400).json({
+        message: "sort_order must be one of: newest, oldest, az, za",
+      });
+    }
+
+    const parsedLimit = limit ? Number.parseInt(limit, 10) : 100;
+
+    if (!Number.isInteger(parsedLimit) || parsedLimit <= 0 || parsedLimit > 1000) {
+      return res.status(400).json({
+        message: "limit must be an integer between 1 and 1000",
+      });
+    }
+
+    const hasPage = page !== undefined;
+    const hasPageSize = pageSize !== undefined;
+    const parsedPage = hasPage ? Number.parseInt(page, 10) : 1;
+    const parsedPageSize = hasPageSize ? Number.parseInt(pageSize, 10) : 25;
+
+    if (hasPage && (!Number.isInteger(parsedPage) || parsedPage < 1)) {
+      return res.status(400).json({
+        message: "page must be an integer greater than or equal to 1",
+      });
+    }
+
+    if (
+      hasPageSize &&
+      (!Number.isInteger(parsedPageSize) ||
+        parsedPageSize <= 0 ||
+        parsedPageSize > 100)
+    ) {
+      return res.status(400).json({
+        message: "pageSize must be an integer between 1 and 100",
+      });
+    }
+
+    if (search !== undefined && search !== null && typeof search !== "string") {
+      return res.status(400).json({
+        message: "search must be a string when provided",
+      });
+    }
+
+    if (mode && !allowedModes.includes(mode)) {
+      return res.status(400).json({
+        message: "mode must be one of: detail, summary",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_id: disaster_event_id || null,
+      barangay_id: barangay_id || null,
+      status: status || null,
+      date_from: normalizedDateFrom,
+      date_to: normalizedDateTo,
+      sort_order: sort_order || "newest",
+      limit: parsedLimit,
+      page: parsedPage,
+      pageSize: parsedPageSize,
+      isPaginated: hasPage || hasPageSize,
+      search:
+        typeof search === "string" && search.trim() ? search.trim() : "",
+      mode: mode || "detail",
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate distribution history request",
+      error: error.message,
+    });
+  }
+};
+
+const validateExportDistributionHistory = (req, res, next) => {
+  const { format } = req.query;
+  const normalizedFormat = String(format || "").toLowerCase();
+
+  if (!["csv", "excel", "pdf"].includes(normalizedFormat)) {
+    return res.status(400).json({
+      message: "format must be one of: csv, excel, pdf",
+    });
+  }
+
+  req.validatedQuery = {
+    ...(req.validatedQuery || {}),
+    format: normalizedFormat,
+  };
+
+  return next();
+};
+
+const parseUuidList = (value) => {
+  if (!value || typeof value !== "string") {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const validateExportInventoryDistribution = (req, res, next) => {
+  try {
+    const {
+      disaster_event_id,
+      barangay_ids,
+      status,
+      sort_order,
+      sector_ids,
+      format,
+    } = req.query;
+    const normalizedFormat = String(format || "").toLowerCase();
+    const normalizedStatus = String(status || "").toUpperCase();
+    const normalizedSortOrder = String(sort_order || "newest").toLowerCase();
+    const allowedStatuses = ["CLAIMED", "ISSUED"];
+    const allowedSortOrders = ["newest", "oldest", "az", "za"];
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id is required and must be a valid UUID",
+      });
+    }
+
+    const parsedBarangayIds = parseUuidList(barangay_ids);
+
+    if (parsedBarangayIds.some((barangayId) => !isValidUuid(barangayId))) {
+      return res.status(400).json({
+        message: "barangay_ids must contain valid UUID values",
+      });
+    }
+
+    if (normalizedStatus && !allowedStatuses.includes(normalizedStatus)) {
+      return res.status(400).json({
+        message: "status must be one of: CLAIMED, ISSUED",
+      });
+    }
+
+    if (!allowedSortOrders.includes(normalizedSortOrder)) {
+      return res.status(400).json({
+        message: "sort_order must be one of: newest, oldest, az, za",
+      });
+    }
+
+    const parsedSectorIds = parseUuidList(sector_ids);
+
+    if (parsedSectorIds.some((sectorId) => !isValidUuid(sectorId))) {
+      return res.status(400).json({
+        message: "sector_ids must contain valid UUID values",
+      });
+    }
+
+    if (!["csv", "excel", "pdf"].includes(normalizedFormat)) {
+      return res.status(400).json({
+        message: "format must be one of: csv, excel, pdf",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_id,
+      barangay_ids: parsedBarangayIds,
+      status: normalizedStatus || null,
+      sort_order: normalizedSortOrder,
+      sector_ids: parsedSectorIds,
+      format: normalizedFormat,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate inventory distribution export request",
+      error: error.message,
+    });
+  }
+};
+
+const validateInventoryDistributionExportOptions = (req, res, next) => {
+  try {
+    const {
+      disaster_event_id,
+      barangay_ids,
+      status,
+    } = req.query;
+    const normalizedStatus = String(status || "").toUpperCase();
+    const allowedStatuses = ["CLAIMED", "ISSUED"];
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id is required and must be a valid UUID",
+      });
+    }
+
+    const parsedBarangayIds = parseUuidList(barangay_ids);
+
+    if (parsedBarangayIds.some((barangayId) => !isValidUuid(barangayId))) {
+      return res.status(400).json({
+        message: "barangay_ids must contain valid UUID values",
+      });
+    }
+
+    if (normalizedStatus && !allowedStatuses.includes(normalizedStatus)) {
+      return res.status(400).json({
+        message: "status must be one of: CLAIMED, ISSUED",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_id,
+      barangay_ids: parsedBarangayIds,
+      status: normalizedStatus || null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate inventory distribution export options request",
+      error: error.message,
+    });
+  }
+};
+
+const validateInventoryDistributionDetail = (req, res, next) => {
+  try {
+    const { stubId } = req.params;
+
+    if (!isValidUuid(stubId)) {
+      return res.status(400).json({
+        message: "stubId must be a valid UUID",
+      });
+    }
+
+    req.validatedParams = {
+      stubId,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate inventory distribution detail request",
+      error: error.message,
+    });
+  }
+};
+
+const validateClaimProofPhotoRequest = (req, res, next) => {
+  try {
+    const { transactionId } = req.params;
+    if (!isValidUuid(transactionId)) {
+      return res.status(400).json({
+        message: "transactionId must be a valid UUID",
+      });
+    }
+    req.validatedParams = { transactionId };
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate claim proof photo request",
+      error: error.message,
+    });
+  }
+};
+
+module.exports = {
+  validateCreateDistributionTransaction,
+  validateClaimDistributionFromQr,
+  validateGetDistributionHistory,
+  validateExportDistributionHistory,
+  validateExportInventoryDistribution,
+  validateInventoryDistributionExportOptions,
+  validateInventoryDistributionDetail,
+  validateClaimProofPhotoRequest,
+};

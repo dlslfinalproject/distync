@@ -1,0 +1,701 @@
+const assert = require("node:assert/strict");
+const test = require("node:test");
+
+const servicePath = require.resolve(
+  "../src/services/automaticReliefPackClaim.service",
+);
+const distributionTransactionRepositoryPath = require.resolve(
+  "../src/repositories/distributionTransaction.repository",
+);
+const inventoryTransactionRepositoryPath = require.resolve(
+  "../src/repositories/inventoryTransaction.repository",
+);
+const inventoryItemRepositoryPath = require.resolve(
+  "../src/repositories/inventoryItem.repository",
+);
+const reliefPackTemplateRepositoryPath = require.resolve(
+  "../src/repositories/reliefPackTemplate.repository",
+);
+const reliefPackAssignmentServicePath = require.resolve(
+  "../src/services/reliefPackAssignment.service",
+);
+const inventoryBatchStatusServicePath = require.resolve(
+  "../src/services/inventoryBatchStatus.service",
+);
+
+const withStubbedAutomaticClaimService = async (stubs, runTest) => {
+  const dependencyPaths = [
+    ...new Set([...Object.keys(stubs), inventoryBatchStatusServicePath]),
+  ];
+  const originalEntries = new Map(
+    dependencyPaths.map((modulePath) => [modulePath, require.cache[modulePath]]),
+  );
+
+  delete require.cache[servicePath];
+
+  try {
+    dependencyPaths.forEach((modulePath) => {
+      delete require.cache[modulePath];
+      require.cache[modulePath] = {
+        id: modulePath,
+        filename: modulePath,
+        loaded: true,
+        exports:
+          stubs[modulePath] ||
+          (modulePath === inventoryBatchStatusServicePath
+            ? {
+                refreshDerivedInventoryBatchStatusesForItems: async () => {},
+              }
+            : {}),
+      };
+    });
+
+    const automaticClaimService = require(servicePath);
+    await runTest(automaticClaimService);
+  } finally {
+    delete require.cache[servicePath];
+
+    dependencyPaths.forEach((modulePath) => {
+      const originalEntry = originalEntries.get(modulePath);
+
+      if (originalEntry) {
+        require.cache[modulePath] = originalEntry;
+      } else {
+        delete require.cache[modulePath];
+      }
+    });
+  }
+};
+
+test("automatic Photo claims attach transaction proof and consume standard and additional inventory once", async () => {
+  const standardTemplate = {
+    id: "standard-template",
+    name: "Standard Pack",
+    is_active: true,
+    is_additional_pack: false,
+    based_on_family_size: false,
+  };
+  const additionalTemplate = {
+    id: "additional-template",
+    name: "Pregnant Mother Pack",
+    is_active: true,
+    is_additional_pack: true,
+    based_on_family_size: false,
+  };
+  const secondAdditionalTemplate = {
+    id: "additional-template-2",
+    name: "Vulnerable Pack",
+    is_active: true,
+    is_additional_pack: true,
+    based_on_family_size: false,
+  };
+  const templateItems = new Map([
+    [
+      standardTemplate.id,
+      [
+        {
+          inventory_item_id: "water-item",
+          item_name: "Water",
+          quantity_required: 2,
+        },
+      ],
+    ],
+    [
+      additionalTemplate.id,
+      [
+        {
+          inventory_item_id: "water-item",
+          item_name: "Water",
+          quantity_required: 1,
+        },
+        {
+          inventory_item_id: "blanket-item",
+          item_name: "Blanket",
+          quantity_required: 1,
+        },
+      ],
+    ],
+    [
+      secondAdditionalTemplate.id,
+      [
+        {
+          inventory_item_id: "water-item",
+          item_name: "Water",
+          quantity_required: 1,
+        },
+      ],
+    ],
+  ]);
+  const availableBatches = [
+    {
+      id: "water-donated-batch",
+      inventory_item_id: "water-item",
+      quantity_available: 3,
+      batch_no: "DON-WATER-1",
+      item_code: "WATER",
+      item_name: "Water",
+      category: "Non-Perishable",
+      unit_of_measure: "piece",
+      reorder_level: 1,
+      expiration_date: "2099-12-31",
+      status: "AVAILABLE",
+      source_type: "DONATED",
+      donation_id: "donation-1",
+      donor_name: "Community Donor",
+      donation_item_id: "donation-item-1",
+    },
+    {
+      id: "water-batch",
+      inventory_item_id: "water-item",
+      quantity_available: 10,
+      batch_no: "WATER-1",
+      item_code: "WATER",
+      item_name: "Water",
+      category: "Non-Perishable",
+      unit_of_measure: "piece",
+      reorder_level: 1,
+      expiration_date: "2099-12-31",
+      status: "AVAILABLE",
+      source_type: "LGU",
+    },
+    {
+      id: "blanket-batch",
+      inventory_item_id: "blanket-item",
+      quantity_available: 5,
+      batch_no: "BLANKET-1",
+      item_code: "BLANKET",
+      item_name: "Blanket",
+      category: "Non-Perishable",
+      unit_of_measure: "piece",
+      reorder_level: 1,
+      expiration_date: null,
+      status: "AVAILABLE",
+      source_type: "LGU",
+    },
+  ];
+  const linkedTemplateIds = [];
+  const releasedItems = [];
+  const inventoryOutflows = [];
+  const updatedBatches = [];
+  const updatedItemSnapshots = [];
+  const preparedProofPhotos = [];
+  let distributionInsertPayload = null;
+  const stub = {
+    id: "stub-1",
+    disaster_event_id: "event-1",
+    household_id: "household-1",
+    current_stay_type: "EVAC_CENTER",
+    is_active: true,
+    household_size: 3,
+    qr_code_value: "qr-1",
+  };
+  const inventoryItems = [
+    {
+      id: "water-item",
+      packaging: "piece",
+      quantity: 1,
+      packaging_count: 10,
+    },
+    {
+      id: "blanket-item",
+      packaging: "piece",
+      quantity: 1,
+      packaging_count: 5,
+    },
+  ];
+  const dbClient = {
+    query: async (query) => {
+      if (String(query).includes("FROM inventory_batches")) {
+        return {
+          rows: [
+            { inventory_item_id: "water-item", total_quantity: 13 },
+            { inventory_item_id: "blanket-item", total_quantity: 5 },
+          ],
+        };
+      }
+
+      return { rows: [] };
+    },
+  };
+
+  await withStubbedAutomaticClaimService(
+    {
+      [distributionTransactionRepositoryPath]: {
+        getLatestAttendanceByHouseholdId: async () => ({
+          status: "PRESENT",
+          time_out: null,
+        }),
+        getReliefPackTemplateItemsByTemplateId: async (templateId) =>
+          templateItems.get(templateId) || [],
+        getDistributionReceiptSequence: async () => "RCPT-2026-000001",
+        insertDistributionTransaction: async (transactionData) => {
+          distributionInsertPayload = transactionData;
+          return {
+            id: "distribution-1",
+            distribution_status: "CLAIMED",
+            relief_pack_template_id: standardTemplate.id,
+            ...transactionData,
+          };
+        },
+        insertDistributionTransactionReliefPackTemplates: async (
+          _distributionTransactionId,
+          templateSnapshots,
+        ) => {
+          linkedTemplateIds.push(...templateSnapshots.map((template) => template.id));
+          return templateSnapshots.map((template) => ({
+            distribution_transaction_id: "distribution-1",
+            relief_pack_template_id: template.id,
+            name_snapshot: template.name,
+          }));
+        },
+        insertDistributionTransactionItem: async (item) => {
+          const insertedItem = {
+            id: `distribution-item-${releasedItems.length + 1}`,
+            ...item,
+          };
+          releasedItems.push(insertedItem);
+          return insertedItem;
+        },
+        insertInventoryTransaction: async (transaction) => {
+          inventoryOutflows.push(transaction);
+          return transaction;
+        },
+        updateInventoryBatchQuantityAndStatus: async (
+          batchId,
+          quantityAvailable,
+          status,
+        ) => {
+          const batch = availableBatches.find((item) => item.id === batchId);
+          const updatedBatch = {
+            ...batch,
+            quantity_available: quantityAvailable,
+            status,
+          };
+          updatedBatches.push(updatedBatch);
+          return updatedBatch;
+        },
+        updateDonationStatusesByIds: async () => {},
+        updateStubAsClaimed: async () => ({
+          ...stub,
+          status: "CLAIMED",
+        }),
+      },
+      [inventoryTransactionRepositoryPath]: {
+        getDistributableInventoryBatchesByItemIdsForUpdate: async () =>
+          availableBatches,
+        insertInventoryTransaction: async (transaction) => {
+          inventoryOutflows.push(transaction);
+          return transaction;
+        },
+      },
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemsByIdsForUpdate: async () => inventoryItems,
+        updateInventoryItemStockSnapshot: async () => {
+          throw new Error(
+            "stock movements must not update inventory item packaging metadata",
+          );
+        },
+      },
+      [reliefPackTemplateRepositoryPath]: {
+        getReliefPackTemplateItemsByTemplateId: async (templateId) =>
+          templateItems.get(templateId) || [],
+      },
+        [reliefPackAssignmentServicePath]: {
+        resolveAssignedReliefPackTemplatesForHousehold: async () => [
+          standardTemplate,
+          additionalTemplate,
+          secondAdditionalTemplate,
+        ],
+        getPrimaryAssignedReliefPackTemplate: (templates) => templates[0],
+      },
+    },
+    async ({ recordAutomaticReliefPackClaim }) => {
+      const result = await recordAutomaticReliefPackClaim({
+        client: dbClient,
+        stub,
+        claimedByName: "Family Head",
+        verifiedBy: "user-1",
+        proofType: "PHOTO",
+        proofPhotoCapturedAt: "2026-08-28T08:00:00.000Z",
+        prepareProofPhoto: async ({ stub: claimStub }) => {
+          assert.equal(claimStub.id, stub.id);
+          preparedProofPhotos.push(claimStub.id);
+          return {
+            path: "event-1/barangay-1/claims/operations/0123456789abcdef0123456789abcdef/photo.jpg",
+            sha256: "a".repeat(64),
+            mimeType: "image/jpeg",
+            sizeBytes: 128,
+          };
+        },
+        receivedAt: "2026-08-28T08:00:00.000Z",
+      });
+
+      assert.deepEqual(linkedTemplateIds, [
+        standardTemplate.id,
+        additionalTemplate.id,
+        secondAdditionalTemplate.id,
+      ]);
+      assert.deepEqual(
+        releasedItems.map((item) => [
+          item.inventory_item_id,
+          item.quantity_released,
+          item.relief_pack_type_snapshot,
+          item.relief_pack_template_id_snapshot,
+        ]),
+        [
+          ["water-item", 2, "STANDARD_RELIEF_PACK", standardTemplate.id],
+          ["water-item", 1, "ADDITIONAL_RELIEF_PACK", additionalTemplate.id],
+          [
+            "water-item",
+            1,
+            "ADDITIONAL_RELIEF_PACK",
+            secondAdditionalTemplate.id,
+          ],
+          ["blanket-item", 1, "ADDITIONAL_RELIEF_PACK", additionalTemplate.id],
+        ],
+      );
+      const donatedStandardWater = releasedItems.find(
+        (item) =>
+          item.inventory_batch_id === "water-donated-batch" &&
+          item.relief_pack_type_snapshot === "STANDARD_RELIEF_PACK",
+      );
+      assert.equal(donatedStandardWater.category_snapshot, "Non-Perishable");
+      assert.equal(donatedStandardWater.source_type_snapshot, "DONATED");
+      assert.equal(
+        donatedStandardWater.source_relief_type_snapshot,
+        "DONATED_LOOSE_ITEM",
+      );
+      assert.equal(donatedStandardWater.donation_id_snapshot, "donation-1");
+      assert.equal(
+        donatedStandardWater.donation_item_id_snapshot,
+        "donation-item-1",
+      );
+      const LGUBlanket = releasedItems.find(
+        (item) => item.inventory_batch_id === "blanket-batch",
+      );
+      assert.equal(LGUBlanket.category_snapshot, "Non-Perishable");
+      assert.equal(LGUBlanket.source_type_snapshot, "LGU");
+      assert.equal(LGUBlanket.source_relief_type_snapshot, "LGU");
+      assert.deepEqual(
+        inventoryOutflows.map((transaction) => [
+          transaction.inventory_batch_id,
+          transaction.quantity,
+        ]),
+        [
+          ["water-donated-batch", 2],
+          ["water-donated-batch", 1],
+          ["water-batch", 1],
+          ["blanket-batch", 1],
+        ],
+      );
+      assert.equal(result.assignedReliefPackTemplates.length, 3);
+      assert.deepEqual(result.donatedLooseItems, []);
+      assert.equal(
+        result.releasedItems.find((item) => item.inventory_item_id === "water-item")
+          .source_relief_type,
+        "STANDARD_RELIEF_PACK",
+      );
+      assert.equal(
+        result.releasedItems.find(
+          (item) =>
+            item.inventory_item_id === "water-item" &&
+            item.relief_pack_type_snapshot === "ADDITIONAL_RELIEF_PACK",
+        ).source_relief_type,
+        "ADDITIONAL_RELIEF_PACK",
+      );
+      assert.equal(
+        result.releasedItems.find((item) => item.inventory_item_id === "water-item")
+          .source_type,
+        "DONATED",
+      );
+      assert.equal(
+        result.releasedItems.find((item) => item.inventory_item_id === "blanket-item")
+          .source_relief_type,
+        "ADDITIONAL_RELIEF_PACK",
+      );
+      assert.equal(
+        updatedBatches
+          .filter((batch) => batch.id === "water-donated-batch")
+          .at(-1)
+          .quantity_available,
+        0,
+      );
+      assert.equal(
+        updatedBatches.find((batch) => batch.id === "water-batch")
+          .quantity_available,
+        9,
+      );
+      assert.equal(updatedBatches.find((batch) => batch.id === "blanket-batch").quantity_available, 4);
+      assert.equal(updatedItemSnapshots.length, 0);
+      assert.deepEqual(preparedProofPhotos, [stub.id]);
+      assert.equal(distributionInsertPayload.proof_type, "PHOTO");
+      assert.match(distributionInsertPayload.proof_photo_path, /claims\/operations/);
+      assert.equal(distributionInsertPayload.proof_photo_sha256, "a".repeat(64));
+      assert.equal(distributionInsertPayload.proof_photo_mime_type, "image/jpeg");
+      assert.equal(distributionInsertPayload.proof_photo_size_bytes, 128);
+      assert.equal(
+        distributionInsertPayload.proof_photo_captured_at,
+        "2026-08-28T08:00:00.000Z",
+      );
+      assert.equal(inventoryOutflows.length, 4);
+    },
+  );
+});
+
+test("automatic QR claims keep QR proof and deduct assigned inventory once without a photo", async () => {
+  const template = {
+    id: "standard-template",
+    name: "Standard Relief Pack",
+    is_active: true,
+    is_additional_pack: false,
+    based_on_family_size: false,
+  };
+  const templateItems = [
+    {
+      inventory_item_id: "rice-item",
+      item_name: "Rice",
+      quantity_required: 2,
+    },
+  ];
+  const batch = {
+    id: "rice-batch",
+    inventory_item_id: "rice-item",
+    quantity_available: 5,
+    batch_no: "RICE-1",
+    item_code: "RICE",
+    item_name: "Rice",
+    category: "Food",
+    unit_of_measure: "kg",
+    reorder_level: 1,
+    expiration_date: "2099-12-31",
+    status: "AVAILABLE",
+    source_type: "LGU",
+  };
+  const stub = {
+    id: "stub-qr",
+    disaster_event_id: "event-qr",
+    household_id: "household-qr",
+    current_stay_type: "EVAC_CENTER",
+    is_active: true,
+    household_size: 2,
+    qr_code_value: "DISTYNC-STUB|event|household|stub|STUB-QR",
+  };
+  const transactionWrites = [];
+  const inventoryOutflows = [];
+  const batchUpdates = [];
+  let transactionPayload = null;
+  let stubClaimCount = 0;
+  const dbClient = {
+    query: async (query) =>
+      String(query).includes("FROM inventory_batches")
+        ? { rows: [{ inventory_item_id: "rice-item", total_quantity: 5 }] }
+        : { rows: [] },
+  };
+
+  await withStubbedAutomaticClaimService(
+    {
+      [distributionTransactionRepositoryPath]: {
+        getLatestAttendanceByHouseholdId: async () => ({
+          status: "PRESENT",
+          time_out: null,
+        }),
+        getReliefPackTemplateItemsByTemplateId: async () => templateItems,
+        getDistributionReceiptSequence: async () => "RCPT-2026-000003",
+        insertDistributionTransaction: async (payload) => {
+          transactionPayload = payload;
+          return { id: "distribution-qr", ...payload };
+        },
+        insertDistributionTransactionReliefPackTemplates: async () => [],
+        insertDistributionTransactionItem: async (payload) => {
+          const item = { id: "distribution-item-qr", ...payload };
+          transactionWrites.push(item);
+          return item;
+        },
+        updateInventoryBatchQuantityAndStatus: async (
+          batchId,
+          quantityAvailable,
+          status,
+        ) => {
+          const update = { batchId, quantityAvailable, status };
+          batchUpdates.push(update);
+          return { ...batch, quantity_available: quantityAvailable, status };
+        },
+        updateDonationStatusesByIds: async () => {},
+        updateStubAsClaimed: async () => {
+          stubClaimCount += 1;
+          return { ...stub, status: "CLAIMED" };
+        },
+      },
+      [inventoryTransactionRepositoryPath]: {
+        getDistributableInventoryBatchesByItemIdsForUpdate: async () => [batch],
+        insertInventoryTransaction: async (payload) => {
+          inventoryOutflows.push(payload);
+          return payload;
+        },
+      },
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemsByIdsForUpdate: async () => [
+          { id: "rice-item", packaging: "bag", quantity: 1, packaging_count: 5 },
+        ],
+        updateInventoryItemStockSnapshot: async () => {
+          throw new Error("claim outflow must not change item packaging metadata");
+        },
+      },
+      [reliefPackTemplateRepositoryPath]: {
+        getReliefPackTemplateItemsByTemplateId: async () => templateItems,
+      },
+      [reliefPackAssignmentServicePath]: {
+        resolveAssignedReliefPackTemplatesForHousehold: async () => [template],
+        getPrimaryAssignedReliefPackTemplate: (templates) => templates[0],
+      },
+    },
+    async ({ recordAutomaticReliefPackClaim }) => {
+      const result = await recordAutomaticReliefPackClaim({
+        client: dbClient,
+        stub,
+        claimedByName: "Family Head",
+        verifiedBy: "user-qr",
+        proofType: "QR",
+        qrReferenceValue: stub.qr_code_value,
+        receivedAt: "2026-09-24T03:00:00.000Z",
+      });
+
+      assert.equal(result.distributionTransaction.id, "distribution-qr");
+      assert.equal(transactionPayload.proof_type, "QR");
+      assert.equal(transactionPayload.qr_reference_value, stub.qr_code_value);
+      assert.equal(transactionPayload.proof_photo_path, null);
+      assert.equal(transactionPayload.proof_photo_sha256, null);
+      assert.deepEqual(transactionWrites.map((item) => item.quantity_released), [2]);
+      assert.deepEqual(inventoryOutflows.map((entry) => entry.quantity), [2]);
+      assert.deepEqual(batchUpdates, [{
+        batchId: "rice-batch",
+        quantityAvailable: 3,
+        status: "AVAILABLE",
+      }]);
+      assert.equal(stubClaimCount, 1);
+    },
+  );
+});
+
+test("automatic claims reject insufficient inventory before any distribution writes", async () => {
+  const template = {
+    id: "standard-template",
+    name: "Standard Pack",
+    is_active: true,
+    is_additional_pack: false,
+    based_on_family_size: false,
+  };
+  const templateItems = [
+    {
+      inventory_item_id: "rice-item",
+      item_name: "Rice",
+      quantity_required: 10,
+    },
+  ];
+  const availableBatches = [
+    {
+      id: "rice-batch",
+      inventory_item_id: "rice-item",
+      quantity_available: 2,
+      batch_no: "RICE-1",
+      item_code: "RICE",
+      item_name: "Rice",
+      category: "Food",
+      unit_of_measure: "sack",
+      reorder_level: 1,
+      expiration_date: "2099-12-31",
+      status: "AVAILABLE",
+      source_type: "LGU",
+    },
+  ];
+  const writes = [];
+  const stub = {
+    id: "stub-1",
+    disaster_event_id: "event-1",
+    household_id: "household-1",
+    current_stay_type: "EVAC_CENTER",
+    is_active: true,
+    household_size: 4,
+  };
+  const dbClient = {
+    query: async () => ({ rows: [] }),
+  };
+
+  await withStubbedAutomaticClaimService(
+    {
+      [distributionTransactionRepositoryPath]: {
+        getLatestAttendanceByHouseholdId: async () => ({
+          status: "PRESENT",
+          time_out: null,
+        }),
+        getDistributionReceiptSequence: async () => {
+          writes.push("receipt");
+          return "RCPT-2026-000002";
+        },
+        insertDistributionTransaction: async () => {
+          writes.push("distribution");
+          return { id: "distribution-1" };
+        },
+        insertDistributionTransactionReliefPackTemplates: async () => {
+          writes.push("template-link");
+          return [];
+        },
+        insertDistributionTransactionItem: async () => {
+          writes.push("distribution-item");
+          return { id: "distribution-item-1" };
+        },
+        insertInventoryTransaction: async () => {
+          writes.push("inventory-transaction");
+          return {};
+        },
+        updateInventoryBatchQuantityAndStatus: async () => {
+          writes.push("batch-update");
+          return {};
+        },
+        updateDonationStatusesByIds: async () => {
+          writes.push("donation-update");
+        },
+        updateStubAsClaimed: async () => {
+          writes.push("stub-update");
+          return { ...stub, status: "CLAIMED" };
+        },
+      },
+      [inventoryTransactionRepositoryPath]: {
+        getDistributableInventoryBatchesByItemIdsForUpdate: async () =>
+          availableBatches,
+      },
+      [inventoryItemRepositoryPath]: {
+        getInventoryItemsByIdsForUpdate: async () => [],
+      },
+      [reliefPackTemplateRepositoryPath]: {
+        getReliefPackTemplateItemsByTemplateId: async () => templateItems,
+      },
+      [reliefPackAssignmentServicePath]: {
+        resolveAssignedReliefPackTemplatesForHousehold: async () => [template],
+        getPrimaryAssignedReliefPackTemplate: (templates) => templates[0],
+      },
+    },
+    async ({ recordAutomaticReliefPackClaim }) => {
+      await assert.rejects(
+        () =>
+          recordAutomaticReliefPackClaim({
+            client: dbClient,
+            stub,
+            claimedByName: "Family Head",
+            verifiedBy: "user-1",
+            proofType: "QR",
+            qrReferenceValue: "qr-1",
+            receivedAt: "2026-08-28T08:00:00.000Z",
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.equal(error.code, "INSUFFICIENT_RELIEF_PACK_STOCK");
+          assert.match(error.message, /Insufficient stock to release Rice/);
+          return true;
+        },
+      );
+    },
+  );
+
+  assert.deepEqual(writes, []);
+});

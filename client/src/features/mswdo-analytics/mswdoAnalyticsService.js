@@ -1,0 +1,145 @@
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+
+const handleJsonResponse = async (response, fallbackMessage) => {
+  const payload = await response.json();
+
+  if (!response.ok) {
+    throw new Error(payload.message || fallbackMessage);
+  }
+
+  return payload;
+};
+
+export const fetchDisasterEvents = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events`);
+  return handleJsonResponse(response, "Failed to fetch disaster events");
+};
+
+export const fetchActiveDisasterEvents = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events/active`);
+  return handleJsonResponse(response, "Failed to fetch active disaster events");
+};
+
+export const fetchBarangays = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/barangays`);
+  return handleJsonResponse(response, "Failed to fetch barangays");
+};
+
+export const fetchMasterlistAnalyticsSource = async ({
+  disasterEventId,
+  barangayId,
+}) => {
+  if (!disasterEventId) {
+    return {
+      disaster_event: null,
+      filters: {
+        disaster_event_id: null,
+        barangay_id: null,
+      },
+      count: 0,
+      data: [],
+    };
+  }
+
+  const searchParams = new URLSearchParams({
+    disaster_event_id: disasterEventId,
+  });
+
+  if (barangayId) {
+    searchParams.set("barangay_id", barangayId);
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/masterlist?${searchParams.toString()}`,
+  );
+
+  return handleJsonResponse(response, "Failed to fetch masterlist analytics data");
+};
+
+export const fetchMasterlistOperationalAnalytics = async ({
+  disasterEventId,
+  barangayId,
+}) => {
+  if (!disasterEventId) {
+    return {
+      disaster_event: null,
+      filters: {
+        disaster_event_id: null,
+        barangay_id: null,
+      },
+      summary_metrics: {
+        total_number_of_evacuees_individuals: 0,
+        total_number_of_families: 0,
+        average_household_size: 0,
+        currently_admitted_evacuees: 0,
+        total_departed_evacuees: 0,
+        total_barangays_covered: 0,
+      },
+      charts: {
+        per_barangay: [],
+      },
+      has_data: false,
+    };
+  }
+
+  const searchParams = new URLSearchParams({
+    disaster_event_id: disasterEventId,
+  });
+
+  if (barangayId) {
+    searchParams.set("barangay_id", barangayId);
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/masterlist/mswdo-dashboard?${searchParams.toString()}`,
+  );
+
+  return handleJsonResponse(
+    response,
+    "Failed to fetch operational masterlist analytics",
+  );
+};
+
+export const exportMasterlistOperationalAnalytics = async ({
+  disasterEventId,
+  barangayId,
+}) => {
+  if (!disasterEventId) {
+    throw new Error("Disaster event is required.");
+  }
+
+  const searchParams = new URLSearchParams({
+    disaster_event_id: disasterEventId,
+  });
+
+  if (barangayId) {
+    searchParams.set("barangay_id", barangayId);
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/masterlist/mswdo-dashboard/export?${searchParams.toString()}`,
+  );
+
+  if (!response.ok) {
+    let message = "Failed to export operational masterlist analytics";
+
+    try {
+      const payload = await response.json();
+      message = payload.message || message;
+    } catch (_error) {
+      message = "Failed to export operational masterlist analytics";
+    }
+
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+
+  return {
+    blob,
+    filename: fileNameMatch?.[1] || "mswdo-evacuee-analytics-report.pdf",
+  };
+};
